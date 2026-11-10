@@ -25,7 +25,7 @@ Rust and uses Cranelift.
 - Put Drachm code in option previews in ```cpp fences so it gets highlighted.
 - Engineering choices (data structures, crates, algorithms) are yours; mention
   any that change what users see.
-- Ask before the first git commit (the repo has none yet), and before pushing.
+- Commits: no AI attribution lines (no Co-Authored-By etc.), short plain messages like a human programmer. Ask before pushing.
 
 ## Commands
 
