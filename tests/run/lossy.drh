@@ -1,0 +1,42 @@
+// Lossy conversions compile, warn (W0102), and wrap at runtime.
+in io;
+
+uint8 narrow(sint64 v) {
+    return v;                          // W0102: return
+}
+
+none main() {
+    sint64 big = 1000;
+    uint8 a = big;                     // W0102: assignment
+    io::outln(a::text());
+    io::outln(narrow(big)::text());
+    io::outln(narrow(2.5)::text());    // a decimal constant into sint64
+
+    uint8 b = 300;                     // constant does not fit: wraps to 44
+    uint32 c = -1;
+    uint32 d = 2.9;
+    io::outln(b::text());
+    io::outln(c::text());
+    io::outln(d::text());
+
+    uint32 hp = 10;
+    io::outln((hp * 1.5)::text());     // left side leads: 1.5 becomes 1
+    float64 k = 1.5;
+    io::outln((hp * k)::text());       // float64 -> uint32
+    sint32 s = -1;
+    io::outln((hp > s)::text());       // s becomes uint32: 10 > 4294967295
+    io::outln((s < hp)::text());       // hp becomes sint32
+
+    float32 f = big;                   // sint64 -> float32
+    float32 g = 0.5 + k;               // float64 -> float32
+    uint64 h = k;
+    uint8 m = ~0;                      // ~0 is -1
+    float32 n = 16777217;              // not exact in float32
+    io::outln(f::text());
+    io::outln(g::text());
+    io::outln(h::text());
+    io::outln(m::text());
+    io::outln(n::text());
+    io::outln((hp << 40)::text());     // W0106
+    io::outln(300u8::text());
+}

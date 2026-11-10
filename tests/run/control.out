@@ -1,8 +1,20 @@
 -1
 0
 1
+6
+4
+8
 30
 false
 1
-6
+1
+true
+and:
+  evaluated
 false
+or:
+  evaluated
+true
+true
+no newline, then one
+tab	here, quote " and \, unicode Aé😀

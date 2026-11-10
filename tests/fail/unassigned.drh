@@ -1,0 +1,23 @@
+in io;
+
+none main() {
+    uint32 x;
+    io::outln(x::text());
+
+    uint32 y;
+    if (true) { y = 1; }
+    uint32 z = y + 1;
+
+    mut uint32 w;
+    mut uint32 i = 0;
+    while (i < 3) {
+        w = i;
+        i++;
+    }
+    io::outln(w::text());
+
+    mut uint32 c;
+    c++;
+    mut uint32 d;
+    d += 1;
+}

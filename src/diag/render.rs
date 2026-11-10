@@ -116,10 +116,13 @@ pub fn render(d: &Diagnostic, src: &Source, color: bool) -> String {
         }
     }
 
+    if !marks.is_empty() && (d.help.is_some() || !d.notes.is_empty()) {
+        out += &format!("{pad} {bar}\n");
+    }
+    for note in &d.notes {
+        out += &format!(" {}: {note}\n", p.bold("note"));
+    }
     if let Some(help) = &d.help {
-        if !marks.is_empty() {
-            out += &format!("{pad} {bar}\n");
-        }
         out += &format!(" {}: {help}\n", p.bold("help"));
     }
     out

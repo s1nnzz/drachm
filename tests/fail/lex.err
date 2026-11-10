@@ -1,2 +1,9 @@
 error[E0001]: unexpected character `#`
-error[E0002]: number literal is out of range
+error[E0002]: `x` is not a number suffix
+error[E0002]: a decimal number cannot have the whole-number suffix `u8`
+error[E0002]: this number has no digits
+error[E0901]: the `u256` number type is not supported yet
+error[E0002]: this number's exponent is too large
+error[E0008]: unknown escape `\q`
+error[E0004]: this string is never closed
+error[E0004]: this `/*` comment is never closed

@@ -1,4 +1,4 @@
-fn is_prime(n: i64) -> bool {
+fn is_prime(n: u64) -> bool {
     if n < 2 {
         return false;
     }
@@ -13,8 +13,8 @@ fn is_prime(n: i64) -> bool {
 }
 
 fn main() {
-    let mut count = 0i64;
-    let mut i = 0i64;
+    let mut count = 0u64;
+    let mut i = 0u64;
     while i < std::hint::black_box(5_000_000) {
         if is_prime(i) {
             count += 1;

@@ -1,0 +1,18 @@
+// The parser recovers at the next statement and the next function.
+none main() {
+    uint32 x 1;
+    uint32 y = (2 + ;
+    if x > 1 { }
+    while (true { }
+    uint32 match = 3;
+    1 + 2 = x;
+    uint32 z = x->text();
+    uint32 w = x::to<uint8>()::text();
+}
+
+none broken( {
+}
+
+uint32 also() {
+    return 1 +;
+}

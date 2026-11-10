@@ -2,26 +2,22 @@
 //! (later) the language server all drive it through here.
 
 pub mod ast;
+pub mod cgen;
 pub mod codegen;
+pub mod consts;
 pub mod diag;
+pub mod hir;
 pub mod lexer;
 pub mod link;
 pub mod parser;
 pub mod typeck;
-
-use std::collections::HashMap;
+pub mod types;
 
 use diag::Diagnostic;
 
-/// A program that passed every front-end check.
-pub struct Checked {
-    pub program: ast::Program,
-    pub sigs: HashMap<String, typeck::Sig>,
-}
-
-/// Lex, parse and type-check `src`. Returns every diagnostic found; the
-/// program is `None` if any of them is an error.
-pub fn check(src: &str) -> (Option<Checked>, Vec<Diagnostic>) {
+/// Lex, parse and type-check `src`. Returns every diagnostic found (warnings
+/// included); the program is `None` if any of them is an error.
+pub fn check(src: &str) -> (Option<hir::Program>, Vec<Diagnostic>) {
     let mut diags = Vec::new();
     let tokens = lexer::lex(src, &mut diags);
     let program = parser::parse(tokens, &mut diags);
@@ -30,14 +26,19 @@ pub fn check(src: &str) -> (Option<Checked>, Vec<Diagnostic>) {
     if diag::has_errors(&diags) {
         return (None, diags);
     }
-    let sigs = typeck::check(&program, &mut diags);
+    let checked = typeck::check(&program, src, &mut diags);
     if diag::has_errors(&diags) {
         return (None, diags);
     }
-    (Some(Checked { program, sigs }), diags)
+    (Some(checked), diags)
 }
 
-/// Compile a checked program to a native object file.
-pub fn compile(checked: &Checked, opt: bool) -> Result<Vec<u8>, String> {
-    codegen::compile(&checked.program, &checked.sigs, opt)
+/// Build an executable at `out`. Plain builds go through Cranelift, which is
+/// fast to compile; optimised builds go through C, which is fast to run.
+pub fn build(program: &hir::Program, out: &std::path::Path, optimise: bool) -> Result<(), String> {
+    if optimise {
+        link::compile_c(&cgen::generate(program), out)
+    } else {
+        link::link_object(&codegen::compile(program)?, out)
+    }
 }

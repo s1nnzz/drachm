@@ -1,0 +1,32 @@
+// Float-heavy: Mandelbrot set membership over a 1200 x 1200 grid.
+in io;
+
+uint32 escape(float64 cr, float64 ci) {
+    mut float64 zr = 0.0;
+    mut float64 zi = 0.0;
+    mut uint32 i = 0;
+    while (i < 200 && zr * zr + zi * zi <= 4.0) {
+        float64 t = zr * zr - zi * zi + cr;
+        zi = 2.0 * zr * zi + ci;
+        zr = t;
+        i++;
+    }
+    return i;
+}
+
+none main() {
+    uint32 size = 1200;
+    mut uint64 total = 0;
+    mut uint32 y = 0;
+    while (y < size) {
+        mut uint32 x = 0;
+        while (x < size) {
+            float64 cr = x::to<float64>() * 3.0 / size - 2.0;
+            float64 ci = y::to<float64>() * 2.0 / size - 1.0;
+            total += escape(cr, ci);
+            x++;
+        }
+        y++;
+    }
+    io::outln(total::text());
+}

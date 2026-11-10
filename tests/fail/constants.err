@@ -1,0 +1,7 @@
+error[E0107]: this constant expression divides by zero
+error[E0002]: this constant expression is too large to evaluate
+error[E0101]: `&` needs whole numbers, found a decimal
+error[E0101]: cannot `<<` an untyped constant by a negative amount
+error[E0002]: this constant is too large for any number type
+error[E0107]: this divides by a constant zero
+9 errors

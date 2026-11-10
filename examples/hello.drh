@@ -1,0 +1,40 @@
+// The classics, in Drachm.
+in io;
+
+uint64 fib(uint64 n) {
+    if (n < 2) {
+        return n;
+    }
+    return fib(n - 1) + fib(n - 2);
+}
+
+bool isPrime(uint32 n) {
+    if (n < 2) { return false; }
+    mut uint32 d = 2;
+    while (d * d <= n) {
+        if (n % d == 0) { return false; }
+        d++;
+    }
+    return true;
+}
+
+none main() {
+    uint32 answer = 40 + 2;
+    io::outln(answer::text());
+
+    io::out("fib(20) = ");
+    io::outln(fib(20)::text());
+
+    mut uint32 primes = 0;
+    mut uint32 i = 0;
+    while (i < 100) {
+        if (isPrime(i)) { primes++; }
+        i++;
+    }
+    io::out("primes below 100: ");
+    io::outln(primes::text());
+
+    io::outln((isPrime(97) && !isPrime(91))::text());
+    io::outln((-7 / 2)::text());
+    io::outln((2.0 ** 0.5)::text());
+}

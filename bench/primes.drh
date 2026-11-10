@@ -1,0 +1,22 @@
+// Loop-heavy: count primes below 5,000,000 by trial division.
+in io;
+
+bool isPrime(uint64 n) {
+    if (n < 2) { return false; }
+    mut uint64 d = 2;
+    while (d * d <= n) {
+        if (n % d == 0) { return false; }
+        d++;
+    }
+    return true;
+}
+
+none main() {
+    mut uint64 i = 0;
+    mut uint64 count = 0;
+    while (i < 5000000) {
+        if (isPrime(i)) { count++; }
+        i++;
+    }
+    io::outln(count::text());
+}

@@ -1,0 +1,2 @@
+error[E0204]: `main` has the wrong shape
+must be `none main()` or `sint32 main()`

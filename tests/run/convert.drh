@@ -1,0 +1,59 @@
+// Conversions. Everything here is either lossless or asked for with to<T>(),
+// so the compiler stays quiet.
+in io;
+
+uint64 widen(uint8 small) {
+    return small;
+}
+
+float64 half(uint32 n) {
+    return n::to<float64>() / 2.0 + n;
+}
+
+none main() {
+    uint8 a = 200;
+    uint32 b = a;                  // lossless: silent
+    sint64 c = b;
+    float64 d = b;
+    float32 e = a;
+    io::outln(c::text());
+    io::outln(d::text());
+    io::outln(e::text());
+    io::outln(widen(a)::text());
+    io::outln(half(7)::text());
+
+    sint64 big = 1000;
+    io::outln(big::to<uint8>()->text());            // wraps: 232
+    io::outln(big::to<sint8>()->text());            // -24
+    io::outln((-1)::to<uint32>()->text());
+    io::outln(300::to<uint8>()->text());
+    io::outln(2.9::to<uint8>()->text());            // fraction dropped
+    io::outln((-2.9)::to<sint8>()->text());
+
+    float64 f = 300.7;
+    io::outln(f::to<uint8>()->text());              // 300 wraps to 44
+    io::outln(f::to<sint32>()->text());
+    io::outln((-f)::to<uint8>()->text());           // -300 wraps to 212
+    io::outln((-f)::to<sint64>()->text());
+    float64 huge = 1e30;
+    io::outln(huge::to<uint64>()->text());          // 1e30 mod 2^64
+    io::outln(huge::to<sint32>()->text());
+    io::outln(huge::to<uint128>()->text());
+    io::outln((-huge)::to<sint128>()->text());
+    io::outln(1e40::to<uint128>()->text());
+    float64 zero = 0.0;
+    io::outln((zero / zero)::to<uint32>()->text()); // NaN becomes 0
+    io::outln((1.0 / zero)::to<sint64>()->text());  // infinity becomes 0
+
+    uint64 exact = 9007199254740993;                // 2^53 + 1
+    io::outln(exact::to<float64>()->text());
+    io::outln(exact::to<float32>()->text());
+    sint32 neg = -5;
+    io::outln(neg::to<float32>()->text());
+    io::outln(neg::to<uint64>()->text());
+    io::outln(neg::to<uint128>()->text());
+    float32 single = 0.1;
+    io::outln(single::to<float64>()->text());
+    io::outln(0.1::to<float32>()->to<float64>()->text());
+    io::outln((a::to<float64>() * 1.5)::to<uint8>()->text());
+}

@@ -1,7 +1,0 @@
-error[E0101]: expected i64, found bool
-error[E0103]: `twice` takes 1 argument, but 2 given
-error[E0201]: unknown variable `c`
-error[E0201]: unknown function `missing`
-error[E0101]: expected bool, found i64
-many.dr:11:8
-6 errors

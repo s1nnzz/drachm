@@ -1,0 +1,14 @@
+in io;
+
+none main() {
+    uint32 a = 1 / 0;
+    uint32 b = 5 % 0;
+    uint32 c = 2 ** 100000;
+    uint32 d = 1.5 & 3;
+    uint32 e = 1 << -1;
+    io::outln((2 ** 200)::text());
+    uint32 n = 7;
+    uint32 f = n / 0;
+    uint32 g = n % 0;
+    float64 h = 1.0 / 0.0;
+}

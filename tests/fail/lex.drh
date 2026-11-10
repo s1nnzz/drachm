@@ -1,0 +1,11 @@
+none main() {
+    uint32 a = 3 # 4;
+    uint32 b = 5x;
+    uint32 c = 2.5u8;
+    uint32 d = 0x;
+    uint32 e = 5u256;
+    uint32 f = 1e99999;
+    uint32 g = "bad \q escape";
+    uint32 h = "never closed;
+}
+/* never closed

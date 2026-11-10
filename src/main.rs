@@ -8,10 +8,12 @@ const USAGE: &str = "\
 Drachm compiler
 
 usage:
-  drachm build <file.dr> [-o <output>] [-O]   compile to a native executable
-  drachm run   <file.dr> [-O]                 compile and run
-  drachm check <file.dr>                      type-check only
-  drachm explain <code>                       describe an error code, e.g. E0101";
+  drachm build <file.drh> [-o <output>] [-O]   compile to a native executable
+  drachm run   <file.drh> [-O]                 compile and run
+  drachm check <file.drh>                      check for errors only
+  drachm explain <code>                        describe an error code, e.g. E0101
+
+  -O   optimised build: slower to compile, much faster to run";
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -43,7 +45,6 @@ fn main() {
     match cmd.as_str() {
         "check" => {
             front_end(&input);
-            eprintln!("ok");
         }
         "build" => {
             let out = output.unwrap_or_else(|| input.with_extension(""));
@@ -71,7 +72,7 @@ fn die(msg: &str) -> ! {
 }
 
 /// Check the file, print its diagnostics, and exit if there were errors.
-fn front_end(input: &Path) -> drachm::Checked {
+fn front_end(input: &Path) -> drachm::hir::Program {
     let text = std::fs::read_to_string(input).unwrap_or_else(|e| die(&format!("{}: {e}", input.display())));
     let (checked, diags) = drachm::check(&text);
     if !diags.is_empty() {
@@ -83,7 +84,6 @@ fn front_end(input: &Path) -> drachm::Checked {
 }
 
 fn build(input: &Path, out: &Path, opt: bool) {
-    let checked = front_end(input);
-    let obj = drachm::compile(&checked, opt).unwrap_or_else(|e| die(&format!("codegen error: {e}")));
-    drachm::link::link(&obj, out, opt).unwrap_or_else(|e| die(&e));
+    let program = front_end(input);
+    drachm::build(&program, out, opt).unwrap_or_else(|e| die(&format!("drachm: {e}")));
 }

@@ -1,0 +1,8 @@
+// Whole-number division by zero stops the program with exit code 101.
+in io;
+
+sint32 main() {
+    sint32 zero = 0;
+    io::outln("before");
+    return 10 / zero;
+}

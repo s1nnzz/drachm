@@ -37,6 +37,8 @@ pub struct Diagnostic {
     /// The first label is the primary one (`^^^`, and the `-->` location);
     /// the rest are secondary (`---`). May be empty for whole-file problems.
     pub labels: Vec<(Span, String)>,
+    /// Extra facts, each printed on its own `note:` line.
+    pub notes: Vec<String>,
     pub help: Option<String>,
 }
 
@@ -44,7 +46,7 @@ impl Diagnostic {
     /// A diagnostic with no location. Severity comes from the code (`E`/`W`).
     pub fn new(code: &'static Code, message: impl Into<String>) -> Self {
         let severity = if code.is_warning() { Severity::Warning } else { Severity::Error };
-        Diagnostic { severity, code, message: message.into(), labels: Vec::new(), help: None }
+        Diagnostic { severity, code, message: message.into(), labels: Vec::new(), notes: Vec::new(), help: None }
     }
 
     /// A diagnostic whose primary label is at `span`, with no label text yet.
@@ -67,6 +69,17 @@ impl Diagnostic {
     }
 
     pub fn help(mut self, text: impl Into<String>) -> Self {
+        self.help = Some(text.into());
+        self
+    }
+
+    pub fn note_line(mut self, text: impl Into<String>) -> Self {
+        self.notes.push(text.into());
+        self
+    }
+
+    /// `help`, for a diagnostic that is already stored somewhere.
+    pub fn set_help(&mut self, text: impl Into<String>) -> &mut Self {
         self.help = Some(text.into());
         self
     }

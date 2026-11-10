@@ -1,0 +1,28 @@
+in io;
+
+none takes(bool flag, uint32 n) { }
+
+uint32 number() { return 1; }
+
+none main() {
+    bool a = 5;
+    uint32 b = true;
+    if (b) { }
+    while (1) { }
+    takes(1, false);
+    bool c = !b;
+    uint32 d = -true;
+    uint32 e = b + true;
+    bool f = true < false;
+    uint32 g = ~2.5;
+    uint32 h = b << 1.5;
+    io::outln(b);
+    io::outln(5);
+    uint32 i = "text";
+    bool j = number() == true;
+    uint32 k = nothing();
+}
+
+none nothing() {
+    return 1;
+}

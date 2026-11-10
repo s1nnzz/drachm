@@ -1,0 +1,96 @@
+// if / else if / else, while, early return, shadowing, recursion, late assignment.
+in io;
+
+sint32 classify(sint32 n) {
+    if (n < 0) {
+        return -1;
+    } else if (n == 0) {
+        return 0;
+    } else {
+        return 1;
+    }
+}
+
+uint32 gcd(uint32 a, uint32 b) {
+    if (b == 0) { return a; }
+    return gcd(b, a % b);
+}
+
+uint32 countDown(mut uint32 n) {
+    mut uint32 steps = 0;
+    while (n > 0) {
+        n--;
+        steps++;
+    }
+    return steps;
+}
+
+// Never falls out of the bottom, so no return is needed after the loop.
+uint32 firstSquareAbove(uint32 limit) {
+    mut uint32 i = 0;
+    while (true) {
+        if (i * i > limit) { return i; }
+        i++;
+    }
+}
+
+bool loud(bool value) {
+    io::outln("  evaluated");
+    return value;
+}
+
+none nothing() {
+    return;
+}
+
+sint32 main() {
+    io::outln(classify(-5)::text());
+    io::outln(classify(0)::text());
+    io::outln(classify(5)::text());
+    io::outln(gcd(48, 18)::text());
+    io::outln(countDown(4)::text());
+    io::outln(firstSquareAbove(50)::text());
+    nothing();
+
+    mut uint32 i = 0;
+    mut uint32 sum = 0;
+    while (i < 5) {
+        uint32 square = i * i;
+        sum += square;
+        i++;
+    }
+    io::outln(sum::text());
+
+    // Shadowing in an inner block.
+    uint32 x = 1;
+    if (true) {
+        bool x = false;
+        io::outln(x::text());
+    }
+    io::outln(x::text());
+
+    // A binding with no value is assigned exactly once, on every path.
+    uint32 later;
+    if (sum > 10) {
+        later = 1;
+    } else {
+        later = 2;
+    }
+    io::outln(later::text());
+    bool flag;
+    flag = sum == 30;
+    io::outln(flag::text());
+
+    // Short-circuit.
+    io::outln("and:");
+    io::outln((loud(false) && loud(true))::text());
+    io::outln("or:");
+    io::outln((loud(true) || loud(false))::text());
+    io::outln((true == !false)::text());
+
+    io::out("no newline, ");
+    io::out("then one");
+    io::outln("");
+    io::outln("tab\there, quote \" and \\, unicode \u{41}\u{e9}\u{1F600}");
+    return 7;
+}

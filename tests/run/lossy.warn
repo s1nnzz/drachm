@@ -1,0 +1,18 @@
+warning[W0102]: converting `sint64` to `uint8` can lose information
+lossy.drh:5:12
+note: `sint64` holds -9223372036854775808 to 9223372036854775807; `uint8` holds 0 to 255; values outside that wrap around
+help: write `big::to<uint8>()` to say the conversion is intended
+warning[W0102]: `300` does not fit `uint8`
+becomes 44
+warning[W0102]: `-1` does not fit `uint32`
+warning[W0102]: `1.5` does not fit `uint32`
+warning[W0102]: converting `float64` to `uint32` can lose information
+warning[W0102]: converting `sint32` to `uint32` can lose information
+warning[W0102]: converting `uint32` to `sint32` can lose information
+warning[W0102]: converting `sint64` to `float32` can lose information
+warning[W0102]: converting `float64` to `float32` can lose information
+help: write `(0.5 + k)::to<float32>()` to say the conversion is intended
+warning[W0102]: `~0` does not fit `uint8`
+warning[W0102]: `16777217` does not fit `float32`
+warning[W0106]: shifting a `uint32` by `40` wraps around to a shift by 8
+17 warnings

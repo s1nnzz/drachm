@@ -1,0 +1,108 @@
+// Typed arithmetic: wrapping, division, remainder, powers.
+in io;
+
+none main() {
+    uint8 a = 250;
+    uint8 b = a + 10;                 // wraps
+    io::outln(b::text());
+    io::outln((a * a)::text());
+    io::outln((-a)::text());          // unary minus on unsigned wraps
+
+    sint8 m = -128;
+    io::outln((m - 1)::text());
+    io::outln((-m)::text());
+    io::outln((m / -1)::text());      // smallest / -1 wraps
+    io::outln((m % -1)::text());
+
+    sint32 x = -7;
+    io::outln((x / 2)::text());
+    io::outln((x % 3)::text());
+    io::outln((7 % x)::text());
+    io::outln((x * x)::text());
+
+    uint32 big = 4294967295;
+    io::outln((big + 1)::text());
+    uint64 wide = 18446744073709551615;
+    io::outln((wide + 2)::text());
+    sint64 low = -9223372036854775808;
+    io::outln((low - 1)::text());
+    io::outln((low / -1)::text());
+
+    // 64-bit division, on both sides of the 32-bit boundary.
+    uint64 ten = 10000000000;
+    uint64 three = 3;
+    io::outln((ten / three)::text());
+    io::outln((ten % three)::text());
+    io::outln((three / ten)::text());
+    io::outln((wide / 4294967296)::text());
+    io::outln((wide % 4294967295)::text());
+    sint64 minusTen = -10000000000;
+    sint64 minusThree = -3;
+    io::outln((minusTen / 3)::text());
+    io::outln((minusTen % 3)::text());
+    io::outln((minusThree / 2)::text());
+    io::outln((minusThree % 2)::text());
+    io::outln((7s64 / minusThree)::text());
+    io::outln((7s64 % minusThree)::text());
+    io::outln((4294967295s64 / 4294967295s64)::text());
+    io::outln((4294967296s64 % 4294967295s64)::text());
+
+    uint16 u = 65535;
+    io::outln((u * u)::text());       // 1, not undefined
+
+    // Powers: whole-number, wrapping, negative exponents.
+    uint32 two = 2;
+    sint32 neg = -1;
+    sint32 minus = -1;
+    uint32 zero = 0;
+    io::outln((two ** 10)::text());
+    io::outln((two ** 32)::text());
+    io::outln((two ** neg)::text());
+    io::outln((minus ** neg)::text());
+    io::outln((minus ** -4)::text());
+    io::outln((zero ** 0)::text());
+    io::outln((3 ** two)::text());
+    uint8 small = 3;
+    io::outln((small ** 5)::text());  // 243
+    io::outln((small ** 6)::text());  // 729 wraps to 217
+    sint64 seven = 7;
+    io::outln((seven ** 20)::text());
+
+    // The left side leads.
+    sint64 s = 1000;
+    uint8 c = 7;
+    io::outln((s + c)::text());       // sint64
+    io::outln((3 + c)::text());       // constant takes the other side's type
+    io::outln((300 + c)::text());     // 300 does not fit uint8: it leads as uint32
+    io::outln((-1 + c::to<sint32>())::text());
+    float64 f = 2.5;
+    io::outln((f * c)::text());       // float64
+    io::outln((1.5 * c)::text());     // a decimal on the left leads too
+    io::outln((c / 2)::text());
+
+    // Compound assignment and ++ / --.
+    mut uint32 n = 5;
+    n += 3;
+    n *= 2;
+    n -= 1;
+    n /= 2;
+    n %= 4;
+    n **= 3;
+    io::outln(n::text());
+    mut sint32 i = 0;
+    sint32 p = i++;
+    sint32 q = ++i;
+    sint32 r = i--;
+    sint32 t = --i;
+    io::outln(p::text());
+    io::outln(q::text());
+    io::outln(r::text());
+    io::outln(t::text());
+    io::outln((i++ + i++ + i)::text());   // left to right: 0 + 1 + 2
+    mut float64 g = 0.5;
+    g++;
+    io::outln(g::text());
+    mut uint8 top = 255;
+    top++;
+    io::outln(top::text());
+}

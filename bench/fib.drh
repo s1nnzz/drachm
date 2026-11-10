@@ -1,0 +1,11 @@
+// Call-heavy: naive recursive Fibonacci.
+in io;
+
+uint64 fib(uint64 n) {
+    if (n < 2) { return n; }
+    return fib(n - 1) + fib(n - 2);
+}
+
+none main() {
+    io::outln(fib(40)::text());
+}

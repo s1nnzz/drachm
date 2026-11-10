@@ -17,7 +17,7 @@ answers into `docs/SPEC.md` and the design doc, and note leftovers under that st
 | Step | Name | Status |
 |---|---|---|
 | 0 | Foundations: lib split, test harness | done |
-| 1 | Migrate v0.1 to Drachm syntax | not started |
+| 1 | Migrate v0.1 to Drachm syntax | done (256-bit, float8/16 deferred) |
 | 2 | Strings and structs | not started |
 | 3 | Ownership and borrow checking | not started |
 | 4 | `for`, `skip`, `match` | not started |
@@ -31,32 +31,45 @@ C header import, `drachm fmt`, the Agora registry.
 
 ---
 
-## Where things stand (v0.1)
+## Where things stand
 
-v0.1 works end to end but uses the OLD syntax (`fn name() -> i64`, `let`/`var`,
-`i64`, `print`, `.dr` files, no parentheses on conditions).
+Steps 0 and 1 are done: the compiler takes Drachm syntax (`.drh`), all number
+types up to 128 bits, `bool`, `none`, `io::out`/`io::outln`, and has two
+backends.
 
 | File | Role |
 |---|---|
-| `src/lib.rs` | the compiler as a library: `check(src)` → program + diagnostics, `compile` → object |
-| `src/lexer.rs` | hand-written lexer → `Vec<Token>` with byte spans |
-| `src/parser.rs` | recursive descent + precedence climbing → AST (`src/ast.rs`); recovers at `;`, `}` and `fn` |
-| `src/typeck.rs` | types `i64`/`bool`/`()`, mutability, all-paths-return check |
-| `src/codegen.rs` | AST → Cranelift IR → object file (`cranelift-object` 0.137) |
+| `src/lib.rs` | the compiler as a library: `check(src)` → `hir::Program` + diagnostics, `build` → executable |
+| `src/lexer.rs` | hand-written lexer → `Vec<Token>`; number literals become exact constants here |
+| `src/parser.rs` | recursive descent + precedence climbing → `src/ast.rs`; recovers at `;`, `}` and the next function; enforces the bitwise-parentheses and `::`/`->` rules |
+| `src/consts.rs` | untyped constants: exact big-integer / fraction arithmetic |
+| `src/types.rs` | built-in types, lossless-conversion table |
+| `src/typeck.rs` | names, types, left-side-leads conversions, W0102, definite assignment, all-paths-return → `src/hir.rs` |
+| `src/hir.rs` | the typed tree both backends consume: every conversion explicit, names resolved |
+| `src/codegen.rs` | plain builds: HIR → Cranelift IR → object file (`cranelift-object` 0.137) |
+| `src/cgen.rs` | `-O` builds: HIR → C (one `const` temporary per sub-expression) |
+| `src/link.rs` | runs `cc`; caches the compiled runtime in `~/.cache/drachm` |
 | `src/diag/` | `Diagnostic`, `Span`, `Source`; `render.rs` (SPEC section 10 layout, colour); `codes.rs` (code table) |
-| `src/link.rs` | links object + runtime with `cc` |
 | `src/main.rs` | thin CLI: `build`/`run`/`check`/`explain`, `-O` |
-| `runtime/runtime.c` | `drachm_print_i64`, `drachm_print_bool`, `drachm_div_zero` (exit 101) |
+| `runtime/runtime.c` | printing, panics, float→int wrapping, 128-bit division, integer power. Linked for plain builds, pasted inline for `-O` |
 | `tests/run.rs` | golden test harness (how to add a case is at the top of the file) |
 | `bench/` | benchmarks with C and Rust twins; `bench/run.sh` prints a comparison |
 
-Codegen notes that still apply:
-- User functions are mangled `drachm_<name>`; a generated C `main` calls `drachm_main`.
+Backend notes:
+- User functions are named `drachm_f_<name>`; a generated C `main` calls `drachm_f_main`.
+- The two backends must agree bit for bit. Anything with room to disagree
+  goes in `runtime/runtime.c` and is shared. `optimised_output_matches` in
+  `tests/run.rs` builds every run case both ways and compares.
 - Cranelift 0.137: `FunctionBuilder::finalize(cfg)` takes `module.isa().frontend_config()`;
-  `declare_var(ty)` returns the `Variable`; use `bxor_imm_u`.
+  `declare_var(ty)` returns the `Variable`; use `bxor_imm_u`; narrow `iconst`
+  immediates are sign-extended; 128-bit values in signatures need the
+  `enable_llvm_abi_extensions` flag; 128-bit values cross into the C runtime
+  as two 64-bit halves (`isplit`/`iconcat`).
 - After `return`, emission continues in a fresh unreachable block (`ensure_open`).
-- `&&`/`||` short-circuit via a merge block with a block parameter.
-- Division by zero checks the divisor and calls the runtime panic.
+- C backend: all integer arithmetic is done in an unsigned type of at least
+  32 bits and cast back, so overflow wraps and C's `int` promotion never
+  bites. 64-bit division first tries a 32-bit division when both sides fit.
+  Compiled with `-O3 -ffp-contract=off` and no fast-math.
 
 ---
 
@@ -161,6 +174,27 @@ assigning to an immutable binding, a missing return, reading an unassigned
 binding, and a lossy-conversion warning.
 
 **Open (ask owner):** none (all answered 2026-11-10).
+
+Done (2026-11-10), except `uint256`/`sint256`, `float8` and `float16`, which
+report E0901 "not supported yet". Decisions made during this step are in SPEC
+sections 2 and 4 (operator grouping, left side leads, constants, conversions,
+shifts, literals, `++`/`--`, float text). Notes for later steps:
+- Overflow behaviour is hard-wired to **wrap**: constants that don't fit,
+  runtime conversions, shifts. Step 7 adds the `saturate` and `panic` modes;
+  the places to change are `fit_const`/`check_shift_amount` in `typeck.rs`,
+  `Convert`/`Shift` in both backends, and the `drachm_f64_to_*` helpers.
+- Strings exist only as the argument of `io::out`/`io::outln` (`Type::Str`,
+  `ExprKind::Str`/`Text`). Step 2 replaces this with real strings.
+- `while (true)` counts as never finishing (for missing-return and
+  assignment checks) because there is no `break` yet. Step 4 must look for
+  `break` inside the loop.
+- Shown to the owner as drafts, not yet confirmed: the wording of W0102,
+  W0106 and the new errors; `inf`/`-inf`/`nan` as float text; constant
+  division by zero being a compile error for decimals; `<<` next to `>>`
+  needing parentheses.
+- Speed (`bench/run.sh`, ms, Drachm `-O` / C `-O3` / Rust `-O3` / plain):
+  collatz 328 / 378 / 387 / 855; fib 97 / 145 / 232 / 435; mandel 169 / 225 /
+  205 / 221; primes 922 / 1573 / 895 / 1713.
 
 ---
 

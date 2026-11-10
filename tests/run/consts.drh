@@ -1,0 +1,62 @@
+// Untyped constants are evaluated exactly, then typed by their result.
+in io;
+
+none main() {
+    io::outln((5 - 10)::text());                 // -5 as sint32
+    io::outln((0.1 + 0.2)::text());              // exactly 0.3
+    io::outln((7 / 2)::text());                  // whole-number division
+    io::outln((7 / 2.0)::text());
+    io::outln((7 % 2.5)::text());
+    io::outln((1.0 / 3.0 * 3.0)::text());        // exactly 1.0
+    io::outln((-2 ** 2)::text());                // minus first: 4
+    io::outln((-(2 ** 2))::text());
+    io::outln((2 ** 3 ** 2)::text());            // from the right: 512
+    io::outln((2 ** -1)::text());                // whole-number result
+    io::outln((1 ** -5)::text());
+    io::outln(((-1) ** -5)::text());
+    io::outln((2.0 ** -1)::text());
+    io::outln((-7 % 3)::text());                 // sign of the left
+    io::outln((7 % -3)::text());
+    io::outln((-7 / 2)::text());
+    io::outln((~0)::text());
+    io::outln((1 << 40)::text());                // exact, grows to uint64
+    io::outln((0xF0 | 0x0F)::text());
+    io::outln((6 & 3)::text());
+    io::outln((6 ^ 3)::text());
+    io::outln((-16 >> 2)::text());
+
+    // Constants too big for 32 bits grow to 64, then 128.
+    io::outln(4294967295::text());
+    io::outln(4294967296::text());
+    io::outln(18446744073709551616::text());
+    io::outln((-2147483649)::text());
+    io::outln((2 ** 100)::text());
+    io::outln((2 ** 200 / 2 ** 190)::text());    // big in the middle is fine
+
+    // Literal forms.
+    io::outln(1_000_000::text());
+    io::outln(0xFF::text());
+    io::outln(0b1010::text());
+    io::outln(0o17::text());
+    io::outln(017::text());
+    io::outln(hex FF::text());
+    io::outln(hex cafe::text());
+    io::outln(bin 1010::text());
+    io::outln(oct 17::text());
+    io::outln(1e9::text());
+    io::outln(2.5e-3::text());
+    io::outln(5u8::text());
+    io::outln(5.0f::text());
+    io::outln(5f32::text());
+    io::outln(0xFFs16::text());
+
+    // Comparisons of constants.
+    io::outln((1 < 2)::text());
+    io::outln((0.5 == 1 / 2.0)::text());
+    io::outln((3 >= 4 || 2 != 2)::text());
+
+    // `hex`, `bin` and `oct` are ordinary names when no digits follow.
+    uint32 hex = 3;
+    uint32 bin = hex + 1;
+    io::outln((hex * bin)::text());
+}

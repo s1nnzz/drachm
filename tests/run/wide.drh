@@ -1,0 +1,50 @@
+// 128-bit integers.
+in io;
+
+uint128 factorial(uint128 n) {
+    if (n < 2) { return 1; }
+    return n * factorial(n - 1);
+}
+
+none main() {
+    uint128 max = 340282366920938463463374607431768211455;
+    io::outln(max::text());
+    io::outln((max + 1)::text());
+    io::outln((max / 3)::text());
+    io::outln((max % 1000)::text());
+    io::outln((max >> 100)::text());
+    io::outln((max << 127)::text());
+    io::outln(factorial(34)::text());
+    io::outln(factorial(35)::text());               // wraps
+
+    sint128 min = -170141183460469231731687303715884105728;
+    io::outln(min::text());
+    io::outln((min - 1)::text());
+    io::outln((min / -1)::text());
+    io::outln((min % -1)::text());
+    io::outln((min / 7)::text());
+    io::outln((min % 7)::text());
+    io::outln((min >> 120)::text());
+    io::outln((min < 0 && max > 0)::text());
+    io::outln(min::to<float64>()->text());
+    io::outln(max::to<float32>()->text());
+    io::outln(max::to<uint64>()->text());
+    io::outln(min::to<sint8>()->text());
+
+    uint128 three = 3;
+    uint128 p = three ** 80;
+    io::outln(p::text());
+    io::outln((three ** 81)::text());               // wraps
+    sint128 e = -3;
+    io::outln((three ** e)::text());
+    uint8 base = 2;
+    uint128 count = 7;
+    io::outln((base ** count)::text());
+    mut sint128 i = -1;
+    i++;
+    i--;
+    io::outln((--i)::text());
+    sint64 small = -9;
+    sint128 widened = small;
+    io::outln(widened::text());
+}

@@ -1,0 +1,44 @@
+// Float arithmetic follows IEEE; text is the shortest that reads back the same.
+in io;
+
+none main() {
+    float64 a = 0.1;
+    float64 b = 0.2;
+    io::outln((a + b)::text());
+    io::outln((a * 3.0)::text());
+    io::outln(1.0::text());
+    io::outln(100.0::text());
+    io::outln(1e21::text());
+    io::outln(1e-7::text());
+    io::outln(123456.789::text());
+    io::outln((-0.5)::text());
+    float64 third = 1.0;
+    io::outln((third / 3.0)::text());
+
+    float32 f = 0.1;
+    io::outln(f::text());
+    io::outln((f + f)::text());
+    io::outln((f * 3.0)::text());
+    io::outln(16777217.0f32::text());
+
+    float64 zero = 0.0;
+    io::outln((1.0 / zero)::text());
+    io::outln((-1.0 / zero)::text());
+    io::outln((zero / zero)::text());
+    io::outln((zero / zero == zero / zero)::text());
+    io::outln((zero / zero != zero / zero)::text());
+    io::outln((-zero)::text());
+
+    float64 x = -7.5;
+    io::outln((x % 2.0)::text());
+    io::outln((x / 2)::text());
+    io::outln((x ** 2)::text());
+    io::outln((2.0 ** 0.5)::text());
+    float64 half = 0.5;
+    io::outln((2.0 ** half)::text());
+    io::outln((x < 0.0 && x >= -7.5)::text());
+    io::outln((-x)::text());
+    float64 big = 1.7976931348623157e308;
+    io::outln((big * 10.0)::text());
+    io::outln(5e-324::text());
+}

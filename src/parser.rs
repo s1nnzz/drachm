@@ -6,19 +6,26 @@ use crate::lexer::{Tok, Token};
 /// on at the next statement or function, so several can be found in one go.
 pub fn parse(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>) -> Program {
     let mut p = Parser { tokens, pos: 0, diags };
-    let mut funcs = Vec::new();
+    let mut program = Program { imports: Vec::new(), funcs: Vec::new() };
     while p.peek() != &Tok::Eof {
-        match p.func() {
-            Ok(f) => funcs.push(f),
-            Err(d) => {
-                p.diags.push(d);
-                while !matches!(p.peek(), Tok::Fn | Tok::Eof) {
-                    p.bump();
-                }
+        let start = p.pos;
+        let item = if p.peek() == &Tok::Kw("in") {
+            p.import().map(|i| program.imports.push(i))
+        } else {
+            p.func().map(|f| program.funcs.push(f))
+        };
+        if let Err(d) = item {
+            p.diags.push(d);
+            // Skip to something that looks like the start of the next item.
+            if p.pos == start {
+                p.bump();
+            }
+            while !p.at_item_start() && p.peek() != &Tok::Eof {
+                p.bump();
             }
         }
     }
-    Program { funcs }
+    program
 }
 
 struct Parser<'a> {
@@ -27,9 +34,15 @@ struct Parser<'a> {
     diags: &'a mut Vec<Diagnostic>,
 }
 
+type Parsed<T> = Result<T, Diagnostic>;
+
 impl Parser<'_> {
     fn peek(&self) -> &Tok {
         &self.tokens[self.pos].tok
+    }
+
+    fn peek_at(&self, n: usize) -> &Tok {
+        &self.tokens[(self.pos + n).min(self.tokens.len() - 1)].tok
     }
 
     fn span(&self) -> Span {
@@ -48,8 +61,8 @@ impl Parser<'_> {
         t
     }
 
-    fn eat(&mut self, tok: &Tok) -> bool {
-        if self.peek() == tok {
+    fn eat(&mut self, sym: &'static str) -> bool {
+        if self.peek() == &Tok::Sym(sym) {
             self.bump();
             true
         } else {
@@ -57,12 +70,8 @@ impl Parser<'_> {
         }
     }
 
-    fn expect(&mut self, tok: Tok, what: &str) -> Result<Span, Diagnostic> {
-        if self.peek() == &tok {
-            Ok(self.bump().span)
-        } else {
-            Err(self.unexpected(what))
-        }
+    fn expect(&mut self, sym: &'static str) -> Parsed<Span> {
+        if self.peek() == &Tok::Sym(sym) { Ok(self.bump().span) } else { Err(self.unexpected(&format!("`{sym}`"))) }
     }
 
     /// "expected X, found Y" at the current token.
@@ -70,53 +79,78 @@ impl Parser<'_> {
         Diagnostic::at(&codes::E0003, self.span(), format!("expected {what}, found {}", self.peek().describe()))
     }
 
-    fn ident(&mut self) -> Result<(String, Span), Diagnostic> {
+    fn ident(&mut self, what: &str) -> Parsed<(String, Span)> {
         match self.peek().clone() {
             Tok::Ident(name) => Ok((name, self.bump().span)),
-            _ => Err(self.unexpected("a name")),
+            Tok::Kw(k) => Err(self
+                .unexpected(what)
+                .help(format!("`{k}` is a reserved word and cannot be used as a name"))),
+            _ => Err(self.unexpected(what)),
         }
     }
 
-    fn ty(&mut self) -> Result<Type, Diagnostic> {
-        if self.eat(&Tok::LParen) {
-            self.expect(Tok::RParen, "`)`")?;
-            return Ok(Type::Unit);
+    /// A type: a name, or the keyword `none`.
+    fn ty(&mut self) -> Parsed<TypeName> {
+        if self.peek() == &Tok::Kw("none") {
+            return Ok(TypeName { name: "none".into(), span: self.bump().span });
         }
-        let (name, span) = self.ident()?;
-        match name.as_str() {
-            "i64" => Ok(Type::I64),
-            "bool" => Ok(Type::Bool),
-            _ => Err(Diagnostic::at(&codes::E0201, span, format!("unknown type `{name}`"))
-                .help("the types are `i64`, `bool` and `()`")),
+        let (name, span) = self.ident("a type")?;
+        Ok(TypeName { name, span })
+    }
+
+    /// Does a top-level item (a function or an import) start here?
+    fn at_item_start(&self) -> bool {
+        match self.peek() {
+            Tok::Kw("in") => true,
+            Tok::Ident(_) | Tok::Kw("none") => {
+                matches!(self.peek_at(1), Tok::Ident(_)) && self.peek_at(2) == &Tok::Sym("(")
+            }
+            _ => false,
         }
     }
 
-    fn func(&mut self) -> Result<Func, Diagnostic> {
-        let start = self.expect(Tok::Fn, "`fn`")?;
-        let (name, _) = self.ident()?;
-        self.expect(Tok::LParen, "`(`")?;
+    fn import(&mut self) -> Parsed<Import> {
+        let start = self.bump().span;
+        let (module, _) = self.ident("a module name")?;
+        self.expect(";")?;
+        Ok(Import { module, span: start.to(self.prev_span()) })
+    }
+
+    fn func(&mut self) -> Parsed<Func> {
+        if !matches!(self.peek(), Tok::Ident(_) | Tok::Kw("none")) {
+            return Err(self
+                .unexpected("a function or `in`")
+                .help("a function starts with its return type: `none main() { }`"));
+        }
+        let ret = self.ty()?;
+        let (name, name_span) = self.ident("a function name")?;
+        self.expect("(")?;
         let mut params = Vec::new();
-        while self.peek() != &Tok::RParen {
-            let (pname, _) = self.ident()?;
-            self.expect(Tok::Colon, "`:`")?;
-            params.push((pname, self.ty()?));
-            if !self.eat(&Tok::Comma) {
+        while self.peek() != &Tok::Sym(")") {
+            let start = self.span();
+            let mutable = self.peek() == &Tok::Kw("mut");
+            if mutable {
+                self.bump();
+            }
+            let ty = self.ty()?;
+            let (pname, _) = self.ident("a parameter name")?;
+            params.push(Param { mutable, ty, name: pname, span: start.to(self.prev_span()) });
+            if !self.eat(",") {
                 break;
             }
         }
-        self.expect(Tok::RParen, "`)`")?;
-        let ret = if self.eat(&Tok::Arrow) { self.ty()? } else { Type::Unit };
-        let span = Span::new(start.start, self.prev_span().end);
+        self.expect(")")?;
+        let span = ret.span.to(self.prev_span());
         let body = self.block()?;
-        Ok(Func { name, params, ret, body, span })
+        Ok(Func { ret, name, name_span, params, body, span })
     }
 
-    fn block(&mut self) -> Result<Block, Diagnostic> {
-        let open = self.expect(Tok::LBrace, "`{`")?;
+    fn block(&mut self) -> Parsed<Block> {
+        let open = self.expect("{")?;
         let mut stmts = Vec::new();
-        while self.peek() != &Tok::RBrace {
-            // Functions don't nest, so `fn` here means the `}` is missing.
-            if matches!(self.peek(), Tok::Eof | Tok::Fn) {
+        while self.peek() != &Tok::Sym("}") {
+            // Functions don't nest, so the start of one means the `}` is missing.
+            if self.peek() == &Tok::Eof || self.at_item_start() {
                 return Err(Diagnostic::at(&codes::E0004, open, "this `{` is never closed")
                     .label(self.span(), format!("expected `}}` before {}", self.peek().describe())));
             }
@@ -137,143 +171,277 @@ impl Parser<'_> {
     fn skip_statement(&mut self) {
         let mut depth = 0u32;
         loop {
+            if self.peek() == &Tok::Eof || self.at_item_start() {
+                return;
+            }
             match self.peek() {
-                Tok::Eof | Tok::Fn => return,
-                Tok::Semi if depth == 0 => {
+                Tok::Sym(";") if depth == 0 => {
                     self.bump();
                     return;
                 }
-                Tok::RBrace if depth == 0 => return,
-                Tok::RBrace if depth == 1 => {
+                Tok::Sym("}") if depth == 0 => return,
+                Tok::Sym("}") if depth == 1 => {
                     self.bump();
                     return;
                 }
-                Tok::LBrace => depth += 1,
-                Tok::RBrace => depth -= 1,
+                Tok::Sym("{") => depth += 1,
+                Tok::Sym("}") => depth -= 1,
                 _ => {}
             }
             self.bump();
         }
     }
 
-    fn stmt(&mut self) -> Result<Stmt, Diagnostic> {
+    fn stmt(&mut self) -> Parsed<Stmt> {
         let start = self.span();
         match self.peek() {
-            Tok::Let | Tok::Var => {
-                let mutable = self.bump().tok == Tok::Var;
-                let (name, _) = self.ident()?;
-                self.expect(Tok::Colon, "`:` and a type (types are always written out)")?;
-                let ty = self.ty()?;
-                self.expect(Tok::Assign, "`=`")?;
-                let value = self.expr()?;
-                self.expect(Tok::Semi, "`;`")?;
-                Ok(Stmt::Let { name, ty, mutable, value, span: Span::new(start.start, self.prev_span().end) })
-            }
-            Tok::If => self.if_stmt(),
-            Tok::While => {
+            Tok::Kw("mut") => {
                 self.bump();
-                let cond = self.expr()?;
+                self.binding(start, true)
+            }
+            // `Type name ...` is a binding; a lone name starts an expression.
+            // (A reserved word in the name's place gets the binding's error message.)
+            Tok::Ident(_) | Tok::Kw("none") if matches!(self.peek_at(1), Tok::Ident(_) | Tok::Kw(_)) => {
+                self.binding(start, false)
+            }
+            Tok::Kw("if") => self.if_stmt(),
+            Tok::Kw("while") => {
+                self.bump();
+                let cond = self.condition("while")?;
                 let body = self.block()?;
                 Ok(Stmt::While { cond, body })
             }
-            Tok::Return => {
+            Tok::Kw("return") => {
                 self.bump();
-                let value = if self.peek() == &Tok::Semi { None } else { Some(self.expr()?) };
-                self.expect(Tok::Semi, "`;`")?;
-                Ok(Stmt::Return { value, span: Span::new(start.start, self.prev_span().end) })
+                let value = if self.peek() == &Tok::Sym(";") { None } else { Some(self.expr()?) };
+                self.expect(";")?;
+                Ok(Stmt::Return { value, span: start.to(self.prev_span()) })
             }
             _ => {
                 let e = self.expr()?;
-                if self.eat(&Tok::Assign) {
+                let op = match self.peek() {
+                    Tok::Sym("=") => Some(None),
+                    Tok::Sym(s) => compound_op(s).map(Some),
+                    _ => None,
+                };
+                if let Some(op) = op {
                     let ExprKind::Var(name) = e.kind else {
-                        return Err(Diagnostic::at(&codes::E0005, e.span, "the left side of `=` must be a variable")
+                        return Err(Diagnostic::at(&codes::E0005, e.span, "only a binding can be assigned to")
                             .note("cannot assign to this"));
                     };
+                    self.bump();
                     let value = self.expr()?;
-                    self.expect(Tok::Semi, "`;`")?;
-                    return Ok(Stmt::Assign { name, value, span: Span::new(start.start, self.prev_span().end) });
+                    self.expect(";")?;
+                    return Ok(Stmt::Assign { name, name_span: e.span, op, value, span: start.to(self.prev_span()) });
                 }
-                self.expect(Tok::Semi, "`;`")?;
+                self.expect(";")?;
                 Ok(Stmt::Expr(e))
             }
         }
     }
 
-    fn if_stmt(&mut self) -> Result<Stmt, Diagnostic> {
-        self.expect(Tok::If, "`if`")?;
+    /// `Type name;` or `Type name = value;`, after any `mut`.
+    fn binding(&mut self, start: Span, mutable: bool) -> Parsed<Stmt> {
+        let ty = self.ty()?;
+        let (name, name_span) = self.ident("a name for the binding")?;
+        let value = if self.eat("=") { Some(self.expr()?) } else { None };
+        if value.is_none() && self.peek() != &Tok::Sym(";") {
+            return Err(self.unexpected("`=` or `;`"));
+        }
+        self.expect(";")?;
+        Ok(Stmt::Let { mutable, ty, name, name_span, value, span: start.to(self.prev_span()) })
+    }
+
+    /// The parenthesised condition after `if` or `while`.
+    fn condition(&mut self, keyword: &str) -> Parsed<Expr> {
+        if self.peek() != &Tok::Sym("(") {
+            return Err(self
+                .unexpected(&format!("`(` after `{keyword}`"))
+                .help(format!("conditions are always in parentheses: `{keyword} (...) {{ }}`")));
+        }
+        self.bump();
         let cond = self.expr()?;
+        self.expect(")")?;
+        Ok(cond)
+    }
+
+    fn if_stmt(&mut self) -> Parsed<Stmt> {
+        self.bump();
+        let cond = self.condition("if")?;
         let then = self.block()?;
-        let els = if self.eat(&Tok::Else) {
-            if self.peek() == &Tok::If {
-                Some(vec![self.if_stmt()?])
-            } else {
-                Some(self.block()?)
-            }
+        let els = if self.peek() == &Tok::Kw("else") {
+            self.bump();
+            if self.peek() == &Tok::Kw("if") { Some(vec![self.if_stmt()?]) } else { Some(self.block()?) }
         } else {
             None
         };
         Ok(Stmt::If { cond, then, els })
     }
 
-    fn expr(&mut self) -> Result<Expr, Diagnostic> {
+    fn expr(&mut self) -> Parsed<Expr> {
         self.binary(0)
     }
 
     /// Precedence climbing. Higher number binds tighter.
-    fn binary(&mut self, min_prec: u8) -> Result<Expr, Diagnostic> {
+    fn binary(&mut self, min_prec: u8) -> Parsed<Expr> {
         let mut lhs = self.unary()?;
-        while let Some((op, prec)) = binop(self.peek()) {
+        while let Tok::Sym(sym) = self.peek() {
+            let Some((op, prec)) = binop(sym) else { break };
             if prec < min_prec {
                 break;
             }
-            self.bump();
-            let rhs = self.binary(prec + 1)?;
-            let span = Span::new(lhs.span.start, rhs.span.end);
-            lhs = Expr { kind: ExprKind::Binary(op, Box::new(lhs), Box::new(rhs)), span };
+            let op_span = self.bump().span;
+            // `**` chains from the right; everything else from the left.
+            let rhs = self.binary(if op == BinOp::Pow { prec } else { prec + 1 })?;
+            self.check_grouping(op, op_span, &lhs, &rhs);
+            let span = lhs.span.to(rhs.span);
+            lhs = Expr { kind: ExprKind::Binary(op, Box::new(lhs), Box::new(rhs)), span, paren: false };
         }
         Ok(lhs)
     }
 
-    fn unary(&mut self) -> Result<Expr, Diagnostic> {
+    /// Bitwise operators have no memorable order against other operators, so
+    /// mixing them needs parentheses (shifts inside `& | ^` excepted).
+    fn check_grouping(&mut self, op: BinOp, op_span: Span, lhs: &Expr, rhs: &Expr) {
+        for child in [lhs, rhs] {
+            let ExprKind::Binary(inner, ..) = child.kind else { continue };
+            if child.paren {
+                continue;
+            }
+            use OpClass::*;
+            let clash = match (op.class(), inner.class()) {
+                (Bitwise, Shift) => false,
+                (Bitwise, Bitwise) | (Shift, Shift) => op != inner,
+                (Bitwise | Shift, Arithmetic | Comparison) | (Arithmetic | Comparison, Bitwise | Shift) => true,
+                (Shift, Bitwise) => true,
+                _ => false,
+            };
+            if clash {
+                self.diags.push(
+                    Diagnostic::at(
+                        &codes::E0006,
+                        op_span,
+                        format!("`{}` and `{}` need parentheses to show which goes first", inner.symbol(), op.symbol()),
+                    )
+                    .label(child.span, "put this in parentheses, or the other side")
+                    .help("bitwise operators have no fixed order against other operators"),
+                );
+                return;
+            }
+        }
+    }
+
+    fn unary(&mut self) -> Parsed<Expr> {
         let start = self.span();
-        let op = match self.peek() {
-            Tok::Minus => UnOp::Neg,
-            Tok::Bang => UnOp::Not,
-            _ => return self.primary(),
+        let Tok::Sym(sym) = *self.peek() else { return self.postfix() };
+        let op = match sym {
+            "-" => UnOp::Neg,
+            "!" => UnOp::Not,
+            "~" => UnOp::BitNot,
+            "++" | "--" => {
+                self.bump();
+                let target = self.unary()?;
+                let span = start.to(target.span);
+                return Ok(Expr { kind: ExprKind::IncDec { inc: sym == "++", prefix: true, target: Box::new(target) }, span, paren: false });
+            }
+            _ => return self.postfix(),
         };
         self.bump();
         let e = self.unary()?;
-        let span = Span::new(start.start, e.span.end);
-        Ok(Expr { kind: ExprKind::Unary(op, Box::new(e)), span })
+        let span = start.to(e.span);
+        Ok(Expr { kind: ExprKind::Unary(op, Box::new(e)), span, paren: false })
     }
 
-    fn primary(&mut self) -> Result<Expr, Diagnostic> {
+    /// A primary expression followed by method calls and `++`/`--`.
+    fn postfix(&mut self) -> Parsed<Expr> {
+        let mut e = self.primary()?;
+        let mut calls = 0;
+        loop {
+            let sym = match self.peek() {
+                Tok::Sym(s @ ("::" | "->" | "++" | "--")) => *s,
+                _ => return Ok(e),
+            };
+            let op_span = self.bump().span;
+            if sym == "++" || sym == "--" {
+                let span = e.span.to(op_span);
+                e = Expr { kind: ExprKind::IncDec { inc: sym == "++", prefix: false, target: Box::new(e) }, span, paren: false };
+                continue;
+            }
+            // `::` makes the first call on a value, `->` each one after it.
+            let want = if calls == 0 { "::" } else { "->" };
+            if sym != want {
+                let why = if calls == 0 {
+                    "the first call on a value uses `::`"
+                } else {
+                    "after the first call, each further call in the chain uses `->`"
+                };
+                self.diags.push(
+                    Diagnostic::at(&codes::E0007, op_span, format!("expected `{want}` here, found `{sym}`"))
+                        .note(format!("write `{want}`"))
+                        .help(format!("{why}: `value::first()->second()`")),
+                );
+            }
+            calls += 1;
+            // After `::` a reserved word cannot be anything but a name (`io::out`).
+            let (name, name_span) = match *self.peek() {
+                Tok::Kw(k) => (k.to_string(), self.bump().span),
+                _ => self.ident("a method name")?,
+            };
+            let mut targs = Vec::new();
+            if self.eat("<") {
+                loop {
+                    targs.push(self.ty()?);
+                    if !self.eat(",") {
+                        break;
+                    }
+                }
+                self.expect(">")?;
+            }
+            let args = self.args()?;
+            let span = e.span.to(self.prev_span());
+            e = Expr { kind: ExprKind::Method { recv: Box::new(e), name, name_span, targs, args }, span, paren: false };
+        }
+    }
+
+    /// `(a, b, c)`
+    fn args(&mut self) -> Parsed<Vec<Expr>> {
+        self.expect("(")?;
+        let mut args = Vec::new();
+        while self.peek() != &Tok::Sym(")") {
+            args.push(self.expr()?);
+            if !self.eat(",") {
+                break;
+            }
+        }
+        self.expect(")")?;
+        Ok(args)
+    }
+
+    fn primary(&mut self) -> Parsed<Expr> {
         let t = self.bump();
         let kind = match t.tok {
-            Tok::Int(n) => ExprKind::Int(n),
-            Tok::True => ExprKind::Bool(true),
-            Tok::False => ExprKind::Bool(false),
-            Tok::LParen => {
-                let e = self.expr()?;
-                self.expect(Tok::RParen, "`)`")?;
+            Tok::Num(n) => ExprKind::Num(n),
+            Tok::Str(s) => ExprKind::Str(s),
+            Tok::Kw("true") => ExprKind::Bool(true),
+            Tok::Kw("false") => ExprKind::Bool(false),
+            Tok::Sym("(") => {
+                let mut e = self.expr()?;
+                self.expect(")")?;
+                e.span = t.span.to(self.prev_span());
+                e.paren = true;
                 return Ok(e);
             }
             Tok::Ident(name) => {
-                if self.eat(&Tok::LParen) {
-                    let mut args = Vec::new();
-                    while self.peek() != &Tok::RParen {
-                        args.push(self.expr()?);
-                        if !self.eat(&Tok::Comma) {
-                            break;
-                        }
-                    }
-                    self.expect(Tok::RParen, "`)`")?;
-                    ExprKind::Call(name, args)
+                if self.peek() == &Tok::Sym("(") {
+                    ExprKind::Call { name, args: self.args()? }
                 } else {
                     ExprKind::Var(name)
                 }
             }
             other => {
+                if other != Tok::Eof {
+                    self.pos -= 1;
+                }
                 return Err(Diagnostic::at(
                     &codes::E0003,
                     t.span,
@@ -281,25 +449,40 @@ impl Parser<'_> {
                 ));
             }
         };
-        Ok(Expr { kind, span: Span::new(t.span.start, self.prev_span().end) })
+        Ok(Expr { kind, span: t.span.to(self.prev_span()), paren: false })
     }
 }
 
-fn binop(t: &Tok) -> Option<(BinOp, u8)> {
-    Some(match t {
-        Tok::OrOr => (BinOp::Or, 1),
-        Tok::AndAnd => (BinOp::And, 2),
-        Tok::EqEq => (BinOp::Eq, 3),
-        Tok::NotEq => (BinOp::Ne, 3),
-        Tok::Lt => (BinOp::Lt, 4),
-        Tok::Le => (BinOp::Le, 4),
-        Tok::Gt => (BinOp::Gt, 4),
-        Tok::Ge => (BinOp::Ge, 4),
-        Tok::Plus => (BinOp::Add, 5),
-        Tok::Minus => (BinOp::Sub, 5),
-        Tok::Star => (BinOp::Mul, 6),
-        Tok::Slash => (BinOp::Div, 6),
-        Tok::Percent => (BinOp::Rem, 6),
+fn binop(sym: &str) -> Option<(BinOp, u8)> {
+    use BinOp::*;
+    Some(match sym {
+        "||" => (Or, 1),
+        "&&" => (And, 2),
+        "==" => (Eq, 3),
+        "!=" => (Ne, 3),
+        "<" => (Lt, 3),
+        "<=" => (Le, 3),
+        ">" => (Gt, 3),
+        ">=" => (Ge, 3),
+        "&" => (BitAnd, 4),
+        "|" => (BitOr, 4),
+        "^" => (BitXor, 4),
+        "<<" => (Shl, 5),
+        ">>" => (Shr, 5),
+        "+" => (Add, 6),
+        "-" => (Sub, 6),
+        "*" => (Mul, 7),
+        "/" => (Div, 7),
+        "%" => (Rem, 7),
+        "**" => (Pow, 8),
         _ => return None,
     })
+}
+
+fn compound_op(sym: &str) -> Option<BinOp> {
+    let op = sym.strip_suffix('=')?;
+    match binop(op)? {
+        (BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge | BinOp::And | BinOp::Or, _) => None,
+        (op, _) => Some(op),
+    }
 }

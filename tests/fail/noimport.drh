@@ -1,0 +1,5 @@
+none main() {
+    io::outln("hello");
+    io::outln("again");
+    uint32 x = io;
+}

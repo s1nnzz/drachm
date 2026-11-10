@@ -1,2 +1,14 @@
-error[E0101]: expected i64, found bool
-types.dr:2:18
+error[E0101]: expected `bool`, found a number
+error[E0101]: expected `uint32`, found `bool`
+types.drh:10:9
+error[E0101]: `-` needs a number, found `bool`
+error[E0101]: `+` has `uint32` on the left but `bool` on the right
+error[E0101]: `<` needs numbers, found `bool`
+error[E0101]: `~` needs a whole number, found a decimal
+error[E0101]: `<<` needs a whole number on the right, found a decimal
+error[E0101]: `io::outln` prints text, found `uint32`
+help: turn it into text: `io::outln(b::text())`
+error[E0101]: expected `uint32`, found `string`
+error[E0104]: expected `uint32`, but this produces no value
+error[E0101]: this function returns nothing, but a value is returned
+18 errors

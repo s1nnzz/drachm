@@ -1,0 +1,17 @@
+// Bitwise operators need parentheses next to arithmetic and comparisons.
+none main() {
+    uint32 a = 6;
+    uint32 b = 3;
+    bool p = a & 1 == 0;
+    uint32 q = a + b << 2;
+    uint32 r = a & b | 1;
+    uint32 s = a << 1 >> 2;
+    uint32 t = a | b * 2;
+
+    // These are all fine.
+    bool ok1 = (a & 1) == 0;
+    uint32 ok2 = a << 16 | b << 8 | 1;
+    uint32 ok3 = a | b | 1;
+    uint32 ok4 = (a + b) << 2;
+    uint32 ok5 = a << 1 << 2;
+}

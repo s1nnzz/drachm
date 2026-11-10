@@ -2,7 +2,8 @@
 
 Drachm (pronounced /drɑxm/, files `.drh`) is a statically typed, natively
 compiled language designed by this repo's owner. The compiler is written in
-Rust and uses Cranelift.
+Rust. Plain builds use Cranelift; `-O` builds generate C for the system C
+compiler (the owner's choice, for benchmark speed).
 
 ## Read first
 
@@ -34,8 +35,9 @@ cargo build
 cargo test                                   # unit tests + golden tests (tests/run.rs)
 DRACHM_BLESS=1 cargo test                    # rewrite expected .out/.code files
 bench/run.sh                                 # speed vs C and Rust
-target/debug/drachm run examples/hello.dr    # v0.1 still uses old syntax and .dr
+target/debug/drachm run examples/hello.drh       # plain build (Cranelift)
+target/debug/drachm run examples/hello.drh -O    # optimised build (via C)
 ```
 
-v0.1 (old syntax: `fn`, `let`/`var`, `i64`, `print`) is what's implemented;
-step 1 of the plan migrates it.
+Steps 0 and 1 of the plan are done. The two backends must always behave
+identically; `cargo test` checks every run case both ways.

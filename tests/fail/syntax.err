@@ -1,5 +1,11 @@
-error[E0003]: expected `:` and a type
-syntax.dr:4:23
-error[E0003]: expected a name, found `{`
-syntax.dr:12:15
-4 errors
+error[E0003]: expected `=` or `;`, found a number
+syntax.drh:4:21
+error[E0003]: expected `(` after `if`, found name `x`
+help: conditions are always in parentheses: `if (...) { }`
+help: `match` is a reserved word and cannot be used as a name
+error[E0005]: only a binding can be assigned to
+error[E0007]: expected `::` here, found `->`
+error[E0007]: expected `->` here, found `::`
+error[E0003]: expected a type, found `{`
+syntax.drh:17:15
+10 errors

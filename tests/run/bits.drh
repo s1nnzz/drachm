@@ -1,0 +1,42 @@
+// Bitwise operators and shifts.
+in io;
+
+none main() {
+    uint32 r = 255;
+    uint32 g = 128;
+    uint32 b = 7;
+    io::outln((r << 16 | g << 8 | b)::text());      // shifts sit inside | without parentheses
+    io::outln((r & g)::text());
+    io::outln((r ^ g)::text());
+    io::outln((~b)::text());
+    io::outln(((r & 1) == 1)::text());
+    io::outln(((r + 1) >> 4)::text());
+
+    uint8 x = 129;
+    io::outln((x << 1)::text());                    // high bit falls off
+    io::outln((x >> 1)::text());
+    sint8 s = -127;
+    io::outln((s >> 1)::text());                    // keeps the sign
+    io::outln((~s)::text());
+
+    // The amount keeps its own type, and wraps around the width.
+    uint64 n = 3;
+    io::outln((x >> n)::text());
+    uint32 forty = 40;
+    uint32 one = 1;
+    io::outln((one << forty)::text());              // 40 wraps to 8
+    sint32 back = -1;
+    io::outln((one << back)::text());               // -1 wraps to 31
+    uint64 wide = 1;
+    io::outln((wide << 63)::text());
+    io::outln((1 << n)::text());                    // a constant on the left is uint32
+
+    mut uint32 flags = 0;
+    flags |= 4;
+    flags |= 1;
+    flags &= ~1u32;
+    flags ^= 6;
+    flags <<= 3;
+    flags >>= 1;
+    io::outln(flags::text());
+}

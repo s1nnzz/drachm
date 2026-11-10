@@ -1,0 +1,22 @@
+in io;
+
+uint32 one() { return 1; }
+
+none main() {
+    uint32 x = 5;
+    5++;
+    one()++;
+    io::outln(x::shout());
+    io::outln(x::text(1));
+    io::outln(x::to()->text());
+    io::outln(x::to<bool>()->text());
+    io::print("hi");
+    io::outln("a", "b");
+    one(2);
+    two();
+    uint32 y = missing + 1;
+    y = 2;
+    undefined = 3;
+}
+
+fn old() { }

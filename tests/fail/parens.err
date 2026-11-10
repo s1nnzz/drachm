@@ -1,0 +1,6 @@
+error[E0006]: `&` and `==` need parentheses to show which goes first
+error[E0006]: `+` and `<<` need parentheses to show which goes first
+error[E0006]: `&` and `|` need parentheses to show which goes first
+error[E0006]: `<<` and `>>` need parentheses to show which goes first
+error[E0006]: `*` and `|` need parentheses to show which goes first
+5 errors

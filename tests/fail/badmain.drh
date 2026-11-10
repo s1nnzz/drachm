@@ -1,0 +1,3 @@
+uint32 main(uint32 argc) {
+    return 0;
+}

@@ -3,7 +3,9 @@
 //! - `tests/run/NAME.drh` is compiled and run. Its stdout must equal
 //!   `NAME.out` exactly. Its exit code must equal the number in `NAME.code`
 //!   (0 if there is no such file). If `NAME.err` exists, each of its lines
-//!   must appear somewhere in the program's stderr.
+//!   must appear somewhere in the program's stderr. The compiler must be
+//!   silent, unless `NAME.warn` exists: then each of its lines must appear
+//!   somewhere in the compiler's output (for testing warnings).
 //! - `tests/fail/NAME.drh` must fail to compile, and each line of `NAME.err`
 //!   must appear somewhere in the compiler's stderr. Match on error codes and
 //!   messages, not on layout.
@@ -12,14 +14,10 @@
 //!
 //! `DRACHM_BLESS=1 cargo test` writes `.out`/`.code` for run cases from what
 //! the program actually printed. Read the diff before committing it.
-//!
-//! Until step 1 renames the extension, `.dr` files are picked up as well.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
-
-const EXTENSIONS: [&str; 2] = ["drh", "dr"];
 
 fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -29,7 +27,7 @@ fn sources(dir: &str) -> Vec<PathBuf> {
     let mut found: Vec<PathBuf> = fs::read_dir(root().join(dir))
         .unwrap_or_else(|e| panic!("{dir}: {e}"))
         .map(|e| e.unwrap().path())
-        .filter(|p| p.extension().is_some_and(|x| EXTENSIONS.iter().any(|e| x == *e)))
+        .filter(|p| p.extension().is_some_and(|x| x == "drh"))
         .collect();
     found.sort();
     assert!(!found.is_empty(), "no test sources in {dir}");
@@ -79,8 +77,21 @@ fn run_case(src: &Path, expect_dir: &Path) -> Result<(), String> {
         .join(format!("{}-{stem}", expect_dir.file_name().unwrap().to_str().unwrap()));
 
     let build = drachm(&["build", "-o", exe.to_str().unwrap()], src);
+    let compiler_output = text(&build.stderr);
     if !build.status.success() {
-        return Err(format!("did not compile:\n{}", text(&build.stderr)));
+        return Err(format!("did not compile:\n{compiler_output}"));
+    }
+    match read(&expect("warn")) {
+        Some(want) => {
+            let missing = missing_lines(&want, &compiler_output);
+            if !missing.is_empty() {
+                return Err(format!("compiler output lacks:\n  {}\nactual output:\n{compiler_output}", missing.join("\n  ")));
+            }
+        }
+        None if !compiler_output.is_empty() => {
+            return Err(format!("unexpected compiler output (expected warnings go in {stem}.warn):\n{compiler_output}"));
+        }
+        None => {}
     }
     let run = Command::new(&exe).output().map_err(|e| format!("could not run: {e}"))?;
     let _ = fs::remove_file(&exe);

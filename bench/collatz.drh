@@ -1,0 +1,32 @@
+// Integer-heavy: longest Collatz chain starting below 3,000,000.
+in io;
+
+uint32 steps(uint64 start) {
+    mut uint64 n = start;
+    mut uint32 count = 0;
+    while (n != 1) {
+        if ((n & 1) == 0) {
+            n >>= 1;
+        } else {
+            n = 3 * n + 1;
+        }
+        count++;
+    }
+    return count;
+}
+
+none main() {
+    mut uint64 best = 0;
+    mut uint32 bestSteps = 0;
+    mut uint64 i = 1;
+    while (i < 3000000) {
+        uint32 s = steps(i);
+        if (s > bestSteps) {
+            bestSteps = s;
+            best = i;
+        }
+        i++;
+    }
+    io::outln(best::text());
+    io::outln(bestSteps::text());
+}

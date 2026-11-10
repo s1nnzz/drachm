@@ -1,0 +1,8 @@
+error[E0207]: `x` is read before it certainly has a value
+nothing has been assigned to it yet
+error[E0207]: `y` is read before it certainly has a value
+only some paths to here give it one
+error[E0207]: `w` is read before it certainly has a value
+error[E0207]: `c` is read before it certainly has a value
+error[E0207]: `d` is read before it certainly has a value
+5 errors

@@ -167,8 +167,12 @@ if (a) {                       // outermost
   too big for 32 bits grows to the 64-bit, then the 128-bit type.
   `~` on a constant is exact too (`~0` is `-1`), then fits like any constant:
   `uint8 m = ~0;` is 255 with W0102; `~0u8` is silent.
-- An untyped constant next to a typed value takes that value's type, whichever
-  side it is on (`3 + total` and `total + 3` are both in `total`'s type).
+- An untyped constant on the right of a typed value takes that value's type
+  (`total + 3`). On the left it takes the right side's type if it fits there
+  exactly (`3 + total`); if not, it gets its own default type and leads
+  (`1.5 * hp` is `float64`, `300 + someUint8` is `uint32`).
+- Dividing a constant by a constant zero is a compile error (E0107), for
+  decimals too; so is a whole-number `/` or `%` by a constant zero.
 - **A constant that doesn't fit** where it is going (`uint8 a = 300;`,
   `uint32 x = -1;`, `uint32 n = 2.5;`) follows `[behaviour] overflow`: wrap =
   W0102 and it wraps (300 → 44; decimals drop the fraction first), saturate =
@@ -196,6 +200,7 @@ if (a) {                       // outermost
   digits that read back as the same number, always with a decimal point and
   never in exponent form: `1.0` → `"1.0"`, `0.1 + 0.2` at runtime →
   `"0.30000000000000004"`, `1e21` → `"1000000000000000000000.0"`.
+  The special values print as `inf`, `-inf` and `nan` (draft, not confirmed).
 - Overflow: set by config, default **wrap** for signed and unsigned.
 
 ### Strings
@@ -568,6 +573,20 @@ them (`in helpers;` finds `helpers.drh`), and use Agora packages declared in
 Diagnostics: detailed Rust/Elm style (labelled source lines, explanation,
 `help:` fix). `E` codes for errors, `W` for warnings, `drachm explain E0301`.
 Red errors, yellow warnings, colour auto-off when piped. Report all errors.
+`E` and `W` share one number space: `00xx` syntax, `01xx` types and
+conversions, `02xx` names and bindings, `03xx` ownership, `09xx` not supported
+yet. The table is `src/diag/codes.rs`. W0102 looks like this:
+
+```text
+warning[W0102]: converting `sint64` to `uint8` can lose information
+  --> main.drh:10:15
+   |
+10 |     uint8 a = big;
+   |               ^^^ this is `sint64`
+   |
+ note: `sint64` holds -9223372036854775808 to 9223372036854775807; `uint8` holds 0 to 255; values outside that wrap around
+ help: write `big::to<uint8>()` to say the conversion is intended
+```
 
 Standard library ("middle" size): core `io string collections math convert`;
 system `fs time env process`; concurrency/network `thread async net http`.
