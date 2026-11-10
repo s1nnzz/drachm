@@ -1,0 +1,33 @@
+struct Point { sint32 x; sint32 y; }
+struct Point { sint32 z; }
+struct uint32 { bool b; }
+
+struct Twice {
+    uint8 a;
+    uint8 a;
+    uint8 len;
+    uint8 len() { return 1; }
+    none go() { }
+    none go() { }
+    Pointt p;
+}
+
+struct Node {
+    uint32 value;
+    Node next;
+}
+
+struct A { B b; }
+struct B { C c; }
+struct C { A a; }
+
+struct Ops {
+    sint32 v;
+    static Ops +(Ops o) { return o; }
+    Ops -(Ops a, Ops b) { return a; }
+    sint32 <(Ops o) { return 1; }
+    bool ==(sint32 o) { return true; }
+    Ops <<(uint32 n) { return self; }
+}
+
+none main() { }

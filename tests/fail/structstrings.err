@@ -1,0 +1,9 @@
+error[E0101]: `a` is a `Named`, which cannot be turned into text by itself
+help: call its `text` method: `a::text()`
+error[E0101]: `p` is a `Plain`, which cannot be turned into text by itself
+help: put its fields in the text one by one
+error[E0101]: `io::outln` prints text, found `Named`
+error[E0101]: `match` works on numbers and bools, not `Plain`
+error[E0205]: cannot change `a.name`: `a` is not `mut`, and neither is the field
+error[E0101]: `+` joins strings, but the right side is `Plain`
+help: turn it into text: `n::text()`

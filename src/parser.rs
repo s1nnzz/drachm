@@ -9,11 +9,13 @@ use crate::lexer::{StrPiece, Tok, Token};
 /// on at the next statement or function, so several can be found in one go.
 pub fn parse(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>) -> Program {
     let mut p = Parser { tokens, pos: 0, diags };
-    let mut program = Program { imports: Vec::new(), funcs: Vec::new() };
+    let mut program = Program { imports: Vec::new(), funcs: Vec::new(), structs: Vec::new() };
     while p.peek() != &Tok::Eof {
         let start = p.pos;
         let item = if p.peek() == &Tok::Kw("in") {
             p.import().map(|i| program.imports.push(i))
+        } else if p.peek() == &Tok::Kw("struct") {
+            p.struct_decl().map(|s| program.structs.push(s))
         } else {
             p.func().map(|f| program.funcs.push(f))
         };
@@ -101,10 +103,10 @@ impl Parser<'_> {
         Ok(TypeName { name, span })
     }
 
-    /// Does a top-level item (a function or an import) start here?
+    /// Does a top-level item (a function, struct or import) start here?
     fn at_item_start(&self) -> bool {
         match self.peek() {
-            Tok::Kw("in") => true,
+            Tok::Kw("in" | "struct") => true,
             Tok::Ident(_) | Tok::Kw("none") => {
                 matches!(self.peek_at(1), Tok::Ident(_)) && self.peek_at(2) == &Tok::Sym("(")
             }
@@ -122,11 +124,16 @@ impl Parser<'_> {
     fn func(&mut self) -> Parsed<Func> {
         if !matches!(self.peek(), Tok::Ident(_) | Tok::Kw("none")) {
             return Err(self
-                .unexpected("a function or `in`")
+                .unexpected("a function, `struct` or `in`")
                 .help("a function starts with its return type: `none main() { }`"));
         }
         let ret = self.ty()?;
         let (name, name_span) = self.ident("a function name")?;
+        self.func_rest(ret, name, name_span)
+    }
+
+    /// A function's parameters and body, after its return type and name.
+    fn func_rest(&mut self, ret: TypeName, name: String, name_span: Span) -> Parsed<Func> {
         self.expect("(")?;
         let mut params = Vec::new();
         while self.peek() != &Tok::Sym(")") {
@@ -146,6 +153,85 @@ impl Parser<'_> {
         let span = ret.span.to(self.prev_span());
         let body = self.block()?;
         Ok(Func { ret, name, name_span, params, body, span })
+    }
+
+    fn struct_decl(&mut self) -> Parsed<Struct> {
+        self.bump();
+        let (name, name_span) = self.ident("a struct name")?;
+        match self.peek() {
+            Tok::Sym("<") => {
+                return Err(Diagnostic::at(&codes::E0901, self.span(), "generic structs are not supported yet"));
+            }
+            Tok::Kw("with") => {
+                return Err(Diagnostic::at(&codes::E0901, self.span(), "interfaces are not supported yet"));
+            }
+            _ => {}
+        }
+        let open = self.expect("{")?;
+        let mut s = Struct { name, name_span, fields: Vec::new(), methods: Vec::new() };
+        // `Some(true)` after `public:`, `Some(false)` after `private:`. Before
+        // any label, fields are private and methods public.
+        let mut section: Option<bool> = None;
+        while self.peek() != &Tok::Sym("}") {
+            if self.peek() == &Tok::Eof || self.peek() == &Tok::Kw("struct") {
+                return Err(Diagnostic::at(&codes::E0004, open, "this `{` is never closed")
+                    .label(self.span(), format!("expected `}}` before {}", self.peek().describe())));
+            }
+            if let Tok::Kw(k @ ("public" | "private")) = *self.peek()
+                && self.peek_at(1) == &Tok::Sym(":")
+            {
+                section = Some(k == "public");
+                self.bump();
+                self.bump();
+                continue;
+            }
+            if let Err(d) = self.member(&mut s, section) {
+                self.diags.push(d);
+                self.skip_statement();
+            }
+        }
+        self.bump();
+        Ok(s)
+    }
+
+    /// One field or method of struct `s`.
+    fn member(&mut self, s: &mut Struct, section: Option<bool>) -> Parsed<()> {
+        let is_static = if self.peek() == &Tok::Kw("static") { Some(self.bump().span) } else { None };
+        let mutable = if self.peek() == &Tok::Kw("mut") { Some(self.bump().span) } else { None };
+        if matches!(self.peek(), Tok::Ident(n) if *n == s.name) && self.peek_at(1) == &Tok::Sym("(") {
+            return Err(Diagnostic::at(&codes::E0901, self.span(), "constructors are not supported yet")
+                .help(format!("build values with the declaration shorthand for now: `{} p = 1, 2;`", s.name)));
+        }
+        let ty = self.ty()?;
+        // An operator method is named by its symbol: `Vector3 +(Vector3 o)`.
+        let operator = match *self.peek() {
+            Tok::Sym(sym) if self.peek_at(1) == &Tok::Sym("(") => binop(sym).map(|(op, _)| op),
+            _ => None,
+        };
+        let (name, name_span) = match operator {
+            Some(op) => (op.symbol().to_string(), self.bump().span),
+            None => self.ident("a field or method name")?,
+        };
+        if self.peek() == &Tok::Sym("(") {
+            if let Some(m) = mutable {
+                return Err(Diagnostic::at(&codes::E0003, m, "a method cannot be `mut`")
+                    .help("`mut` goes on fields: `mut uint32 hp;`"));
+            }
+            let func = self.func_rest(ty, name, name_span)?;
+            s.methods.push(Method { public: section.unwrap_or(true), is_static, operator, func });
+            return Ok(());
+        }
+        if let Some(st) = is_static {
+            return Err(Diagnostic::at(&codes::E0003, st, "a field cannot be `static`").help("only methods can be `static`"));
+        }
+        if self.peek() == &Tok::Sym("=") {
+            return Err(self
+                .unexpected("`;`")
+                .help(format!("fields have no default values; give them when building the value: `{} p = 1, 2;`", s.name)));
+        }
+        self.expect(";")?;
+        s.fields.push(Field { public: section.unwrap_or(false), mutable: mutable.is_some(), ty, name, name_span });
+        Ok(())
     }
 
     fn block(&mut self) -> Parsed<Block> {
@@ -314,12 +400,17 @@ impl Parser<'_> {
             _ => None,
         };
         let Some(op) = op else { return Ok(Stmt::Expr(e)) };
-        let ExprKind::Var(name) = e.kind else {
-            return Err(Diagnostic::at(&codes::E0005, e.span, "only a binding can be assigned to").note("cannot assign to this"));
-        };
+        if !is_place(&e) {
+            return Err(Diagnostic::at(&codes::E0005, e.span, "only a binding or a field can be assigned to").note("cannot assign to this"));
+        }
         self.bump();
         let value = self.expr()?;
-        Ok(Stmt::Assign { name, name_span: e.span, op, value, span: start.to(self.prev_span()) })
+        if self.peek() == &Tok::Sym(",") {
+            return Err(self
+                .unexpected("`;`")
+                .help("building a struct from a list of values works only in a declaration: `Point p = 1, 2;`"));
+        }
+        Ok(Stmt::Assign { target: e, op, value, span: start.to(self.prev_span()) })
     }
 
     /// `for (T x of iter) { }` or `for (init; cond; step) { }`.
@@ -422,12 +513,38 @@ impl Parser<'_> {
     fn binding(&mut self, start: Span, mutable: bool) -> Parsed<Stmt> {
         let ty = self.ty()?;
         let (name, name_span) = self.ident("a name for the binding")?;
-        let value = if self.eat("=") { Some(self.expr()?) } else { None };
+        let value = if self.eat("=") { Some(self.init()?) } else { None };
         if value.is_none() && self.peek() != &Tok::Sym(";") {
             return Err(self.unexpected("`=` or `;`"));
         }
         self.expect(";")?;
         Ok(Stmt::Let { mutable, ty, name, name_span, value, span: start.to(self.prev_span()) })
+    }
+
+    /// A declaration's value: one expression, or the construction shorthand
+    /// `a, b, c` / `x: a, y: b`.
+    fn init(&mut self) -> Parsed<Init> {
+        let start = self.span();
+        let mut values = Vec::new();
+        loop {
+            let name = match self.peek().clone() {
+                Tok::Ident(n) if self.peek_at(1) == &Tok::Sym(":") => {
+                    let span = self.bump().span;
+                    self.bump();
+                    Some((n, span))
+                }
+                _ => None,
+            };
+            let value = self.expr()?;
+            values.push(FieldValue { name, value });
+            if !self.eat(",") {
+                break;
+            }
+        }
+        if values.len() == 1 && values[0].name.is_none() {
+            return Ok(Init::Expr(values.pop().unwrap().value));
+        }
+        Ok(Init::Fields(values, start.to(self.prev_span())))
     }
 
     /// The parenthesised condition after `if` or `while`.
@@ -543,16 +660,25 @@ impl Parser<'_> {
         Ok(Expr { kind: ExprKind::Unary(op, Box::new(e)), span, paren: false })
     }
 
-    /// A primary expression followed by method calls and `++`/`--`.
+    /// A primary expression followed by field accesses, method calls and `++`/`--`.
     fn postfix(&mut self) -> Parsed<Expr> {
         let mut e = self.primary()?;
         let mut calls = 0;
         loop {
             let sym = match self.peek() {
-                Tok::Sym(s @ ("::" | "->" | "++" | "--")) => *s,
+                Tok::Sym(s @ ("::" | "->" | "++" | "--" | ".")) => *s,
                 _ => return Ok(e),
             };
             let op_span = self.bump().span;
+            if sym == "." {
+                let (name, name_span) = self.ident("a field name")?;
+                let span = e.span.to(name_span);
+                e = Expr { kind: ExprKind::Field { recv: Box::new(e), name, name_span }, span, paren: false };
+                // Undecided by the SPEC, chosen here: a field is a new value, so
+                // the next call on it starts with `::` again (`p::get().x::text()`).
+                calls = 0;
+                continue;
+            }
             if sym == "++" || sym == "--" {
                 let span = e.span.to(op_span);
                 e = Expr { kind: ExprKind::IncDec { inc: sym == "++", prefix: false, target: Box::new(e) }, span, paren: false };
@@ -613,6 +739,7 @@ impl Parser<'_> {
         let kind = match t.tok {
             Tok::Num(n) => ExprKind::Num(n),
             Tok::Str(pieces) => ExprKind::Str(self.string_parts(pieces)?),
+            Tok::Kw("self") => ExprKind::SelfValue,
             Tok::Kw("true") => ExprKind::Bool(true),
             Tok::Kw("false") => ExprKind::Bool(false),
             Tok::Sym("(") => {
@@ -672,6 +799,15 @@ impl Parser<'_> {
             return Err(inner.unexpected("`}` to end the `${`"));
         }
         Ok(e)
+    }
+}
+
+/// Can `e` be assigned to: a name, `self`, or a field of one of those?
+fn is_place(e: &Expr) -> bool {
+    match &e.kind {
+        ExprKind::Var(_) | ExprKind::SelfValue => true,
+        ExprKind::Field { recv, .. } => is_place(recv),
+        _ => false,
     }
 }
 

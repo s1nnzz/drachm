@@ -2,36 +2,125 @@
 //! conversion is explicit, and names are resolved to ids. Both backends
 //! (Cranelift and C) are generated from this.
 //!
-//! Strings and ownership. Every `string` local, named or hidden, is empty
-//! (`{ NULL, 0, 0 }`) when its function starts, and `Drop` leaves it empty
-//! again, so dropping a local that holds nothing is harmless. A `string`
-//! expression is one of two kinds:
-//! - a *place*, borrowed where it is used: `Local`, `Str` and `Temp`;
-//! - an *owned value*, freshly made: every other `string` expression (a
-//!   literal is both: its bytes are not owned, so it never needs dropping).
+//! Ownership. A type is *owning* if its values own heap memory: `string`,
+//! and every struct with a `string` field (directly or in a struct field;
+//! `Program::owns`). Every local of an owning type, named or hidden, is
+//! empty (strings `{ NULL, 0, 0 }`, structs with all their strings so) when
+//! its function starts, and `Drop` leaves it empty again, so dropping a local
+//! that holds nothing is harmless. An expression of an owning type is one of
+//! two kinds:
+//! - a *place*, borrowed where it is used: `Local`, `Temp`, `Field` of a
+//!   place, and for strings `Str`;
+//! - an *owned value*, freshly made: every other one (a string literal is
+//!   both: its bytes are not owned, so it never needs dropping).
 //!
-//! Places are the operands of `StrCall`, `Join` and `Out`. Owned values go
-//! where something takes ownership: the value of an `Assign`, of a `Return`,
-//! and the arguments of a `Call` (the callee owns its parameters and drops
-//! them). The checker inserts every `Copy`, `Move`, `Temp`, `Scoped` and
-//! `Drop`; the backends only carry them out and add no ownership logic of
-//! their own. That includes jumps: a `Jump` comes right after the `Drop`s of
-//! every `string` local in scope between it and its target.
+//! Places are the operands of `StrCall`, `Join` and `Out`, the inside of a
+//! `Field` and a method's receiver. Owned values go where something takes
+//! ownership: the value of an `Assign`, of a `Return`, the fields of a
+//! `Struct`, and the arguments of a `Call` (the callee owns its parameters
+//! and drops them). The checker inserts every `Copy`, `Move`, `Temp`,
+//! `Scoped` and `Drop`; the backends only carry them out and add no
+//! ownership logic of their own. That includes jumps: a `Jump` comes right
+//! after the `Drop`s of every owning local in scope between it and its
+//! target.
+//!
+//! Structs that own no strings are plain values: any expression of such a
+//! type may be used anywhere, and using it copies its bits.
 
 use crate::types::Type;
 
 pub type FuncId = usize;
 pub type LocalId = usize;
+pub type StructId = usize;
 
 pub struct Program {
     pub funcs: Vec<Func>,
+    pub structs: Vec<StructDef>,
     pub main: FuncId,
 }
 
-pub struct Func {
+/// A struct's layout, C-style: fields in declaration order, each at the next
+/// multiple of its alignment; the size is rounded up to the largest alignment.
+pub struct StructDef {
     pub name: String,
+    pub fields: Vec<FieldDef>,
+    pub size: u32,
+    pub align: u32,
+    /// Holds a `string` somewhere inside, so its values are owned.
+    pub owns: bool,
+}
+
+pub struct FieldDef {
+    pub name: String,
+    pub ty: Type,
+    pub offset: u32,
+}
+
+impl Program {
+    /// Size and alignment of a value of type `t` in memory, in bytes.
+    pub fn size_align(&self, t: Type) -> (u32, u32) {
+        if t == Type::Str {
+            return (STR_SIZE, 8);
+        }
+        scalar_size(t).map_or_else(
+            || {
+                let s = &self.structs[t.struct_id().expect("a value type")];
+                (s.size, s.align)
+            },
+            |n| (n, n),
+        )
+    }
+
+    /// Is `t` an owning type (see the module comment)?
+    pub fn owns(&self, t: Type) -> bool {
+        match t {
+            Type::Str => true,
+            Type::Struct { id, .. } => self.structs[id].owns,
+            _ => false,
+        }
+    }
+
+    pub fn struct_def(&self, t: Type) -> &StructDef {
+        &self.structs[t.struct_id().expect("a struct type")]
+    }
+}
+
+/// Size of a `string` value (`drachm_str`: pointer, length, capacity).
+pub const STR_SIZE: u32 = 24;
+
+/// Size (which is also the alignment) of a number or bool; `None` for the rest.
+pub fn scalar_size(t: Type) -> Option<u32> {
+    match t {
+        Type::Int { bits, .. } | Type::Float(bits) => Some(bits as u32 / 8),
+        Type::Bool => Some(1),
+        Type::None | Type::Str | Type::Struct { .. } => None,
+    }
+}
+
+/// Lay out fields of the given sizes and alignments: their offsets, and the
+/// struct's size and alignment.
+pub fn layout(fields: &[(u32, u32)]) -> (Vec<u32>, u32, u32) {
+    let mut offsets = Vec::new();
+    let mut end = 0u32;
+    let mut align = 1;
+    for &(size, a) in fields {
+        let at = end.next_multiple_of(a);
+        offsets.push(at);
+        end = at + size;
+        align = align.max(a);
+    }
+    (offsets, end.next_multiple_of(align), align)
+}
+
+pub struct Func {
+    /// The symbol name in the object file or C source.
+    pub symbol: String,
     /// The first `params` locals are the parameters, in order.
     pub params: usize,
+    /// A method's receiver: parameter 0 is `self` and refers to the caller's
+    /// value (changes through it are seen by the caller). Every other struct
+    /// parameter is a copy.
+    pub has_self: bool,
     pub locals: Vec<Local>,
     pub ret: Type,
     pub body: Block,
@@ -45,12 +134,27 @@ pub struct Local {
 /// Names an `If` or a `Loop` for the jumps that target it. Unique within a function.
 pub type Label = usize;
 
+/// Something that can be assigned to: a local, or a field inside one
+/// (`fields` are field indexes, outermost first).
+#[derive(Clone)]
+pub struct Place {
+    pub local: LocalId,
+    pub fields: Vec<usize>,
+}
+
+impl Place {
+    /// The whole local.
+    pub fn local(local: LocalId) -> Place {
+        Place { local, fields: Vec::new() }
+    }
+}
+
 pub type Block = Vec<Stmt>;
 
 pub enum Stmt {
-    /// Store a value in a local. For a `string` local the value is owned
-    /// and the local is empty beforehand.
-    Assign(LocalId, Expr),
+    /// Store a value in a place. For an owning type the value is owned and
+    /// the place is empty beforehand.
+    Assign(Place, Expr),
     /// Tests the branches in order and runs the body of the first whose
     /// test holds (a branch with no test always does), then carries on
     /// after the whole statement. `if` chains and `match` both become this.
@@ -61,8 +165,8 @@ pub enum Stmt {
     Jump(Jump),
     Return(Option<Expr>),
     Expr(Expr),
-    /// Free what a `string` local owns, if anything, and leave it empty.
-    Drop(LocalId),
+    /// Free what a place of an owning type owns, if anything, and leave it empty.
+    Drop(Place),
 }
 
 pub struct Branch {
@@ -85,6 +189,20 @@ pub enum Jump {
 pub struct Expr {
     pub kind: ExprKind,
     pub ty: Type,
+}
+
+impl Expr {
+    /// A local, a temporary, or a field of one: the backends can refer to
+    /// its storage directly (for `self` arguments and fields) instead of
+    /// copying the value. A `Temp` is evaluated where its storage is first
+    /// needed.
+    pub fn is_place(&self) -> bool {
+        match &self.kind {
+            ExprKind::Local(_) | ExprKind::Temp(..) => true,
+            ExprKind::Field(inner, _) => inner.is_place(),
+            _ => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -120,16 +238,22 @@ pub enum ExprKind {
     Bool(bool),
     /// A string literal: a not-owned view of read-only bytes.
     Str(String),
-    /// A local; for a `string`, a place.
+    /// A local. For an owning type, a place (borrowed where it is used).
     Local(LocalId),
+    /// Field `n` of a struct value. For an owning struct the inside is a
+    /// place, and so is the field.
+    Field(Box<Expr>, usize),
+    /// A struct value built from field values, given as (field index, value)
+    /// in evaluation order. Every field appears exactly once.
+    Struct(Vec<(usize, Expr)>),
     /// Wrapping negation of a number.
     Neg(Box<Expr>),
     /// Logical not of a bool.
     Not(Box<Expr>),
     /// Bitwise not of an integer.
     BitNot(Box<Expr>),
-    /// Both operands have the same type: the result type, or for
-    /// comparisons the type compared in.
+    /// Both operands have the same number or bool type: the result type, or
+    /// for comparisons the type compared in.
     Binary(BinOp, Box<Expr>, Box<Expr>),
     /// Integer shift; the amount is any integer type and wraps around the width.
     Shift { left: bool, value: Box<Expr>, amount: Box<Expr> },
@@ -139,22 +263,26 @@ pub enum ExprKind {
     Logic { and: bool, lhs: Box<Expr>, rhs: Box<Expr> },
     /// Numeric conversion from the inner expression's type to `ty`.
     Convert(Box<Expr>),
-    /// A call. `string` arguments are owned values, handed to the callee.
+    /// Arguments in order; for an owning type they are owned values, handed
+    /// to the callee. For a function with `has_self`, the first argument is
+    /// the receiver: it `is_place` (a `Temp` if need be) and the callee works
+    /// on that storage, unless it is a struct that owns no strings, which
+    /// may be any value.
     Call(FuncId, Vec<Expr>),
-    /// `++`/`--` on a numeric local. The value is the old one for postfix,
-    /// the new one for prefix.
-    IncDec { local: LocalId, inc: bool, prefix: bool },
+    /// `++`/`--` on a number. The value is the old one for postfix, the new
+    /// one for prefix.
+    IncDec { place: Place, inc: bool, prefix: bool },
     /// `value::text()` of a number or bool: an owned `string`.
     Text(Box<Expr>),
     /// An integer as text in base 2, 8 or 16 (`io::outf`'s `%x` and friends):
     /// an owned `string`.
     Radix { value: Box<Expr>, base: u32, upper: bool },
-    /// A deep copy of a `string` place: an owned value.
+    /// A deep copy of a place of an owning type: an owned value.
     Copy(Box<Expr>),
-    /// The value of a hidden `string` local, taken out of it (it is left
-    /// empty): an owned value.
+    /// The value of a hidden local of an owning type, taken out of it (it is
+    /// left empty): an owned value.
     Move(LocalId),
-    /// Evaluate an owned `string` into the hidden local, which is empty
+    /// Evaluate an owned value into the hidden local, which is empty
     /// beforehand, and use it as a place. The checker drops the local at the
     /// end of the statement (through `Scoped`).
     Temp(LocalId, Box<Expr>),
@@ -178,7 +306,7 @@ pub enum ExprKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StrFn {
     Concat,
-    /// Appends the second argument to the first, which is a `string` local.
+    /// Appends the second argument to the first, a `string` local or field.
     Append,
     Eq,
     /// -1, 0 or 1, comparing bytes.

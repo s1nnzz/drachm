@@ -9,6 +9,37 @@ use crate::types::Type;
 pub struct Program {
     pub imports: Vec<Import>,
     pub funcs: Vec<Func>,
+    pub structs: Vec<Struct>,
+}
+
+/// `struct Name { fields and methods }`
+#[derive(Debug)]
+pub struct Struct {
+    pub name: String,
+    pub name_span: Span,
+    pub fields: Vec<Field>,
+    pub methods: Vec<Method>,
+}
+
+/// `Type name;` or `mut Type name;` inside a struct.
+#[derive(Debug)]
+pub struct Field {
+    pub public: bool,
+    pub mutable: bool,
+    pub ty: TypeName,
+    pub name: String,
+    pub name_span: Span,
+}
+
+/// A function inside a struct. Operator methods are named by their symbol
+/// (`func.name` is `"+"`) and have `operator` set.
+#[derive(Debug)]
+pub struct Method {
+    pub public: bool,
+    /// The `static` keyword, if written.
+    pub is_static: Option<Span>,
+    pub operator: Option<BinOp>,
+    pub func: Func,
 }
 
 /// `in io;`
@@ -48,9 +79,10 @@ pub type Block = Vec<Stmt>;
 
 #[derive(Debug)]
 pub enum Stmt {
-    Let { mutable: bool, ty: TypeName, name: String, name_span: Span, value: Option<Expr>, span: Span },
-    /// `x = v;`, or `x += v;` when `op` is set.
-    Assign { name: String, name_span: Span, op: Option<BinOp>, value: Expr, span: Span },
+    Let { mutable: bool, ty: TypeName, name: String, name_span: Span, value: Option<Init>, span: Span },
+    /// `x = v;`, or `x += v;` when `op` is set. The parser only lets a name,
+    /// `self` or a field access (`p.x`, `self.a.b`) be the target.
+    Assign { target: Expr, op: Option<BinOp>, value: Expr, span: Span },
     /// A whole `if (..) { } else if (..) { } else { }` chain: one node,
     /// because `skip` counts a chain as one level. `span` covers `if (cond)`.
     If { branches: Vec<(Expr, Block)>, els: Option<Block>, span: Span },
@@ -93,6 +125,24 @@ pub enum Pattern {
     Any(Span),
     /// A value or an inclusive range (`ExprKind::Range`).
     Expr(Expr),
+}
+
+/// What follows `=` in a declaration.
+#[derive(Debug)]
+pub enum Init {
+    /// A single value: `Type x = v;`.
+    Expr(Expr),
+    /// The construction shorthand: `Point p = 1, 2;` or `Point p = y: 2, x: 1;`.
+    /// Positional and named values are kept as written; mixing them is an
+    /// error the checker reports.
+    Fields(Vec<FieldValue>, Span),
+}
+
+/// One value in the construction shorthand, with its field name if given.
+#[derive(Debug)]
+pub struct FieldValue {
+    pub name: Option<(String, Span)>,
+    pub value: Expr,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -205,13 +255,17 @@ pub enum ExprKind {
     /// A string literal of any form; only `f` and backtick strings have `Interp` parts.
     Str(Vec<StrPart>),
     Var(String),
+    /// The keyword `self`.
+    SelfValue,
+    /// `recv.name`
+    Field { recv: Box<Expr>, name: String, name_span: Span },
     Unary(UnOp, Box<Expr>),
     Binary(BinOp, Box<Expr>, Box<Expr>),
     /// `x++`, `++x`, `x--`, `--x`.
     IncDec { inc: bool, prefix: bool, target: Box<Expr> },
     Call { name: String, args: Vec<Expr> },
     /// `recv::name<targs>(args)` or `recv->name(args)`. `recv` may turn out
-    /// to be a module (`io::outln`).
+    /// to be a module (`io::outln`) or a struct name (`Point::origin()`).
     Method { recv: Box<Expr>, name: String, name_span: Span, targs: Vec<TypeName>, args: Vec<Expr> },
     /// `a..b`, inclusive. Only allowed after `of` in a `for` and as a `case` pattern.
     Range(Box<Expr>, Box<Expr>),

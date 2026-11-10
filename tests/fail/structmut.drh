@@ -1,0 +1,65 @@
+struct Point {
+public:
+    sint32 x;
+    sint32 y;
+    mut uint32 seen;
+
+    none look() { self.seen++; }
+    none shift(sint32 d) { self.x += d; }
+    none shiftTwice(sint32 d) {
+        self::shift(d);
+        self::shift(d);
+    }
+    Point clone() { return self; }
+    none reset() {
+        self = Point::origin();
+    }
+    static Point origin() {
+        Point p = 0, 0, 0;
+        return p;
+    }
+}
+
+struct Line {
+public:
+    Point a;
+    mut Point b;
+}
+
+none nudge(Point p) {
+    p.x = 1;
+    p::shift(1);
+}
+
+none main() {
+    Point a = 1, 2, 0;
+    a.x = 5;
+    a.y++;
+    a::look();
+    a.seen = 3;
+    a::shift(1);
+    a::shiftTwice(1);
+    a::clone()->shift(1);
+    Point::origin()->shift(1);
+
+    Line l = a, a;
+    l.a.x = 1;
+    l.b.x = 1;
+    l.a::shift(1);
+    l.b::shift(1);
+
+    Point later;
+    later.x = 1;
+    later = a;
+
+    mut Point ok = a;
+    ok.x = 1;
+    ok::shiftTwice(2);
+
+    Point p = 1, 2;
+    Point q = x: 1, y: 2, x: 3, seen: 0;
+    Point r = x: 1, y: 2;
+    Point s = 1, y: 2, seen: 0;
+    Point t = x: 1, y: 2, z: 3, seen: 0;
+    Point u = true, 2, 0;
+}

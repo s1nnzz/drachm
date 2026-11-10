@@ -6,9 +6,12 @@
 //! run. All arithmetic is done in unsigned types so that overflow wraps as
 //! Drachm defines it instead of being undefined behaviour.
 //!
-//! Strings are `drachm_str` structs, passed to and returned from Drachm
-//! functions by value (the callee owns its parameters), and to the runtime
-//! by pointer.
+//! Strings are `drachm_str` structs and Drachm structs are C structs (fields
+//! `f_<name>`). Both are passed to and returned from Drachm functions by
+//! value (the callee owns its parameters), except a method's `self`, which
+//! is a pointer to the caller's value; strings go to the runtime by pointer.
+//! Each struct that owns strings gets `drachm_copy_<Name>` (a deep copy) and
+//! `drachm_drop_<Name>`.
 
 use std::fmt::Write;
 
@@ -24,39 +27,111 @@ pub fn generate(prog: &Program) -> String {
     out += "\nstatic inline double drachm_f64_bits(uint64_t b) { double d; memcpy(&d, &b, 8); return d; }\n";
     out += "static inline float drachm_f32_bits(uint32_t b) { float f; memcpy(&f, &b, 4); return f; }\n\n";
 
+    for s in struct_order(prog) {
+        let def = &prog.structs[s];
+        let name = struct_name(&def.name);
+        let _ = writeln!(out, "typedef struct {{");
+        for f in &def.fields {
+            let _ = writeln!(out, "    {} f_{};", c_type(f.ty), f.name);
+        }
+        let _ = writeln!(out, "}} {name};\n");
+        if def.owns {
+            // The bits first, then a new copy of each string inside.
+            let _ = writeln!(out, "static void drachm_copy_{}({name} *d, const {name} *s) {{\n    *d = *s;", def.name);
+            for f in def.fields.iter().filter(|f| prog.owns(f.ty)) {
+                let _ = writeln!(out, "    {}(&d->f_{n}, &s->f_{n});", copy_fn(f.ty), n = f.name);
+            }
+            let _ = writeln!(out, "}}\n\nstatic void drachm_drop_{}({name} *p) {{", def.name);
+            for f in def.fields.iter().filter(|f| prog.owns(f.ty)) {
+                let _ = writeln!(out, "    {}(&p->f_{});", drop_fn(f.ty), f.name);
+            }
+            let _ = writeln!(out, "}}\n");
+        }
+    }
     for f in &prog.funcs {
         let _ = writeln!(out, "{};", signature(f));
     }
     for f in &prog.funcs {
-        let mut g = Gen { prog, out: String::new(), tmp: 0, depth: 1 };
+        let mut g = Gen { prog, func: f, out: String::new(), tmp: 0, depth: 1 };
         for (i, l) in f.locals.iter().enumerate().skip(f.params) {
-            // Strings start empty, which is what `Drop` relies on.
-            let zero = if l.ty == Type::Str { "{0}" } else { "0" };
-            g.line(format!("{} l{i} = {zero};", c_type(l.ty)));
+            // Owning values start empty, which is what `Drop` relies on.
+            // Other structs start out unset: the checker rejects reads before assignment.
+            if prog.owns(l.ty) {
+                g.line(format!("{} l{i} = {{0}};", c_type(l.ty)));
+            } else if l.ty.struct_id().is_some() {
+                g.line(format!("{} l{i};", c_type(l.ty)));
+            } else {
+                g.line(format!("{} l{i} = 0;", c_type(l.ty)));
+            }
         }
         g.block(&f.body);
         let _ = writeln!(out, "\n{} {{\n{}}}", signature(f), g.out);
     }
 
     let main = &prog.funcs[prog.main];
-    let call = format!("{}()", func_name(main));
+    let call = format!("{}()", main.symbol);
     let body = if main.ret == Type::None { format!("{call}; return 0;") } else { format!("return (int){call};") };
     let _ = writeln!(out, "\nint main(void) {{ {body} }}");
     out
 }
 
-fn func_name(f: &Func) -> String {
-    format!("drachm_f_{}", f.name)
+fn struct_name(name: &str) -> String {
+    format!("drachm_s_{name}")
 }
 
-fn signature(f: &Func) -> String {
-    let params: Vec<String> = f.locals[..f.params].iter().enumerate().map(|(i, l)| format!("{} l{i}", c_type(l.ty))).collect();
-    let params = if params.is_empty() { "void".to_string() } else { params.join(", ") };
-    format!("static {} {}({params})", c_type(f.ret), func_name(f))
-}
-
-fn c_type(t: Type) -> &'static str {
+/// The deep copy function for an owning type: `f(&dest, &src)`.
+fn copy_fn(t: Type) -> String {
     match t {
+        Type::Struct { name, .. } => format!("drachm_copy_{name}"),
+        _ => "drachm_str_copy".to_string(),
+    }
+}
+
+/// The drop function for an owning type: `f(&value)`.
+fn drop_fn(t: Type) -> String {
+    match t {
+        Type::Struct { name, .. } => format!("drachm_drop_{name}"),
+        _ => "drachm_str_drop".to_string(),
+    }
+}
+
+/// Every struct, each after the structs it contains (C needs a struct's
+/// definition before it is used as a field).
+fn struct_order(prog: &Program) -> Vec<StructId> {
+    fn visit(prog: &Program, s: StructId, done: &mut [bool], order: &mut Vec<StructId>) {
+        if done[s] {
+            return;
+        }
+        done[s] = true;
+        for f in &prog.structs[s].fields {
+            if let Some(inner) = f.ty.struct_id() {
+                visit(prog, inner, done, order);
+            }
+        }
+        order.push(s);
+    }
+    let mut done = vec![false; prog.structs.len()];
+    let mut order = Vec::new();
+    for s in 0..prog.structs.len() {
+        visit(prog, s, &mut done, &mut order);
+    }
+    order
+}
+
+/// Parameters are passed by value, except a method's `self`, which is a
+/// pointer to the caller's value. Results are returned by value.
+fn signature(f: &Func) -> String {
+    let params: Vec<String> = f.locals[..f.params]
+        .iter()
+        .enumerate()
+        .map(|(i, l)| if i == 0 && f.has_self { format!("{} *l0", c_type(l.ty)) } else { format!("{} l{i}", c_type(l.ty)) })
+        .collect();
+    let params = if params.is_empty() { "void".to_string() } else { params.join(", ") };
+    format!("static {} {}({params})", c_type(f.ret), f.symbol)
+}
+
+fn c_type(t: Type) -> String {
+    let name = match t {
         Type::Int { bits: 8, signed: false } => "uint8_t",
         Type::Int { bits: 16, signed: false } => "uint16_t",
         Type::Int { bits: 32, signed: false } => "uint32_t",
@@ -72,7 +147,9 @@ fn c_type(t: Type) -> &'static str {
         Type::Bool => "uint8_t",
         Type::Str => "drachm_str",
         Type::None => "void",
-    }
+        Type::Struct { name, .. } => return struct_name(name),
+    };
+    name.to_string()
 }
 
 fn bits(t: Type) -> u16 {
@@ -126,12 +203,57 @@ fn c_string(s: &str) -> String {
 
 struct Gen<'a> {
     prog: &'a Program,
+    func: &'a Func,
     out: String,
     tmp: usize,
     depth: usize,
 }
 
 impl Gen<'_> {
+    /// A local as a C lvalue (`self` is a pointer).
+    fn local(&self, id: LocalId) -> String {
+        if id == 0 && self.func.has_self { "(*l0)".to_string() } else { format!("l{id}") }
+    }
+
+    /// A place (local, then field indexes) as a C lvalue.
+    fn place_lvalue(&self, place: &Place) -> String {
+        let mut s = self.local(place.local);
+        let mut ty = self.func.locals[place.local].ty;
+        for &i in &place.fields {
+            let f = &self.prog.struct_def(ty).fields[i];
+            let _ = write!(s, ".f_{}", f.name);
+            ty = f.ty;
+        }
+        s
+    }
+
+    /// The type of a place.
+    fn place_type(&self, place: &Place) -> Type {
+        let mut ty = self.func.locals[place.local].ty;
+        for &i in &place.fields {
+            ty = self.prog.struct_def(ty).fields[i].ty;
+        }
+        ty
+    }
+
+    /// A place-shaped expression (`Expr::is_place`) as a C lvalue, emitting
+    /// what a `Temp` inside it makes.
+    fn lvalue(&mut self, e: &Expr) -> String {
+        match &e.kind {
+            ExprKind::Local(id) => self.local(*id),
+            ExprKind::Temp(id, inner) => {
+                let dest = format!("l{id}");
+                self.into(inner, &dest);
+                dest
+            }
+            ExprKind::Field(inner, i) => {
+                let base = self.lvalue(inner);
+                format!("{base}.f_{}", self.prog.struct_def(inner.ty).fields[*i].name)
+            }
+            _ => unreachable!("not a place"),
+        }
+    }
+
     fn line(&mut self, text: impl AsRef<str>) {
         for _ in 0..self.depth {
             self.out += "    ";
@@ -145,11 +267,13 @@ impl Gen<'_> {
         self.line(format!("{name}: ;"));
     }
 
-    /// Store `value` in a fresh temporary and return its name.
+    /// Store `value` in a fresh temporary and return its name. Struct
+    /// temporaries are not `const`, so that a method can be called on one.
     fn temp(&mut self, ty: Type, value: impl AsRef<str>) -> String {
         self.tmp += 1;
         let name = format!("t{}", self.tmp);
-        self.line(format!("const {} {name} = {};", c_type(ty), value.as_ref()));
+        let qualifier = if ty.struct_id().is_some() { "" } else { "const " };
+        self.line(format!("{qualifier}{} {name} = {};", c_type(ty), value.as_ref()));
         name
     }
 
@@ -161,12 +285,20 @@ impl Gen<'_> {
 
     fn stmt(&mut self, s: &Stmt) {
         match s {
-            Stmt::Assign(id, e) if e.ty == Type::Str => self.into(e, &format!("l{id}")),
-            Stmt::Assign(id, e) => {
-                let v = self.expr(e);
-                self.line(format!("l{id} = {v};"));
+            Stmt::Assign(place, e) if self.prog.owns(e.ty) => {
+                let target = self.place_lvalue(place);
+                self.into(e, &target);
             }
-            Stmt::Drop(id) => self.line(format!("drachm_str_drop(&l{id});")),
+            Stmt::Assign(place, e) => {
+                let v = self.expr(e);
+                let target = self.place_lvalue(place);
+                self.line(format!("{target} = {v};"));
+            }
+            Stmt::Drop(place) => {
+                let target = self.place_lvalue(place);
+                let f = drop_fn(self.place_type(place));
+                self.line(format!("{f}(&{target});"));
+            }
             // Jumps are `goto`s to labels named after the HIR label:
             // `ifL_bN` is the test of branch N, `ifL_end` the way out.
             Stmt::If { label, branches } => {
@@ -216,9 +348,9 @@ impl Gen<'_> {
                 self.line(format!("goto {target};"));
             }
             Stmt::Return(None) => self.line("return;"),
-            Stmt::Return(Some(e)) if e.ty == Type::Str => {
+            Stmt::Return(Some(e)) if self.prog.owns(e.ty) => {
                 let r = self.fresh("r");
-                self.line(format!("drachm_str {r};"));
+                self.line(format!("{} {r};", c_type(e.ty)));
                 self.into(e, &r);
                 self.line(format!("return {r};"));
             }
@@ -234,6 +366,8 @@ impl Gen<'_> {
 
     /// Emit the statements that compute `e`; returns a C expression for its
     /// value that is safe to use any number of times (a temporary or a literal).
+    /// Not for strings or structs that own strings: those are made with
+    /// `into` or used with `place`.
     fn expr(&mut self, e: &Expr) -> String {
         let ty = e.ty;
         match &e.kind {
@@ -256,7 +390,7 @@ impl Gen<'_> {
             | ExprKind::Copy(_)
             | ExprKind::Move(_)
             | ExprKind::Temp(..)
-            | ExprKind::Join(_) => unreachable!("strings are made with `into` or used with `place`"),
+            | ExprKind::Join(_) => unreachable!("owning values are made with `into` or used with `place`"),
             ExprKind::Scoped(inner, drops) => {
                 let v = self.expr(inner);
                 self.drops(drops);
@@ -272,8 +406,25 @@ impl Gen<'_> {
                     self.temp(ty, call)
                 }
             }
-            // A copy, so that a later `++` cannot change what was read here.
-            ExprKind::Local(id) => self.temp(ty, format!("l{id}")),
+            // A copy, so that a later `++` or method call cannot change what was read here.
+            ExprKind::Local(_) => {
+                let v = self.lvalue(e);
+                self.temp(ty, v)
+            }
+            ExprKind::Field(inner, i) => {
+                let from = if inner.is_place() { self.lvalue(inner) } else { self.expr(inner) };
+                let name = &self.prog.struct_def(inner.ty).fields[*i].name;
+                self.temp(ty, format!("{from}.f_{name}"))
+            }
+            ExprKind::Struct(fields) => {
+                let def = self.prog.struct_def(ty);
+                let mut parts = Vec::new();
+                for (i, value) in fields {
+                    let v = self.expr(value);
+                    parts.push(format!(".f_{} = {v}", def.fields[*i].name));
+                }
+                self.temp(ty, format!("{{ {} }}", parts.join(", ")))
+            }
             ExprKind::Neg(inner) => {
                 let v = self.expr(inner);
                 if ty.is_float() {
@@ -367,15 +518,16 @@ impl Gen<'_> {
                     self.temp(ty, call)
                 }
             }
-            ExprKind::IncDec { local, inc, prefix } => {
-                let old = self.temp(ty, format!("l{local}"));
+            ExprKind::IncDec { place, inc, prefix } => {
+                let target = self.place_lvalue(place);
+                let old = self.temp(ty, &target);
                 let op = if *inc { '+' } else { '-' };
                 if ty.is_float() {
-                    self.line(format!("l{local} = {old} {op} 1;"));
+                    self.line(format!("{target} = {old} {op} 1;"));
                 } else {
-                    self.line(format!("l{local} = ({})(({}){old} {op} 1);", c_type(ty), work_type(ty)));
+                    self.line(format!("{target} = ({})(({}){old} {op} 1);", c_type(ty), work_type(ty)));
                 }
-                if *prefix { self.temp(ty, format!("l{local}")) } else { old }
+                if *prefix { self.temp(ty, &target) } else { old }
             }
             ExprKind::Out { newline, arg } => {
                 let p = self.place(arg);
@@ -391,26 +543,34 @@ impl Gen<'_> {
     }
 
     fn drops(&mut self, locals: &[LocalId]) {
-        for id in locals {
-            self.line(format!("drachm_str_drop(&l{id});"));
+        for &id in locals {
+            let f = drop_fn(self.func.locals[id].ty);
+            let l = self.local(id);
+            self.line(format!("{f}(&{l});"));
         }
     }
 
-    /// `f(args)` for a Drachm function. String arguments are owned values,
-    /// each made in its own variable and handed over to the callee.
+    /// `f(args)` for a Drachm function. Owning arguments are owned values,
+    /// each made in its own variable and handed over to the callee. A
+    /// method's receiver is passed by address: a place directly, any other
+    /// value through a temporary.
     fn call(&mut self, id: FuncId, args: &[Expr]) -> String {
+        let callee = &self.prog.funcs[id];
         let mut vals = Vec::new();
-        for a in args {
-            if a.ty == Type::Str {
+        for (i, a) in args.iter().enumerate() {
+            let v = if i == 0 && callee.has_self {
+                if a.is_place() { format!("&{}", self.lvalue(a)) } else { format!("&{}", self.expr(a)) }
+            } else if self.prog.owns(a.ty) {
                 let v = self.fresh("a");
-                self.line(format!("drachm_str {v};"));
+                self.line(format!("{} {v};", c_type(a.ty)));
                 self.into(a, &v);
-                vals.push(v);
+                v
             } else {
-                vals.push(self.expr(a));
-            }
+                self.expr(a)
+            };
+            vals.push(v);
         }
-        format!("{}({})", func_name(&self.prog.funcs[id]), vals.join(", "))
+        format!("{}({})", callee.symbol, vals.join(", "))
     }
 
     /// Arguments for a runtime function: strings by pointer, numbers by value.
@@ -424,32 +584,39 @@ impl Gen<'_> {
     /// Emit what makes the string place `e`; returns a C lvalue for it.
     fn place(&mut self, e: &Expr) -> String {
         match &e.kind {
-            ExprKind::Local(id) => format!("l{id}"),
             ExprKind::Str(s) => {
                 let t = self.fresh("t");
                 self.line(format!("const drachm_str {t} = {};", c_str_value(s)));
                 t
             }
-            ExprKind::Temp(id, inner) => {
-                let dest = format!("l{id}");
-                self.into(inner, &dest);
-                dest
-            }
-            _ => unreachable!("not a string place"),
+            _ => self.lvalue(e),
         }
     }
 
-    /// Emit what writes the owned string `e` to the C lvalue `dest`.
+    /// Emit what writes the owned value `e` (a string or a struct that owns
+    /// strings) to the C lvalue `dest`.
     fn into(&mut self, e: &Expr, dest: &str) {
         match &e.kind {
             ExprKind::Str(s) => self.line(format!("{dest} = (drachm_str){};", c_str_value(s))),
             ExprKind::Copy(p) => {
                 let p = self.place(p);
-                self.line(format!("drachm_str_copy(&{dest}, &{p});"));
+                self.line(format!("{}(&{dest}, &{p});", copy_fn(e.ty)));
             }
             ExprKind::Move(id) => {
                 self.line(format!("{dest} = l{id};"));
-                self.line(format!("l{id} = (drachm_str){{0}};"));
+                self.line(format!("l{id} = ({}){{0}};", c_type(e.ty)));
+            }
+            ExprKind::Struct(fields) => {
+                let def = self.prog.struct_def(e.ty);
+                for (i, value) in fields {
+                    let field = format!("{dest}.f_{}", def.fields[*i].name);
+                    if self.prog.owns(value.ty) {
+                        self.into(value, &field);
+                    } else {
+                        let v = self.expr(value);
+                        self.line(format!("{field} = {v};"));
+                    }
+                }
             }
             ExprKind::Text(value) => {
                 let v = self.expr(value);
@@ -462,7 +629,7 @@ impl Gen<'_> {
                     }
                     Type::Int { signed: true, .. } => format!("drachm_text_s64(&{dest}, (int64_t){v})"),
                     Type::Int { signed: false, .. } => format!("drachm_text_u64(&{dest}, (uint64_t){v})"),
-                    Type::None | Type::Str => unreachable!("checked by typeck"),
+                    Type::None | Type::Str | Type::Struct { .. } => unreachable!("checked by typeck"),
                 };
                 self.line(format!("{call};"));
             }
@@ -487,7 +654,7 @@ impl Gen<'_> {
                 self.into(inner, dest);
                 self.drops(drops);
             }
-            _ => unreachable!("not an owned string"),
+            _ => unreachable!("not an owned value"),
         }
     }
 

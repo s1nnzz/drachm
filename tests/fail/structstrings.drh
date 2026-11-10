@@ -1,0 +1,30 @@
+// Structs that hold strings where text or a number is expected.
+in io;
+
+struct Named {
+public:
+    string name;
+    string text() { return self.name; }
+}
+
+struct Plain {
+public:
+    uint32 n;
+}
+
+none main() {
+    Named a = "a";
+    Plain p = 1;
+    io::outln(f"name: ${a}");
+    io::outf("%\n", p);
+    io::outln(a);
+    match (p) {
+        case _ { }
+    }
+    a.name = "b";
+}
+
+none join(Plain p, Named n) {
+    string s = "p is " + p;
+    string t = "n is " + n;
+}

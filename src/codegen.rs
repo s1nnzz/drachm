@@ -1,19 +1,23 @@
 //! The fast backend: `hir` → Cranelift IR → object file. Used for plain
 //! (non `-O`) builds. Must behave exactly like the C backend in `cgen`.
 //!
-//! Strings live in 24-byte stack slots laid out as `drachm_str` (pointer,
-//! length, capacity) and go to the runtime by pointer. Between Drachm
-//! functions a string parameter is passed as a pointer to a value the callee
-//! takes over (it copies the 24 bytes into its own slot and drops it later),
-//! and a string result is written through a hidden first parameter that
-//! points at where the caller wants it.
+//! Numbers and bools live in SSA variables. Strings and structs live in
+//! memory (stack slots): a string is 24 bytes laid out as `drachm_str`
+//! (pointer, length, capacity), a struct is laid out C-style (`hir::layout`).
+//! Both go to Drachm functions by address:
+//! - A string parameter points at a value the callee takes over (it copies
+//!   the 24 bytes into its own slot and drops it later).
+//! - A struct parameter points at memory the callee takes over and uses as
+//!   its own; a method's `self` points at the caller's value.
+//! - A string or struct result is written through a hidden first parameter
+//!   that points at where the caller wants it.
+//!
+//! Strings go to the runtime by pointer.
 
 use std::collections::HashMap;
 
 use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
-use cranelift_codegen::ir::{
-    types, AbiParam, InstBuilder, MemFlagsData, Signature, StackSlot, StackSlotData, StackSlotKind, TrapCode, UserFuncName, Value,
-};
+use cranelift_codegen::ir::{types, AbiParam, InstBuilder, MemFlagsData, Signature, StackSlotData, StackSlotKind, TrapCode, UserFuncName, Value};
 use cranelift_codegen::settings::{self, Configurable};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use cranelift_module::{DataDescription, DataId, FuncId, Linkage, Module};
@@ -25,20 +29,39 @@ use crate::types::Type;
 type ClType = types::Type;
 type ClBlock = cranelift_codegen::ir::Block;
 
+/// Loads and stores of strings and structs: always aligned, never trapping.
+const MEM: MemFlagsData = MemFlagsData::trusted();
+
+/// Offsets of a `drachm_str`'s length and capacity.
+const STR_LEN: i32 = 8;
+const STR_CAP: i32 = 16;
+
+/// The Cranelift type of a number or bool; `None` for everything else.
 fn cl_type(t: Type) -> Option<ClType> {
     match t {
         Type::Int { bits, .. } => ClType::int(bits),
         Type::Float(32) => Some(types::F32),
         Type::Float(_) => Some(types::F64),
         Type::Bool => Some(types::I8),
-        Type::None | Type::Str => None,
+        Type::None | Type::Str | Type::Struct { .. } => None,
     }
 }
 
-/// Size of a `drachm_str`, and the offsets of its fields.
-const STR_SIZE: u32 = 24;
-const STR_LEN: i32 = 8;
-const STR_CAP: i32 = 16;
+/// Strings and structs live in memory and are handled by address.
+fn in_memory(t: Type) -> bool {
+    t == Type::Str || t.struct_id().is_some()
+}
+
+fn signature(module: &ObjectModule, f: &Func) -> Signature {
+    let ptr = module.target_config().pointer_type();
+    let mut s = module.make_signature();
+    if in_memory(f.ret) {
+        s.params.push(AbiParam::new(ptr));
+    }
+    s.params.extend(f.locals[..f.params].iter().map(|l| AbiParam::new(cl_type(l.ty).unwrap_or(ptr))));
+    s.returns.extend(cl_type(f.ret).map(AbiParam::new));
+    s
+}
 
 fn is_signed(t: Type) -> bool {
     matches!(t, Type::Int { signed: true, .. })
@@ -62,13 +85,8 @@ pub fn compile(prog: &Program) -> Result<Vec<u8>, String> {
     let ptr = module.target_config().pointer_type();
     let mut ids = Vec::new();
     for f in &prog.funcs {
-        let mut s = module.make_signature();
-        if f.ret == Type::Str {
-            s.params.push(AbiParam::new(ptr));
-        }
-        s.params.extend(f.locals[..f.params].iter().map(|l| AbiParam::new(cl_type(l.ty).unwrap_or(ptr))));
-        s.returns.extend(cl_type(f.ret).map(AbiParam::new));
-        ids.push(module.declare_function(&format!("drachm_f_{}", f.name), Linkage::Local, &s).map_err(err)?);
+        let s = signature(&module, f);
+        ids.push(module.declare_function(&f.symbol, Linkage::Local, &s).map_err(err)?);
     }
 
     let mut ctx = module.make_context();
@@ -88,10 +106,12 @@ pub fn compile(prog: &Program) -> Result<Vec<u8>, String> {
             b.seal_block(entry);
 
             let params = b.block_params(entry).to_vec();
-            let hidden = (f.ret == Type::Str) as usize;
+            let hidden = in_memory(f.ret) as usize;
             let mut g = Gen {
                 b,
                 module: &mut module,
+                prog,
+                func: f,
                 ids: &ids,
                 runtime: &mut runtime,
                 strings: &mut strings,
@@ -116,20 +136,25 @@ pub fn compile(prog: &Program) -> Result<Vec<u8>, String> {
                         g.b.def_var(var, v);
                         Slot::Var(var)
                     }
-                    // A string parameter is taken over from the caller; other
-                    // strings start empty, which is what `Drop` relies on.
-                    None => {
-                        let slot = g.new_slot(STR_SIZE);
-                        let addr = g.b.ins().stack_addr(ptr, slot, 0);
+                    // A string parameter is taken over from the caller.
+                    None if l.ty == Type::Str => {
+                        let addr = g.mem(l.ty);
                         match incoming {
-                            Some(from) => g.copy_str(addr, from),
-                            None => {
-                                let zero = g.b.ins().iconst(types::I64, 0);
-                                g.store_str(addr, zero, zero, zero);
-                            }
+                            Some(from) => g.copy_bits(l.ty, addr, from),
+                            None => g.clear(l.ty, addr),
                         }
-                        Slot::Str(slot)
+                        Slot::Mem(addr)
                     }
+                    // A struct parameter's memory is the callee's own (or, for
+                    // `self`, the caller's value).
+                    None => match incoming {
+                        Some(p) => Slot::Mem(p),
+                        None => {
+                            let addr = g.mem(l.ty);
+                            g.clear(l.ty, addr);
+                            Slot::Mem(addr)
+                        }
+                    },
                 };
                 g.vars.push(local);
             }
@@ -144,7 +169,7 @@ pub fn compile(prog: &Program) -> Result<Vec<u8>, String> {
             }
             g.b.finalize(cfg);
         }
-        module.define_function(id, &mut ctx).map_err(|e| format!("in `{}`: {e:?}", f.name))?;
+        module.define_function(id, &mut ctx).map_err(|e| format!("in `{}`: {e:?}", f.symbol))?;
         module.clear_context(&mut ctx);
     }
 
@@ -182,16 +207,26 @@ fn emit_c_main(
     Ok(())
 }
 
-/// Where a local lives: numbers in SSA variables, strings in stack slots.
+/// Where a local lives: numbers and bools in SSA variables, strings and
+/// structs in memory at a fixed address.
 #[derive(Clone, Copy)]
 enum Slot {
     Var(Variable),
-    Str(StackSlot),
+    Mem(Value),
+}
+
+/// One piece of a value in memory, at an offset.
+#[derive(Clone, Copy)]
+enum Leaf {
+    Scalar(ClType),
+    Str,
 }
 
 struct Gen<'a, 'b> {
     b: FunctionBuilder<'b>,
     module: &'a mut ObjectModule,
+    prog: &'a Program,
+    func: &'a Func,
     ids: &'a [FuncId],
     /// Runtime functions imported so far.
     runtime: &'a mut HashMap<&'static str, FuncId>,
@@ -199,7 +234,7 @@ struct Gen<'a, 'b> {
     strings: &'a mut HashMap<String, DataId>,
     ptr: ClType,
     vars: Vec<Slot>,
-    /// Where a function that returns a string writes it.
+    /// Where a function that returns a string or struct writes it.
     ret_ptr: Option<Value>,
     /// Jump targets of each `Loop`: (step, exit).
     loops: HashMap<Label, (ClBlock, ClBlock)>,
@@ -210,6 +245,139 @@ struct Gen<'a, 'b> {
 }
 
 impl Gen<'_, '_> {
+    /// Fresh memory for a string or struct; returns its address.
+    fn mem(&mut self, ty: Type) -> Value {
+        let (size, align) = self.prog.size_align(ty);
+        let slot = self.b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, size.max(1), align.trailing_zeros() as u8));
+        self.b.ins().stack_addr(self.ptr, slot, 0)
+    }
+
+    /// `base + off`.
+    fn offset(&mut self, base: Value, off: u32) -> Value {
+        if off == 0 { base } else { self.b.ins().iadd_imm_u(base, off as i64) }
+    }
+
+    /// Every number, bool and string inside a value of type `ty`, as (offset, leaf).
+    fn leaves(&self, ty: Type, at: u32, out: &mut Vec<(u32, Leaf)>) {
+        if ty == Type::Str {
+            out.push((at, Leaf::Str));
+            return;
+        }
+        if let Some(cl) = cl_type(ty) {
+            out.push((at, Leaf::Scalar(cl)));
+            return;
+        }
+        for f in &self.prog.struct_def(ty).fields {
+            self.leaves(f.ty, at + f.offset, out);
+        }
+    }
+
+    fn leaves_of(&self, ty: Type) -> Vec<(u32, Leaf)> {
+        let mut out = Vec::new();
+        self.leaves(ty, 0, &mut out);
+        out
+    }
+
+    /// Copy the bits of a value of type `ty` (padding is never read). For an
+    /// owning type this moves what it owns: only one of the two may keep it.
+    fn copy_bits(&mut self, ty: Type, dst: Value, src: Value) {
+        for (off, leaf) in self.leaves_of(ty) {
+            let off = off as i32;
+            match leaf {
+                Leaf::Scalar(cl) => {
+                    let v = self.b.ins().load(cl, MEM, src, off);
+                    self.b.ins().store(MEM, v, dst, off);
+                }
+                Leaf::Str => {
+                    for word in [0, STR_LEN, STR_CAP] {
+                        let v = self.b.ins().load(types::I64, MEM, src, off + word);
+                        self.b.ins().store(MEM, v, dst, off + word);
+                    }
+                }
+            }
+        }
+    }
+
+    /// A deep copy: like `copy_bits`, but each string gets its own text.
+    fn deep_copy(&mut self, ty: Type, dst: Value, src: Value) {
+        for (off, leaf) in self.leaves_of(ty) {
+            match leaf {
+                Leaf::Scalar(cl) => {
+                    let v = self.b.ins().load(cl, MEM, src, off as i32);
+                    self.b.ins().store(MEM, v, dst, off as i32);
+                }
+                Leaf::Str => {
+                    let (d, s) = (self.offset(dst, off), self.offset(src, off));
+                    self.rt("drachm_str_copy", &[self.ptr, self.ptr], &[], &[d, s]);
+                }
+            }
+        }
+    }
+
+    /// Drop every string inside a value of type `ty`, leaving them empty.
+    fn drop_value(&mut self, ty: Type, addr: Value) {
+        for (off, leaf) in self.leaves_of(ty) {
+            if let Leaf::Str = leaf {
+                let a = self.offset(addr, off);
+                self.rt("drachm_str_drop", &[self.ptr], &[], &[a]);
+            }
+        }
+    }
+
+    /// Make every string inside a value of type `ty` empty, without freeing.
+    fn clear(&mut self, ty: Type, addr: Value) {
+        let leaves = self.leaves_of(ty);
+        if leaves.iter().any(|(_, l)| matches!(l, Leaf::Str)) {
+            let zero = self.b.ins().iconst(types::I64, 0);
+            for (off, leaf) in leaves {
+                if let Leaf::Str = leaf {
+                    for word in [0, STR_LEN, STR_CAP] {
+                        self.b.ins().store(MEM, zero, addr, off as i32 + word);
+                    }
+                }
+            }
+        }
+    }
+
+    /// The address of a string or struct local.
+    fn addr(&self, id: LocalId) -> Value {
+        match self.vars[id] {
+            Slot::Mem(a) => a,
+            Slot::Var(_) => unreachable!("not a local in memory"),
+        }
+    }
+
+    /// The memory of a place, as (base address, offset), and its type.
+    fn place_addr(&self, place: &Place) -> (Value, u32, Type) {
+        let mut ty = self.func.locals[place.local].ty;
+        let mut off = 0;
+        for &i in &place.fields {
+            let f = &self.prog.struct_def(ty).fields[i];
+            off += f.offset;
+            ty = f.ty;
+        }
+        (self.addr(place.local), off, ty)
+    }
+
+    /// The memory of a place-shaped expression (`Expr::is_place`), as (base
+    /// address, offset), without copying it. A `Temp` is made here.
+    fn expr_addr(&mut self, e: &Expr) -> (Value, u32) {
+        match &e.kind {
+            ExprKind::Local(id) => (self.addr(*id), 0),
+            ExprKind::Temp(id, inner) => {
+                let a = self.addr(*id);
+                self.into(inner, a);
+                (a, 0)
+            }
+            ExprKind::Field(inner, i) => {
+                let off = self.prog.struct_def(inner.ty).fields[*i].offset;
+                let (base, at) = if inner.is_place() { self.expr_addr(inner) } else { (self.value(inner), 0) };
+                (base, at + off)
+            }
+            _ => unreachable!("not a place"),
+        }
+    }
+
     /// Continue emitting into a fresh block once the current one is terminated,
     /// so code after `return` still has somewhere (unreachable) to go.
     fn ensure_open(&mut self) {
@@ -305,19 +473,33 @@ impl Gen<'_, '_> {
 
     fn stmt(&mut self, s: &Stmt) {
         match s {
-            Stmt::Assign(id, value) => match self.vars[*id] {
+            Stmt::Assign(place, value) => match self.vars[place.local] {
                 Slot::Var(var) => {
                     let v = self.value(value);
                     self.b.def_var(var, v);
                 }
-                Slot::Str(_) => {
-                    let dest = self.addr(*id);
-                    self.into(value, dest);
+                Slot::Mem(_) => {
+                    let (base, off, ty) = self.place_addr(place);
+                    if self.prog.owns(ty) {
+                        // The place is empty and nothing reads it while the value is made.
+                        let dest = self.offset(base, off);
+                        self.into(value, dest);
+                    } else if in_memory(ty) {
+                        // A plain struct may be read while its new value is made:
+                        // make it apart, then copy it in.
+                        let v = self.value(value);
+                        let dest = self.offset(base, off);
+                        self.copy_bits(ty, dest, v);
+                    } else {
+                        let v = self.value(value);
+                        self.b.ins().store(MEM, v, base, off as i32);
+                    }
                 }
             },
-            Stmt::Drop(id) => {
-                let a = self.addr(*id);
-                self.rt("drachm_str_drop", &[self.ptr], &[], &[a]);
+            Stmt::Drop(place) => {
+                let (base, off, ty) = self.place_addr(place);
+                let a = self.offset(base, off);
+                self.drop_value(ty, a);
             }
             Stmt::If { label, branches } => {
                 // One block per branch test; `skip to next` jumps to the next one.
@@ -395,8 +577,8 @@ impl Gen<'_, '_> {
                 self.b.ins().jump(target, &[]);
                 self.terminated = true;
             }
-            Stmt::Return(Some(value)) if value.ty == Type::Str => {
-                let dest = self.ret_ptr.expect("a string function has an out pointer");
+            Stmt::Return(Some(value)) if in_memory(value.ty) => {
+                let dest = self.ret_ptr.expect("a function returning a string or struct has an out pointer");
                 self.into(value, dest);
                 self.b.ins().return_(&[]);
                 self.terminated = true;
@@ -416,9 +598,16 @@ impl Gen<'_, '_> {
         self.expr(e).expect("expression has a value")
     }
 
-    /// Returns `None` for expressions of type `none`.
+    /// Returns `None` for expressions of type `none`. A struct value is the
+    /// address of a fresh copy (only for structs that own no strings: owning
+    /// values are made with `into` or used with `place`).
     fn expr(&mut self, e: &Expr) -> Option<Value> {
         let ty = e.ty;
+        if ty.struct_id().is_some() {
+            let tmp = self.mem(ty);
+            self.into(e, tmp);
+            return Some(tmp);
+        }
         let cl = cl_type(ty);
         Some(match &e.kind {
             ExprKind::Int(bits) => self.int_const(cl.unwrap(), *bits),
@@ -433,8 +622,16 @@ impl Gen<'_, '_> {
             | ExprKind::Copy(_)
             | ExprKind::Move(_)
             | ExprKind::Temp(..)
-            | ExprKind::Join(_) => unreachable!("strings are made with `into` or used with `place`"),
-            ExprKind::Local(id) => self.b.use_var(self.var(*id)),
+            | ExprKind::Struct(_)
+            | ExprKind::Join(_) => unreachable!("strings and structs are made with `into` or used with `place`"),
+            ExprKind::Local(id) => match self.vars[*id] {
+                Slot::Var(var) => self.b.use_var(var),
+                Slot::Mem(_) => unreachable!("a string is used with `place`"),
+            },
+            ExprKind::Field(..) => {
+                let (base, off) = self.expr_addr(e);
+                self.b.ins().load(cl.unwrap(), MEM, base, off as i32)
+            }
             ExprKind::Scoped(inner, drops) => {
                 let v = self.expr(inner);
                 self.drops(drops);
@@ -533,9 +730,17 @@ impl Gen<'_, '_> {
                 self.convert(v, inner.ty, ty)
             }
             ExprKind::Call(id, args) => return self.call(*id, args, None),
-            ExprKind::IncDec { local, inc, prefix } => {
-                let var = self.var(*local);
-                let old = self.b.use_var(var);
+            ExprKind::IncDec { place, inc, prefix } => {
+                let var = match self.vars[place.local] {
+                    Slot::Var(var) => Some(var),
+                    Slot::Mem(_) => None,
+                };
+                let addr = var.is_none().then(|| self.place_addr(place));
+                let old = match (var, addr) {
+                    (Some(var), _) => self.b.use_var(var),
+                    (None, Some((base, off, _))) => self.b.ins().load(cl.unwrap(), MEM, base, off as i32),
+                    _ => unreachable!(),
+                };
                 let new = if ty.is_float() {
                     let one = if ty == Type::Float(32) { self.b.ins().f32const(1.0) } else { self.b.ins().f64const(1.0) };
                     if *inc { self.b.ins().fadd(old, one) } else { self.b.ins().fsub(old, one) }
@@ -543,7 +748,13 @@ impl Gen<'_, '_> {
                     let one = self.int_const(cl.unwrap(), 1);
                     if *inc { self.b.ins().iadd(old, one) } else { self.b.ins().isub(old, one) }
                 };
-                self.b.def_var(var, new);
+                match (var, addr) {
+                    (Some(var), _) => self.b.def_var(var, new),
+                    (None, Some((base, off, _))) => {
+                        self.b.ins().store(MEM, new, base, off as i32);
+                    }
+                    _ => unreachable!(),
+                }
                 if *prefix { new } else { old }
             }
             ExprKind::Out { newline, arg } => {
@@ -712,53 +923,23 @@ impl Gen<'_, '_> {
         self.rt("drachm_out_str", &[self.ptr, types::I64, types::I32], &[], &[ptr, len, nl]);
     }
 
-    fn var(&self, id: LocalId) -> Variable {
-        match self.vars[id] {
-            Slot::Var(v) => v,
-            Slot::Str(_) => unreachable!("a string local is not a variable"),
-        }
-    }
-
-    /// The address of a string local.
-    fn addr(&mut self, id: LocalId) -> Value {
-        match self.vars[id] {
-            Slot::Str(slot) => self.b.ins().stack_addr(self.ptr, slot, 0),
-            Slot::Var(_) => unreachable!("not a string local"),
-        }
-    }
-
-    fn new_slot(&mut self, size: u32) -> StackSlot {
-        self.b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, size, 3))
-    }
-
     fn store_str(&mut self, dest: Value, ptr: Value, len: Value, cap: Value) {
-        let f = MemFlagsData::trusted();
-        self.b.ins().store(f, ptr, dest, 0);
-        self.b.ins().store(f, len, dest, STR_LEN);
-        self.b.ins().store(f, cap, dest, STR_CAP);
+        self.b.ins().store(MEM, ptr, dest, 0);
+        self.b.ins().store(MEM, len, dest, STR_LEN);
+        self.b.ins().store(MEM, cap, dest, STR_CAP);
     }
 
     /// The pointer and length of the string at `addr`.
     fn load_str(&mut self, addr: Value) -> (Value, Value) {
-        let f = MemFlagsData::trusted();
-        let ptr = self.b.ins().load(self.ptr, f, addr, 0);
-        let len = self.b.ins().load(types::I64, f, addr, STR_LEN);
+        let ptr = self.b.ins().load(self.ptr, MEM, addr, 0);
+        let len = self.b.ins().load(types::I64, MEM, addr, STR_LEN);
         (ptr, len)
-    }
-
-    /// Copy the 24 bytes of a string value (not its text).
-    fn copy_str(&mut self, dest: Value, src: Value) {
-        let f = MemFlagsData::trusted();
-        for off in [0, STR_LEN, STR_CAP] {
-            let v = self.b.ins().load(types::I64, f, src, off);
-            self.b.ins().store(f, v, dest, off);
-        }
     }
 
     fn drops(&mut self, locals: &[LocalId]) {
         for &id in locals {
             let a = self.addr(id);
-            self.rt("drachm_str_drop", &[self.ptr], &[], &[a]);
+            self.drop_value(self.func.locals[id].ty, a);
         }
     }
 
@@ -785,20 +966,26 @@ impl Gen<'_, '_> {
         (self.b.ins().symbol_value(self.ptr, gv), len)
     }
 
-    /// Call a Drachm function. String arguments are owned values, each made
-    /// in a slot of its own whose address is passed; the callee takes them
-    /// over. `out` is where a string result goes.
+    /// Call a Drachm function. String and struct arguments are made in
+    /// memory of their own whose address is passed; the callee takes them
+    /// over. A method's receiver is passed by address instead: a place
+    /// directly, any other value through a fresh copy. `out` is where a
+    /// string or struct result goes.
     fn call(&mut self, id: crate::hir::FuncId, args: &[Expr], out: Option<Value>) -> Option<Value> {
+        let has_self = self.prog.funcs[id].has_self;
         let mut vals: Vec<Value> = out.into_iter().collect();
-        for a in args {
-            if a.ty == Type::Str {
-                let slot = self.new_slot(STR_SIZE);
-                let addr = self.b.ins().stack_addr(self.ptr, slot, 0);
-                self.into(a, addr);
-                vals.push(addr);
+        for (i, a) in args.iter().enumerate() {
+            let v = if i == 0 && has_self && a.is_place() {
+                let (base, off) = self.expr_addr(a);
+                self.offset(base, off)
+            } else if in_memory(a.ty) {
+                let tmp = self.mem(a.ty);
+                self.into(a, tmp);
+                tmp
             } else {
-                vals.push(self.value(a));
-            }
+                self.value(a)
+            };
+            vals.push(v);
         }
         let callee = self.module.declare_func_in_func(self.ids[id], self.b.func);
         let call = self.b.ins().call(callee, &vals);
@@ -824,26 +1011,25 @@ impl Gen<'_, '_> {
         (types, vals)
     }
 
-    /// Emit what makes the string place `e`; returns its address.
+    /// Emit what makes the place `e` (a string literal or `is_place`);
+    /// returns its address.
     fn place(&mut self, e: &Expr) -> Value {
         match &e.kind {
-            ExprKind::Local(id) => self.addr(*id),
             ExprKind::Str(_) => {
-                let slot = self.new_slot(STR_SIZE);
-                let addr = self.b.ins().stack_addr(self.ptr, slot, 0);
+                let addr = self.mem(Type::Str);
                 self.into(e, addr);
                 addr
             }
-            ExprKind::Temp(id, inner) => {
-                let addr = self.addr(*id);
-                self.into(inner, addr);
-                addr
+            _ => {
+                let (base, off) = self.expr_addr(e);
+                self.offset(base, off)
             }
-            _ => unreachable!("not a string place"),
         }
     }
 
-    /// Emit what writes the owned string `e` to `dest`.
+    /// Emit what writes the value `e`, a string or a struct, to `dest`. For
+    /// an owning type `e` is an owned value; a plain struct may be any value
+    /// (a place is copied).
     fn into(&mut self, e: &Expr, dest: Value) {
         let (i32t, i64t, ptr) = (types::I32, types::I64, self.ptr);
         match &e.kind {
@@ -854,13 +1040,28 @@ impl Gen<'_, '_> {
             }
             ExprKind::Copy(inner) => {
                 let src = self.place(inner);
-                self.rt("drachm_str_copy", &[ptr, ptr], &[], &[dest, src]);
+                self.deep_copy(e.ty, dest, src);
             }
             ExprKind::Move(id) => {
                 let src = self.addr(*id);
-                self.copy_str(dest, src);
-                let zero = self.b.ins().iconst(i64t, 0);
-                self.store_str(src, zero, zero, zero);
+                self.copy_bits(e.ty, dest, src);
+                self.clear(e.ty, src);
+            }
+            ExprKind::Local(_) | ExprKind::Field(..) | ExprKind::Temp(..) => {
+                let src = self.place(e);
+                self.copy_bits(e.ty, dest, src);
+            }
+            ExprKind::Struct(fields) => {
+                for (i, value) in fields {
+                    let off = self.prog.struct_def(e.ty).fields[*i].offset;
+                    if in_memory(value.ty) {
+                        let at = self.offset(dest, off);
+                        self.into(value, at);
+                    } else {
+                        let v = self.value(value);
+                        self.b.ins().store(MEM, v, dest, off as i32);
+                    }
+                }
             }
             ExprKind::Text(value) => {
                 let v = self.value(value);
@@ -884,7 +1085,7 @@ impl Gen<'_, '_> {
                         let name = if signed { "drachm_text_s64" } else { "drachm_text_u64" };
                         self.rt(name, &[ptr, i64t], &[], &[dest, wide]);
                     }
-                    Type::None | Type::Str => unreachable!("checked by typeck"),
+                    Type::None | Type::Str | Type::Struct { .. } => unreachable!("checked by typeck"),
                 }
             }
             ExprKind::Radix { value, base, upper } => {
@@ -903,11 +1104,12 @@ impl Gen<'_, '_> {
             }
             ExprKind::Join(parts) => {
                 // The parts' values side by side, as the runtime's array.
-                let array = self.new_slot(STR_SIZE * parts.len() as u32);
+                let size = STR_SIZE * parts.len() as u32;
+                let array = self.b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, size, 3));
                 for (i, part) in parts.iter().enumerate() {
                     let src = self.place(part);
                     let at = self.b.ins().stack_addr(ptr, array, (STR_SIZE as usize * i) as i32);
-                    self.copy_str(at, src);
+                    self.copy_bits(Type::Str, at, src);
                 }
                 let base = self.b.ins().stack_addr(ptr, array, 0);
                 let n = self.b.ins().iconst(i64t, parts.len() as i64);
@@ -920,7 +1122,7 @@ impl Gen<'_, '_> {
                 self.into(inner, dest);
                 self.drops(drops);
             }
-            _ => unreachable!("not an owned string"),
+            _ => unreachable!("not a string or struct value"),
         }
     }
 }

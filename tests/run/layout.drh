@@ -1,0 +1,138 @@
+// Structs of every size class, with padding, holding every number type,
+// copied, passed, returned and changed through methods.
+in io;
+
+// 1 byte.
+struct Tiny {
+public:
+    uint8 v;
+}
+
+// 16 bytes: 1, padding to 8, 8.
+struct Padded {
+public:
+    bool flag;
+    sint64 n;
+}
+
+// 32 bytes: one 128-bit number (16-byte aligned) after a small field.
+struct Wide {
+public:
+    sint8 tag;
+    uint128 big;
+}
+
+// Every number type, with padding between them.
+struct All {
+public:
+    uint8 a;
+    uint16 b;
+    uint32 c;
+    uint64 d;
+    uint128 e;
+    sint8 f;
+    sint16 g;
+    sint32 h;
+    sint64 i;
+    sint128 j;
+    float32 k;
+    float64 l;
+    bool m;
+
+    All bumped() {
+        All r = self.a + 1, self.b + 1, self.c + 1, self.d + 1, self.e + 1, self.f - 1, self.g - 1, self.h - 1, self.i - 1, self.j - 1, self.k * 2, self.l / 2, !self.m;
+        return r;
+    }
+}
+
+// Larger: structs inside structs, 128-bit numbers in the middle.
+struct Big {
+public:
+    All first;
+    Tiny small;
+    Wide wide;
+    All second;
+    mut uint32 count;
+
+    none touch() { self.count++; }
+    none grow() {
+        self.wide.big = self.wide.big * 2;
+        self::touch();
+    }
+}
+
+Tiny nextTiny(Tiny t) {
+    Tiny r = t.v + 1;
+    return r;
+}
+
+Padded flip(Padded p) {
+    Padded r = !p.flag, -p.n;
+    return r;
+}
+
+Wide shifted(Wide w) {
+    Wide r = w.tag, w.big << 64;
+    return r;
+}
+
+none showAll(All x) {
+    io::out(x.a::text()); io::out(" ");
+    io::out(x.b::text()); io::out(" ");
+    io::out(x.c::text()); io::out(" ");
+    io::out(x.d::text()); io::out(" ");
+    io::out(x.e::text()); io::out(" ");
+    io::out(x.f::text()); io::out(" ");
+    io::out(x.g::text()); io::out(" ");
+    io::out(x.h::text()); io::out(" ");
+    io::out(x.i::text()); io::out(" ");
+    io::out(x.j::text()); io::out(" ");
+    io::out(x.k::text()); io::out(" ");
+    io::out(x.l::text()); io::out(" ");
+    io::outln(x.m::text());
+}
+
+none main() {
+    Tiny t = 254;
+    io::outln(nextTiny(t).v::text());
+    io::outln(nextTiny(nextTiny(t)).v::text());
+
+    Padded p = true, -9_000_000_000;
+    Padded q = flip(p);
+    io::outln(q.flag::text());
+    io::outln(q.n::text());
+    io::outln((p == flip(q))::text());
+
+    Wide w = -5, 0xFFFF_FFFF_FFFF_FFFF;
+    Wide v = shifted(w);
+    io::outln(v.tag::text());
+    io::outln(v.big::text());
+    io::outln(shifted(v).big::text());
+
+    All x = 255, 65535, 4294967295, 18446744073709551615, 340282366920938463463374607431768211455,
+            -128, -32768, -2147483648, -9223372036854775808, -170141183460469231731687303715884105728,
+            1.5, 0.1, false;
+    showAll(x);
+    showAll(x::bumped());
+    showAll(x::bumped()->bumped());
+
+    mut Big b = x, t, w, x::bumped(), 0;
+    b.second.l = 2.5;
+    b::grow();
+    b::grow();
+    io::outln(b.wide.big::text());
+    io::outln(b.count::text());
+    io::outln(b.small.v::text());
+    showAll(b.first);
+    showAll(b.second);
+    Big c = b;
+    b.first.a = 7;
+    io::outln(c.first.a::text());
+    io::outln(b.first.a::text());
+    io::outln((b == c)::text());
+    c.count += 40;
+    io::outln(c.count::text());
+    b.count = c.count;
+    b.first.a = 255;
+    io::outln((b == c)::text());
+}

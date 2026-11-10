@@ -1,0 +1,177 @@
+// Structs and control flow: structs (plain and holding strings) in loops
+// and `match` arms, range loops inside methods, and jumps res of scopes
+// that hold structs. Run with leak checking.
+in io;
+
+struct Vec2 {
+public:
+    sint32 x;
+    sint32 y;
+
+    Vec2 +(Vec2 o) {
+        Vec2 r = self.x + o.x, self.y + o.y;
+        return r;
+    }
+    // A range loop inside a method.
+    Vec2 times(uint32 n) {
+        mut Vec2 sum = 0, 0;
+        for (uint32 i of 1..n) {
+            sum = sum + self;
+        }
+        return sum;
+    }
+}
+
+struct Item {
+public:
+    string name;
+    uint32 count;
+
+    // A `match` on a field, with strings made in the arms.
+    string size() {
+        match (self.count) {
+            case 0 { return "none"; }
+            case 1..9 {
+                string s = "a few " + self.name;
+                return s;
+            }
+            case _ { }
+        }
+        return "many " + self.name;
+    }
+    // Loops over a range inside a method, `skip` and `continue` with strings in scope.
+    string repeated(uint32 times) {
+        mut string res = "";
+        for (uint32 i of 1..times) {
+            string piece = self.name + i::text();
+            if (i % 2 == 0) {
+                string skipped = piece + "?";
+                continue;
+            }
+            if (i == 5) {
+                if (self.count > 0) {
+                    string inner = piece + "!";
+                    res += inner;
+                    skip;
+                }
+                res += "unreachable";
+            }
+            res += piece + " ";
+        }
+        return res;
+    }
+}
+
+struct Stock {
+public:
+    Item item;
+    mut uint32 sold;
+}
+
+// Structs built and dropped every time round, with `break` and `continue`.
+none loops() {
+    mut Vec2 pos = 0, 0;
+    Vec2 step = 1, 2;
+    mut uint32 n = 0;
+    while (true) {
+        n++;
+        Item it = "box" + n::text(), n;
+        Vec2 next = pos + step;
+        if (n == 2) {
+            Item extra = it.name + "-extra", 0;
+            continue;
+        }
+        pos = next;
+        if (n == 4) {
+            Stock s = it, 0;
+            io::outln("leaving with " + s.item.name);
+            break;
+        }
+    }
+    io::outln(pos.x::text() + "," + pos.y::text());
+    io::outln(step::times(3).x::text());
+}
+
+// Nested loops with `break 2` res of scopes holding nested owning structs.
+string search(uint32 target) {
+    mut string found = "nothing";
+    for (uint32 a of 1..5) {
+        Item outer = "a" + a::text(), a;
+        for (uint32 b of 1..5) {
+            Stock s = outer, b;
+            if (a * b == target) {
+                found = s.item.name + "*" + s.sold::text();
+                break 2;
+            }
+            if (b > a) {
+                continue 2;
+            }
+        }
+    }
+    return found;
+}
+
+// A struct returned from inside a loop inside a `match`.
+Item pick(uint32 kind) {
+    match (kind) {
+        case 1, 2 {
+            for (uint32 i of 0..10) {
+                Item candidate = "pick" + i::text(), i * kind;
+                if (candidate.count >= 6) {
+                    return candidate;
+                }
+            }
+        }
+        case _ { }
+    }
+    Item fallback = "default", 0;
+    return fallback;
+}
+
+// `match` arms that each build and replace a struct.
+Stock restock(Stock s, uint32 code) {
+    mut Stock res = s;
+    match (code) {
+        case 0 { }
+        case 1 {
+            res.item.count += 10;
+            res.item.name += "+";
+        }
+        case 2 {
+            Item fresh = "new " + s.item.name, 1;
+            res.item = fresh;
+            skip to next;
+        }
+        case 3 {
+            res.sold++;
+        }
+        case _ {
+            res = s;
+        }
+    }
+    return res;
+}
+
+none main() {
+    loops();
+    io::outln(search(6));
+    io::outln(search(7));
+    io::outln(pick(1).name + " " + pick(2).name + " " + pick(3).name);
+    Item a = "apple", 0;
+    Item b = "pear", 3;
+    Item c = "plum", 12;
+    io::outln(a::size() + ", " + b::size() + ", " + c::size());
+    io::outln(c::repeated(6));
+    io::outln(a::repeated(6));
+    Stock s = b, 2;
+    for (uint32 code of 0..4) {
+        Stock r = restock(s, code);
+        io::outln(code::text() + ": " + r.item.name + " " + r.item.count::text() + " sold " + r.sold::text());
+    }
+    // A `for` whose init binding is a struct holding strings.
+    for (mut Item it = "x", 0; it.count < 3; it.count++) {
+        it.name += "x";
+        io::out(it.name + " ");
+    }
+    io::outln("");
+}

@@ -21,7 +21,7 @@ use std::collections::HashMap;
 
 use num_rational::BigRational;
 
-use super::{int_lit, origin, resolve_binding_type, scoped, Checker, Flow, Val};
+use super::{int_lit, origin, scoped, Checker, Flow, Val};
 use crate::ast::{self, ExprKind, Pattern, SkipTarget};
 use crate::consts::Const;
 use crate::diag::{codes, Diagnostic, Span};
@@ -390,7 +390,7 @@ impl Checker<'_> {
     /// so the counter never steps past `end`, even at the type's largest value.
     pub(super) fn for_each(&mut self, s: &ast::Stmt, out: &mut hir::Block) {
         let ast::Stmt::ForEach { mutable, ty: ty_name, name, name_span, iter, body, span } = s else { unreachable!() };
-        let ty = resolve_binding_type(ty_name, self.diags);
+        let ty = self.g.resolve_binding_type(ty_name, self.diags);
         let bounds = match &iter.kind {
             ExprKind::Range(lo, hi) => match ty {
                 Some(t) if t.is_int() => {
@@ -447,7 +447,7 @@ impl Checker<'_> {
         self.flow.truncate(len);
 
         let Some((start, end, counter, a, b, t)) = hidden else { return };
-        let mut inner = vec![hir::Stmt::Assign(var, local(counter, t))];
+        let mut inner = vec![hir::Stmt::Assign(hir::Place::local(var), local(counter, t))];
         inner.extend(body);
         let step = vec![
             hir::Stmt::If {
@@ -457,16 +457,16 @@ impl Checker<'_> {
                     body: vec![hir::Stmt::Jump(hir::Jump::Break(label))],
                 }],
             },
-            hir::Stmt::Assign(counter, binary(hir::BinOp::Add, local(counter, t), int_lit(1, t))),
+            hir::Stmt::Assign(hir::Place::local(counter), binary(hir::BinOp::Add, local(counter, t), int_lit(1, t))),
         ];
-        out.push(hir::Stmt::Assign(start, a));
-        out.push(hir::Stmt::Assign(end, b));
+        out.push(hir::Stmt::Assign(hir::Place::local(start), a));
+        out.push(hir::Stmt::Assign(hir::Place::local(end), b));
         out.push(hir::Stmt::If {
             label: self.new_label(),
             branches: vec![hir::Branch {
                 test: Some(binary(hir::BinOp::Le, local(start, t), local(end, t))),
                 body: vec![
-                    hir::Stmt::Assign(counter, local(start, t)),
+                    hir::Stmt::Assign(hir::Place::local(counter), local(start, t)),
                     hir::Stmt::Loop { label, cond: None, body: inner, step },
                 ],
             }],
@@ -611,8 +611,12 @@ impl Checker<'_> {
             Some(v) => {
                 let d = if v.ty == Type::Str {
                     Diagnostic::at(&codes::E0901, value.span, "matching on text is not supported yet")
-                } else {
+                } else if v.ty == Type::None {
                     Diagnostic::at(&codes::E0104, value.span, "`match` needs a value, but this produces none").note("returns `none`")
+                } else {
+                    Diagnostic::at(&codes::E0101, value.span, format!("`match` works on numbers and bools, not `{}`", v.ty))
+                        .note(format!("this is `{}`", v.ty))
+                        .help("compare its fields in the cases, or use `if` with `==`")
                 };
                 self.diags.push(d);
                 None
@@ -623,7 +627,7 @@ impl Checker<'_> {
         // Evaluated once, before any case is tested.
         let tmp = v.map(|v| {
             let id = self.hidden_named("match value", v.ty);
-            out.push(hir::Stmt::Assign(id, scoped(v, temps)));
+            out.push(hir::Stmt::Assign(hir::Place::local(id), scoped(v, temps)));
             id
         });
 

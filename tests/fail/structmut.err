@@ -1,0 +1,42 @@
+error[E0005]: `self` cannot be assigned as a whole
+ help: assign its fields one by one: `self.x = ...;`
+error[E0205]: cannot change `p.x`: parameter `p` is not `mut`, and neither is the field
+ help: declare it as `mut Point p`, or the field as `mut sint32 x;` in `Point`
+error[E0205]: cannot call `shift` on `p`: it changes the value, and parameter `p` is not `mut`
+    |                            ------ `shift` changes `self` here: it changes `self.x`
+ help: declare it as `mut Point p`, or make the fields `shift` changes `mut`
+error[E0205]: cannot change `a.x`: `a` is not `mut`, and neither is the field
+ help: declare it as `mut Point a`, or the field as `mut sint32 x;` in `Point`
+error[E0205]: cannot change `a.y`: `a` is not `mut`, and neither is the field
+ help: declare it as `mut Point a`, or the field as `mut sint32 y;` in `Point`
+error[E0205]: cannot call `shift` on `a`: it changes the value, and `a` is not `mut`
+    |                            ------ `shift` changes `self` here: it changes `self.x`
+ help: declare it as `mut Point a`, or make the fields `shift` changes `mut`
+error[E0205]: cannot call `shiftTwice` on `a`: it changes the value, and `a` is not `mut`
+    |               ----- `shiftTwice` changes `self` here: it calls `shift`, which changes `self`
+ help: declare it as `mut Point a`, or make the fields `shiftTwice` changes `mut`
+error[E0205]: cannot call `shift` on a temporary value: it changes the value
+    |                            ------ `shift` changes `self` here: it changes `self.x`
+ help: store the value in a `mut` binding first, then call `shift` on that
+error[E0205]: cannot call `shift` on a temporary value: it changes the value
+    |                            ------ `shift` changes `self` here: it changes `self.x`
+ help: store the value in a `mut` binding first, then call `shift` on that
+error[E0205]: cannot change `l.a.x`: `l` is not `mut`, and neither is the field
+ help: declare it as `mut Line l`, or the field as `mut sint32 x;` in `Point`
+error[E0205]: cannot call `shift` on `l.a`: it changes the value, and `l` is not `mut`
+    |                            ------ `shift` changes `self` here: it changes `self.x`
+ help: declare it as `mut Line l`, or make the fields `shift` changes `mut`
+error[E0211]: cannot set `later.x`: `later` may not have a value yet
+ help: give `later` a whole value first, on every path to here
+error[E0114]: `Point` has 3 fields, but 2 values are given
+ help: give a value for each field, in order: `sint32 x`, `sint32 y` and `uint32 seen`
+error[E0114]: field `x` is given twice
+error[E0114]: field `seen` of `Point` is not given
+ help: every field needs a value: `sint32 x`, `sint32 y` and `uint32 seen`
+error[E0114]: values for `Point` are partly named and partly not
+ help: name every value (`x: 1, y: 2`) or none (`1, 2`)
+error[E0201]: `Point` has no field `z`
+ help: did you mean `x`?
+error[E0101]: expected `sint32`, found `bool`
+ help: `bool` is not a number and never converts to or from one
+tests/fail/structmut.drh: 18 errors

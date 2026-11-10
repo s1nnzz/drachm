@@ -1,0 +1,23 @@
+// Warnings around structs: lossy field values, and a method that never uses `self`.
+in io;
+
+struct Pixel {
+public:
+    uint8 r;
+    uint8 g;
+    float32 a;
+
+    uint32 channels() { return 3; }
+}
+
+none main() {
+    uint32 big = 300;
+    float64 alpha = 0.1;
+    Pixel p = big, 256, alpha;
+    Pixel q = a: 1.5, g: 2.9, r: 7;
+    io::outln(p.r::text());
+    io::outln(p.g::text());
+    io::outln(p.a::text());
+    io::outln(q.g::text());
+    io::outln(q::channels()->text());
+}

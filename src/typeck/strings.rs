@@ -109,8 +109,27 @@ impl Checker<'_> {
                 );
                 None
             }
+            Type::Struct { .. } => {
+                self.struct_not_text(v.ty, e.span);
+                None
+            }
             _ => Some(self.place(text_of(v))),
         }
+    }
+
+    /// A struct where text is wanted (`${p}`, `io::outf`'s `%`).
+    // OPEN: whether these use a struct's own `text()` method instead.
+    fn struct_not_text(&mut self, ty: Type, span: Span) {
+        let Type::Struct { id, name } = ty else { return };
+        let what = self.quote(span, "this value");
+        let mut d = Diagnostic::at(&codes::E0101, span, format!("{what} is a `{name}`, which cannot be turned into text by itself"))
+            .note(format!("this is `{name}`"));
+        if self.g.method(id, "text").is_some() {
+            d = d.help(format!("call its `text` method: `{}::text()`", self.text(span)));
+        } else {
+            d = d.help("put its fields in the text one by one");
+        }
+        self.diags.push(d);
     }
 
     /// One new string made of `pieces` (places) in order.
@@ -125,7 +144,7 @@ impl Checker<'_> {
                         self.temps.pop();
                         *inner
                     }
-                    kind => Self::owned(hir::Expr { kind, ty: Type::Str }),
+                    kind => self.owned(hir::Expr { kind, ty: Type::Str }),
                 }
             }
             _ => hir::Expr { kind: hir::ExprKind::Join(pieces), ty: Type::Str },
@@ -142,7 +161,7 @@ impl Checker<'_> {
                 if let Some(a) = args.first() {
                     self.diags.push(Diagnostic::at(&codes::E0103, a.span, "`text` takes no arguments"));
                 }
-                return Some(Val::Expr(Self::owned(recv)));
+                return Some(Val::Expr(self.owned(recv)));
             }
             "len" => StrFn::Len,
             "isEmpty" => StrFn::IsEmpty,
@@ -244,7 +263,14 @@ impl Checker<'_> {
                     format!("`{sym}` has `string` on the left but {found} on the right")
                 };
                 let mut d = Diagnostic::at(&codes::E0101, ro.span, message).note(format!("this is {found}")).label(lo.span, "this is `string`");
-                if !matches!(&other, Val::Expr(r) if r.ty == Type::None) {
+                let has_text = match &other {
+                    Val::Const(_) => true,
+                    Val::Expr(r) => match r.ty.struct_id() {
+                        Some(s) => self.g.method(s, "text").is_some(),
+                        None => r.ty != Type::None,
+                    },
+                };
+                if has_text {
                     d = d.help(self.text_fix(ro));
                 }
                 self.diags.push(d);
@@ -503,6 +529,10 @@ impl Checker<'_> {
         };
         if ty == Type::None {
             self.diags.push(Diagnostic::at(&codes::E0104, arg.span, "this produces no value to print").note("returns `none`"));
+            return None;
+        }
+        if ty.struct_id().is_some() {
+            self.struct_not_text(ty, arg.span);
             return None;
         }
         let text = if let Some((base, upper)) = hole.base {

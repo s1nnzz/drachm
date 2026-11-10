@@ -1,0 +1,17 @@
+struct Circle {
+public:
+    float64 r;
+    Circle(float64 radius) { self.r = radius; }
+    static float64 pi;
+    mut float64 area() { return 1.0; }
+    uint32 id = 5;
+}
+
+struct Stack<T> { }
+
+struct Shape with Drawable { }
+
+none main() {
+    Circle c = 1.0;
+    c = 2.0, 3.0;
+}

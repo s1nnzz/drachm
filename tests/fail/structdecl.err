@@ -1,0 +1,17 @@
+error[E0202]: struct `Point` is defined twice
+error[E0202]: `uint32` is the name of a built-in type
+error[E0202]: `Twice` has two fields named `a`
+error[E0202]: `Twice` has a field and a method both named `len`
+error[E0202]: `Twice` has two methods named `go`
+error[E0201]: unknown type `Pointt`
+ help: did you mean `Point`?
+error[E0210]: struct `Node` contains itself
+ note: `Node` holds `Node`: its size would never end
+error[E0210]: struct `A` contains itself
+ note: `A` holds `B`, `B` holds `C`, `C` holds `A`: its size would never end
+error[E0113]: operator `+` cannot be `static`
+error[E0113]: operator `-` takes 1 parameter, but has 2
+error[E0113]: operator `<` must return `bool`
+error[E0113]: operator `==` must take an argument of type `Ops`
+error[E0113]: `<<` cannot be an operator method
+tests/fail/structdecl.drh: 13 errors, 1 warning

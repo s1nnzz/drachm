@@ -1,6 +1,8 @@
-//! Drachm's built-in types.
+//! Drachm's types: the built-in ones, plus structs by id.
 
+use std::collections::BTreeSet;
 use std::fmt;
+use std::sync::Mutex;
 
 use num_bigint::BigInt;
 
@@ -13,6 +15,21 @@ pub enum Type {
     None,
     /// Text: an owned UTF-8 string (`string`, also spelled `str`).
     Str,
+    /// A struct: its index in `hir::Program::structs`, and its name for messages.
+    Struct { id: usize, name: &'static str },
+}
+
+/// A struct's name as a `&'static str`, so that `Type` can stay `Copy` and
+/// print itself. Each distinct name is stored once for the whole process.
+pub fn intern(name: &str) -> &'static str {
+    static NAMES: Mutex<BTreeSet<&'static str>> = Mutex::new(BTreeSet::new());
+    let mut names = NAMES.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(n) = names.get(name) {
+        return n;
+    }
+    let n: &'static str = Box::leak(name.into());
+    names.insert(n);
+    n
 }
 
 /// Why a type name did not resolve.
@@ -79,6 +96,13 @@ impl Type {
         self.is_int() || self.is_float()
     }
 
+    pub fn struct_id(self) -> Option<usize> {
+        match self {
+            Type::Struct { id, .. } => Some(id),
+            _ => None,
+        }
+    }
+
     /// Smallest and largest value of an integer type.
     pub fn int_range(self) -> Option<(BigInt, BigInt)> {
         let Type::Int { bits, signed } = self else { return None };
@@ -133,6 +157,7 @@ impl fmt::Display for Type {
             Type::Bool => f.write_str("bool"),
             Type::None => f.write_str("none"),
             Type::Str => f.write_str("string"),
+            Type::Struct { name, .. } => f.write_str(name),
         }
     }
 }

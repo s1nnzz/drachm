@@ -1,0 +1,48 @@
+in io;
+
+struct Point {
+public:
+    sint32 x;
+    sint32 y;
+    sint32 sum() { return self.x + self.y; }
+    static Point origin() {
+        io::outln(self.x::text());
+        Point p = 0, 0;
+        return p;
+    }
+private:
+    sint32 secret;
+    sint32 hidden() { return self.secret; }
+}
+
+struct Box {
+    uint32 inside;
+public:
+    Point p;
+}
+
+none main() {
+    Point a = 1, 2, 3;
+    io::outln(a.z::text());
+    io::outln(a.xx::text());
+    io::outln(a.sum::text());
+    io::outln(a::summ()->text());
+    io::outln(a::x()->text());
+    io::outln(a.secret::text());
+    io::outln(a::hidden()->text());
+    Point b = a::origin();
+    io::outln(Point::sum()->text());
+    io::outln(Point::nothing()->text());
+    sint32 n = 5;
+    io::outln(n.x::text());
+    io::outln(self.x::text());
+    Point c = a * 2;
+    Point d = 2 * a;
+    bool e = a < a;
+    io::outln(-a);
+    io::outln(a);
+    Box k = 1, a;
+    io::outln(k.inside::text());
+    io::outln(k.p.x::text());
+    uint32 q = 1, 2;
+}

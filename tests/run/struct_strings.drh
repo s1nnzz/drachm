@@ -1,0 +1,189 @@
+// Structs with `string` fields: built, read, assigned, appended to, copied
+// (deeply), dropped, compared, passed and returned, in both backends. Run
+// with leak checking, so every copy must be dropped exactly once.
+in io;
+
+struct Person {
+public:
+    string name;
+    uint32 age;
+    mut string note;
+
+    string greeting() { return "Hi, " + self.name + "!"; }
+    string describe() { return f"${self.name} (${self.age})"; }
+    none rename(string to) { self.name = to; }
+    none annotate(string more) { self.note += more; }
+    Person older(uint32 years) {
+        Person p = self.name, self.age + years, self.note;
+        return p;
+    }
+    bool sameName(Person other) { return self.name == other.name; }
+    static Person nobody() {
+        Person p = "nobody", 0, "";
+        return p;
+    }
+}
+
+// A struct holding a struct holding strings, plus a plain struct.
+struct Pair {
+public:
+    Person first;
+    Person second;
+    uint8 tag;
+}
+
+struct Box {
+public:
+    string label;
+    Point at;
+}
+
+struct Point {
+public:
+    sint32 x;
+    sint32 y;
+}
+
+// Operator methods on a struct that holds a string.
+struct Tag {
+public:
+    string text;
+    uint32 weight;
+
+    Tag +(Tag o) {
+        Tag t = self.text + "+" + o.text, self.weight + o.weight;
+        return t;
+    }
+    bool <(Tag o) { return self.text < o.text; }
+    // Equal when the text matches, whatever the weight.
+    bool ==(Tag o) { return self.text == o.text; }
+}
+
+struct Labelled {
+public:
+    Tag tag;
+    mut uint32 uses;
+}
+
+// Struct values through functions: the callee owns (and drops) its copy.
+Person birthday(Person p) {
+    Person q = p.name, p.age + 1, p.note + "+1";
+    return q;
+}
+
+uint64 nameLength(Person p) { return p.name::len(); }
+
+Pair swap(Pair p) {
+    Pair q = p.second, p.first, p.tag;
+    return q;
+}
+
+string firstName(Pair p) { return p.first.name; }
+
+Person make(string name) {
+    Person p = name: name, age: 30, note: "";
+    return p;
+}
+
+none main() {
+    // Construction, positional and by name.
+    Person ann = "Ann", 31, "likes tea";
+    Person bob = note: "", age: 25, name: "Bob";
+    io::outln(ann.name + " / " + bob.name);
+    io::outln(ann.age::text() + " " + bob.age::text());
+
+    // String methods on fields, and string-returning methods.
+    io::outln(ann.name::upper() + " " + ann.name::len()->text());
+    io::outln(ann::greeting());
+    io::outln(bob::describe());
+
+    // Field assignment and `+=` on a binding that is `mut`.
+    mut Person carl = "Carl", 40, "";
+    carl.name = "Karl";
+    carl.name += "o";
+    carl.note += "a";
+    carl.note += "b" + carl.name;
+    io::outln(carl.name + " [" + carl.note + "]");
+
+    // A `mut` field changes even on an immutable binding.
+    ann.note += ", coffee";
+    io::outln(ann.note);
+    ann::annotate(" too");
+    io::outln(ann.note);
+
+    // Methods that change `self` on a `mut` binding.
+    carl::rename("Charles");
+    io::outln(carl.name);
+
+    // Copies are deep: changing one leaves the other alone.
+    mut Person dup = carl;
+    dup.name += " II";
+    io::outln(carl.name + " / " + dup.name);
+    dup = ann;
+    dup.note = "changed";
+    io::outln(ann.note + " / " + dup.note);
+
+    // Passed to and returned from functions.
+    Person older = birthday(ann);
+    io::outln(older::describe() + " " + older.note);
+    io::outln(nameLength(bob)::text());
+    io::outln(make("Dee")::describe());
+    io::outln(ann::older(10)->describe());
+    io::outln(Person::nobody().name);
+    io::outln(make("Eve").name::upper());
+
+    // Automatic `==` compares string fields by their text.
+    Person ann2 = "Ann", 31, "likes tea, coffee too";
+    io::outln((ann == ann2)::text() + " " + (ann != ann2)::text());
+    io::outln((ann == bob)::text() + " " + (ann == older)::text());
+    io::outln(ann::sameName(older)->text());
+    Person built = "A" + "nn", 31, ann.note;
+    io::outln((built == ann)::text());
+
+    // Nested owning structs.
+    Pair pair = ann, bob, 7;
+    Pair swapped = swap(pair);
+    io::outln(swapped.first.name + " " + swapped.second.name + " " + swapped.tag::text());
+    io::outln(firstName(pair));
+    io::outln((pair == swapped)::text() + " " + (swap(swapped) == pair)::text());
+    mut Pair edit = pair;
+    edit.second.name = "Robert";
+    edit.first.note += "!";
+    io::outln(edit.second.name + " " + pair.second.name + " " + edit.first.note);
+
+    // A struct mixing a string and a plain struct.
+    Point at = 3, 4;
+    Box b = "corner", at;
+    io::outln(b.label + " " + b.at.x::text() + "," + b.at.y::text());
+
+    // A temporary struct is dropped at the end of its statement.
+    make("temp");
+    io::outln(f"${make("Fay").name} is ${make("Fay").age}");
+
+    // Operators: methods take the left side in place and a copy of the right.
+    Tag t1 = "red", 1;
+    Tag t2 = "blue", 2;
+    Tag t3 = t1 + t2 + t1;
+    io::outln(t3.text + " " + t3.weight::text());
+    io::outln((t2 < t1)::text() + " " + (t1 < t2)::text());
+    Tag t4 = "red", 9;
+    io::outln((t1 == t4)::text() + " " + (t1 != t4)::text() + " " + (t1 != t2)::text());
+    mut Labelled l = t1, 0;
+    l.tag += t2;
+    l.tag.text += "!";
+    l.uses++;
+    io::outln(l.tag.text + " " + l.tag.weight::text() + " " + l.uses::text());
+    // The automatic `==` of a struct uses the custom `==` of its fields.
+    Labelled l2 = t4, 1;
+    Labelled l3 = t1, 1;
+    io::outln((l2 == l3)::text() + " " + (l == l3)::text());
+
+    // A binding declared without a value gets one later.
+    Person later;
+    if (ann.age > 30) {
+        later = ann;
+    } else {
+        later = bob;
+    }
+    io::outln(later.name);
+}

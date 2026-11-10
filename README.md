@@ -73,6 +73,14 @@ none main() {
   `len isEmpty reverse sub upper lower trim find contains startsWith endsWith
   count join replace replaceLimit insert remove repeat padLeft padRight`.
   Each string owns its text and is freed at the end of its scope.
+- **Structs:** `struct Point { public: sint32 x; mut sint32 y; }` with fields,
+  `public:`/`private:` sections, methods using `self`, `static` methods,
+  operator methods (`Vector3 +(Vector3 o) { ... }`) and automatic `==`
+  (strings compare by text).
+  Build them in a declaration: `Point p = 1, 2;` or `Point p = y: 2, x: 1;`.
+  Calls chain as `p::moved(1, 1)->length()`. A `mut` field can change even
+  on an immutable binding. Fields may be strings; every copy of a struct is
+  a deep copy for now.
 - **Output:** `io::out` / `io::outln` print text; `io::outf` formats (`%` is
   any value, `%8 %-8 %08` pad, `%.2` sets decimals, `%x %X %b %o` pick a
   base, `\%` is a percent sign); `::text()` turns a value into text.
