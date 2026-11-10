@@ -23,8 +23,13 @@ Items marked **OPEN** are undecided. Do not invent answers for them: ask the own
 - Conditions are always parenthesised: `if (x)`, `while (x)`, `match (x)`, `for (...)`.
 - Keywords so far: `otherwise any failure because exit extends Self none mut if else while for of match case return skip to
   struct interface with static public private new in out from as fails fail maybe
-  copy lives open break continue unsafe async await move test unit true false`. `to` is a keyword only
-  directly after `skip`.
+  copy lives open break continue unsafe async await move test unit true false lend take leaving address
+  stays changes by asm`. Always reserved: `lend`, `take`. Context-only (ordinary names elsewhere):
+  `to` directly after `skip`; `by` directly after a range in `for (... of a..b by n)`;
+  `leaving` directly after `take <place>`; `address` directly before `of`; `stays` directly after a
+  struct's name (and `lives` list); `changes` directly before `self` after an interface method's
+  parameters; `asm` directly after an `unsafe` function's signature. `drop` is a reserved method name,
+  not a keyword. **OPEN:** owner to confirm which of these are reserved everywhere.
 - File flags: `//--!$key: value` lines, allowed only at the very top of a file
   (they override `drachm.toml` settings for that file).
 
@@ -98,6 +103,8 @@ while (cond) { }
 for (mut uint32 i = 0; i < 10; i++) { }     // C-style
 for (string name of names) { }             // for-each uses `of`
 for (uint32 i of 0..9) { }                 // ranges are inclusive: 0 to 9
+for (uint32 i of 0..10 by 3) { }           // 0, 3, 6, 9
+for (float64 x of 0.0..1.0 by 0.25) { }    // float ranges must say `by`
 
 break;  break 2;  continue;  continue 2;   // N = how many loops; default 1
 
@@ -108,6 +115,9 @@ match (x) {
 }
 ```
 
+- `by` sets a range loop's step: `0..10 by 3` is 0, 3, 6, 9. The loop stops at
+  the last value not past the end; it never clamps to the end. Integer ranges
+  may omit `by` (step 1); float ranges must give it.
 - `match` arms are `case` blocks with no fallthrough. A missing case is a
   **warning** (config can make warnings errors).
 - Patterns: values, `case 1, 2`, inclusive ranges `case 13..19`, strings, and
@@ -216,7 +226,10 @@ if (a) {                       // outermost
 - Interpolation: JS-style `${expr}` (any expression), only in `f"..."` and
   backtick strings (both single-line): `f"hp: ${hp}"`, `` `hi ${name}` ``. Plain
   `"..."` never interpolates. Bare `{ }` are ordinary text everywhere.
-- Multi-line: `"""..."""`; `f"""..."""` interpolates.
+- Multi-line: `"""..."""`; `f"""..."""` interpolates. The newline right after the
+  opening `"""` is dropped. The column of the closing `"""` is the left edge: that much
+  leading whitespace is removed from every line. A line indented less than that
+  is not an error; it just loses all its leading whitespace.
 - Escapes: `\n \t \r \0 \\ \" \' \` \$ \%`, `\u{1F600}` by code point, and
   `\u{GREEK SMALL LETTER ALPHA}` by Unicode name.
 - `io::outf("% has % hp (%.1)\n", name, hp, pct)`: a bare `%` prints any value
@@ -225,6 +238,10 @@ if (a) {                       // outermost
     right, `%08` pad with zeros;
   - `%x` hex, `%X` capital hex, `%b` binary, `%o` octal.
   - A literal percent sign is written `\%` (in any string, `\%` is `%`).
+  - Every unescaped `%` is a placeholder. `%\` ends a placeholder's options, so
+    what follows is text: `io::outf("%\5 apples!", "£")` prints `£5 apples!`,
+    whereas `"%5 apples!"` is width 5. (Reading of the owner's note "`%\` should
+    negate anything after the `%`"; awaiting confirmation.)
 
 String methods (confirmed 2026-11-10):
 
@@ -358,6 +375,10 @@ private:
 - Interfaces hold method signatures, `static` methods, and required fields
   (`interface Positioned { float64 x; float64 y; }`). No default method bodies.
   `Self` names the implementing type: `interface Zero { static Self zero(); }`.
+- An interface method that may change `self` says `changes self` after its
+  parameters: `interface Counter { none bump() changes self; uint32 get(); }`.
+  Struct methods stay inferred and may not change more than the interface allows.
+  `changes self` is written only in interfaces.
 - Interfaces build on others with `extends`: `interface Shape3D extends Shape { float64 volume(); }`.
 - `==` is automatic for structs (field by field), and structs can be map keys
   automatically. A `bool ==(T o)` operator method overrides `==`.
@@ -371,7 +392,10 @@ private:
 - Field names may be given, in any order, but never mixed with positional
   arguments: `Vector3 p = z: 3, x: 1, y: 2;`, `new Vector3 of (x: 1, y: 2, z: 3)`.
 - Operator overloading: a method named by the operator symbol:
-  `Vector3 +(Vector3 o) { ... }`, `Vector3 *(float64 k) { ... }`.
+  `Vector3 +(Vector3 o) { ... }`, `Vector3 *(float64 k) { ... }`. An operator
+  can be overloaded by the right-hand type; the overload is chosen like a
+  constructor's (exact, then lossless, then lossy with a warning). A dot
+  product would be a named method, not `*`.
 - A struct with no constructor gets an automatic one taking its fields in order.
 - `.new()` is not special; it can exist as an ordinary user function.
 
@@ -379,17 +403,31 @@ private:
 
 - Strings, lists and most structs **move** on assignment or pass; the source is
   unusable afterwards (E0301 "used after it moved").
-- Numbers, bools, and structs whose fields are all copyable and whose total size
-  is ≤ 32 bytes **copy** automatically.
-- Explicit copy: `string c = copy b;`
-- Borrows: `&T` (shared, many allowed) and `&mut T` (exclusive). The call site
-  writes it: `push(&mut xs, 1)`. Lending `&mut` needs a `mut` or `open` binding.
-- Struct fields are immutable unless marked `mut`. A `mut` field can always be
-  changed, even on an immutable value (like C++ `mutable`):
-  `struct Player { string name; mut uint32 hp; }`
-- Struct fields may hold borrows; the struct names what it borrows from:
-  `struct Parser lives src { &string src; }`
-- Structs holding raw pointers never copy automatically (explicit `copy` still works).
+- **Copy** = numbers, bools, and structs whose fields are all Copy and whose
+  memory size, padding included, is ≤ 32 bytes (so field order can change
+  whether a struct is Copy). `struct Handle stays { ... }` opts out: it never
+  copies automatically.
+- Explicit copy: `string c = copy b;`. `copy r` on a borrow copies the pointed-at
+  value (an owned `string`). `copy n` on a Copy value warns (W0322, "`copy` does
+  nothing for uint32"); this redundancy lint can be disabled in `[warnings]`.
+- No hidden copies anywhere. Returning a field of a borrowed `self` is an error:
+  "self is borrowed; write `return copy self.name;`".
+
+### Borrows
+
+- `&T` (shared, many allowed) and `&mut T` (exclusive). Both are always written at
+  the call site: `show(&p);`, `push(&mut xs, 1);`. Lending `&mut` needs a `mut` or
+  `open` binding.
+- A borrow always means its target. Reads are automatic (`q + 1`). `r = 5;` writes
+  through `r`. `r = &mut other;` re-points `r`: allowed because the right side is
+  a reference (a borrowed thing can never be assigned a pointer, so the right
+  side's type decides).
+- Passing on a borrow you already hold: `add(lend s);`.
+- `&T` copies. `&mut T` moves: `&mut string r2 = r;` uses `r` up.
+- Two-phase receivers: `s::append(s::len()::text())` is fine. Only borrows still
+  alive when the receiver changes are errors: `xs::push(xs::first())`.
+- Borrowing a temporary in a declaration keeps the temporary alive to the end of
+  the block.
 - Borrow errors are technical and precise, e.g.:
 
   ```text
@@ -405,10 +443,57 @@ private:
      |
    help: finish using `first` before changing `xs`
   ```
-- Lifetimes are inferred. When needed, `lives` names the parameters a returned
-  borrow comes from: `&string longest(&string a, &string b) lives a, b { }`.
-- Unsafe: raw pointers `*T` need BOTH a file flag `//--!$unsafe: true` AND an
-  `unsafe { }` block. `*p = 7;` dereferences.
+
+### Fields, `open`, `take`
+
+- Struct fields are immutable unless marked `mut`. A `mut` field can be changed on
+  a value you own, even through an immutable binding (like C++ `mutable`):
+  `struct Player { string name; mut uint32 hp; }`. Through `&` everything is
+  read-only, `mut` fields too; changing needs `&mut`.
+- `open` allows field writes, `open` parameters (`none fill(open string s)`), and
+  declaring without a value and assigning once later.
+- Moving a field out says `take`: `string n = take p.name;`. Plain
+  `string m = p.name;` (moving type, owned struct) is an error with the fix-it
+  "write `take p.name` or `copy p.name`".
+- After `take`, `p.name` has no value (checked at compile time, like
+  `uint32 x;`): reading it, or using `p` whole, is an error until it is assigned
+  again. Fields still holding values are dropped at scope end.
+- `take p.title leaving "none"` puts a value back in the same statement; the field
+  stays usable.
+- Methods only borrow `self`; there is no consuming `self`.
+
+### Cleanup
+
+- A method with the reserved name `none drop() { }` runs when the value is
+  destroyed.
+- On a struct with `drop()`, plain `take x.f` is an error; `take x.f leaving v` is
+  allowed (the struct stays complete).
+
+### Lifetimes
+
+- Lifetimes are inferred. A function's `lives` is needed only when the returned
+  borrow could come from several parameters (otherwise E0308); it names whole
+  parameters, never paths:
+  `&string longest(&string a, &string b) lives a, b { }`.
+- Struct fields may hold borrows; the struct's `lives` names the borrow fields
+  themselves, each of which may borrow from a different place:
+  `struct Pair lives a, b { &string a; &string b; }`,
+  `struct Parser lives src { &string src; }`.
+- `lives` and `fails` on a function, and `lives` and `with` on a struct, may come
+  in either order; `drachm fmt` picks one.
+- Structs holding raw pointers never copy automatically (explicit `copy` still works).
+
+### Unsafe and raw pointers
+
+- One pointer kind, `*T`; it may be written through (no `*mut T`).
+- `address of n` makes a pointer. Everything touching a pointer value (making,
+  copying, comparing, dereferencing) must be inside `unsafe { }`; `*p = 7;`
+  dereferences. Both the file flag `//--!$unsafe: true` and an `unsafe` block are
+  needed.
+- A pointer can be `none` (null), tested with `p == none`.
+- `unsafe` functions: `unsafe` before the return type; calling one needs an
+  `unsafe { }` block.
+- `*T` moves (`copy p` duplicates it).
 - No garbage collector.
 
 ## 7. Error handling (replaces Result/`?`; there is no Result type)
@@ -596,3 +681,15 @@ Standard library ("middle" size): core `io string collections math convert`;
 system `fs time env process`; concurrency/network `thread async net http`.
 `json random regex crypto` are official optional packages from the Agora.
 `io::out` (no newline), `io::outln` (newline), `io::outf` (printf-style).
+
+## Later
+
+- Whole functions written in assembly, never mixed inline: instructions one per
+  line, and the body is the asm. Called like any `unsafe` function.
+
+  ```cpp
+  unsafe uint64 cycles() asm { rdtsc; shl rdx, 32; or rax, rdx }
+  ```
+
+  Scheduled after C header import. **OPEN:** register/ABI mapping, Intel vs AT&T
+  syntax, other CPUs.
