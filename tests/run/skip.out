@@ -1,0 +1,19 @@
+skip: test1 test2 test3 (3)
+skip 1: test1 test2 test3 (1) (2) (3)
+skip 2: test1 test2 test3 (2) (3)
+skip 3: test1 test2 test3 (3)
+skip to next: test1 test2 test3 test4 d (1) (2) (3)
+next fails: test1 test2 after
+next to else: test1 test2 second else after
+chain 0: test1 zero after chain end
+chain 1: test1 test2 after chain end
+chain 2: test1 test3 end
+walls: test1 test10 test11 after test20 test21 after loop done test2 end
+match 0: test1 test2 case 0 test3 after match end
+match 1: test1 case 1, 2 case _ after match end
+match 2: test1 case 1, 2 case 2..5 end
+match 3: test1 case 2..5 end
+match 9: test1 case _ after match end
+match in loop: 0 next next end
+123
+top level

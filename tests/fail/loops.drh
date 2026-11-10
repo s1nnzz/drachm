@@ -1,0 +1,20 @@
+// Range loops count in whole numbers, ranges go nowhere else, and loop
+// variables follow the usual binding rules.
+in io;
+
+none main() {
+    for (float64 x of 0..9) { }
+    for (bool x of 0..1) { }
+    for (uint32 x of 5) { }
+    for (uint32 x of "abc") { }
+    uint32 r = 0..9;
+    io::outln((1..2)::text());
+
+    for (uint32 i of 0..9) {
+        i = 3;
+    }
+    for (uint32 i = 0; i < 3; i++) { }
+    for (mut uint32 i = 0; i < 3; i++) { }
+    uint32 after = i;
+    for (mut uint32 i = 0; i; i++) { }
+}

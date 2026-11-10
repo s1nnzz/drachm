@@ -14,6 +14,7 @@ use crate::hir::*;
 use crate::types::Type;
 
 type ClType = types::Type;
+type ClBlock = cranelift_codegen::ir::Block;
 
 fn cl_type(t: Type) -> Option<ClType> {
     match t {
@@ -75,6 +76,8 @@ pub fn compile(prog: &Program) -> Result<Vec<u8>, String> {
                 runtime: &mut runtime,
                 strings: &mut strings,
                 vars: Vec::new(),
+                loops: HashMap::new(),
+                ifs: HashMap::new(),
                 terminated: false,
             };
             for (i, l) in f.locals.iter().enumerate() {
@@ -143,6 +146,10 @@ struct Gen<'a, 'b> {
     runtime: &'a mut HashMap<&'static str, FuncId>,
     strings: &'a mut usize,
     vars: Vec<Variable>,
+    /// Jump targets of each `Loop`: (step, exit).
+    loops: HashMap<Label, (ClBlock, ClBlock)>,
+    /// Jump targets of each `If`: (the test of each branch, exit).
+    ifs: HashMap<Label, (Vec<ClBlock>, ClBlock)>,
     /// The current block already ended in a terminator (e.g. after `return`).
     terminated: bool,
 }
@@ -159,7 +166,7 @@ impl Gen<'_, '_> {
         }
     }
 
-    fn jump_to(&mut self, target: cranelift_codegen::ir::Block) {
+    fn jump_to(&mut self, target: ClBlock) {
         if !self.terminated {
             self.b.ins().jump(target, &[]);
         }
@@ -246,47 +253,81 @@ impl Gen<'_, '_> {
                 let v = self.value(value);
                 self.b.def_var(self.vars[*id], v);
             }
-            Stmt::If(cond, then, els) => {
-                let c = self.value(cond);
-                let then_b = self.b.create_block();
-                let else_b = self.b.create_block();
-                let merge = self.b.create_block();
-                self.b.ins().brif(c, then_b, &[], else_b, &[]);
-                self.b.seal_block(then_b);
-                self.b.seal_block(else_b);
-
-                self.b.switch_to_block(then_b);
-                self.block(then);
-                self.jump_to(merge);
-                self.terminated = false;
-
-                self.b.switch_to_block(else_b);
-                self.block(els);
-                self.jump_to(merge);
-                self.terminated = false;
-
-                self.b.seal_block(merge);
-                self.b.switch_to_block(merge);
+            Stmt::If { label, branches } => {
+                // One block per branch test; `skip to next` jumps to the next one.
+                let tests: Vec<ClBlock> = branches.iter().map(|_| self.b.create_block()).collect();
+                let end = self.b.create_block();
+                self.ifs.insert(*label, (tests.clone(), end));
+                self.b.ins().jump(tests[0], &[]);
+                for (i, br) in branches.iter().enumerate() {
+                    let body_b = self.b.create_block();
+                    let next = tests.get(i + 1).copied().unwrap_or(end);
+                    self.b.switch_to_block(tests[i]);
+                    match &br.test {
+                        Some(t) => {
+                            let c = self.value(t);
+                            self.b.ins().brif(c, body_b, &[], next, &[]);
+                        }
+                        None => {
+                            self.b.ins().jump(body_b, &[]);
+                        }
+                    }
+                    self.b.seal_block(body_b);
+                    self.b.switch_to_block(body_b);
+                    self.block(&br.body);
+                    self.jump_to(end);
+                    self.terminated = false;
+                }
+                for t in tests {
+                    self.b.seal_block(t);
+                }
+                self.b.seal_block(end);
+                self.b.switch_to_block(end);
             }
-            Stmt::While(cond, body) => {
+            Stmt::Loop { label, cond, body, step } => {
                 let header = self.b.create_block();
                 let body_b = self.b.create_block();
+                let cont = self.b.create_block();
                 let exit = self.b.create_block();
+                self.loops.insert(*label, (cont, exit));
                 self.b.ins().jump(header, &[]);
 
                 self.b.switch_to_block(header);
-                let c = self.value(cond);
-                self.b.ins().brif(c, body_b, &[], exit, &[]);
+                match cond {
+                    Some(cond) => {
+                        let c = self.value(cond);
+                        self.b.ins().brif(c, body_b, &[], exit, &[]);
+                    }
+                    None => {
+                        self.b.ins().jump(body_b, &[]);
+                    }
+                }
                 self.b.seal_block(body_b);
 
                 self.b.switch_to_block(body_b);
                 self.block(body);
+                self.jump_to(cont);
+                self.terminated = false;
+                self.b.seal_block(cont);
+
+                self.b.switch_to_block(cont);
+                self.block(step);
                 self.jump_to(header);
                 self.terminated = false;
                 self.b.seal_block(header);
 
                 self.b.seal_block(exit);
                 self.b.switch_to_block(exit);
+            }
+            Stmt::Jump(j) => {
+                let target = match *j {
+                    Jump::Break(l) => self.loops[&l].1,
+                    Jump::Continue(l) => self.loops[&l].0,
+                    Jump::Leave(l) => self.ifs[&l].1,
+                    Jump::Next(l, n) => self.ifs[&l].0[n],
+                };
+                self.b.ins().jump(target, &[]);
+                self.terminated = true;
             }
             Stmt::Return(value) => {
                 let vals: Vec<Value> = value.iter().map(|v| self.value(v)).collect();

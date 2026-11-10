@@ -1,4 +1,7 @@
+use num_traits::ToPrimitive;
+
 use crate::ast::*;
+use crate::consts::Const;
 use crate::diag::{codes, Diagnostic, Span};
 use crate::lexer::{Tok, Token};
 
@@ -192,24 +195,61 @@ impl Parser<'_> {
         }
     }
 
+    /// Does a binding declaration (`[mut] Type name ...`) start here? A
+    /// lone name starts an expression. (A reserved word in the name's place
+    /// gets the binding's error message.)
+    fn at_binding(&self) -> bool {
+        match self.peek() {
+            Tok::Kw("mut") => true,
+            Tok::Ident(_) | Tok::Kw("none") => matches!(self.peek_at(1), Tok::Ident(_) | Tok::Kw(_)),
+            _ => false,
+        }
+    }
+
     fn stmt(&mut self) -> Parsed<Stmt> {
         let start = self.span();
         match self.peek() {
-            Tok::Kw("mut") => {
-                self.bump();
-                self.binding(start, true)
-            }
-            // `Type name ...` is a binding; a lone name starts an expression.
-            // (A reserved word in the name's place gets the binding's error message.)
-            Tok::Ident(_) | Tok::Kw("none") if matches!(self.peek_at(1), Tok::Ident(_) | Tok::Kw(_)) => {
-                self.binding(start, false)
+            _ if self.at_binding() => {
+                let mutable = self.eat_kw("mut");
+                self.binding(start, mutable)
             }
             Tok::Kw("if") => self.if_stmt(),
             Tok::Kw("while") => {
                 self.bump();
                 let cond = self.condition("while")?;
+                let span = start.to(self.prev_span());
                 let body = self.block()?;
-                Ok(Stmt::While { cond, body })
+                Ok(Stmt::While { cond, body, span })
+            }
+            Tok::Kw("for") => self.for_stmt(),
+            Tok::Kw("match") => self.match_stmt(),
+            Tok::Kw(k @ ("break" | "continue")) => {
+                let word = *k;
+                self.bump();
+                let count = self.count(word)?;
+                self.end_jump(word)?;
+                Ok(Stmt::Break { cont: word == "continue", count, span: start.to(self.prev_span()) })
+            }
+            Tok::Kw("skip") => {
+                self.bump();
+                // `to` is a keyword only here, directly after `skip`.
+                let target = if matches!(self.peek(), Tok::Ident(s) if s == "to") {
+                    self.bump();
+                    if !matches!(self.peek(), Tok::Ident(s) if s == "next") {
+                        return Err(self
+                            .unexpected("`next` after `skip to`")
+                            .help("`skip to next;` jumps to the next branch of the `if` chain"));
+                    }
+                    self.bump();
+                    SkipTarget::Next
+                } else {
+                    match self.count("skip")? {
+                        Some((n, span)) => SkipTarget::Levels(n, span),
+                        None => SkipTarget::Outermost,
+                    }
+                };
+                self.end_jump("skip")?;
+                Ok(Stmt::Skip { target, span: start.to(self.prev_span()) })
             }
             Tok::Kw("return") => {
                 self.bump();
@@ -218,26 +258,164 @@ impl Parser<'_> {
                 Ok(Stmt::Return { value, span: start.to(self.prev_span()) })
             }
             _ => {
-                let e = self.expr()?;
-                let op = match self.peek() {
-                    Tok::Sym("=") => Some(None),
-                    Tok::Sym(s) => compound_op(s).map(Some),
-                    _ => None,
-                };
-                if let Some(op) = op {
-                    let ExprKind::Var(name) = e.kind else {
-                        return Err(Diagnostic::at(&codes::E0005, e.span, "only a binding can be assigned to")
-                            .note("cannot assign to this"));
-                    };
-                    self.bump();
-                    let value = self.expr()?;
-                    self.expect(";")?;
-                    return Ok(Stmt::Assign { name, name_span: e.span, op, value, span: start.to(self.prev_span()) });
-                }
+                let s = self.simple()?;
                 self.expect(";")?;
-                Ok(Stmt::Expr(e))
+                Ok(s)
             }
         }
+    }
+
+    fn eat_kw(&mut self, kw: &'static str) -> bool {
+        if self.peek() == &Tok::Kw(kw) {
+            self.bump();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// The optional count after `break`, `continue` or `skip`: a plain whole number.
+    fn count(&mut self, word: &str) -> Parsed<Option<(u64, Span)>> {
+        match self.peek() {
+            Tok::Num(NumLit { value: Const::Int(v), suffix: None }) => {
+                let n = v.to_u64().unwrap_or(u64::MAX);
+                Ok(Some((n, self.bump().span)))
+            }
+            Tok::Num(_) => Err(Diagnostic::at(
+                &codes::E0003,
+                self.span(),
+                format!("the count after `{word}` must be a plain whole number"),
+            )
+            .help(format!("for example `{word} 2;`"))),
+            _ => Ok(None),
+        }
+    }
+
+    /// The `;` that ends `break`, `continue` or `skip`.
+    fn end_jump(&mut self, word: &str) -> Parsed<()> {
+        if self.eat(";") {
+            return Ok(());
+        }
+        let d = self.unexpected("`;`");
+        Err(if word == "skip" {
+            d.help("write `skip;`, `skip 2;` or `skip to next;`")
+        } else {
+            d.help(format!("the count after `{word}` is a whole number written out, like `{word} 2;`"))
+        })
+    }
+
+    /// An assignment, compound assignment or expression statement, without its `;`.
+    fn simple(&mut self) -> Parsed<Stmt> {
+        let start = self.span();
+        let e = self.expr()?;
+        let op = match self.peek() {
+            Tok::Sym("=") => Some(None),
+            Tok::Sym(s) => compound_op(s).map(Some),
+            _ => None,
+        };
+        let Some(op) = op else { return Ok(Stmt::Expr(e)) };
+        let ExprKind::Var(name) = e.kind else {
+            return Err(Diagnostic::at(&codes::E0005, e.span, "only a binding can be assigned to").note("cannot assign to this"));
+        };
+        self.bump();
+        let value = self.expr()?;
+        Ok(Stmt::Assign { name, name_span: e.span, op, value, span: start.to(self.prev_span()) })
+    }
+
+    /// `for (T x of iter) { }` or `for (init; cond; step) { }`.
+    fn for_stmt(&mut self) -> Parsed<Stmt> {
+        let start = self.bump().span;
+        if self.peek() != &Tok::Sym("(") {
+            return Err(self
+                .unexpected("`(` after `for`")
+                .help("write `for (uint32 i of 0..9) { }` or `for (init; condition; step) { }`"));
+        }
+        self.bump();
+
+        let m = (self.peek() == &Tok::Kw("mut")) as usize;
+        if matches!(self.peek_at(m), Tok::Ident(_) | Tok::Kw("none"))
+            && matches!(self.peek_at(m + 1), Tok::Ident(_))
+            && self.peek_at(m + 2) == &Tok::Kw("of")
+        {
+            let mutable = self.eat_kw("mut");
+            let ty = self.ty()?;
+            let (name, name_span) = self.ident("a name for the loop variable")?;
+            self.bump();
+            let iter = self.expr()?;
+            self.expect(")")?;
+            let span = start.to(self.prev_span());
+            let body = self.block()?;
+            return Ok(Stmt::ForEach { mutable, ty, name, name_span, iter, body, span });
+        }
+
+        let init = if self.eat(";") {
+            None
+        } else if self.at_binding() {
+            let at = self.span();
+            let mutable = self.eat_kw("mut");
+            Some(Box::new(self.binding(at, mutable)?))
+        } else {
+            let s = self.simple()?;
+            self.expect(";")?;
+            Some(Box::new(s))
+        };
+        let cond = if self.peek() == &Tok::Sym(";") { None } else { Some(self.expr()?) };
+        self.expect(";")?;
+        let step = if self.peek() == &Tok::Sym(")") {
+            None
+        } else {
+            let s = self.simple()?;
+            if let Stmt::Expr(e) = &s
+                && !matches!(e.kind, ExprKind::IncDec { .. } | ExprKind::Call { .. } | ExprKind::Method { .. })
+            {
+                return Err(Diagnostic::at(&codes::E0012, e.span, "a `for` step must be an assignment, `++`/`--` or a call")
+                    .note("this is none of those")
+                    .help("for example `i++` or `i += 2`"));
+            }
+            Some(Box::new(s))
+        };
+        self.expect(")")?;
+        let span = start.to(self.prev_span());
+        let body = self.block()?;
+        Ok(Stmt::For { init, cond, step, body, span })
+    }
+
+    /// `match (value) { case p, q { } case _ { } }`
+    fn match_stmt(&mut self) -> Parsed<Stmt> {
+        let start = self.bump().span;
+        let value = self.condition("match")?;
+        let span = start.to(self.prev_span());
+        let open = self.expect("{")?;
+        let mut cases = Vec::new();
+        while self.peek() != &Tok::Sym("}") {
+            if self.peek() == &Tok::Eof || self.at_item_start() {
+                return Err(Diagnostic::at(&codes::E0004, open, "this `{` is never closed")
+                    .label(self.span(), format!("expected `}}` before {}", self.peek().describe())));
+            }
+            if self.peek() != &Tok::Kw("case") {
+                let d = self.unexpected("`case` or `}`").help("each arm of a `match` is written `case pattern { }`");
+                self.diags.push(d);
+                self.skip_statement();
+                continue;
+            }
+            let case_start = self.bump().span;
+            let mut patterns = Vec::new();
+            loop {
+                if matches!(self.peek(), Tok::Ident(s) if s == "_") {
+                    patterns.push(Pattern::Any(self.bump().span));
+                } else {
+                    patterns.push(Pattern::Expr(self.expr()?));
+                }
+                if !self.eat(",") {
+                    break;
+                }
+            }
+            let case_span = case_start.to(self.prev_span());
+            let body = self.block()?;
+            cases.push(Case { patterns, body, span: case_span });
+        }
+        self.bump();
+        Ok(Stmt::Match { value, cases, span })
     }
 
     /// `Type name;` or `Type name = value;`, after any `mut`.
@@ -266,20 +444,33 @@ impl Parser<'_> {
     }
 
     fn if_stmt(&mut self) -> Parsed<Stmt> {
-        self.bump();
+        let start = self.bump().span;
         let cond = self.condition("if")?;
-        let then = self.block()?;
-        let els = if self.peek() == &Tok::Kw("else") {
-            self.bump();
-            if self.peek() == &Tok::Kw("if") { Some(vec![self.if_stmt()?]) } else { Some(self.block()?) }
-        } else {
-            None
-        };
-        Ok(Stmt::If { cond, then, els })
+        let span = start.to(self.prev_span());
+        let mut branches = vec![(cond, self.block()?)];
+        let mut els = None;
+        while self.eat_kw("else") {
+            if self.eat_kw("if") {
+                let cond = self.condition("if")?;
+                branches.push((cond, self.block()?));
+            } else {
+                els = Some(self.block()?);
+                break;
+            }
+        }
+        Ok(Stmt::If { branches, els, span })
     }
 
+    /// An expression, or an inclusive range `a..b` (which the checker
+    /// accepts only in a `for` and in `case` patterns).
     fn expr(&mut self) -> Parsed<Expr> {
-        self.binary(0)
+        let lhs = self.binary(0)?;
+        if !self.eat("..") {
+            return Ok(lhs);
+        }
+        let rhs = self.binary(0)?;
+        let span = lhs.span.to(rhs.span);
+        Ok(Expr { kind: ExprKind::Range(Box::new(lhs), Box::new(rhs)), span, paren: false })
     }
 
     /// Precedence climbing. Higher number binds tighter.

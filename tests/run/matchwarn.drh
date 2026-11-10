@@ -1,0 +1,70 @@
+// Missing and unreachable cases are warnings: the program still runs.
+in io;
+
+none main() {
+    uint8 b = 7;
+    match (b) {
+        case 0..5 { io::outln("low"); }
+        case 10   { io::outln("ten"); }
+    }
+    io::outln("no case ran");
+
+    bool f = true;
+    match (f) {
+        case true { io::outln("true"); }
+    }
+
+    sint8 s = -1;
+    match (s) {
+        case -128..-1 { io::outln("negative"); }
+        case 1..127   { io::outln("positive"); }
+    }
+
+    match (b) {
+        case 0 { }
+        case 2 { }
+        case 4 { }
+        case 6 { }
+        case 8 { }
+    }
+
+    uint32 n = 3;
+    match (n) {
+        case 1 { }
+    }
+
+    float64 x = 1.0;
+    match (x) {
+        case 1.0      { io::outln("one"); }
+        case 2.0..3.0 { }
+    }
+
+    match (n) {
+        case _ { io::outln("anything"); }
+        case 4 { io::outln("never"); }
+    }
+
+    match (n) {
+        case 1..10 { io::outln("1 to 10"); }
+        case 3, 4  { io::outln("never"); }
+        case _     { }
+    }
+
+    match (f) {
+        case true  { }
+        case false { }
+        case _     { io::outln("never"); }
+    }
+
+    // The usual constant rules: 300 does not fit `uint8` and wraps to 44.
+    uint8 w = 44;
+    match (w) {
+        case 300 { io::outln("44"); }
+        case _   { }
+    }
+
+    // So do range bounds: 0..300 is 0..44 in `uint8`.
+    mut uint32 count = 0;
+    for (uint8 i of 0..300) { count++; }
+    io::outln(count::text());
+}

@@ -1,7 +1,12 @@
 //! Name resolution, type checking and definite-assignment analysis.
 //! Turns the syntax tree into `hir`, reporting every problem it finds.
+//! Loops, jumps and `match` are in `control`.
+
+mod control;
 
 use std::collections::HashMap;
+
+use control::{Target, Test};
 
 use crate::ast::{self, BinOp, ExprKind, OpClass, Stmt, UnOp};
 use crate::consts::{Const, FoldError, Folded};
@@ -80,6 +85,8 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
             locals: Vec::new(),
             flow: Flow { definite: Vec::new(), maybe: Vec::new(), reachable: true },
             loop_depth: 0,
+            targets: Vec::new(),
+            labels: 0,
         };
         for p in &f.params {
             let ty = resolve_quiet(&p.ty).filter(|t| *t != Type::None);
@@ -256,6 +263,10 @@ struct Checker<'a> {
     locals: Vec<LocalInfo>,
     flow: Flow,
     loop_depth: u32,
+    /// The loops and `if`/`match` levels around the current statement, innermost last.
+    targets: Vec<Target>,
+    /// Labels handed out so far in this function.
+    labels: hir::Label,
 }
 
 fn int_lit(bits: u128, ty: Type) -> hir::Expr {
@@ -368,37 +379,56 @@ impl Checker<'_> {
                     out.push(hir::Stmt::Assign(id, e));
                 }
             }
-            Stmt::If { cond, then, els } => {
-                let c = self.coerce(cond, Type::Bool);
-                let start = self.flow.clone();
-                let (then_b, then_flow) = self.branch(then, start.clone());
-                let (else_b, else_flow) = match els {
-                    Some(els) => self.branch(els, start),
-                    None => (Vec::new(), start),
-                };
-                self.flow = then_flow.join(else_flow);
-                if let Some(c) = c {
-                    out.push(hir::Stmt::If(c, then_b, else_b));
+            Stmt::If { branches, els, span } => {
+                let label = self.new_label();
+                let mut parts: Vec<(Test, &ast::Block)> = branches.iter().map(|(c, b)| (Test::Cond(c), b)).collect();
+                if let Some(els) = els {
+                    parts.push((Test::Always, els));
+                }
+                if let Some(branches) = self.chain(label, *span, false, parts, false) {
+                    out.push(hir::Stmt::If { label, branches });
                 }
             }
-            Stmt::While { cond, body } => {
+            Stmt::While { cond, body, span } => {
                 let c = self.coerce(cond, Type::Bool);
-                let after_cond = self.flow.clone();
-                self.loop_depth += 1;
-                let (body_b, body_flow) = self.branch(body, after_cond.clone());
-                self.loop_depth -= 1;
-                // The body may not have run at all: only "maybe" carries over.
-                self.flow = after_cond;
-                for (a, b) in self.flow.maybe.iter_mut().zip(&body_flow.maybe) {
-                    *a |= *b;
-                }
-                // `while (true)` never falls out of the bottom (there is no `break` yet).
-                if matches!(cond.kind, ExprKind::Bool(true)) {
-                    self.flow.reachable = false;
-                }
+                let label = self.new_label();
+                let forever = matches!(cond.kind, ExprKind::Bool(true));
+                let (body, step) = self.looped(label, *span, forever, body, None);
                 if let Some(c) = c {
-                    out.push(hir::Stmt::While(c, body_b));
+                    out.push(hir::Stmt::Loop { label, cond: Some(c), body, step });
                 }
+            }
+            Stmt::For { init, cond, step, body, span } => {
+                // The init binding belongs to the loop.
+                let len = self.flow.definite.len();
+                self.scopes.push(HashMap::new());
+                if let Some(init) = init {
+                    self.stmt(init, out);
+                }
+                let c = cond.as_ref().map(|c| self.coerce(c, Type::Bool));
+                let forever = cond.as_ref().is_none_or(|c| matches!(c.kind, ExprKind::Bool(true)));
+                let label = self.new_label();
+                let (body, step) = self.looped(label, *span, forever, body, step.as_deref());
+                self.scopes.pop();
+                self.flow.truncate(len);
+                match c {
+                    Some(None) => {}
+                    c => out.push(hir::Stmt::Loop { label, cond: c.flatten(), body, step }),
+                }
+            }
+            Stmt::ForEach { .. } => self.for_each(s, out),
+            Stmt::Match { value, cases, span } => self.match_stmt(value, cases, *span, out),
+            Stmt::Break { cont, count, span } => {
+                if let Some(j) = self.break_target(*cont, *count, *span) {
+                    out.push(hir::Stmt::Jump(j));
+                }
+                self.flow.reachable = false;
+            }
+            Stmt::Skip { target, span } => {
+                if let Some(j) = self.skip_target(*target, *span) {
+                    out.push(hir::Stmt::Jump(j));
+                }
+                self.flow.reachable = false;
             }
             Stmt::Return { value, span } => {
                 let v = match (value, self.ret) {
@@ -726,6 +756,14 @@ impl Checker<'_> {
                     return self.io_call(name, *name_span, recv.span, targs, args, e.span);
                 }
                 self.method(recv, name, *name_span, targs, args)
+            }
+            ExprKind::Range(..) => {
+                self.diags.push(
+                    Diagnostic::at(&codes::E0009, e.span, "a range can only be used after `of` in a `for`, or as a `case` pattern")
+                        .note("this is a range")
+                        .help("to go through the numbers from a to b, write `for (uint32 i of a..b) { }`"),
+                );
+                None
             }
         }
     }

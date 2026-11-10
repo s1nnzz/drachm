@@ -51,9 +51,47 @@ pub enum Stmt {
     Let { mutable: bool, ty: TypeName, name: String, name_span: Span, value: Option<Expr>, span: Span },
     /// `x = v;`, or `x += v;` when `op` is set.
     Assign { name: String, name_span: Span, op: Option<BinOp>, value: Expr, span: Span },
-    If { cond: Expr, then: Block, els: Option<Block> },
-    While { cond: Expr, body: Block },
+    /// A whole `if (..) { } else if (..) { } else { }` chain: one node,
+    /// because `skip` counts a chain as one level. `span` covers `if (cond)`.
+    If { branches: Vec<(Expr, Block)>, els: Option<Block>, span: Span },
+    /// `span` covers `while (cond)`; likewise for the other loops.
+    While { cond: Expr, body: Block, span: Span },
+    /// `for (init; cond; step) { }`. Each part may be empty.
+    For { init: Option<Box<Stmt>>, cond: Option<Expr>, step: Option<Box<Stmt>>, body: Block, span: Span },
+    /// `for (T name of iter) { }`.
+    ForEach { mutable: bool, ty: TypeName, name: String, name_span: Span, iter: Expr, body: Block, span: Span },
+    Match { value: Expr, cases: Vec<Case>, span: Span },
+    /// `break;` / `break N;`, and `continue` when `cont` is set. `count`
+    /// is the literal N with its span.
+    Break { cont: bool, count: Option<(u64, Span)>, span: Span },
+    Skip { target: SkipTarget, span: Span },
     Return { value: Option<Expr>, span: Span },
+    Expr(Expr),
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum SkipTarget {
+    /// `skip;`: the outermost level.
+    Outermost,
+    /// `skip N;`
+    Levels(u64, Span),
+    /// `skip to next;`
+    Next,
+}
+
+/// `case p, q { }`. `span` covers `case` and its patterns.
+#[derive(Debug)]
+pub struct Case {
+    pub patterns: Vec<Pattern>,
+    pub body: Block,
+    pub span: Span,
+}
+
+#[derive(Debug)]
+pub enum Pattern {
+    /// `_`
+    Any(Span),
+    /// A value or an inclusive range (`ExprKind::Range`).
     Expr(Expr),
 }
 
@@ -163,4 +201,6 @@ pub enum ExprKind {
     /// `recv::name<targs>(args)` or `recv->name(args)`. `recv` may turn out
     /// to be a module (`io::outln`).
     Method { recv: Box<Expr>, name: String, name_span: Span, targs: Vec<TypeName>, args: Vec<Expr> },
+    /// `a..b`, inclusive. Only allowed after `of` in a `for` and as a `case` pattern.
+    Range(Box<Expr>, Box<Expr>),
 }

@@ -127,6 +127,11 @@ impl Gen<'_> {
         self.out.push('\n');
     }
 
+    /// A jump target. The empty statement after it lets a declaration follow.
+    fn label(&mut self, name: String) {
+        self.line(format!("{name}: ;"));
+    }
+
     /// Store `value` in a fresh temporary and return its name.
     fn temp(&mut self, ty: Type, value: impl AsRef<str>) -> String {
         self.tmp += 1;
@@ -147,29 +152,53 @@ impl Gen<'_> {
                 let v = self.expr(e);
                 self.line(format!("l{id} = {v};"));
             }
-            Stmt::If(cond, then, els) => {
-                let c = self.expr(cond);
-                self.line(format!("if ({c}) {{"));
-                self.depth += 1;
-                self.block(then);
-                self.depth -= 1;
-                if !els.is_empty() {
-                    self.line("} else {");
+            // Jumps are `goto`s to labels named after the HIR label:
+            // `ifL_bN` is the test of branch N, `ifL_end` the way out.
+            Stmt::If { label, branches } => {
+                for (i, br) in branches.iter().enumerate() {
+                    if i > 0 {
+                        self.label(format!("if{label}_b{i}"));
+                    }
+                    let open = match &br.test {
+                        Some(t) => {
+                            let c = self.expr(t);
+                            format!("if ({c}) {{")
+                        }
+                        None => "{".to_string(),
+                    };
+                    self.line(open);
                     self.depth += 1;
-                    self.block(els);
+                    self.block(&br.body);
+                    self.line(format!("goto if{label}_end;"));
                     self.depth -= 1;
+                    self.line("}");
                 }
-                self.line("}");
+                self.label(format!("if{label}_end"));
             }
-            Stmt::While(cond, body) => {
+            // `loopL_next` is the step (where `continue` goes), `loopL_end` the way out.
+            Stmt::Loop { label, cond, body, step } => {
                 // The condition's temporaries must be recomputed each time round.
                 self.line("for (;;) {");
                 self.depth += 1;
-                let c = self.expr(cond);
-                self.line(format!("if (!{c}) break;"));
+                if let Some(cond) = cond {
+                    let c = self.expr(cond);
+                    self.line(format!("if (!{c}) break;"));
+                }
                 self.block(body);
+                self.label(format!("loop{label}_next"));
+                self.block(step);
                 self.depth -= 1;
                 self.line("}");
+                self.label(format!("loop{label}_end"));
+            }
+            Stmt::Jump(j) => {
+                let target = match *j {
+                    Jump::Break(l) => format!("loop{l}_end"),
+                    Jump::Continue(l) => format!("loop{l}_next"),
+                    Jump::Leave(l) => format!("if{l}_end"),
+                    Jump::Next(l, n) => format!("if{l}_b{n}"),
+                };
+                self.line(format!("goto {target};"));
             }
             Stmt::Return(None) => self.line("return;"),
             Stmt::Return(Some(e)) => {

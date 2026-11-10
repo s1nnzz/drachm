@@ -1,0 +1,13 @@
+// Syntax errors in loops and jumps.
+none main() {
+    for (mut uint32 i = 0; i < 3; i + 1) { }
+    for mut uint32 i = 0; i < 3; i++) { }
+    break 1.5;
+    continue x;
+    skip to;
+    skip to end;
+    skip -1;
+    match (1) {
+        1 { }
+    }
+}

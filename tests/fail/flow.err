@@ -1,0 +1,13 @@
+error[E0105]: function `breaks` can finish without returning a value
+error[E0105]: function `breaksTwo` can finish without returning a value
+error[E0105]: function `partial` can finish without returning a value
+warning[W0109]: this `match` does not handle `255`
+error[E0105]: function `floats` can finish without returning a value
+note: on floats only `case _` handles every value: NaN is equal to nothing
+error[E0207]: `a` is read before it certainly has a value
+error[E0207]: `c` is read before it certainly has a value
+error[E0207]: `d` is read before it certainly has a value
+error[E0205]: cannot change `e`: it is not `mut`
+assigned a second time here
+error[E0207]: `f` is read before it certainly has a value
+9 errors, 3 warnings

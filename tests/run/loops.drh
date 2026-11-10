@@ -1,0 +1,156 @@
+// C-style `for`, `while`, and `break` / `continue` with loop counts.
+in io;
+
+none note(sint32 v) {
+    io::out(v::text());
+    io::out(" ");
+}
+
+none pair(uint32 a, uint32 b) {
+    io::out(a::text());
+    io::out(b::text());
+    io::out(" ");
+}
+
+// `while (true)` with a `break` can fall out of the bottom, so it needs the
+// `return` after it.
+uint32 firstMultipleAbove(uint32 step, uint32 limit) {
+    mut uint32 m = 0;
+    while (true) {
+        m += step;
+        if (m > limit) { break; }
+    }
+    return m;
+}
+
+// `for (;;)` with no `break` never falls out: no `return` needed after it.
+uint32 collatzSteps(mut uint64 n) {
+    mut uint32 steps = 0;
+    for (;;) {
+        if (n == 1) { return steps; }
+        if (n % 2 == 0) { n /= 2; } else { n = 3 * n + 1; }
+        steps++;
+    }
+}
+
+// The inner loop's only `break` leaves the outer loop, so the outer one can
+// fall out of the bottom.
+uint32 breakTwo() {
+    mut uint32 i = 0;
+    while (true) {
+        while (true) {
+            i++;
+            if (i == 5) { break 2; }
+        }
+    }
+    return i;
+}
+
+// Here only the inner loop has a `break`: the outer loop never falls out.
+uint32 breakInner() {
+    mut uint32 i = 0;
+    while (true) {
+        while (true) {
+            i++;
+            if (i % 4 == 0) { break; }
+        }
+        if (i > 10) { return i; }
+    }
+}
+
+none main() {
+    // Init binding scoped to the loop, condition, step.
+    for (mut uint32 i = 0; i < 5; i++) {
+        io::out(i::text());
+    }
+    io::outln("");
+    // The name is free again after the loop.
+    bool i = true;
+    io::outln(i::text());
+
+    // Every part empty: runs until `break`.
+    mut uint32 n = 0;
+    for (;;) {
+        n += 3;
+        if (n > 10) { break; }
+    }
+    io::outln(n::text());
+
+    // Init as an assignment, step as a call.
+    mut sint32 k = 0;
+    for (k = 10; k > 0; note(k)) {
+        k -= 4;
+    }
+    io::outln("");
+
+    // Compound assignment as the step, no condition.
+    for (mut uint32 j = 1; ; j *= 3) {
+        if (j > 100) { break; }
+        io::out(j::text());
+        io::out(" ");
+    }
+    io::outln("");
+
+    // `continue` in a C-style loop still runs the step.
+    for (mut uint32 j = 0; j < 10; j++) {
+        if (j % 3 != 0) { continue; }
+        io::out(j::text());
+    }
+    io::outln("");
+
+    // `continue` in a `while` tests the condition again.
+    mut uint32 w = 0;
+    mut uint32 odd = 0;
+    while (w < 10) {
+        w++;
+        if (w % 2 == 0) { continue; }
+        odd += w;
+    }
+    io::outln(odd::text());
+
+    // `continue 2` goes on with the outer loop (running its step); `break 2` leaves both.
+    for (mut uint32 a = 0; a < 4; a++) {
+        for (mut uint32 b = 0; b < 3; b++) {
+            if (b > a) { continue 2; }
+            if (a == 3) { break 2; }
+            pair(a, b);
+        }
+        io::out("| ");
+    }
+    io::outln("end");
+
+    // Three loops of different kinds.
+    mut uint32 rounds = 0;
+    while (true) {
+        rounds++;
+        for (uint8 x of 1..3) {
+            mut uint32 y = 0;
+            while (y < 5) {
+                y++;
+                if (y == 2) { continue; }
+                if (x == 2 && y == 3) { continue 2; }
+                if (rounds == 2 && x == 3) { break 3; }
+                pair(x, y);
+            }
+        }
+        io::out("/ ");
+    }
+    io::outln(rounds::text());
+
+    io::outln(firstMultipleAbove(7, 30)::text());
+    io::outln(collatzSteps(27)::text());
+    io::outln(breakTwo()::text());
+    io::outln(breakInner()::text());
+
+    // Assigned just before the only `break`, so certainly assigned after the loop.
+    mut uint32 result;
+    mut uint32 probe = 0;
+    while (true) {
+        probe++;
+        if (probe * probe > 50) {
+            result = probe;
+            break;
+        }
+    }
+    io::outln(result::text());
+}
