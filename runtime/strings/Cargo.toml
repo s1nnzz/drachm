@@ -1,0 +1,22 @@
+[package]
+name = "drachm_strings"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "drachm_strings"
+crate-type = ["staticlib"]
+
+[dependencies]
+libc = "0.2"
+unicode-segmentation = "1"
+
+# Built by the compiler's build.rs, never as part of the compiler's workspace.
+[workspace]
+
+[profile.release]
+opt-level = 3
+codegen-units = 1
+# No LTO: with it the archive becomes one object that always gets linked, and
+# it would then need drachm_panic even in programs that use no strings.
+panic = "abort"

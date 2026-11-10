@@ -35,6 +35,8 @@ void drachm_str_concat(drachm_str *out, const drachm_str *a, const drachm_str *b
 // Allocation counter for tests: live owned buffers. Printed to stderr at exit
 // as "drachm: leaked N strings" when DRACHM_CHECK_LEAKS is set and N != 0.
 uint64_t drachm_str_live(void);
+// Allocates a counted owned buffer of `cap` bytes for C code that builds strings (cap 0 returns NULL).
+uint8_t *drachm_str_alloc(uint64_t cap);
 
 // ---- comparison (by bytes) ----
 uint8_t drachm_str_eq(const drachm_str *a, const drachm_str *b);
