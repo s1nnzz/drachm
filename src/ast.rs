@@ -1,4 +1,4 @@
-use crate::error::Span;
+use crate::diag::Span;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Type {

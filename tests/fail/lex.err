@@ -1,0 +1,2 @@
+error[E0001]: unexpected character `#`
+error[E0002]: number literal is out of range

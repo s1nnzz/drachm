@@ -1,0 +1,3 @@
+fn helper() -> i64 { return 1; }
+fn helper() -> i64 { return 2; }
+fn print(x: i64) {}

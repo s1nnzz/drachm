@@ -1,0 +1,2 @@
+error[E0101]: expected i64, found bool
+types.dr:2:18

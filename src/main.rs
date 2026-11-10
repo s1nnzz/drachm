@@ -1,14 +1,8 @@
-mod ast;
-mod codegen;
-mod error;
-mod lexer;
-mod parser;
-mod typeck;
-
+use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::process::{exit, Command};
 
-const RUNTIME_C: &str = include_str!("../runtime/runtime.c");
+use drachm::diag::{self, Source};
 
 const USAGE: &str = "\
 Drachm compiler
@@ -16,11 +10,21 @@ Drachm compiler
 usage:
   drachm build <file.dr> [-o <output>] [-O]   compile to a native executable
   drachm run   <file.dr> [-O]                 compile and run
-  drachm check <file.dr>                      type-check only";
+  drachm check <file.dr>                      type-check only
+  drachm explain <code>                       describe an error code, e.g. E0101";
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let Some(cmd) = args.first() else { die(USAGE) };
+
+    if cmd == "explain" {
+        let Some(id) = args.get(1) else { die("explain needs a code, e.g. `drachm explain E0101`") };
+        match diag::codes::lookup(id) {
+            Some(c) => println!("{}: {}\n\n{}", c.id, c.title, c.explain),
+            None => die(&format!("there is no code `{id}`")),
+        }
+        return;
+    }
 
     let mut input = None;
     let mut output = None;
@@ -66,37 +70,20 @@ fn die(msg: &str) -> ! {
     exit(1)
 }
 
-fn front_end(input: &Path) -> (ast::Program, std::collections::HashMap<String, typeck::Sig>) {
-    let src = std::fs::read_to_string(input).unwrap_or_else(|e| die(&format!("{}: {e}", input.display())));
-    let name = input.display().to_string();
-    let result = lexer::lex(&src)
-        .and_then(parser::parse)
-        .and_then(|prog| typeck::check(&prog).map(|sigs| (prog, sigs)));
-    result.unwrap_or_else(|e| die(&e.render(&name, &src)))
+/// Check the file, print its diagnostics, and exit if there were errors.
+fn front_end(input: &Path) -> drachm::Checked {
+    let text = std::fs::read_to_string(input).unwrap_or_else(|e| die(&format!("{}: {e}", input.display())));
+    let (checked, diags) = drachm::check(&text);
+    if !diags.is_empty() {
+        let color = std::io::stderr().is_terminal() && std::env::var_os("NO_COLOR").is_none();
+        let src = Source::new(input.display().to_string(), text);
+        eprint!("{}", diag::render_all(&diags, &src, color));
+    }
+    checked.unwrap_or_else(|| exit(1))
 }
 
 fn build(input: &Path, out: &Path, opt: bool) {
-    let (prog, sigs) = front_end(input);
-    let obj = codegen::compile(&prog, &sigs, opt).unwrap_or_else(|e| die(&format!("codegen error: {e}")));
-
-    let tmp = std::env::temp_dir().join(format!("drachm-build-{}", std::process::id()));
-    std::fs::create_dir_all(&tmp).unwrap_or_else(|e| die(&e.to_string()));
-    let obj_path = tmp.join("prog.o");
-    let rt_path = tmp.join("runtime.c");
-    std::fs::write(&obj_path, obj).unwrap_or_else(|e| die(&e.to_string()));
-    std::fs::write(&rt_path, RUNTIME_C).unwrap_or_else(|e| die(&e.to_string()));
-
-    let status = Command::new("cc")
-        .arg(&obj_path)
-        .arg(&rt_path)
-        .arg(if opt { "-O2" } else { "-O0" })
-        .arg("-o")
-        .arg(out)
-        .status();
-    let _ = std::fs::remove_dir_all(&tmp);
-    match status {
-        Ok(s) if s.success() => {}
-        Ok(_) => die("linking failed"),
-        Err(e) => die(&format!("could not run 'cc' (a C compiler is needed for linking): {e}")),
-    }
+    let checked = front_end(input);
+    let obj = drachm::compile(&checked, opt).unwrap_or_else(|e| die(&format!("codegen error: {e}")));
+    drachm::link::link(&obj, out, opt).unwrap_or_else(|e| die(&e));
 }

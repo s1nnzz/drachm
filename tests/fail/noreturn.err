@@ -1,0 +1,2 @@
+error[E0105]
+function `f` can finish without returning a value

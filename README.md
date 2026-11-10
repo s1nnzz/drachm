@@ -11,6 +11,7 @@ cargo build --release
 ./target/release/drachm run examples/hello.dr        # compile + run
 ./target/release/drachm build examples/hello.dr -O   # produce ./examples/hello
 ./target/release/drachm check examples/hello.dr      # type-check only
+./target/release/drachm explain E0101                # describe an error code
 ```
 
 Requires `cc` (gcc or clang) on `PATH` for linking.
@@ -50,11 +51,15 @@ fn main() -> i64 {
 
 | File | Role |
 |---|---|
+| `src/lib.rs` | the compiler as a library |
 | `src/lexer.rs` | source → tokens |
 | `src/parser.rs` | tokens → AST (recursive descent, precedence climbing) |
 | `src/typeck.rs` | type checking, mutability, return-path analysis |
 | `src/codegen.rs` | AST → Cranelift IR → object file |
-| `runtime/runtime.c` | builtins linked into every program |
-| `src/main.rs` | CLI driver and linking |
+| `src/diag/` | diagnostics: rendering and the error code table |
+| `src/link.rs`, `runtime/runtime.c` | linking, and the builtins linked into every program |
+| `src/main.rs` | CLI driver |
+| `tests/` | golden tests: `cargo test` |
+| `bench/` | benchmarks against C and Rust: `bench/run.sh` |
 
 v0.1 above predates the full design. See `docs/SPEC.md` for the language as designed and `docs/PLAN.md` for the build plan.

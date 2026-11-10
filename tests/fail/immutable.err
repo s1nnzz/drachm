@@ -1,0 +1,5 @@
+error[E0205]
+cannot assign to `x`: it is immutable
+`x` is declared here without `var`
+help: declare it as `var x` to allow assignment
+immutable.dr:3:5

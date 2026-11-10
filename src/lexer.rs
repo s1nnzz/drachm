@@ -1,4 +1,4 @@
-use crate::error::{Error, Span};
+use crate::diag::{codes, Diagnostic, Span};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Tok {
@@ -42,13 +42,59 @@ pub enum Tok {
     Eof,
 }
 
+impl Tok {
+    /// How the token is named in error messages.
+    pub fn describe(&self) -> String {
+        let text = match self {
+            Tok::Int(n) => return format!("number `{n}`"),
+            Tok::Ident(s) => return format!("name `{s}`"),
+            Tok::Eof => return "end of file".into(),
+            Tok::Fn => "fn",
+            Tok::Let => "let",
+            Tok::Var => "var",
+            Tok::If => "if",
+            Tok::Else => "else",
+            Tok::While => "while",
+            Tok::Return => "return",
+            Tok::True => "true",
+            Tok::False => "false",
+            Tok::LParen => "(",
+            Tok::RParen => ")",
+            Tok::LBrace => "{",
+            Tok::RBrace => "}",
+            Tok::Comma => ",",
+            Tok::Colon => ":",
+            Tok::Semi => ";",
+            Tok::Arrow => "->",
+            Tok::Plus => "+",
+            Tok::Minus => "-",
+            Tok::Star => "*",
+            Tok::Slash => "/",
+            Tok::Percent => "%",
+            Tok::Assign => "=",
+            Tok::EqEq => "==",
+            Tok::NotEq => "!=",
+            Tok::Lt => "<",
+            Tok::Le => "<=",
+            Tok::Gt => ">",
+            Tok::Ge => ">=",
+            Tok::AndAnd => "&&",
+            Tok::OrOr => "||",
+            Tok::Bang => "!",
+        };
+        format!("`{text}`")
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Token {
     pub tok: Tok,
     pub span: Span,
 }
 
-pub fn lex(src: &str) -> Result<Vec<Token>, Error> {
+/// Never fails: bad input is reported to `diags` and skipped, so the token
+/// stream always ends in `Eof`.
+pub fn lex(src: &str, diags: &mut Vec<Diagnostic>) -> Vec<Token> {
     let bytes = src.as_bytes();
     let mut out = Vec::new();
     let mut i = 0;
@@ -73,11 +119,16 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Error> {
             while i < bytes.len() && (bytes[i].is_ascii_digit() || bytes[i] == b'_') {
                 i += 1;
             }
+            let span = Span::new(start, i);
             let text: String = src[start..i].chars().filter(|&c| c != '_').collect();
-            let n = text
-                .parse::<i64>()
-                .map_err(|_| Error::new(Span::new(start, i), "integer literal out of range"))?;
-            out.push(Token { tok: Tok::Int(n), span: Span::new(start, i) });
+            let n = text.parse::<i64>().unwrap_or_else(|_| {
+                diags.push(
+                    Diagnostic::at(&codes::E0002, span, "number literal is out of range")
+                        .note(format!("the largest i64 is {}", i64::MAX)),
+                );
+                0
+            });
+            out.push(Token { tok: Tok::Int(n), span });
             continue;
         }
 
@@ -136,10 +187,13 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Error> {
                 b'!' => Tok::Bang,
                 _ => {
                     let ch = src[i..].chars().next().unwrap();
-                    return Err(Error::new(
-                        Span::new(i, i + ch.len_utf8()),
-                        format!("unexpected character '{ch}'"),
+                    i += ch.len_utf8();
+                    diags.push(Diagnostic::at(
+                        &codes::E0001,
+                        Span::new(start, i),
+                        format!("unexpected character `{}`", ch.escape_debug()),
                     ));
+                    continue;
                 }
             };
             (t, 1)
@@ -149,5 +203,5 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Error> {
     }
 
     out.push(Token { tok: Tok::Eof, span: Span::new(src.len(), src.len()) });
-    Ok(out)
+    out
 }

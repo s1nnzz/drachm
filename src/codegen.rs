@@ -38,7 +38,9 @@ pub fn compile(prog: &Program, sigs: &HashMap<String, Sig>, opt: bool) -> Result
 
     // Declare every function up front so calls can be emitted in any order.
     let mut ids = HashMap::new();
-    for (name, sig) in sigs {
+    // In source order, so the same input always gives the same object file.
+    for f in &prog.funcs {
+        let (name, sig) = (&f.name, &sigs[&f.name]);
         let mut s = module.make_signature();
         s.params.extend(sig.params.iter().filter_map(|&t| cl_type(t)).map(AbiParam::new));
         s.returns.extend(cl_type(sig.ret).map(AbiParam::new));

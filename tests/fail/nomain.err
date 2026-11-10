@@ -1,0 +1,4 @@
+error[E0204]: this program has no `main` function
+error[E0202]: function `helper` is defined twice
+first defined here
+error[E0203]: `print` is a builtin and cannot be redefined

@@ -1,22 +1,33 @@
 use crate::ast::*;
-use crate::error::{Error, Span};
+use crate::diag::{codes, Diagnostic, Span};
 use crate::lexer::{Tok, Token};
 
-pub fn parse(tokens: Vec<Token>) -> Result<Program, Error> {
-    let mut p = Parser { tokens, pos: 0 };
+/// Never fails: syntax errors are reported to `diags` and the parser carries
+/// on at the next statement or function, so several can be found in one go.
+pub fn parse(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>) -> Program {
+    let mut p = Parser { tokens, pos: 0, diags };
     let mut funcs = Vec::new();
     while p.peek() != &Tok::Eof {
-        funcs.push(p.func()?);
+        match p.func() {
+            Ok(f) => funcs.push(f),
+            Err(d) => {
+                p.diags.push(d);
+                while !matches!(p.peek(), Tok::Fn | Tok::Eof) {
+                    p.bump();
+                }
+            }
+        }
     }
-    Ok(Program { funcs })
+    Program { funcs }
 }
 
-struct Parser {
+struct Parser<'a> {
     tokens: Vec<Token>,
     pos: usize,
+    diags: &'a mut Vec<Diagnostic>,
 }
 
-impl Parser {
+impl Parser<'_> {
     fn peek(&self) -> &Tok {
         &self.tokens[self.pos].tok
     }
@@ -46,78 +57,116 @@ impl Parser {
         }
     }
 
-    fn expect(&mut self, tok: Tok, what: &str) -> Result<Span, Error> {
+    fn expect(&mut self, tok: Tok, what: &str) -> Result<Span, Diagnostic> {
         if self.peek() == &tok {
             Ok(self.bump().span)
         } else {
-            Err(Error::new(self.span(), format!("expected {what}, found {}", describe(self.peek()))))
+            Err(self.unexpected(what))
         }
     }
 
-    fn ident(&mut self) -> Result<(String, Span), Error> {
+    /// "expected X, found Y" at the current token.
+    fn unexpected(&self, what: &str) -> Diagnostic {
+        Diagnostic::at(&codes::E0003, self.span(), format!("expected {what}, found {}", self.peek().describe()))
+    }
+
+    fn ident(&mut self) -> Result<(String, Span), Diagnostic> {
         match self.peek().clone() {
             Tok::Ident(name) => Ok((name, self.bump().span)),
-            t => Err(Error::new(self.span(), format!("expected identifier, found {}", describe(&t)))),
+            _ => Err(self.unexpected("a name")),
         }
     }
 
-    fn ty(&mut self) -> Result<Type, Error> {
+    fn ty(&mut self) -> Result<Type, Diagnostic> {
         if self.eat(&Tok::LParen) {
-            self.expect(Tok::RParen, "')'")?;
+            self.expect(Tok::RParen, "`)`")?;
             return Ok(Type::Unit);
         }
         let (name, span) = self.ident()?;
         match name.as_str() {
             "i64" => Ok(Type::I64),
             "bool" => Ok(Type::Bool),
-            _ => Err(Error::new(span, format!("unknown type '{name}'"))),
+            _ => Err(Diagnostic::at(&codes::E0201, span, format!("unknown type `{name}`"))
+                .help("the types are `i64`, `bool` and `()`")),
         }
     }
 
-    fn func(&mut self) -> Result<Func, Error> {
-        let start = self.expect(Tok::Fn, "'fn'")?;
+    fn func(&mut self) -> Result<Func, Diagnostic> {
+        let start = self.expect(Tok::Fn, "`fn`")?;
         let (name, _) = self.ident()?;
-        self.expect(Tok::LParen, "'('")?;
+        self.expect(Tok::LParen, "`(`")?;
         let mut params = Vec::new();
         while self.peek() != &Tok::RParen {
             let (pname, _) = self.ident()?;
-            self.expect(Tok::Colon, "':'")?;
+            self.expect(Tok::Colon, "`:`")?;
             params.push((pname, self.ty()?));
             if !self.eat(&Tok::Comma) {
                 break;
             }
         }
-        self.expect(Tok::RParen, "')'")?;
+        self.expect(Tok::RParen, "`)`")?;
         let ret = if self.eat(&Tok::Arrow) { self.ty()? } else { Type::Unit };
         let span = Span::new(start.start, self.prev_span().end);
         let body = self.block()?;
         Ok(Func { name, params, ret, body, span })
     }
 
-    fn block(&mut self) -> Result<Block, Error> {
-        self.expect(Tok::LBrace, "'{'")?;
+    fn block(&mut self) -> Result<Block, Diagnostic> {
+        let open = self.expect(Tok::LBrace, "`{`")?;
         let mut stmts = Vec::new();
         while self.peek() != &Tok::RBrace {
-            if self.peek() == &Tok::Eof {
-                return Err(Error::new(self.span(), "unclosed block, expected '}'"));
+            // Functions don't nest, so `fn` here means the `}` is missing.
+            if matches!(self.peek(), Tok::Eof | Tok::Fn) {
+                return Err(Diagnostic::at(&codes::E0004, open, "this `{` is never closed")
+                    .label(self.span(), format!("expected `}}` before {}", self.peek().describe())));
             }
-            stmts.push(self.stmt()?);
+            match self.stmt() {
+                Ok(s) => stmts.push(s),
+                Err(d) => {
+                    self.diags.push(d);
+                    self.skip_statement();
+                }
+            }
         }
         self.bump();
         Ok(stmts)
     }
 
-    fn stmt(&mut self) -> Result<Stmt, Error> {
+    /// After a syntax error: skip to just past the next `;` (or nested block),
+    /// stopping early at the `}` that closes the current block.
+    fn skip_statement(&mut self) {
+        let mut depth = 0u32;
+        loop {
+            match self.peek() {
+                Tok::Eof | Tok::Fn => return,
+                Tok::Semi if depth == 0 => {
+                    self.bump();
+                    return;
+                }
+                Tok::RBrace if depth == 0 => return,
+                Tok::RBrace if depth == 1 => {
+                    self.bump();
+                    return;
+                }
+                Tok::LBrace => depth += 1,
+                Tok::RBrace => depth -= 1,
+                _ => {}
+            }
+            self.bump();
+        }
+    }
+
+    fn stmt(&mut self) -> Result<Stmt, Diagnostic> {
         let start = self.span();
         match self.peek() {
             Tok::Let | Tok::Var => {
                 let mutable = self.bump().tok == Tok::Var;
                 let (name, _) = self.ident()?;
-                self.expect(Tok::Colon, "':' and a type (Drachm requires explicit types)")?;
+                self.expect(Tok::Colon, "`:` and a type (types are always written out)")?;
                 let ty = self.ty()?;
-                self.expect(Tok::Assign, "'='")?;
+                self.expect(Tok::Assign, "`=`")?;
                 let value = self.expr()?;
-                self.expect(Tok::Semi, "';'")?;
+                self.expect(Tok::Semi, "`;`")?;
                 Ok(Stmt::Let { name, ty, mutable, value, span: Span::new(start.start, self.prev_span().end) })
             }
             Tok::If => self.if_stmt(),
@@ -130,27 +179,28 @@ impl Parser {
             Tok::Return => {
                 self.bump();
                 let value = if self.peek() == &Tok::Semi { None } else { Some(self.expr()?) };
-                self.expect(Tok::Semi, "';'")?;
+                self.expect(Tok::Semi, "`;`")?;
                 Ok(Stmt::Return { value, span: Span::new(start.start, self.prev_span().end) })
             }
             _ => {
                 let e = self.expr()?;
                 if self.eat(&Tok::Assign) {
                     let ExprKind::Var(name) = e.kind else {
-                        return Err(Error::new(e.span, "left side of '=' must be a variable"));
+                        return Err(Diagnostic::at(&codes::E0005, e.span, "the left side of `=` must be a variable")
+                            .note("cannot assign to this"));
                     };
                     let value = self.expr()?;
-                    self.expect(Tok::Semi, "';'")?;
+                    self.expect(Tok::Semi, "`;`")?;
                     return Ok(Stmt::Assign { name, value, span: Span::new(start.start, self.prev_span().end) });
                 }
-                self.expect(Tok::Semi, "';'")?;
+                self.expect(Tok::Semi, "`;`")?;
                 Ok(Stmt::Expr(e))
             }
         }
     }
 
-    fn if_stmt(&mut self) -> Result<Stmt, Error> {
-        self.expect(Tok::If, "'if'")?;
+    fn if_stmt(&mut self) -> Result<Stmt, Diagnostic> {
+        self.expect(Tok::If, "`if`")?;
         let cond = self.expr()?;
         let then = self.block()?;
         let els = if self.eat(&Tok::Else) {
@@ -165,15 +215,14 @@ impl Parser {
         Ok(Stmt::If { cond, then, els })
     }
 
-    fn expr(&mut self) -> Result<Expr, Error> {
+    fn expr(&mut self) -> Result<Expr, Diagnostic> {
         self.binary(0)
     }
 
     /// Precedence climbing. Higher number binds tighter.
-    fn binary(&mut self, min_prec: u8) -> Result<Expr, Error> {
+    fn binary(&mut self, min_prec: u8) -> Result<Expr, Diagnostic> {
         let mut lhs = self.unary()?;
-        loop {
-            let Some((op, prec)) = binop(self.peek()) else { break };
+        while let Some((op, prec)) = binop(self.peek()) {
             if prec < min_prec {
                 break;
             }
@@ -185,7 +234,7 @@ impl Parser {
         Ok(lhs)
     }
 
-    fn unary(&mut self) -> Result<Expr, Error> {
+    fn unary(&mut self) -> Result<Expr, Diagnostic> {
         let start = self.span();
         let op = match self.peek() {
             Tok::Minus => UnOp::Neg,
@@ -198,7 +247,7 @@ impl Parser {
         Ok(Expr { kind: ExprKind::Unary(op, Box::new(e)), span })
     }
 
-    fn primary(&mut self) -> Result<Expr, Error> {
+    fn primary(&mut self) -> Result<Expr, Diagnostic> {
         let t = self.bump();
         let kind = match t.tok {
             Tok::Int(n) => ExprKind::Int(n),
@@ -206,7 +255,7 @@ impl Parser {
             Tok::False => ExprKind::Bool(false),
             Tok::LParen => {
                 let e = self.expr()?;
-                self.expect(Tok::RParen, "')'")?;
+                self.expect(Tok::RParen, "`)`")?;
                 return Ok(e);
             }
             Tok::Ident(name) => {
@@ -218,13 +267,19 @@ impl Parser {
                             break;
                         }
                     }
-                    self.expect(Tok::RParen, "')'")?;
+                    self.expect(Tok::RParen, "`)`")?;
                     ExprKind::Call(name, args)
                 } else {
                     ExprKind::Var(name)
                 }
             }
-            other => return Err(Error::new(t.span, format!("expected expression, found {}", describe(&other)))),
+            other => {
+                return Err(Diagnostic::at(
+                    &codes::E0003,
+                    t.span,
+                    format!("expected an expression, found {}", other.describe()),
+                ));
+            }
         };
         Ok(Expr { kind, span: Span::new(t.span.start, self.prev_span().end) })
     }
@@ -247,13 +302,4 @@ fn binop(t: &Tok) -> Option<(BinOp, u8)> {
         Tok::Percent => (BinOp::Rem, 6),
         _ => return None,
     })
-}
-
-fn describe(t: &Tok) -> String {
-    match t {
-        Tok::Int(n) => format!("integer {n}"),
-        Tok::Ident(s) => format!("'{s}'"),
-        Tok::Eof => "end of file".into(),
-        other => format!("{other:?}"),
-    }
 }

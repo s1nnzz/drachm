@@ -31,7 +31,9 @@ Rust and uses Cranelift.
 
 ```sh
 cargo build
-cargo test                                   # golden tests (from step 0 on)
+cargo test                                   # unit tests + golden tests (tests/run.rs)
+DRACHM_BLESS=1 cargo test                    # rewrite expected .out/.code files
+bench/run.sh                                 # speed vs C and Rust
 target/debug/drachm run examples/hello.dr    # v0.1 still uses old syntax and .dr
 ```
 

@@ -1,0 +1,12 @@
+// Several independent mistakes: all of them are reported in one run.
+fn twice(n: i64) -> i64 {
+    return n * 2;
+}
+
+fn main() {
+    let a: i64 = true;
+    let b: bool = twice(1, 2);
+    c = 3;
+    print(missing(a));
+    if a { print(b); }
+}

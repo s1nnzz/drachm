@@ -16,7 +16,7 @@ answers into `docs/SPEC.md` and the design doc, and note leftovers under that st
 
 | Step | Name | Status |
 |---|---|---|
-| 0 | Foundations: lib split, test harness | not started |
+| 0 | Foundations: lib split, test harness | done |
 | 1 | Migrate v0.1 to Drachm syntax | not started |
 | 2 | Strings and structs | not started |
 | 3 | Ownership and borrow checking | not started |
@@ -38,13 +38,17 @@ v0.1 works end to end but uses the OLD syntax (`fn name() -> i64`, `let`/`var`,
 
 | File | Role |
 |---|---|
+| `src/lib.rs` | the compiler as a library: `check(src)` → program + diagnostics, `compile` → object |
 | `src/lexer.rs` | hand-written lexer → `Vec<Token>` with byte spans |
-| `src/parser.rs` | recursive descent + precedence climbing → AST (`src/ast.rs`) |
+| `src/parser.rs` | recursive descent + precedence climbing → AST (`src/ast.rs`); recovers at `;`, `}` and `fn` |
 | `src/typeck.rs` | types `i64`/`bool`/`()`, mutability, all-paths-return check |
 | `src/codegen.rs` | AST → Cranelift IR → object file (`cranelift-object` 0.137) |
-| `src/error.rs` | `Span`, `Error`, `file:line:col` rendering with a caret line |
-| `src/main.rs` | CLI `build`/`run`/`check`, `-O`; links object + runtime with `cc` |
+| `src/diag/` | `Diagnostic`, `Span`, `Source`; `render.rs` (SPEC section 10 layout, colour); `codes.rs` (code table) |
+| `src/link.rs` | links object + runtime with `cc` |
+| `src/main.rs` | thin CLI: `build`/`run`/`check`/`explain`, `-O` |
 | `runtime/runtime.c` | `drachm_print_i64`, `drachm_print_bool`, `drachm_div_zero` (exit 101) |
+| `tests/run.rs` | golden test harness (how to add a case is at the top of the file) |
+| `bench/` | benchmarks with C and Rust twins; `bench/run.sh` prints a comparison |
 
 Codegen notes that still apply:
 - User functions are mangled `drachm_<name>`; a generated C `main` calls `drachm_main`.
@@ -81,6 +85,25 @@ Work:
 errors render with codes and labels.
 
 **Open (ask owner):** none.
+
+Done (2026-11-10). Notes for later steps:
+- Every phase takes `&mut Vec<Diagnostic>` and never stops at the first error.
+  The type checker runs only if lexing and parsing were clean. Expressions with
+  an error inside have type `None`, so one mistake is reported once.
+- Error codes share one number space between `E` and `W`: `00xx` syntax, `01xx`
+  types and conversions, `02xx` names/declarations/bindings, `03xx` ownership.
+  In use: E0001-E0005, E0101, E0103-E0105, E0201-E0205 (W0102, E0301, E0302 are
+  reserved by the SPEC). Every new code needs an entry in `src/diag/codes.rs`.
+- Messages quote code with backticks. The message texts and `explain` texts
+  still talk about v0.1 syntax (`var`, `fn`); step 1 rewrites them.
+- Tests accept `.dr` and `.drh` until step 1 renames everything; then drop
+  `"dr"` from `EXTENSIONS` in `tests/run.rs`.
+- `DRACHM_BLESS=1 cargo test` regenerates `.out`/`.code` files.
+- Speed baseline (`bench/run.sh`, Drachm `-O` vs `cc -O2` vs `rustc -O`):
+  `fib` 1238 ms vs 298 / 569 ms; `primes` 4984 ms vs 4591 / 2919 ms. Cranelift
+  does no inlining, loop optimisation or recursion elimination, so call-heavy
+  code is 2-4x behind LLVM/GCC. Backend strategy is an open question for the
+  owner (see Open under "Performance" below).
 
 ---
 
@@ -371,6 +394,17 @@ Work:
 VS Code first (decided).
 
 **Open (ask owner):** highlighting colours/theme, if they care.
+
+---
+
+## Performance (cross-cutting)
+
+Goal from the owner: benchmark speed on par with Rust. Measure with
+`bench/run.sh` after every step that touches codegen, and add a benchmark
+whenever a step adds something worth measuring (strings, structs, lists).
+
+**Open (ask owner):** backend strategy for optimised builds (asked 2026-11-10;
+record the answer here).
 
 ---
 

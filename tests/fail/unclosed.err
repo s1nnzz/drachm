@@ -1,0 +1,2 @@
+error[E0004]: this `{` is never closed
+expected `}` before `fn`

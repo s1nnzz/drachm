@@ -1,0 +1,5 @@
+error[E0003]: expected `:` and a type
+syntax.dr:4:23
+error[E0003]: expected a name, found `{`
+syntax.dr:12:15
+4 errors

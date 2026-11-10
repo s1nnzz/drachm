@@ -1,0 +1,13 @@
+// The parser recovers at the next statement and the next function.
+fn main() {
+    let x i64 = 1;
+    let y: i64 = (2 + ;
+    print(y);
+}
+
+fn broken( {
+}
+
+fn also() -> i64 {
+    return 1 +;
+}
