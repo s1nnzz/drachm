@@ -614,6 +614,7 @@ impl Checker<'_> {
                 } else if v.ty == Type::None {
                     Diagnostic::at(&codes::E0104, value.span, "`match` needs a value, but this produces none").note("returns `none`")
                 } else {
+                    // OPEN: no struct patterns exist, so matching a struct is an error.
                     Diagnostic::at(&codes::E0101, value.span, format!("`match` works on numbers and bools, not `{}`", v.ty))
                         .note(format!("this is `{}`", v.ty))
                         .help("compare its fields in the cases, or use `if` with `==`")

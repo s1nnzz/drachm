@@ -994,6 +994,8 @@ impl Checker<'_> {
 
     /// `e` as a value something else will own. Owning values are deep-copied
     /// on every assignment, pass and return (moves arrive with step 3).
+    // OPEN: a struct holding a string is deep-copied like a string (the
+    // step 2 rule); SPEC section 6 says it moves, which needs step 3.
     fn owned(&self, e: hir::Expr) -> hir::Expr {
         if e.is_place() && self.g.owns(e.ty) { copy(e) } else { e }
     }
