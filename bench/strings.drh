@@ -1,0 +1,23 @@
+// String-heavy: build a line per number with interpolation and repeat,
+// measure and search it, and append its last character to a growing string.
+in io;
+
+none main() {
+    mut uint64 total = 0;
+    mut uint64 hits = 0;
+    mut string tail = "";
+    mut uint32 i = 0;
+    while (i < 2000000) {
+        string line = f"item ${i}: " + "ab"::repeat(i % 7);
+        total += line::len();
+        if (line::contains("99")) {
+            hits++;
+        }
+        tail += line::sub(-1, -1);
+        i++;
+    }
+    io::outln(total::text());
+    io::outln(hits::text());
+    io::outln(tail::count("b")->text());
+    io::outln(tail::len()->text());
+}
