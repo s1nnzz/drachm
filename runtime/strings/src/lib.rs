@@ -209,12 +209,27 @@ pub unsafe extern "C-unwind" fn drachm_str_cmp(a: *const DrachmStr, b: *const Dr
 
 // ---- character helpers ------------------------------------------------------
 
+/// Is every character one byte? True for ASCII without a CR LF pair, the one
+/// ASCII grapheme cluster longer than a byte. Such text skips segmentation.
+fn bytewise(s: &str) -> bool {
+    s.is_ascii() && !s.contains("\r\n")
+}
+
+fn char_count(s: &str) -> usize {
+    if bytewise(s) { s.len() } else { s.graphemes(true).count() }
+}
+
 /// Byte offsets where each character starts, followed by the string's length,
 /// so character `i` spans `offsets[i]..offsets[i + 1]`.
 fn char_offsets(s: &str) -> Vec<usize> {
     let mut v: Vec<usize> = s.grapheme_indices(true).map(|(i, _)| i).collect();
     v.push(s.len());
     v
+}
+
+/// Byte offset where character `i` starts (`i` may be the count: the end).
+fn char_start(s: &str, i: usize) -> usize {
+    if bytewise(s) { i } else { s.grapheme_indices(true).nth(i).map_or(s.len(), |(at, _)| at) }
 }
 
 /// Resolve a possibly negative index against `count` characters. With
@@ -229,6 +244,13 @@ fn resolve(index: i64, count: usize, allow_end: bool) -> usize {
 
 /// Byte range of the inclusive character range `start..=end`.
 fn char_range(s: &str, start: i64, end: i64) -> (usize, usize) {
+    if bytewise(s) {
+        let (a, b) = (resolve(start, s.len(), false), resolve(end, s.len(), false));
+        if a > b {
+            index_panic();
+        }
+        return (a, b + 1);
+    }
     let offs = char_offsets(s);
     let count = offs.len() - 1;
     let (a, b) = (resolve(start, count, false), resolve(end, count, false));
@@ -242,7 +264,7 @@ fn char_range(s: &str, start: i64, end: i64) -> (usize, usize) {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn drachm_str_len(s: *const DrachmStr) -> u64 {
-    unsafe { text(s).graphemes(true).count() as u64 }
+    unsafe { char_count(text(s)) as u64 }
 }
 
 #[unsafe(no_mangle)]
@@ -252,9 +274,14 @@ pub unsafe extern "C-unwind" fn drachm_str_is_empty(s: *const DrachmStr) -> u8 {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn drachm_str_reverse(out: *mut DrachmStr, s: *const DrachmStr) {
-    let mut v = Vec::with_capacity(unsafe { (*s).len } as usize);
-    for g in unsafe { text(s) }.graphemes(true).rev() {
-        v.extend_from_slice(g.as_bytes());
+    let t = unsafe { text(s) };
+    let mut v = Vec::with_capacity(t.len());
+    if bytewise(t) {
+        v.extend(t.bytes().rev());
+    } else {
+        for g in t.graphemes(true).rev() {
+            v.extend_from_slice(g.as_bytes());
+        }
     }
     unsafe { emit(out, &v) };
 }
@@ -285,6 +312,9 @@ pub unsafe extern "C-unwind" fn drachm_str_trim(out: *mut DrachmStr, s: *const D
 pub unsafe extern "C-unwind" fn drachm_str_find(s: *const DrachmStr, pat: *const DrachmStr) -> i64 {
     let t = unsafe { text(s) };
     let Some(at) = t.find(unsafe { text(pat) }) else { return -1 };
+    if bytewise(t) {
+        return at as i64;
+    }
     // A match that starts inside a character belongs to that character.
     t.grapheme_indices(true).take_while(|&(i, _)| i <= at).count().saturating_sub(1) as i64
 }
@@ -342,8 +372,7 @@ pub unsafe extern "C-unwind" fn drachm_str_replace_limit(
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn drachm_str_insert(out: *mut DrachmStr, s: *const DrachmStr, index: i64, ins: *const DrachmStr) {
     let t = unsafe { text(s) };
-    let offs = char_offsets(t);
-    let at = offs[resolve(index, offs.len() - 1, true)];
+    let at = char_start(t, resolve(index, char_count(t), true));
     let mut v = Vec::with_capacity(t.len() + unsafe { (*ins).len } as usize);
     v.extend_from_slice(&t.as_bytes()[..at]);
     v.extend_from_slice(unsafe { bytes(ins) });
@@ -366,11 +395,11 @@ pub unsafe extern "C-unwind" fn drachm_str_repeat(out: *mut DrachmStr, s: *const
     let b = unsafe { bytes(s) };
     let total = (b.len() as u64).checked_mul(n).filter(|&t| t <= isize::MAX as u64);
     let Some(total) = total else { panic_with(c"string too long") };
-    let mut v = Vec::with_capacity(total as usize);
-    for _ in 0..n {
-        v.extend_from_slice(b);
+    let p = drachm_str_alloc(total);
+    for i in 0..total as usize / b.len().max(1) {
+        unsafe { ptr::copy_nonoverlapping(b.as_ptr(), p.add(i * b.len()), b.len()) };
     }
-    unsafe { emit(out, &v) };
+    unsafe { out.write(DrachmStr { ptr: p, len: total, cap: total }) };
 }
 
 /// Shared by padLeft and padRight: the padding text that brings `t` up to `width`
@@ -379,7 +408,7 @@ fn padding(t: &str, width: u64, fill: &str) -> Option<String> {
     if fill.is_empty() {
         panic_with(c"empty padding fill");
     }
-    let have = t.graphemes(true).count() as u64;
+    let have = char_count(t) as u64;
     let need = usize::try_from(width.checked_sub(have)?).ok().filter(|&n| n > 0)?;
     // The fill repeats character by character, so the last repeat is cut at a
     // character boundary.
@@ -497,6 +526,7 @@ const ACUTE: &str = "\u{301}"; // a bare combining mark
         assert_eq!(len(FLAG), 1);
         assert_eq!(len(&format!("{FLAG}{FLAG}")), 2);
         assert_eq!(len("a\r\nb"), 3);
+        assert_eq!(len("a\rb\n"), 4);
         assert_eq!(unsafe { drachm_str_is_empty(&lit("")) }, 1);
         assert_eq!(unsafe { drachm_str_is_empty(&EMPTY) }, 1);
         assert_eq!(unsafe { drachm_str_is_empty(&lit("x")) }, 0);
@@ -611,6 +641,7 @@ const ACUTE: &str = "\u{301}"; // a bare combining mark
         assert_eq!(sub(&s, 1, 2), format!("{FAMILY}{FLAG}"));
         assert_eq!(sub(&s, 0, 0), format!("a{ACUTE}"));
         assert_eq!(sub(&s, -1, -1), "z");
+        assert_eq!(sub("x\r\ny", 1, 1), "\r\n");
     }
 
     #[test]
@@ -688,6 +719,8 @@ const ACUTE: &str = "\u{301}"; // a bare combining mark
         assert_eq!(find(&s, FAMILY), 0);
         // A match that starts inside a character belongs to that character.
         assert_eq!(find(&format!("a{ACUTE}b"), "\u{301}"), 0);
+        assert_eq!(find("a\r\nb", "\nb"), 1);
+        assert_eq!(find("a\rb\n", "\n"), 3);
 
         let (s, t) = (lit("hello"), lit("ell"));
         unsafe {
