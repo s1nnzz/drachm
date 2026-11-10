@@ -19,37 +19,78 @@ pub fn generate(prog: &Program) -> String {
     out += "\nstatic inline double drachm_f64_bits(uint64_t b) { double d; memcpy(&d, &b, 8); return d; }\n";
     out += "static inline float drachm_f32_bits(uint32_t b) { float f; memcpy(&f, &b, 4); return f; }\n\n";
 
+    for s in struct_order(prog) {
+        let def = &prog.structs[s];
+        let _ = writeln!(out, "typedef struct {{");
+        for f in &def.fields {
+            let _ = writeln!(out, "    {} f_{};", c_type(f.ty), f.name);
+        }
+        let _ = writeln!(out, "}} {};\n", struct_name(&def.name));
+    }
     for f in &prog.funcs {
         let _ = writeln!(out, "{};", signature(f));
     }
     for f in &prog.funcs {
-        let mut g = Gen { prog, out: String::new(), tmp: 0, depth: 1 };
+        let mut g = Gen { prog, func: f, out: String::new(), tmp: 0, depth: 1 };
         for (i, l) in f.locals.iter().enumerate().skip(f.params) {
-            g.line(format!("{} l{i} = 0;", c_type(l.ty)));
+            // Struct locals start out unset: the checker rejects reads before assignment.
+            match l.ty {
+                Type::Struct { .. } => g.line(format!("{} l{i};", c_type(l.ty))),
+                _ => g.line(format!("{} l{i} = 0;", c_type(l.ty))),
+            }
         }
         g.block(&f.body);
         let _ = writeln!(out, "\n{} {{\n{}}}", signature(f), g.out);
     }
 
     let main = &prog.funcs[prog.main];
-    let call = format!("{}()", func_name(main));
+    let call = format!("{}()", main.symbol);
     let body = if main.ret == Type::None { format!("{call}; return 0;") } else { format!("return (int){call};") };
     let _ = writeln!(out, "\nint main(void) {{ {body} }}");
     out
 }
 
-fn func_name(f: &Func) -> String {
-    format!("drachm_f_{}", f.name)
+fn struct_name(name: &str) -> String {
+    format!("drachm_s_{name}")
 }
 
+/// Every struct, each after the structs it contains (C needs a struct's
+/// definition before it is used as a field).
+fn struct_order(prog: &Program) -> Vec<StructId> {
+    fn visit(prog: &Program, s: StructId, done: &mut [bool], order: &mut Vec<StructId>) {
+        if done[s] {
+            return;
+        }
+        done[s] = true;
+        for f in &prog.structs[s].fields {
+            if let Some(inner) = f.ty.struct_id() {
+                visit(prog, inner, done, order);
+            }
+        }
+        order.push(s);
+    }
+    let mut done = vec![false; prog.structs.len()];
+    let mut order = Vec::new();
+    for s in 0..prog.structs.len() {
+        visit(prog, s, &mut done, &mut order);
+    }
+    order
+}
+
+/// Struct parameters are passed by value, except a method's `self`, which
+/// is a pointer to the caller's value. Struct results are returned by value.
 fn signature(f: &Func) -> String {
-    let params: Vec<String> = f.locals[..f.params].iter().enumerate().map(|(i, l)| format!("{} l{i}", c_type(l.ty))).collect();
+    let params: Vec<String> = f.locals[..f.params]
+        .iter()
+        .enumerate()
+        .map(|(i, l)| if i == 0 && f.has_self { format!("{} *l0", c_type(l.ty)) } else { format!("{} l{i}", c_type(l.ty)) })
+        .collect();
     let params = if params.is_empty() { "void".to_string() } else { params.join(", ") };
-    format!("static {} {}({params})", c_type(f.ret), func_name(f))
+    format!("static {} {}({params})", c_type(f.ret), f.symbol)
 }
 
-fn c_type(t: Type) -> &'static str {
-    match t {
+fn c_type(t: Type) -> String {
+    let name = match t {
         Type::Int { bits: 8, signed: false } => "uint8_t",
         Type::Int { bits: 16, signed: false } => "uint16_t",
         Type::Int { bits: 32, signed: false } => "uint32_t",
@@ -64,7 +105,9 @@ fn c_type(t: Type) -> &'static str {
         Type::Float(_) => "double",
         Type::Bool => "uint8_t",
         Type::None | Type::Str => "void",
-    }
+        Type::Struct { name, .. } => return struct_name(name),
+    };
+    name.to_string()
 }
 
 fn bits(t: Type) -> u16 {
@@ -113,12 +156,39 @@ fn c_string(s: &str) -> String {
 
 struct Gen<'a> {
     prog: &'a Program,
+    func: &'a Func,
     out: String,
     tmp: usize,
     depth: usize,
 }
 
 impl Gen<'_> {
+    /// A local as a C lvalue (`self` is a pointer).
+    fn local(&self, id: LocalId) -> String {
+        if id == 0 && self.func.has_self { "(*l0)".to_string() } else { format!("l{id}") }
+    }
+
+    /// A place (local, then field indexes) as a C lvalue.
+    fn place(&self, local: LocalId, fields: &[usize]) -> String {
+        let mut s = self.local(local);
+        let mut ty = self.func.locals[local].ty;
+        for &i in fields {
+            let f = &self.prog.struct_def(ty).fields[i];
+            let _ = write!(s, ".f_{}", f.name);
+            ty = f.ty;
+        }
+        s
+    }
+
+    /// A place-shaped expression (`Expr::is_place`) as a C lvalue.
+    fn lvalue(&self, e: &Expr) -> String {
+        match &e.kind {
+            ExprKind::Local(id) => self.local(*id),
+            ExprKind::Field(inner, i) => format!("{}.f_{}", self.lvalue(inner), self.prog.struct_def(inner.ty).fields[*i].name),
+            _ => unreachable!("not a place"),
+        }
+    }
+
     fn line(&mut self, text: impl AsRef<str>) {
         for _ in 0..self.depth {
             self.out += "    ";
@@ -127,11 +197,13 @@ impl Gen<'_> {
         self.out.push('\n');
     }
 
-    /// Store `value` in a fresh temporary and return its name.
+    /// Store `value` in a fresh temporary and return its name. Struct
+    /// temporaries are not `const`, so that a method can be called on one.
     fn temp(&mut self, ty: Type, value: impl AsRef<str>) -> String {
         self.tmp += 1;
         let name = format!("t{}", self.tmp);
-        self.line(format!("const {} {name} = {};", c_type(ty), value.as_ref()));
+        let qualifier = if ty.struct_id().is_some() { "" } else { "const " };
+        self.line(format!("{qualifier}{} {name} = {};", c_type(ty), value.as_ref()));
         name
     }
 
@@ -143,9 +215,10 @@ impl Gen<'_> {
 
     fn stmt(&mut self, s: &Stmt) {
         match s {
-            Stmt::Assign(id, e) => {
+            Stmt::Assign(place, e) => {
                 let v = self.expr(e);
-                self.line(format!("l{id} = {v};"));
+                let target = self.place(place.local, &place.fields);
+                self.line(format!("{target} = {v};"));
             }
             Stmt::If(cond, then, els) => {
                 let c = self.expr(cond);
@@ -201,8 +274,26 @@ impl Gen<'_> {
             },
             ExprKind::Bool(b) => format!("((uint8_t){})", *b as u8),
             ExprKind::Str(_) | ExprKind::Text(_) => unreachable!("text only exists as an argument of io::out"),
-            // A copy, so that a later `++` cannot change what was read here.
-            ExprKind::Local(id) => self.temp(ty, format!("l{id}")),
+            // A copy, so that a later `++` or method call cannot change what was read here.
+            ExprKind::Local(_) => self.temp(ty, self.lvalue(e)),
+            ExprKind::Field(inner, i) => {
+                let from = if inner.is_place() {
+                    self.lvalue(inner)
+                } else {
+                    self.expr(inner)
+                };
+                let name = &self.prog.struct_def(inner.ty).fields[*i].name;
+                self.temp(ty, format!("{from}.f_{name}"))
+            }
+            ExprKind::Struct(fields) => {
+                let def = self.prog.struct_def(ty);
+                let mut parts = Vec::new();
+                for (i, value) in fields {
+                    let v = self.expr(value);
+                    parts.push(format!(".f_{} = {v}", def.fields[*i].name));
+                }
+                self.temp(ty, format!("{{ {} }}", parts.join(", ")))
+            }
             ExprKind::Neg(inner) => {
                 let v = self.expr(inner);
                 if ty.is_float() {
@@ -289,8 +380,17 @@ impl Gen<'_> {
             }
             ExprKind::Call(id, args) => {
                 let callee = &self.prog.funcs[*id];
-                let args: Vec<String> = args.iter().map(|a| self.expr(a)).collect();
-                let call = format!("{}({})", func_name(callee), args.join(", "));
+                let mut vals = Vec::new();
+                for (i, a) in args.iter().enumerate() {
+                    // A method works on its receiver's storage: a place directly,
+                    // anything else through a temporary.
+                    vals.push(match (i, callee.has_self) {
+                        (0, true) if a.is_place() => format!("&{}", self.lvalue(a)),
+                        (0, true) => format!("&{}", self.expr(a)),
+                        _ => self.expr(a),
+                    });
+                }
+                let call = format!("{}({})", callee.symbol, vals.join(", "));
                 if ty == Type::None {
                     self.line(format!("{call};"));
                     String::new()
@@ -298,15 +398,16 @@ impl Gen<'_> {
                     self.temp(ty, call)
                 }
             }
-            ExprKind::IncDec { local, inc, prefix } => {
-                let old = self.temp(ty, format!("l{local}"));
+            ExprKind::IncDec { place, inc, prefix } => {
+                let target = self.place(place.local, &place.fields);
+                let old = self.temp(ty, &target);
                 let op = if *inc { '+' } else { '-' };
                 if ty.is_float() {
-                    self.line(format!("l{local} = {old} {op} 1;"));
+                    self.line(format!("{target} = {old} {op} 1;"));
                 } else {
-                    self.line(format!("l{local} = ({})(({}){old} {op} 1);", c_type(ty), work_type(ty)));
+                    self.line(format!("{target} = ({})(({}){old} {op} 1);", c_type(ty), work_type(ty)));
                 }
-                if *prefix { self.temp(ty, format!("l{local}")) } else { old }
+                if *prefix { self.temp(ty, &target) } else { old }
             }
             ExprKind::Out { newline, arg } => {
                 let nl = *newline as u8;
@@ -323,7 +424,7 @@ impl Gen<'_> {
                             }
                             Type::Int { signed: true, .. } => format!("drachm_out_s64((int64_t){v}, {nl})"),
                             Type::Int { signed: false, .. } => format!("drachm_out_u64((uint64_t){v}, {nl})"),
-                            Type::None | Type::Str => unreachable!(),
+                            Type::None | Type::Str | Type::Struct { .. } => unreachable!(),
                         };
                         self.line(format!("{call};"));
                     }

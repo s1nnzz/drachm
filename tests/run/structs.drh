@@ -1,0 +1,187 @@
+// Structs: construction, fields, methods, static methods, chains, nesting,
+// `mut` fields, copies, and structs as arguments, results and fields.
+in io;
+
+// Used before its definition.
+Rect makeRect(sint32 x, sint32 y, sint32 w, sint32 h) {
+    Rect r = x, y, w, h;
+    return r;
+}
+
+struct Point {
+public:
+    sint32 x;
+    sint32 y;
+
+    sint32 sum() { return self.x + self.y; }
+    Point moved(sint32 dx, sint32 dy) {
+        Point p = self.x + dx, self.y + dy;
+        return p;
+    }
+    Point flipped() {
+        Point p = y: self.x, x: self.y;
+        return p;
+    }
+    none shift(sint32 d) {
+        self.x += d;
+        self.y = self.y + d;
+    }
+    // Changes `self` only through another method.
+    none twice(sint32 d) {
+        self::shift(d);
+        self::shift(d);
+    }
+    static Point origin() {
+        Point p = 0, 0;
+        return p;
+    }
+}
+
+struct Rect {
+public:
+    sint32 x;
+    sint32 y;
+    sint32 w;
+    sint32 h;
+
+    sint32 area() { return self.w * self.h; }
+    Point corner() {
+        Point p = self.x + self.w, self.y + self.h;
+        return p;
+    }
+}
+
+struct Line {
+public:
+    Point a;
+    Point b;
+
+    sint32 length2() {
+        sint32 dx = self.b.x - self.a.x;
+        sint32 dy = self.b.y - self.a.y;
+        return dx * dx + dy * dy;
+    }
+}
+
+struct Counter {
+public:
+    uint32 id;
+    mut uint32 hits;
+
+    none hit() { self.hits++; }
+}
+
+struct Secret {
+    uint32 hidden;
+public:
+    uint32 shown;
+    uint32 reveal() { return self.hidden * 10 + self::bump(); }
+private:
+    uint32 bump() { return self.shown + 1; }
+}
+
+Point swap(Point p) {
+    Point q = p.y, p.x;
+    return q;
+}
+
+// A `mut` parameter is a copy: changing it leaves the caller's value alone.
+sint32 drain(mut Point p) {
+    p.x = 0;
+    p.y--;
+    return p.y;
+}
+
+none show(Point p) {
+    io::out("(");
+    io::out(p.x::text());
+    io::out(", ");
+    io::out(p.y::text());
+    io::outln(")");
+}
+
+none main() {
+    Point a = 1, 2;
+    Point b = y: 20, x: 10;
+    show(a);
+    show(b);
+    io::outln(a::sum()->text());
+    show(a::moved(5, 5)->flipped()->moved(1, 0));
+    show(Point::origin());
+    show(Point::origin()->moved(-3, 4));
+    io::outln(Point::origin()->sum()->text());
+
+    // Nested structs and nested access.
+    Line l = a, b;
+    io::outln(l.b.y::text());
+    io::outln(l::length2()->text());
+    Line m = b: Point::origin(), a: swap(b);
+    show(m.a);
+    io::outln(m.a.x::text());
+
+    // A struct from a function defined before it.
+    Rect r = makeRect(1, 2, 3, 4);
+    io::outln(r::area()->text());
+    show(r::corner());
+    io::outln(r::corner()->sum()->text());
+    io::outln(makeRect(0, 0, 5, 6).w::text());
+
+    // Changing fields of a `mut` binding, directly and through methods.
+    mut Point c = a;
+    c.x = 100;
+    c.y += 7;
+    c.x++;
+    ++c.y;
+    show(c);
+    c::shift(1);
+    show(c);
+    c::twice(10);
+    show(c);
+
+    // Copies are independent.
+    show(a);
+    mut Point d = c;
+    d.x = -1;
+    show(c);
+    show(d);
+    io::outln(drain(d)::text());
+    show(d);
+    mut Line n = l;
+    n.a.x = 99;
+    show(l.a);
+    show(n.a);
+    n.b = Point::origin();
+    show(n.b);
+    show(l.b);
+
+    // A `mut` field can change even on an immutable binding.
+    Counter k = 7, 0;
+    k.hits++;
+    k.hits += 2;
+    k::hit();
+    io::outln(k.hits::text());
+    io::outln(k.id::text());
+
+    // Private members are usable inside the struct's own methods.
+    Secret s = 4, 5;
+    io::outln(s.shown::text());
+    io::outln(s::reveal()->text());
+
+    // Declared without a value, assigned once later.
+    Point later;
+    if (a.x > 0) {
+        later = b;
+    } else {
+        later = a;
+    }
+    show(later);
+
+    // A one-field struct from a single value.
+    Wrap w = 42;
+    io::outln(w.v::text());
+}
+
+struct Wrap {
+public:
+    uint64 v;
+}

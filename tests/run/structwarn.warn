@@ -1,0 +1,7 @@
+warning[W0208]: method `channels` never uses `self`
+help: mark it `static` and call it on the struct, `Pixel::channels()`: write `static uint32 channels()`
+warning[W0102]: converting `uint32` to `uint8` can lose information
+warning[W0102]: `256` does not fit `uint8`
+warning[W0102]: converting `float64` to `float32` can lose information
+warning[W0102]: `2.9` does not fit `uint8`
+5 warnings

@@ -101,12 +101,37 @@ codes! {
     E0107: "constant division by zero",
         "A whole-number division or remainder has a constant zero on the right.\n\
          It would always panic, so it is rejected at compile time.";
+    E0108: "no such operator",
+        "An operator was used on a struct that has no operator method for it.\n\
+         The left side leads, so `a + b` calls the `+` method of `a`'s struct:\n\n\
+         \x20   struct Vector3 {\n\
+         \x20   public:\n\
+         \x20       float64 x; float64 y; float64 z;\n\
+         \x20       Vector3 +(Vector3 o) { Vector3 r = self.x + o.x, self.y + o.y, self.z + o.z; return r; }\n\
+         \x20   }\n\n\
+         `==` and `!=` need no method: structs compare field by field unless\n\
+         they define `bool ==(T o)`.";
+    E0109: "invalid operator method",
+        "An operator method has the wrong shape. Operator methods are named by\n\
+         one of `+ - * / % **` or `== != < <= > >=`, take exactly one parameter\n\
+         (the right-hand side), and are never `static`. Comparisons return\n\
+         `bool`, and `==` / `!=` take a value of the struct's own type.";
+    E0110: "struct construction",
+        "A struct built with the declaration shorthand must get every field\n\
+         exactly once, either all in field order or all by name:\n\n\
+         \x20   Vector3 a = 1, 2, 3;\n\
+         \x20   Vector3 b = z: 3, x: 1, y: 2;\n\
+         \x20   Vector3 c = 1, y: 2, z: 3;     // error: mixed\n\
+         \x20   Vector3 d = 1, 2;              // error: `z` is missing\n\n\
+         Only a struct can be built from a list of values.";
 
     E0201: "unknown name",
         "A binding, function, method, module or type was used that does not\n\
          exist here. Check the spelling, and that the definition is visible.";
     E0202: "defined twice",
-        "Two functions in the same file have the same name.";
+        "Two things that need different names have the same one: two functions\n\
+         or two structs in a file, two fields or two methods in a struct, a\n\
+         field and a method of one struct, or a struct and a built-in type.";
     E0204: "missing or invalid `main`",
         "A program needs exactly one `main` function that takes no parameters\n\
          and is either `none main()` or `sint32 main()` (which returns the exit\n\
@@ -118,7 +143,16 @@ codes! {
          \x20   mut uint32 b = 1;\n\
          \x20   b = 2;              // ok\n\n\
          A binding declared without a value (`uint32 later;`) may be assigned\n\
-         exactly once, where it certainly has no value yet.";
+         exactly once, where it certainly has no value yet.\n\n\
+         A struct's fields can change when the binding is `mut` or the field\n\
+         itself is `mut` (a `mut` field can always change):\n\n\
+         \x20   struct Player { public: uint32 level; mut uint32 hp; }\n\
+         \x20   Player p = 1, 100;\n\
+         \x20   p.hp -= 10;         // ok: `hp` is a `mut` field\n\
+         \x20   p.level = 2;        // error: neither `p` nor `level` is `mut`\n\n\
+         A method that changes a non-`mut` field of `self` (or calls a method\n\
+         that does) changes its value, so it can only be called on a `mut`\n\
+         binding, never on a temporary value.";
     E0206: "module not imported",
         "A module was used without importing it. Nothing is imported\n\
          automatically, not even `io`: add `in io;` at the top of the file.";
@@ -128,6 +162,33 @@ codes! {
          \x20   uint32 x;\n\
          \x20   if (ready) { x = 1; }\n\
          \x20   io::outln(x::text());   // error: no value if `ready` is false";
+    W0208: "method does not use `self`",
+        "A method that never uses `self` does not need a value to be called on.\n\
+         Mark it `static` and call it on the struct instead:\n\n\
+         \x20   static Point origin() { Point p = 0, 0; return p; }\n\
+         \x20   Point o = Point::origin();";
+    E0209: "no `self` here",
+        "`self` is the value a method was called on. It exists only inside a\n\
+         struct's methods, and not in `static` ones, which are called on the\n\
+         struct (`Point::origin()`) rather than on a value.";
+    E0210: "struct contains itself",
+        "A struct has a field of its own type, directly or through other\n\
+         structs (`A` holds a `B`, which holds an `A`). Its size would never\n\
+         end, so this is not allowed.";
+    E0211: "field of an unassigned struct",
+        "A single field was set on a struct binding that may not have a value\n\
+         yet. Give the binding a whole value first:\n\n\
+         \x20   Point p;\n\
+         \x20   p.x = 1;            // error\n\
+         \x20   p = q;              // ok: the whole value";
+    E0212: "private member",
+        "A field or method in a struct's private section was used outside that\n\
+         struct's own methods. Before any `public:` or `private:` label, fields\n\
+         are private and methods are public.";
+    E0213: "static and non-static calls",
+        "A `static` method is called on the struct (`Point::origin()`); every\n\
+         other method is called on a value (`p::length()`). This call used the\n\
+         wrong one.";
 
     E0901: "not supported yet",
         "This is part of Drachm's design, but this version of the compiler does\n\

@@ -18,7 +18,7 @@ answers into `docs/SPEC.md` and the design doc, and note leftovers under that st
 |---|---|---|
 | 0 | Foundations: lib split, test harness | done |
 | 1 | Migrate v0.1 to Drachm syntax | done (256-bit, float8/16 deferred) |
-| 2 | Strings and structs | not started |
+| 2 | Strings and structs | structs done; strings in progress |
 | 3 | Ownership and borrow checking | not started |
 | 4 | `for`, `skip`, `match` | not started |
 | 5 | Constructors, enums, `fails` / `maybe` | not started |
@@ -45,7 +45,7 @@ backends.
 | `src/consts.rs` | untyped constants: exact big-integer / fraction arithmetic |
 | `src/types.rs` | built-in types, lossless-conversion table |
 | `src/typeck.rs` | names, types, left-side-leads conversions, W0102, definite assignment, all-paths-return → `src/hir.rs` |
-| `src/hir.rs` | the typed tree both backends consume: every conversion explicit, names resolved |
+| `src/hir.rs` | the typed tree both backends consume: every conversion explicit, names resolved; struct layouts |
 | `src/codegen.rs` | plain builds: HIR → Cranelift IR → object file (`cranelift-object` 0.137) |
 | `src/cgen.rs` | `-O` builds: HIR → C (one `const` temporary per sub-expression) |
 | `src/link.rs` | runs `cc`; caches the compiled runtime in `~/.cache/drachm` |
@@ -238,6 +238,49 @@ text on `padLeft`/`padRight`; `io::outf` literal percent is `\%`; outf options
 are width/padding (`%8`, `%-8`, `%08`) and bases (`%x %X %b %o`) besides `%.N`.
 
 **Open (ask owner):** none.
+
+Structs done (2026-11-10): item 5 and the construction shorthand. Structs
+hold numbers, bools and other structs (string fields wait for strings).
+Golden tests `structs`, `structcalls`, `operators`, `layout`, `structwarn`;
+fail tests `structsyntax`, `structdecl`, `structuse`, `structmut`. Notes for
+later steps:
+- HIR: `Type::Struct { id, name }` (the name is interned so `Type` stays
+  `Copy`); `hir::Program::structs` holds each layout (C-style, computed once
+  in `hir::layout`). New expressions `Field`, `Struct` (field values in
+  evaluation order); `Stmt::Assign` and `IncDec` take a `Place` (local plus
+  field path). Methods are ordinary `hir::Func`s; `has_self` makes parameter
+  0 the receiver, which refers to the caller's storage when the argument
+  `is_place()`. Operators on structs become `Call`s of the operator method;
+  automatic `==` is a generated function per struct (`drachm_eq_<Name>`).
+- ABI: Cranelift keeps structs in stack slots and passes them by address; a
+  struct result is written through a hidden first parameter. Every struct
+  expression yields a fresh copy, so a callee owns its struct arguments'
+  memory. The C backend emits real C structs (in containment order), passes
+  them by value and `self` as a pointer.
+- Copies are whole-value for now; step 3 adds moves and the ≤ 32-byte copy
+  rule. Step 3 should also reuse the "changes `self`" analysis in `typeck.rs`
+  (`SelfUse`, `report_fixed_receivers`) for the `&self` / `&mut self`
+  inference, and replace the "temporary receiver" error with real borrows.
+- Step 5: the construction shorthand currently always means "all fields in
+  declaration order", ignoring visibility. Constructors, `new T of (...)` and
+  the automatic constructor disappearing must replace `construct` in typeck.
+- Decided here, not by the owner (conservative errors where unsure; ask):
+  - after a field access the chain starts over: `p.pos::len()`, `p::get().x::text()`;
+  - a field and a method of one struct may not share a name (E0202);
+  - one method per operator symbol (no overloading by parameter type);
+  - `==` / `!=` methods must take the struct's own type, and comparison
+    operator methods must return `bool` (E0109);
+  - a written `!=` method is used for `!=`; otherwise `!=` is `!(a == b)`;
+  - the automatic `==` compares struct fields with their own `==` (custom or
+    automatic), and floats by IEEE (`NaN != NaN`);
+  - `self = ...` is an error (E0005), as is calling a method that changes
+    `self` on a temporary value (E0205);
+  - fields have no default values; a field cannot be `static`, a method cannot be `mut`;
+  - a struct may have no fields; a one-field struct can be built from one
+    value (`Wrap w = 42;`);
+  - operator methods never get W0208 (they cannot be `static`).
+- New codes: E0108-E0110, W0208, E0209-E0213. E0205's explanation now covers
+  fields and changing methods.
 
 ---
 

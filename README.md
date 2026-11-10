@@ -53,6 +53,12 @@ none main() {
   Bitwise operators need parentheses next to arithmetic and comparisons.
 - **Control flow:** `if (...) { } else if (...) { } else { }`, `while (...) { }`,
   `return`. Conditions are always parenthesised.
+- **Structs:** `struct Point { public: sint32 x; mut sint32 y; }` with fields,
+  `public:`/`private:` sections, methods using `self`, `static` methods,
+  operator methods (`Vector3 +(Vector3 o) { ... }`) and automatic `==`.
+  Build them in a declaration: `Point p = 1, 2;` or `Point p = y: 2, x: 1;`.
+  Calls chain as `p::moved(1, 1)->length()`. A `mut` field can change even
+  on an immutable binding.
 - **Output:** `io::out` / `io::outln` print text; `::text()` turns a value into text.
 - **Runtime safety:** whole-number division by zero panics with exit code 101.
 

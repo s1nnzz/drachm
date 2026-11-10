@@ -1,0 +1,39 @@
+error[E0209]: a `static` method has no `self`
+ help: remove `static` to give the method a `self`
+error[E0110]: `Point` has 3 fields, but 2 values are given
+ help: give a value for each field, in order: `sint32 x`, `sint32 y` and `sint32 secret`
+error[E0201]: `Point` has no field `z`
+ help: did you mean `x`?
+error[E0201]: `Point` has no field `xx`
+ help: did you mean `x`?
+error[E0201]: `Point` has no field `sum`
+ help: `sum` is a method: call it with `a::sum()`
+error[E0201]: `Point` has no method `summ`
+ help: did you mean `sum`?
+error[E0201]: `Point` has no method `x`
+ help: `x` is a field: write `a.x`
+error[E0212]: field `secret` of `Point` is private
+ help: only `Point`'s own methods can use it; put it under `public:` to use it here
+error[E0212]: method `hidden` of `Point` is private
+ help: only `Point`'s own methods can use it; put it under `public:` to use it here
+error[E0213]: `origin` is a static method: it is called on the struct, not on a value
+ help: write `Point::origin(...)`
+error[E0213]: `Point::sum` is not static: it needs a `Point` value
+ help: call it on a value, like `p::sum()` with `Point p`
+error[E0201]: `Point` has no method `nothing`
+ help: its methods are `sum`, `origin` and `hidden`
+error[E0201]: `sint32` has no fields
+error[E0209]: `self` only exists inside a struct's methods
+error[E0108]: `Point` has no `*` operator
+ help: give `Point` an operator method: `Point *(Point o) { ... }`
+error[E0101]: `*` has `uint32` on the left but `Point` on the right
+ help: the left side leads, so an operator method of `Point` is only found with the `Point` on the left
+error[E0108]: `Point` has no `<` operator
+ help: give `Point` an operator method: `bool <(Point o) { ... }`
+error[E0101]: `-` needs a number, found `Point`
+ help: operator methods are for two-sided operators only
+error[E0101]: `io::outln` prints text, found `Point`
+error[E0212]: field `inside` of `Box` is private
+ help: only `Box`'s own methods can use it; put it under `public:` to use it here
+error[E0110]: a list of values can only build a struct, not a `uint32`
+tests/fail/structuse.drh: 21 errors

@@ -3,7 +3,7 @@ syntax.drh:4:21
 error[E0003]: expected `(` after `if`, found name `x`
 help: conditions are always in parentheses: `if (...) { }`
 help: `match` is a reserved word and cannot be used as a name
-error[E0005]: only a binding can be assigned to
+error[E0005]: only a binding or a field can be assigned to
 error[E0007]: expected `::` here, found `->`
 error[E0007]: expected `->` here, found `::`
 error[E0003]: expected a type, found `{`

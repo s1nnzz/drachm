@@ -1,0 +1,37 @@
+// Methods on fields of `self`, struct values rebuilt in a loop, and recursion on struct values.
+in io;
+struct P {
+public:
+    sint64 x;
+    none bump() { self.x++; }
+    P twice() { P r = self.x * 2; return r; }
+}
+struct Q {
+public:
+    P a;
+    P b;
+    none bumpBoth() { self.a::bump(); self.b::bump(); self.b::bump(); }
+}
+P z() { P r = 0; return r; }
+P fib(P n) {
+    if (n.x < 2) { return n; }
+    P a = n.x - 1;
+    P b = n.x - 2;
+    P r = fib(a).x + fib(b).x;
+    return r;
+}
+none main() {
+    mut Q q = z(), z();
+    mut uint32 i = 0;
+    mut P acc = 1;
+    while (i < 10) {
+        q::bumpBoth();
+        acc = acc::twice();
+        i++;
+    }
+    io::outln(q.a.x::text());
+    io::outln(q.b.x::text());
+    io::outln(acc.x::text());
+    P n = 20;
+    io::outln(fib(n).x::text());
+}

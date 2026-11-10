@@ -1,0 +1,136 @@
+// Operator methods, the left side leading, and automatic `==` / `!=`.
+in io;
+
+struct Vector3 {
+public:
+    float64 x;
+    float64 y;
+    float64 z;
+
+    Vector3 +(Vector3 o) {
+        Vector3 r = self.x + o.x, self.y + o.y, self.z + o.z;
+        return r;
+    }
+    Vector3 -(Vector3 o) {
+        Vector3 r = self.x - o.x, self.y - o.y, self.z - o.z;
+        return r;
+    }
+    Vector3 *(float64 k) {
+        Vector3 r = self.x * k, self.y * k, self.z * k;
+        return r;
+    }
+    Vector3 /(float64 k) {
+        Vector3 r = self.x / k, self.y / k, self.z / k;
+        return r;
+    }
+    float64 dot(Vector3 o) { return self.x * o.x + self.y * o.y + self.z * o.z; }
+    bool <(Vector3 o) { return self::dot(self) < o::dot(o); }
+    bool >=(Vector3 o) { return !(self < o); }
+    none print() {
+        io::out(self.x::text());
+        io::out(" ");
+        io::out(self.y::text());
+        io::out(" ");
+        io::outln(self.z::text());
+    }
+}
+
+// Whole numbers with a power, a remainder and a custom `==`.
+struct Mod7 {
+public:
+    uint32 v;
+
+    Mod7 +(Mod7 o) {
+        Mod7 r = (self.v + o.v) % 7;
+        return r;
+    }
+    Mod7 *(Mod7 o) {
+        Mod7 r = (self.v * o.v) % 7;
+        return r;
+    }
+    Mod7 **(uint32 n) {
+        Mod7 r = (self.v ** n) % 7;
+        return r;
+    }
+    Mod7 %(uint32 m) {
+        Mod7 r = self.v % m;
+        return r;
+    }
+    bool ==(Mod7 o) { return self.v % 7 == o.v % 7; }
+    bool <=(Mod7 o) { return self.v % 7 <= o.v % 7; }
+    bool >(Mod7 o) { return self.v % 7 > o.v % 7; }
+}
+
+struct Pair {
+public:
+    Mod7 a;
+    sint8 b;
+}
+
+struct Flags {
+public:
+    bool on;
+    float32 level;
+    Vector3 where;
+}
+
+none main() {
+    Vector3 a = 1.0, 2.0, 3.0;
+    Vector3 b = z: 0.5, x: 4.0, y: -1.0;
+    (a + b)::print();
+    (a - b)::print();
+    (a * 2)::print();
+    (a / 4)::print();
+    (a + b * 2 - a)::print();
+    ((a + b) * 0.5)::print();
+    io::outln(a::dot(b)->text());
+    io::outln((a < b)::text());
+    io::outln((b < a)::text());
+    io::outln((a >= b)::text());
+
+    // Compound assignment uses the operator method.
+    mut Vector3 c = a;
+    c += b;
+    c *= 10;
+    c -= a;
+    c::print();
+
+    // Automatic `==` compares field by field; `!=` is its negation.
+    Vector3 d = 1, 2, 3;
+    io::outln((a == d)::text());
+    io::outln((a != d)::text());
+    io::outln((a == b)::text());
+    io::outln((a != b)::text());
+    io::outln((a + b == b + a)::text());
+    float64 nan = 0.0f / 0.0f;
+    Vector3 n = nan, 0, 0;
+    io::outln((n == n)::text());
+    io::outln((n != n)::text());
+
+    // A custom `==` replaces the automatic one; `!=` negates it.
+    Mod7 x = 3;
+    Mod7 y = 10;
+    io::outln((x == y)::text());
+    io::outln((x != y)::text());
+    io::outln((x + y).v::text());
+    io::outln((x * y).v::text());
+    io::outln((x ** 4).v::text());
+    io::outln((y % 4).v::text());
+    io::outln((x <= y)::text());
+    io::outln((y > x)::text());
+
+    // Structs holding structs compare with each field's own `==`.
+    Pair p = x, -1;
+    Pair q = y, -1;
+    Pair r = y, 1;
+    io::outln((p == q)::text());
+    io::outln((p == r)::text());
+    io::outln((p != r)::text());
+
+    Flags f = true, 0.25, a;
+    Flags g = true, 0.25, d;
+    Flags h = false, 0.25, d;
+    io::outln((f == g)::text());
+    io::outln((f == h)::text());
+    io::outln((f.where == d)::text());
+}
