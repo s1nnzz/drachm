@@ -1,0 +1,32 @@
+// Interpolation: f"..." and backtick strings, and f"""...""" over lines.
+in io;
+
+uint32 twice(uint32 n) { return n * 2; }
+
+string name() { return "Illy"; }
+
+none main() {
+    string who = "Sam";
+    uint32 hp = 42;
+    float64 ratio = 0.75;
+    sint8 delta = -3;
+    io::outln(f"hp: ${hp}");
+    io::outln(`hi ${who}, ratio ${ratio}, delta ${delta}, ok ${hp > 40}`);
+    io::outln(f"${who}");
+    io::outln(f"${hp}");
+    io::outln(f"[${who}${who}]");
+    io::outln(f"no interpolation, { braces } and \${escaped}");
+    io::outln(f"constants: ${1 + 2} ${0.1 + 0.2} ${-7 / 2} ${2.5f32}");
+    io::outln(f"calls: ${twice(hp)} ${name()} ${name()::upper()} ${who::len()}");
+    io::outln(f"nested: ${f"<${who + "!"}>"} and ${`${hp}`}");
+    io::outln(f"joined: " + f"${hp}" + `/${twice(hp)}`);
+    io::outln(f"text with \"quotes\" and dollars $5 and $ {hp}");
+    io::outln(`backtick with "double quotes" and \` escaped`);
+    string greeting = f"${who} has ${hp} hp";
+    io::outln(greeting);
+    io::outln(f"""multi
+  line ${who}
+${hp}""");
+    io::outln(f"""${who}""");
+    io::outln(f"emoji ${"\u{1F600}"} accents ${"\u{e9}"::upper()}");
+}

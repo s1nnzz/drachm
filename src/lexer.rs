@@ -10,7 +10,8 @@ use crate::types::{Type, TypeError};
 #[derive(Debug, Clone, PartialEq)]
 pub enum Tok {
     Num(NumLit),
-    Str(String),
+    /// A string literal of any form, in pieces.
+    Str(Vec<StrPiece>),
     Ident(String),
     Kw(&'static str),
     /// Punctuation or an operator.
@@ -48,10 +49,24 @@ impl Tok {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Token {
     pub tok: Tok,
     pub span: Span,
+}
+
+/// One piece of a string literal. Text written directly and text written as
+/// escapes are kept apart, so that `io::outf` can tell a `%` placeholder from
+/// an escaped `\%`, and point at the exact place of a problem.
+#[derive(Debug, Clone, PartialEq)]
+pub enum StrPiece {
+    /// Source text exactly as written (it contains no escapes), at `span`.
+    Raw(String, Span),
+    /// The character an escape stands for; `span` covers the escape.
+    Escape(char, Span),
+    /// `${...}`: the tokens between the braces, then the closing `}` and
+    /// `Eof`; `span` covers `${` to `}`.
+    Interp(Vec<Token>, Span),
 }
 
 fn is_word(b: u8) -> bool {
@@ -116,6 +131,9 @@ impl Lexer<'_> {
                     self.i += 1;
                 }
                 let word = &self.src[start..self.i];
+                if word == "f" && self.at(0) == b'"' {
+                    return Some((self.string(start, true), start));
+                }
                 if let Some(tok) = self.word_base(word) {
                     return Some((tok, start));
                 }
@@ -125,7 +143,9 @@ impl Lexer<'_> {
                 };
                 return Some((tok, start));
             } else if c == b'"' {
-                return Some((self.string(), start));
+                return Some((self.string(start, false), start));
+            } else if c == b'`' {
+                return Some((self.string(start, true), start));
             } else if let Some(sym) = SYMBOLS.iter().find(|s| self.src[start..].starts_with(**s)) {
                 self.i += sym.len();
                 return Some((Tok::Sym(sym), start));
@@ -279,59 +299,160 @@ impl Lexer<'_> {
         }
     }
 
-    fn string(&mut self) -> Tok {
-        let start = self.i;
-        self.i += 1;
-        let mut out = String::new();
+    /// A string literal. `self.i` is at the opening quote; `start` is where
+    /// the token starts (at an `f` prefix, if any). `"` and backticks end at
+    /// the end of the line, `"""` may span lines. Only `f` strings and
+    /// backtick strings interpolate `${...}`.
+    fn string(&mut self, start: usize, interpolate: bool) -> Tok {
+        let close = if self.src[self.i..].starts_with("\"\"\"") {
+            "\"\"\""
+        } else if self.at(0) == b'`' {
+            "`"
+        } else {
+            "\""
+        };
+        // OPEN (language): a `"""` string keeps its text exactly as written
+        // between the delimiters, leading newline and indentation included.
+        let multiline = close.len() == 3;
+        self.i += close.len();
+        let mut pieces = Vec::new();
+        let mut raw = self.i;
+        let mut interp_failed = false;
         loop {
-            let Some(ch) = self.src[self.i..].chars().next().filter(|c| *c != '\n') else {
-                self.error(&codes::E0004, start, "this string is never closed")
-                    .set_help("end it with `\"` on the same line");
+            let rest = &self.src[self.i..];
+            if rest.starts_with(close) {
+                self.raw_piece(raw, &mut pieces);
+                self.i += close.len();
+                break;
+            }
+            let Some(ch) = rest.chars().next().filter(|c| multiline || *c != '\n') else {
+                self.raw_piece(raw, &mut pieces);
+                // An unclosed `${` already said what is wrong.
+                if interp_failed {
+                    break;
+                }
+                let help = match close {
+                    "`" => "end it with a backtick on the same line",
+                    "\"" => "end it with `\"` on the same line",
+                    _ => "end it with `\"\"\"`",
+                };
+                self.error(&codes::E0004, start, "this string is never closed").set_help(help);
                 break;
             };
-            let at = self.i;
-            self.i += ch.len_utf8();
             match ch {
-                '"' => break,
                 '\\' => {
-                    let Some(esc) = self.src[self.i..].chars().next() else { continue };
-                    self.i += esc.len_utf8();
-                    match esc {
-                        'n' => out.push('\n'),
-                        't' => out.push('\t'),
-                        'r' => out.push('\r'),
-                        '0' => out.push('\0'),
-                        '\\' | '"' | '\'' | '`' | '$' => out.push(esc),
-                        'u' if self.at(0) == b'{' => {
-                            let close = self.src[self.i..].find(['}', '"', '\n']).map(|p| self.i + p);
-                            let body = close.map(|c| &self.src[self.i + 1..c]).unwrap_or("");
-                            let code = u32::from_str_radix(body, 16).ok().and_then(char::from_u32);
-                            match (close, code) {
-                                (Some(c), Some(ch)) if self.bytes[c] == b'}' => {
-                                    out.push(ch);
-                                    self.i = c + 1;
-                                }
-                                _ => {
-                                    self.error(&codes::E0008, at, "`\\u{...}` needs a Unicode code point in hex")
-                                        .set_help("for example `\\u{1F600}`; names such as `\\u{GREEK SMALL LETTER ALPHA}` are not supported yet");
-                                    if let Some(c) = close.filter(|c| self.bytes[*c] == b'}') {
-                                        self.i = c + 1;
-                                    }
-                                }
-                            }
-                        }
-                        _ => {
-                            self.error(&codes::E0008, at, format!("unknown escape `\\{}`", esc.escape_debug()))
-                                .set_help("escapes are \\n \\t \\r \\0 \\\\ \\\" \\' \\` \\$ and \\u{...}");
-                        }
+                    self.raw_piece(raw, &mut pieces);
+                    if let Some(piece) = self.escape() {
+                        pieces.push(piece);
                     }
+                    raw = self.i;
                 }
-                _ => out.push(ch),
+                '$' if interpolate && self.at(1) == b'{' => {
+                    self.raw_piece(raw, &mut pieces);
+                    match self.interpolation(multiline) {
+                        Some(piece) => pieces.push(piece),
+                        None => interp_failed = true,
+                    }
+                    raw = self.i;
+                }
+                _ => self.i += ch.len_utf8(),
             }
         }
-        Tok::Str(out)
+        Tok::Str(pieces)
+    }
+
+    /// The text from `from` to here, as written, if there is any.
+    fn raw_piece(&self, from: usize, pieces: &mut Vec<StrPiece>) {
+        if from < self.i {
+            pieces.push(StrPiece::Raw(self.src[from..self.i].to_string(), Span::new(from, self.i)));
+        }
+    }
+
+    /// An escape; `self.i` is at its `\\`. `None` if it was invalid (reported).
+    fn escape(&mut self) -> Option<StrPiece> {
+        let at = self.i;
+        self.i += 1;
+        let esc = self.src[self.i..].chars().next()?;
+        if esc == '\n' {
+            // Leave the newline to end (or continue) the string.
+            self.error(&codes::E0008, at, "a `\\` at the end of a line is not an escape")
+                .set_help(ESCAPES_HELP);
+            return None;
+        }
+        self.i += esc.len_utf8();
+        let ch = match esc {
+            'n' => '\n',
+            't' => '\t',
+            'r' => '\r',
+            '0' => '\0',
+            '\\' | '"' | '\'' | '`' | '$' | '%' => esc,
+            'u' if self.at(0) == b'{' => {
+                let close = self.src[self.i..].find(['}', '"', '`', '\n']).map(|p| self.i + p);
+                let body = close.map(|c| &self.src[self.i + 1..c]).unwrap_or("");
+                let code = u32::from_str_radix(body, 16).ok().and_then(char::from_u32);
+                match (close, code) {
+                    (Some(c), Some(ch)) if self.bytes[c] == b'}' => {
+                        self.i = c + 1;
+                        ch
+                    }
+                    _ => {
+                        self.error(&codes::E0008, at, "`\\u{...}` needs a Unicode code point in hex")
+                            .set_help("for example `\\u{1F600}`; names such as `\\u{GREEK SMALL LETTER ALPHA}` are not supported yet");
+                        if let Some(c) = close.filter(|c| self.bytes[*c] == b'}') {
+                            self.i = c + 1;
+                        }
+                        return None;
+                    }
+                }
+            }
+            _ => {
+                self.error(&codes::E0008, at, format!("unknown escape `\\{}`", esc.escape_debug())).set_help(ESCAPES_HELP);
+                return None;
+            }
+        };
+        Some(StrPiece::Escape(ch, Span::new(at, self.i)))
+    }
+
+    /// `${...}`; `self.i` is at the `$`. The expression inside is lexed as
+    /// ordinary tokens up to the matching `}`, so it may hold anything,
+    /// strings included. In a single-line string it must close on that line.
+    fn interpolation(&mut self, multiline: bool) -> Option<StrPiece> {
+        let open = self.i;
+        self.i += 2;
+        let mut tokens = Vec::new();
+        let mut depth = 0u32;
+        loop {
+            let before = self.i;
+            let next = self.next();
+            let gap_end = next.as_ref().map_or(self.src.len(), |(_, s)| *s);
+            let newline = self.src[before..gap_end].find('\n').filter(|_| !multiline);
+            let (tok, s) = match (next, newline) {
+                (Some(t), None) => t,
+                (_, nl) => {
+                    self.i = nl.map_or(self.src.len(), |n| before + n);
+                    self.diags.push(
+                        Diagnostic::at(&codes::E0004, Span::new(open, open + 2), "this `${` is never closed")
+                            .help("end the interpolated expression with `}`"),
+                    );
+                    return None;
+                }
+            };
+            match tok {
+                Tok::Sym("{") => depth += 1,
+                Tok::Sym("}") if depth == 0 => {
+                    tokens.push(Token { tok, span: Span::new(s, self.i) });
+                    tokens.push(Token { tok: Tok::Eof, span: Span::new(self.i, self.i) });
+                    return Some(StrPiece::Interp(tokens, Span::new(open, self.i)));
+                }
+                Tok::Sym("}") => depth -= 1,
+                _ => {}
+            }
+            tokens.push(Token { tok, span: Span::new(s, self.i) });
+        }
     }
 }
+
+const ESCAPES_HELP: &str = "escapes are \\n \\t \\r \\0 \\\\ \\\" \\' \\` \\$ \\% and \\u{...}";
 
 /// Exact value of `digits[.digits][e[+-]digits]`. `None` if the exponent is silly.
 fn parse_decimal(text: &str) -> Option<BigRational> {
@@ -367,11 +488,35 @@ mod tests {
                 Tok::Num(NumLit { value: Const::Dec(v), suffix }) => format!("d{v}{}", suffix.map_or(String::new(), |s| format!(":{s}"))),
                 Tok::Ident(s) => s,
                 Tok::Sym(s) | Tok::Kw(s) => s.to_string(),
-                Tok::Str(s) => format!("{s:?}"),
+                Tok::Str(pieces) => format!("{:?}", show(&pieces)),
                 Tok::Eof => String::new(),
             })
             .filter(|s| !s.is_empty())
             .collect()
+    }
+
+    /// A string token's pieces: raw text as is, escapes in `[]`, interpolations
+    /// as their tokens in `${}`.
+    fn show(pieces: &[StrPiece]) -> String {
+        pieces
+            .iter()
+            .map(|p| match p {
+                StrPiece::Raw(t, _) => t.clone(),
+                StrPiece::Escape(c, _) => format!("[{c}]"),
+                StrPiece::Interp(toks, _) => format!("${{{}}}", toks.len() - 2),
+            })
+            .collect()
+    }
+
+    fn string(src: &str) -> String {
+        let mut diags = Vec::new();
+        let toks = lex(src, &mut diags);
+        assert!(diags.is_empty(), "{src}: {diags:?}");
+        assert_eq!(toks.len(), 2, "{src}: {toks:?}");
+        match &toks[0].tok {
+            Tok::Str(p) => show(p),
+            t => panic!("{src}: {t:?}"),
+        }
     }
 
     #[test]
@@ -389,13 +534,26 @@ mod tests {
 
     #[test]
     fn strings_and_symbols() {
-        assert_eq!(nums(r#""a\n\"b\u{41}" **= ** * /* c */ // d"#), ["\"a\\n\\\"bA\"", "**=", "**", "*"]);
+        assert_eq!(nums(r#""a\n\"b\u{41}" **= ** * /* c */ // d"#), ["\"a[\\n][\\\"]b[A]\"", "**=", "**", "*"]);
         assert_eq!(nums("i++ + --j"), ["i", "++", "+", "--", "j"]);
     }
 
     #[test]
+    fn string_forms() {
+        assert_eq!(string(r#""100\% ${x} {}""#), "100[%] ${x} {}");
+        assert_eq!(string(r#"f"a${x + 1}b${ {} }""#), "a${3}b${2}");
+        assert_eq!(string("`say \"${ f\"${n}\" }\"`"), "say \"${1}\"");
+        assert_eq!(string("\"\"\"line\n  \"quoted\"\\t\"\"\""), "line\n  \"quoted\"[\t]");
+        assert_eq!(string("f\"\"\"\n${\nx\n}\"\"\""), "\n${1}");
+        assert_eq!(string(r#""""#), "");
+        assert_eq!(string(r#""\$\`""#), "[$][`]");
+        // A name `f` before a space is not a prefix.
+        assert_eq!(nums(r#"f "x""#), ["f", "\"x\""]);
+    }
+
+    #[test]
     fn errors() {
-        for bad in ["5x", "5u7", "2.5u8", "\"abc", "/* x", "@", "\"\\q\"", "5u256"] {
+        for bad in ["5x", "5u7", "2.5u8", "\"abc", "/* x", "@", "\"\\q\"", "5u256", "f\"${x", "`abc", "\"\"\"abc"] {
             let mut diags = Vec::new();
             lex(bad, &mut diags);
             assert_eq!(diags.len(), 1, "{bad}: {diags:?}");

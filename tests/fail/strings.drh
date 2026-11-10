@@ -1,0 +1,33 @@
+in io;
+
+none nothing() { }
+
+none main() {
+    string s = "abc";
+    uint32 hp = 5;
+    string a = s + hp;
+    string b = s + 5;
+    string c = hp + s;
+    string d = s - "a";
+    string e = s * 3;
+    bool f = s == 1;
+    bool g = s < true;
+    string h = hp;
+    string i = 7;
+    uint64 j = s::length();
+    string k = s::shout();
+    uint32 l = s::split(",");
+    string m = s::sub(1);
+    string n = s::padLeft(1, "x", "y");
+    string o = s::repeat("x");
+    string p = s::join(hp);
+    string q = s::text(1);
+    string r = f"bad ${s - 1} inside";
+    string t = f"${nothing()}";
+    s += "x";
+    mut string u = "u";
+    u -= "x";
+    u++;
+    string v = s::to<uint8>();
+    io::outln(s::sub(0, 1, 2));
+}

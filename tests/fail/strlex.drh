@@ -1,0 +1,13 @@
+in io;
+
+none main() {
+    io::outln(f"empty ${} here");
+    io::outln(f"bad ${1 +} here");
+    io::outln(f"two ${a b} here");
+    io::outln(`never closed ${x
+    );
+    io::outln("trailing \
+    ");
+    io::outln(`no end);
+}
+string s = """never closed

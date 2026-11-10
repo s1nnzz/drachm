@@ -1,0 +1,70 @@
+len
+6
+12
+1
+5
+0
+isEmpty
+true false false
+reverse: [mhcarD]
+reverse: [eélûrb emèrC]
+reverse: [😀🇯🇵b👨‍👩‍👧a]
+reverse: []
+sub: [rac]
+sub: [chm]
+sub: [D]
+sub: [ brûlée]
+sub: [👨‍👩‍👧]
+sub: [🇯🇵😀]
+chain: [ab]
+upper: [DRACHM]
+upper: [CRÈME BRÛLÉE]
+upper: [STRASSE]
+upper: [A👨‍👩‍👧B🇯🇵😀]
+lower: [drachm été]
+trim: [padded]
+trim: [👨‍👩‍👧]
+trim: []
+find
+2
+3
+-1
+6
+2
+3
+0
+contains / startsWith / endsWith
+true false true
+true false true
+true true true
+count
+3
+2
+2
+2
+0
+join: [Drachm & Crème brûlée]
+replace: [bANANa]
+replace: [Crème brûlée]
+replace: [aFb🇯🇵😀]
+replaceLimit: [bonona]
+replaceLimit: [banana]
+insert: [>Drachm]
+insert: [Drachm<]
+insert: [Drach_m]
+insert: [a👨‍👩‍👧|b🇯🇵😀]
+remove: [Dhm]
+remove: [Drac]
+remove: [a😀]
+repeat: [ababab]
+repeat: [🇯🇵🇯🇵]
+repeat: []
+padLeft: [007]
+padLeft: [  7]
+padLeft: [Drachm]
+padLeft: [abax]
+padRight: [7..]
+padRight: [7  ]
+padRight: [é🇯🇵🇯🇵]
+text: [Crème brûlée]
+converted: [bcdbcdbcd]

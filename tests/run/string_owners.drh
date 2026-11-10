@@ -1,0 +1,136 @@
+// Strings through functions, branches, loops and early returns. Every run
+// case is checked for leaks, so this mostly exercises the drops.
+in io;
+
+string shout(string s) {
+    return s::upper() + "!";
+}
+
+// A `mut` parameter is the callee's own copy.
+string decorate(mut string s, uint32 times) {
+    mut uint32 i = 0;
+    while (i < times) {
+        s = "<" + s + ">";
+        i++;
+    }
+    return s;
+}
+
+// Early returns drop whatever is in scope at that point.
+string classify(sint32 n) {
+    string prefix = "n=" + n::text();
+    if (n < 0) {
+        string sign = "negative";
+        return prefix + " " + sign;
+    }
+    if (n == 0) {
+        return "zero";
+    }
+    string big = "big";
+    if (n > 100) {
+        return prefix + " " + big;
+    }
+    return prefix;
+}
+
+// Returns a parameter: the caller gets a copy, the parameter is dropped.
+string same(string s) { return s; }
+
+uint64 countVowels(string s) {
+    return s::count("a") + s::count("e") + s::count("i") + s::count("o") + s::count("u");
+}
+
+bool check(string label, bool value) {
+    io::outln("  checked " + label);
+    return value;
+}
+
+none early(string s) {
+    string local = s + "?";
+    if (s::isEmpty()) {
+        io::outln("empty");
+        return;
+    }
+    io::outln(local);
+}
+
+none main() {
+    string base = "drachm";
+    io::outln(shout(base));
+    io::outln(shout("lit"));
+    io::outln(base);
+    io::outln(decorate(base, 3));
+    io::outln(classify(-5));
+    io::outln(classify(0));
+    io::outln(classify(7));
+    io::outln(classify(500));
+    io::outln(same(same(base)));
+    io::outln(countVowels("education")::text());
+    early("");
+    early("why");
+
+    // Reassignment in a loop drops the old value each time.
+    mut string acc = "";
+    mut uint32 i = 0;
+    while (i < 10) {
+        acc = acc + i::text();
+        if (i % 3 == 0) {
+            acc = acc::reverse();
+        }
+        string scratch = acc::upper();
+        i++;
+    }
+    io::outln(acc);
+
+    // `+=` appends in place, also to a literal and to itself.
+    mut string built = "start";
+    mut uint32 j = 0;
+    while (j < 200) {
+        built += j::text()->padLeft(3, "0")->sub(-1, -1);
+        j++;
+    }
+    io::outln(built::len()->text());
+    io::outln(built::sub(0, 14));
+    built += built;
+    io::outln(built::len()->text());
+
+    // Strings in conditions, with temporaries that are made only sometimes.
+    if (base::upper() == "DRACHM" && check("second", base + "!" == "drachm!")) {
+        io::outln("both");
+    }
+    if (base == "nope" && check("never", (base + "x")::len() > 0)) {
+        io::outln("unreachable");
+    }
+    while (acc::sub(0, 0) != "x" && acc::len() > 3) {
+        acc = acc::sub(1, -1);
+    }
+    io::outln(acc);
+
+    // A value used only for its effects, and results that are dropped unused.
+    base::upper();
+    shout(base);
+    base + "unused";
+    base;
+
+    // Uninitialised strings assigned later, on every path.
+    string later;
+    if (acc::len() > 1) {
+        later = "long";
+    } else {
+        later = "short";
+    }
+    io::outln(later);
+    mut string perhaps;
+    if (true) {
+        perhaps = "set";
+        perhaps = perhaps + " twice";
+    }
+
+    // Shadowing in an inner block drops the inner one only.
+    string x = "outer";
+    if (true) {
+        string x = "inner" + "!";
+        io::outln(x);
+    }
+    io::outln(x);
+}

@@ -1,0 +1,28 @@
+tab	here, quote " and \, $ % ` ' Aé😀
+short
+
+no ${interpolation} in plain strings, { braces } are text
+multi-line "quoted" text,
+  indented line, escape	still works
+
+Drachm
+Drachm!
+Drachm!
+xyxyxyxy|
+true
+false
+false
+true
+true
+true
+true
+true
+false
+true
+false
+200 -9223372036854775808 340282366920938463463374607431768211455 -170141183460469231731687303715884105728
+0.1 0.3333333333333333 2.5 1000000000000000000000.0
+true/false/true
+-5 1.5 3000000000
+copy
+Drachm

@@ -1,6 +1,8 @@
 //! Name resolution, type checking and definite-assignment analysis.
 //! Turns the syntax tree into `hir`, reporting every problem it finds.
 
+mod strings;
+
 use std::collections::HashMap;
 
 use crate::ast::{self, BinOp, ExprKind, OpClass, Stmt, UnOp};
@@ -77,6 +79,8 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
             diags,
             ret,
             scopes: vec![HashMap::new()],
+            owned: vec![Vec::new()],
+            temps: Vec::new(),
             locals: Vec::new(),
             flow: Flow { definite: Vec::new(), maybe: Vec::new(), reachable: true },
             loop_depth: 0,
@@ -87,7 +91,11 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
             cx.flow.definite[id] = true;
             cx.flow.maybe[id] = true;
         }
-        let body = cx.block(&f.body);
+        let mut body = cx.block(&f.body);
+        // Parameters belong to the function and are dropped at its end.
+        if cx.flow.reachable {
+            body.extend(cx.owned[0].iter().rev().map(|&id| hir::Stmt::Drop(id)));
+        }
         if cx.flow.reachable && ret.is_some_and(|t| t != Type::None) {
             cx.diags.push(
                 Diagnostic::at(
@@ -163,13 +171,17 @@ fn type_hint(name: &str) -> Option<String> {
         "i64" | "isize" => "sint64",
         "i128" => "sint128",
         "uint" | "u32" | "unsigned" => "uint32",
-        "u8" | "byte" | "char" => "uint8",
+        "u8" | "byte" => "uint8",
+        "char" | "character" | "rune" => {
+            return Some("Drachm has no character type: a character is a one-character `string`".into());
+        }
         "u16" => "uint16",
         "u64" | "usize" | "size_t" => "uint64",
         "u128" => "uint128",
         "float" | "double" | "f64" | "number" | "real" => "float64",
         "f32" => "float32",
         "boolean" => "bool",
+        "string" | "text" => "string",
         "void" | "nothing" | "unit" => "none",
         "fn" | "func" | "function" | "def" | "fun" => {
             return Some("there is no function keyword: a function starts with its return type, like `none main() { }`".into());
@@ -253,6 +265,11 @@ struct Checker<'a> {
     /// `None` if the return type did not resolve.
     ret: Option<Type>,
     scopes: Vec<HashMap<String, hir::LocalId>>,
+    /// The `string` bindings of each scope, in declaration order, to drop
+    /// when it ends.
+    owned: Vec<Vec<hir::LocalId>>,
+    /// Hidden locals holding the current statement's temporary strings.
+    temps: Vec<hir::LocalId>,
     locals: Vec<LocalInfo>,
     flow: Flow,
     loop_depth: u32,
@@ -260,6 +277,19 @@ struct Checker<'a> {
 
 fn int_lit(bits: u128, ty: Type) -> hir::Expr {
     hir::Expr { kind: hir::ExprKind::Int(bits), ty }
+}
+
+fn str_lit(text: String) -> hir::Expr {
+    hir::Expr { kind: hir::ExprKind::Str(text), ty: Type::Str }
+}
+
+/// `e`, followed by dropping `drops`.
+fn scoped(e: hir::Expr, drops: Vec<hir::LocalId>) -> hir::Expr {
+    if drops.is_empty() {
+        return e;
+    }
+    let ty = e.ty;
+    hir::Expr { kind: hir::ExprKind::Scoped(Box::new(e), drops), ty }
 }
 
 impl Checker<'_> {
@@ -271,9 +301,53 @@ impl Checker<'_> {
         let id = self.locals.len();
         self.locals.push(LocalInfo { name: name.to_string(), ty, mutable, is_param, span, loop_depth: self.loop_depth });
         self.scopes.last_mut().unwrap().insert(name.to_string(), id);
+        if ty == Some(Type::Str) {
+            self.owned.last_mut().unwrap().push(id);
+        }
         self.flow.definite.resize(id + 1, false);
         self.flow.maybe.resize(id + 1, false);
         id
+    }
+
+    /// A local the program cannot name, for a value the lowering needs to keep.
+    fn hidden(&mut self, ty: Type) -> hir::LocalId {
+        let id = self.locals.len();
+        let span = Span::new(0, 0);
+        self.locals.push(LocalInfo { name: format!("${id}"), ty: Some(ty), mutable: true, is_param: false, span, loop_depth: self.loop_depth });
+        id
+    }
+
+    /// `e` as a `string` place: an owned value goes into a temporary that
+    /// dies at the end of the statement.
+    fn place(&mut self, e: hir::Expr) -> hir::Expr {
+        if matches!(e.kind, hir::ExprKind::Local(_) | hir::ExprKind::Str(_) | hir::ExprKind::Temp(..)) {
+            return e;
+        }
+        let id = self.hidden(Type::Str);
+        self.temps.push(id);
+        hir::Expr { kind: hir::ExprKind::Temp(id, Box::new(e)), ty: Type::Str }
+    }
+
+    /// `e` as a value something else will own. Strings are deep-copied on
+    /// every assignment, pass and return (moves arrive with step 3).
+    fn owned(e: hir::Expr) -> hir::Expr {
+        match e.kind {
+            hir::ExprKind::Local(_) if e.ty == Type::Str => hir::Expr { kind: hir::ExprKind::Copy(Box::new(e)), ty: Type::Str },
+            _ => e,
+        }
+    }
+
+    /// The temporaries made since the last call, in the order to drop them.
+    fn take_temps(&mut self) -> Vec<hir::LocalId> {
+        let mut t = std::mem::take(&mut self.temps);
+        t.reverse();
+        t
+    }
+
+    /// Every `string` binding in scope, innermost and latest first: what a
+    /// `return` drops.
+    fn all_owned(&self) -> Vec<hir::LocalId> {
+        self.owned.iter().rev().flat_map(|s| s.iter().rev().copied()).collect()
     }
 
     fn text(&self, span: Span) -> &str {
@@ -288,11 +362,16 @@ impl Checker<'_> {
 
     fn block(&mut self, b: &ast::Block) -> hir::Block {
         self.scopes.push(HashMap::new());
+        self.owned.push(Vec::new());
         let mut out = Vec::new();
         for s in b {
             self.stmt(s, &mut out);
         }
         self.scopes.pop();
+        let owned = self.owned.pop().unwrap();
+        if self.flow.reachable {
+            out.extend(owned.into_iter().rev().map(hir::Stmt::Drop));
+        }
         out
     }
 
@@ -312,18 +391,19 @@ impl Checker<'_> {
                 // The value is checked before the name exists, so `uint32 x = x;`
                 // refers to an outer `x`.
                 let init = value.as_ref().map(|v| match ty {
-                    Some(t) => self.coerce(v, t),
+                    Some(t) => self.coerce(v, t).map(Self::owned),
                     None => {
                         self.expr(v);
                         None
                     }
                 });
+                let temps = self.take_temps();
                 let id = self.declare(name, ty, *mutable, *name_span, false);
                 if let Some(init) = init {
                     self.flow.definite[id] = true;
                     self.flow.maybe[id] = true;
                     if let Some(e) = init {
-                        out.push(hir::Stmt::Assign(id, e));
+                        out.push(hir::Stmt::Assign(id, scoped(e, temps)));
                     }
                 }
             }
@@ -338,7 +418,7 @@ impl Checker<'_> {
                     None => {
                         self.check_assignable(id, *name_span, false);
                         match ty {
-                            Some(t) => self.coerce(value, t),
+                            Some(t) => self.coerce(value, t).map(Self::owned),
                             None => {
                                 self.expr(value);
                                 None
@@ -364,12 +444,29 @@ impl Checker<'_> {
                 };
                 self.flow.definite[id] = true;
                 self.flow.maybe[id] = true;
-                if let Some(e) = rhs {
-                    out.push(hir::Stmt::Assign(id, e));
+                let temps = self.take_temps();
+                let Some(e) = rhs else { return };
+                match e.kind {
+                    // `s += t` appends in place.
+                    hir::ExprKind::StrCall(hir::StrFn::Concat, args) if op.is_some() => {
+                        let append = hir::Expr { kind: hir::ExprKind::StrCall(hir::StrFn::Append, args), ty: Type::None };
+                        out.push(hir::Stmt::Expr(scoped(append, temps)));
+                    }
+                    // The new value is made before the old one is dropped,
+                    // since making it may read the old one.
+                    _ if e.ty == Type::Str => {
+                        let new = self.hidden(Type::Str);
+                        out.push(hir::Stmt::Assign(new, scoped(e, temps)));
+                        out.push(hir::Stmt::Drop(id));
+                        out.push(hir::Stmt::Assign(id, hir::Expr { kind: hir::ExprKind::Move(new), ty: Type::Str }));
+                    }
+                    _ => out.push(hir::Stmt::Assign(id, scoped(e, temps))),
                 }
             }
             Stmt::If { cond, then, els } => {
                 let c = self.coerce(cond, Type::Bool);
+                let temps = self.take_temps();
+                let c = c.map(|c| scoped(c, temps));
                 let start = self.flow.clone();
                 let (then_b, then_flow) = self.branch(then, start.clone());
                 let (else_b, else_flow) = match els {
@@ -383,6 +480,8 @@ impl Checker<'_> {
             }
             Stmt::While { cond, body } => {
                 let c = self.coerce(cond, Type::Bool);
+                let temps = self.take_temps();
+                let c = c.map(|c| scoped(c, temps));
                 let after_cond = self.flow.clone();
                 self.loop_depth += 1;
                 let (body_b, body_flow) = self.branch(body, after_cond.clone());
@@ -411,7 +510,7 @@ impl Checker<'_> {
                         );
                         None
                     }
-                    (Some(v), Some(t)) => self.coerce(v, t).map(Some),
+                    (Some(v), Some(t)) => self.coerce(v, t).map(|e| Some(Self::owned(e))),
                     (Some(v), None) => {
                         self.expr(v);
                         None
@@ -426,13 +525,32 @@ impl Checker<'_> {
                     (None, _) => Some(None),
                 };
                 self.flow.reachable = false;
-                if let Some(v) = v {
-                    out.push(hir::Stmt::Return(v));
+                // The value is made first: it may read what is dropped.
+                let mut drops = self.take_temps();
+                drops.extend(self.all_owned());
+                match v {
+                    Some(Some(e)) => out.push(hir::Stmt::Return(Some(scoped(e, drops)))),
+                    Some(None) => {
+                        out.extend(drops.into_iter().map(hir::Stmt::Drop));
+                        out.push(hir::Stmt::Return(None));
+                    }
+                    None => {}
                 }
             }
             Stmt::Expr(e) => {
-                if let Some(Val::Expr(e)) = self.expr(e) {
-                    out.push(hir::Stmt::Expr(e));
+                let v = self.expr(e);
+                let temps = self.take_temps();
+                match v {
+                    // A place has no effects; there is nothing to do.
+                    Some(Val::Expr(e)) if matches!(e.kind, hir::ExprKind::Local(_) | hir::ExprKind::Str(_)) => {}
+                    // An unused new string is made and dropped.
+                    Some(Val::Expr(e)) if e.ty == Type::Str => {
+                        let unused = self.hidden(Type::Str);
+                        out.push(hir::Stmt::Assign(unused, scoped(e, temps)));
+                        out.push(hir::Stmt::Drop(unused));
+                    }
+                    Some(Val::Expr(e)) => out.push(hir::Stmt::Expr(scoped(e, temps))),
+                    _ => {}
                 }
             }
         }
@@ -512,10 +630,12 @@ impl Checker<'_> {
         match v {
             Val::Const(c) if to.is_numeric() => Some(self.fit_const(&c, to, from.span, false)),
             Val::Const(_) => {
-                self.diags.push(
-                    Diagnostic::at(&codes::E0101, from.span, format!("expected `{to}`, found a number"))
-                        .note("this is a number"),
-                );
+                let mut d = Diagnostic::at(&codes::E0101, from.span, format!("expected `{to}`, found a number"))
+                    .note("this is a number");
+                if to == Type::Str {
+                    d = d.help(self.text_fix(from));
+                }
+                self.diags.push(d);
                 None
             }
             Val::Expr(e) if e.ty == to => Some(e),
@@ -537,10 +657,25 @@ impl Checker<'_> {
                     .note(format!("this is `{}`", e.ty));
                 if e.ty == Type::Bool && to.is_numeric() || e.ty.is_numeric() && to == Type::Bool {
                     d = d.help("`bool` is not a number and never converts to or from one");
+                } else if to == Type::Str {
+                    d = d.help(self.text_fix(from));
                 }
                 self.diags.push(d);
                 None
             }
+        }
+    }
+
+    /// "turn it into text with `::text()`: `x::text()`", for a number or bool
+    /// found where a string belongs.
+    fn text_fix(&self, at: Origin) -> String {
+        let text = self.text(at.span);
+        if text.len() > 40 || text.contains('\n') {
+            "turn it into text with `::text()`".to_string()
+        } else if at.compound {
+            format!("turn it into text: `({text})::text()`")
+        } else {
+            format!("turn it into text: `{text}::text()`")
         }
     }
 
@@ -627,7 +762,7 @@ impl Checker<'_> {
                 None => Some(Val::Const(n.value.clone())),
             },
             ExprKind::Bool(b) => typed(hir::ExprKind::Bool(*b), Type::Bool),
-            ExprKind::Str(s) => typed(hir::ExprKind::Str(s.clone()), Type::Str),
+            ExprKind::Str(parts) => self.string_literal(parts),
             ExprKind::Var(name) => match self.lookup(name) {
                 Some(id) => self.read_local(id, e.span).map(Val::Expr),
                 None => {
@@ -701,7 +836,8 @@ impl Checker<'_> {
                 let mut ok = true;
                 for (a, p) in args.iter().zip(&sig.params) {
                     let v = match p {
-                        Some(p) => self.coerce(a, *p),
+                        // The callee owns its parameters.
+                        Some(p) => self.coerce(a, *p).map(Self::owned),
                         None => {
                             self.expr(a);
                             None
@@ -743,10 +879,16 @@ impl Checker<'_> {
         let newline = match name {
             "out" => false,
             "outln" => true,
+            "outf" => {
+                if let Some(t) = targs.first() {
+                    self.diags.push(Diagnostic::at(&codes::E0103, t.span, "`io::outf` takes no type arguments"));
+                }
+                return self.outf(args, span);
+            }
             _ => {
                 self.diags.push(
                     Diagnostic::at(&codes::E0201, name_span, format!("module `io` has no function `{name}`"))
-                        .help("it has `io::out` and `io::outln`"),
+                        .help("it has `io::out`, `io::outln` and `io::outf`"),
                 );
                 for a in args {
                     self.expr(a);
@@ -787,11 +929,19 @@ impl Checker<'_> {
                 return None;
             }
         };
+        let arg = self.place(arg);
         Some(Val::Expr(hir::Expr { kind: hir::ExprKind::Out { newline, arg: Box::new(arg) }, ty: Type::None }))
     }
 
     fn method(&mut self, recv: &ast::Expr, name: &str, name_span: Span, targs: &[ast::TypeName], args: &[ast::Expr]) -> Option<Val> {
-        let value = self.expr(recv);
+        match self.expr(recv) {
+            Some(Val::Expr(v)) if v.ty == Type::Str && name != "to" => self.string_method(v, name, name_span, targs, args),
+            value => self.value_method(value, recv, name, name_span, targs, args),
+        }
+    }
+
+    /// `::text()` and `::to<T>()` on numbers and bools.
+    fn value_method(&mut self, value: Option<Val>, recv: &ast::Expr, name: &str, name_span: Span, targs: &[ast::TypeName], args: &[ast::Expr]) -> Option<Val> {
         for a in args {
             if !matches!(name, "text" | "to") {
                 self.expr(a);
@@ -944,6 +1094,9 @@ impl Checker<'_> {
         };
         let Val::Expr(lhs) = lv else { unreachable!() };
         let lead = lhs.ty;
+        if lead == Type::Str {
+            return self.string_binary(op, lhs, lo, rv, ro);
+        }
 
         let wants = match class {
             OpClass::Arithmetic => "numbers",
@@ -1012,7 +1165,9 @@ impl Checker<'_> {
             let mut d = Diagnostic::at(&codes::E0101, ro.span, format!("`{sym}` has `{lead}` on the left but `{}` on the right", r.ty))
                 .note(format!("this is `{}`", r.ty))
                 .label(lo.span, format!("this is `{lead}`"));
-            if r.ty == Type::Bool || lead == Type::Bool {
+            if r.ty == Type::Str && op == BinOp::Add && lead != Type::None {
+                d = d.help(self.text_fix(lo));
+            } else if r.ty == Type::Bool || lead == Type::Bool {
                 d = d.help("`bool` is not a number and never converts to or from one");
             }
             self.diags.push(d);

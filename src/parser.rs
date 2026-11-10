@@ -1,6 +1,6 @@
 use crate::ast::*;
 use crate::diag::{codes, Diagnostic, Span};
-use crate::lexer::{Tok, Token};
+use crate::lexer::{StrPiece, Tok, Token};
 
 /// Never fails: syntax errors are reported to `diags` and the parser carries
 /// on at the next statement or function, so several can be found in one go.
@@ -421,7 +421,7 @@ impl Parser<'_> {
         let t = self.bump();
         let kind = match t.tok {
             Tok::Num(n) => ExprKind::Num(n),
-            Tok::Str(s) => ExprKind::Str(s),
+            Tok::Str(pieces) => ExprKind::Str(self.string_parts(pieces)?),
             Tok::Kw("true") => ExprKind::Bool(true),
             Tok::Kw("false") => ExprKind::Bool(false),
             Tok::Sym("(") => {
@@ -450,6 +450,37 @@ impl Parser<'_> {
             }
         };
         Ok(Expr { kind, span: t.span.to(self.prev_span()), paren: false })
+    }
+}
+
+impl Parser<'_> {
+    fn string_parts(&mut self, pieces: Vec<StrPiece>) -> Parsed<Vec<StrPart>> {
+        pieces
+            .into_iter()
+            .map(|p| {
+                Ok(match p {
+                    StrPiece::Raw(text, span) => StrPart::Raw(text, span),
+                    StrPiece::Escape(ch, span) => StrPart::Escape(ch, span),
+                    StrPiece::Interp(tokens, span) => StrPart::Interp(self.interpolated(tokens, span)?),
+                })
+            })
+            .collect()
+    }
+
+    /// The expression inside `${...}`, from the tokens the lexer found there
+    /// (which end with the closing `}`).
+    fn interpolated(&mut self, tokens: Vec<Token>, span: Span) -> Parsed<Expr> {
+        if tokens.len() == 2 {
+            return Err(Diagnostic::at(&codes::E0003, span, "`${}` needs an expression inside")
+                .note("empty")
+                .help("for example `${name}`; write `\\$` for a plain dollar sign"));
+        }
+        let mut inner = Parser { tokens, pos: 0, diags: &mut *self.diags };
+        let e = inner.expr()?;
+        if inner.peek() != &Tok::Sym("}") {
+            return Err(inner.unexpected("`}` to end the `${`"));
+        }
+        Ok(e)
     }
 }
 

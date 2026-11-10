@@ -9,6 +9,8 @@ use std::process::Command;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 const RUNTIME_C: &str = include_str!("../runtime/runtime.c");
+/// The string runtime's interface, which `runtime.c` includes.
+const STRINGS_H: &str = include_str!("../runtime/strings.h");
 /// The string runtime, a Rust staticlib built by build.rs.
 const STRINGS_LIB: &[u8] = include_bytes!(env!("DRACHM_STRINGS_LIB"));
 /// System libraries the string runtime's Rust standard library needs.
@@ -72,6 +74,7 @@ fn strings_archive(scratch: &Path) -> Result<PathBuf, String> {
 fn runtime_object(scratch: &Path) -> Result<PathBuf, String> {
     let mut h = DefaultHasher::new();
     RUNTIME_C.hash(&mut h);
+    STRINGS_H.hash(&mut h);
     env!("CARGO_PKG_VERSION").hash(&mut h);
     let name = format!("runtime-{:016x}.o", h.finish());
     let cache = cache_dir();
@@ -84,6 +87,7 @@ fn runtime_object(scratch: &Path) -> Result<PathBuf, String> {
     let src = scratch.join("runtime.c");
     let obj = scratch.join("runtime.o");
     std::fs::write(&src, RUNTIME_C).map_err(|e| e.to_string())?;
+    std::fs::write(scratch.join("strings.h"), STRINGS_H).map_err(|e| e.to_string())?;
     cc(&["-O2".as_ref(), "-ffp-contract=off".as_ref(), "-c".as_ref(), src.as_ref(), "-o".as_ref(), obj.as_ref()], "compiling the runtime")?;
     // Publish with a rename so that parallel builds never see half a file.
     // If the cache is unusable, the copy in the scratch directory still works.

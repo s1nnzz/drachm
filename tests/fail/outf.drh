@@ -1,0 +1,23 @@
+in io;
+
+none main() {
+    string name = "x";
+    uint32 n = 5;
+    float64 f = 1.5;
+    io::outf("% and %\n", n);
+    io::outf("%\n", n, f, name);
+    io::outf("%d\n", n);
+    io::outf("100%%\n");
+    io::outf("%-08\n", n);
+    io::outf("%0\n", n);
+    io::outf("%.2x\n", n);
+    io::outf("%99999999999999999999999\n", n);
+    io::outf("%.2\n", n);
+    io::outf("%x\n", f);
+    io::outf("%08\n", name);
+    io::outf("%b\n", name);
+    io::outf(name, n);
+    io::outf(f"${n} %", n);
+    io::outf();
+    io::outf("%\n", io::outln("x"));
+}

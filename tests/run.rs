@@ -12,6 +12,9 @@
 //! - Every file in `examples/` is run like a `tests/run` case, with its
 //!   expectations in `tests/examples/`.
 //!
+//! Programs run with `DRACHM_CHECK_LEAKS=1`, and a string they leak fails
+//! the case.
+//!
 //! `DRACHM_BLESS=1 cargo test` writes `.out`/`.code` for run cases from what
 //! the program actually printed. Read the diff before committing it.
 
@@ -50,6 +53,16 @@ fn text(bytes: &[u8]) -> String {
 
 fn read(path: &Path) -> Option<String> {
     fs::read_to_string(path).ok().map(|s| s.replace("\r\n", "\n"))
+}
+
+/// Run a compiled program with the string runtime's leak check on.
+fn run_program(exe: &Path) -> Result<Output, String> {
+    Command::new(exe).env("DRACHM_CHECK_LEAKS", "1").output().map_err(|e| format!("could not run: {e}"))
+}
+
+/// The runtime's leak report, if the program printed one.
+fn leak_report(stderr: &str) -> Option<&str> {
+    stderr.lines().find(|l| l.starts_with("drachm: leaked"))
 }
 
 /// Lines of `expected` (ignoring blank ones) that do not occur in `actual`.
@@ -93,10 +106,13 @@ fn run_case(src: &Path, expect_dir: &Path) -> Result<(), String> {
         }
         None => {}
     }
-    let run = Command::new(&exe).output().map_err(|e| format!("could not run: {e}"))?;
+    let run = run_program(&exe)?;
     let _ = fs::remove_file(&exe);
     let (stdout, stderr) = (text(&run.stdout), text(&run.stderr));
     let code = run.status.code().ok_or("killed by a signal")?;
+    if let Some(leak) = leak_report(&stderr) {
+        return Err(leak.to_string());
+    }
 
     if std::env::var_os("DRACHM_BLESS").is_some() {
         fs::write(expect("out"), &stdout).unwrap();
@@ -185,8 +201,11 @@ fn optimised_output_matches() {
             if !build.status.success() {
                 return Err(format!("did not compile with {flags:?}:\n{}", text(&build.stderr)));
             }
-            let run = Command::new(&exe).output().map_err(|e| format!("could not run: {e}"))?;
+            let run = run_program(&exe)?;
             let _ = fs::remove_file(&exe);
+            if let Some(leak) = leak_report(&text(&run.stderr)) {
+                return Err(format!("{leak} (with {flags:?})"));
+            }
             outputs.push((text(&run.stdout), run.status.code()));
         }
         if outputs[0] == outputs[1] {

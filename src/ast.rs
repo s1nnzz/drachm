@@ -149,11 +149,23 @@ pub struct NumLit {
     pub suffix: Option<Type>,
 }
 
+/// A piece of a string literal (see `lexer::StrPiece`).
+#[derive(Debug)]
+pub enum StrPart {
+    /// Text exactly as written in the source at `span`; it contains no escapes.
+    Raw(String, Span),
+    /// The character an escape stands for; `span` covers the escape.
+    Escape(char, Span),
+    /// `${expr}`.
+    Interp(Expr),
+}
+
 #[derive(Debug)]
 pub enum ExprKind {
     Num(NumLit),
     Bool(bool),
-    Str(String),
+    /// A string literal of any form; only `f` and backtick strings have `Interp` parts.
+    Str(Vec<StrPart>),
     Var(String),
     Unary(UnOp, Box<Expr>),
     Binary(BinOp, Box<Expr>, Box<Expr>),

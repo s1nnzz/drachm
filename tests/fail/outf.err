@@ -1,0 +1,23 @@
+error[E0103]: the format has 2 placeholders, but 1 value is given
+outf.drh:7:21
+this `%` has no value
+error[E0103]: the format has 1 placeholder, but 3 values are given
+outf.drh:8:24
+no `%` for this value
+error[E0009]: `%d` is not a format placeholder
+error[E0009]: `%%` is two placeholders, not a percent sign
+help: write `\%` for a percent sign
+error[E0009]: `%-08` asks for zeros on the right
+error[E0009]: `%0` has a width of 0
+error[E0009]: `%.2x` mixes decimal places with a base
+error[E0009]: the width in `%99999999999999999999999` is too large
+error[E0108]: `%.2` needs a float, found `uint32`
+help: decimal places are for floats; convert it with `n::to<float64>()`, or drop the `.2`
+error[E0108]: `%x` needs a whole number, found `float64`
+error[E0108]: `%08` needs a number, found `string`
+error[E0108]: `%b` needs a whole number, found `string`
+error[E0901]: an `io::outf` format that is not a plain string literal is not supported yet
+outf.drh:20:14
+error[E0103]: `io::outf` needs a format string
+error[E0104]: this produces no value to print
+16 errors

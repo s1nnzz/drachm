@@ -1,0 +1,40 @@
+// io::outf: `%` prints any value; options pad, set decimals and pick a base.
+in io;
+
+none main() {
+    string name = "Illy";
+    uint32 hp = 42;
+    float64 pct = 0.875;
+    sint32 neg = -42;
+    io::outf("% has % hp (%.1)\n", name, hp, pct);
+    io::outf("no placeholders, a percent: 100\%\n");
+    io::outf("bools % %, float % and constants % % %\n", true, hp > 50, 2.5f32, 7, -1, 0.5);
+    io::outf("escapes are text: \% \%x \%.2 tab[\t]\n");
+    io::outf("%\n", "\u{1F600}");
+    // Decimals: rounded from the binary value; float32 too; specials as text.
+    float64 zero = 0.0;
+    float32 third = 0.33333334;
+    io::outf("[%.2] [%.0] [%.3] [%.2] [%.1] [%.1] [%.2]\n", 3.14159, 2.5, -0.0005, third, 1.0 / zero, -1.0 / zero, zero / zero);
+    io::outf("[%.0] [%.0] [%.1]\n", 0.5, 1.5, 0.25);
+    // Width: left, right, zeros (after the sign).
+    io::outf("[%6] [%-6] [%06] [%06] [%2]\n", hp, hp, hp, neg, 12345);
+    io::outf("[%8] [%-8] [%3]\n", name, name, "toolong");
+    io::outf("[%5] [%-5]|\n", "e\u{301}t\u{e9}", "\u{1F1EF}\u{1F1F5}");
+    io::outf("[%08] [%08.2] [%-10.2] [%10.3]\n", -2.5, -2.5, pct, pct);
+    io::outf("[%06] [%6]\n", 1.0 / zero, true);
+    // Bases.
+    uint8 byte = 255;
+    sint64 minus = -255;
+    uint128 big = 340282366920938463463374607431768211455;
+    io::outf("% % % % %\n", byte, byte, byte, byte, byte);
+    io::outf("%x %X %b %o\n", byte, byte, byte, byte);
+    io::outf("%x %X %b %o\n", minus, minus, 5, 8);
+    io::outf("%X\n", big);
+    io::outf("[%08x] [%-6X] [%4b] [%010b]\n", byte, byte, 5u8, -5);
+    io::outf("%xyz %b.\n", 255, 3);
+    io::outf("value % at 50% off, %. done, %- dash\n", 1, 2, 3, 4);
+    io::outf("");
+    io::outf("""multi-line format: %
+and % again
+""", name, hp);
+}

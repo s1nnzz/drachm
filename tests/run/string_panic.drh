@@ -1,0 +1,12 @@
+// An index outside the string panics (exit 101). Strings still alive at the
+// panic are not reported as leaks.
+in io;
+
+none main() {
+    string word = "caf\u{e9}";
+    string loud = word + "!";
+    io::outln(word::sub(-4, -1));
+    io::outln(loud::sub(0, 4));
+    io::outln(word::sub(0, 4));
+    io::outln("not reached");
+}

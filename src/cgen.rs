@@ -5,6 +5,10 @@
 //! evaluation (C leaves it open) and costs nothing once the C compiler has
 //! run. All arithmetic is done in unsigned types so that overflow wraps as
 //! Drachm defines it instead of being undefined behaviour.
+//!
+//! Strings are `drachm_str` structs, passed to and returned from Drachm
+//! functions by value (the callee owns its parameters), and to the runtime
+//! by pointer.
 
 use std::fmt::Write;
 
@@ -12,10 +16,11 @@ use crate::hir::*;
 use crate::types::Type;
 
 const RUNTIME_C: &str = include_str!("../runtime/runtime.c");
+const STRINGS_H: &str = include_str!("../runtime/strings.h");
 
 pub fn generate(prog: &Program) -> String {
     let mut out = String::from("#define DRACHM_INLINE 1\n");
-    out += RUNTIME_C;
+    out += &RUNTIME_C.replace("#include \"strings.h\"\n", STRINGS_H);
     out += "\nstatic inline double drachm_f64_bits(uint64_t b) { double d; memcpy(&d, &b, 8); return d; }\n";
     out += "static inline float drachm_f32_bits(uint32_t b) { float f; memcpy(&f, &b, 4); return f; }\n\n";
 
@@ -25,7 +30,9 @@ pub fn generate(prog: &Program) -> String {
     for f in &prog.funcs {
         let mut g = Gen { prog, out: String::new(), tmp: 0, depth: 1 };
         for (i, l) in f.locals.iter().enumerate().skip(f.params) {
-            g.line(format!("{} l{i} = 0;", c_type(l.ty)));
+            // Strings start empty, which is what `Drop` relies on.
+            let zero = if l.ty == Type::Str { "{0}" } else { "0" };
+            g.line(format!("{} l{i} = {zero};", c_type(l.ty)));
         }
         g.block(&f.body);
         let _ = writeln!(out, "\n{} {{\n{}}}", signature(f), g.out);
@@ -63,7 +70,8 @@ fn c_type(t: Type) -> &'static str {
         Type::Float(32) => "float",
         Type::Float(_) => "double",
         Type::Bool => "uint8_t",
-        Type::None | Type::Str => "void",
+        Type::Str => "drachm_str",
+        Type::None => "void",
     }
 }
 
@@ -92,6 +100,11 @@ fn work_type(t: Type) -> &'static str {
 fn halves(v: &str, t: Type) -> String {
     let wide = if signed(t) { "drachm_s128" } else { "drachm_u128" };
     format!("(uint64_t)({v}), (uint64_t)((({wide})({v})) >> 64)")
+}
+
+/// A literal as a `drachm_str` initialiser: a not-owned view of read-only bytes.
+fn c_str_value(s: &str) -> String {
+    if s.is_empty() { "{0}".to_string() } else { format!("{{(uint8_t *){}, {}, 0}}", c_string(s), s.len()) }
 }
 
 fn c_string(s: &str) -> String {
@@ -143,10 +156,12 @@ impl Gen<'_> {
 
     fn stmt(&mut self, s: &Stmt) {
         match s {
+            Stmt::Assign(id, e) if e.ty == Type::Str => self.into(e, &format!("l{id}")),
             Stmt::Assign(id, e) => {
                 let v = self.expr(e);
                 self.line(format!("l{id} = {v};"));
             }
+            Stmt::Drop(id) => self.line(format!("drachm_str_drop(&l{id});")),
             Stmt::If(cond, then, els) => {
                 let c = self.expr(cond);
                 self.line(format!("if ({c}) {{"));
@@ -172,6 +187,12 @@ impl Gen<'_> {
                 self.line("}");
             }
             Stmt::Return(None) => self.line("return;"),
+            Stmt::Return(Some(e)) if e.ty == Type::Str => {
+                let r = self.fresh("r");
+                self.line(format!("drachm_str {r};"));
+                self.into(e, &r);
+                self.line(format!("return {r};"));
+            }
             Stmt::Return(Some(e)) => {
                 let v = self.expr(e);
                 self.line(format!("return {v};"));
@@ -200,7 +221,28 @@ impl Gen<'_> {
                 _ => format!("drachm_f64_bits(UINT64_C({}))", v.to_bits()),
             },
             ExprKind::Bool(b) => format!("((uint8_t){})", *b as u8),
-            ExprKind::Str(_) | ExprKind::Text(_) => unreachable!("text only exists as an argument of io::out"),
+            ExprKind::Str(_)
+            | ExprKind::Text(_)
+            | ExprKind::Radix { .. }
+            | ExprKind::Copy(_)
+            | ExprKind::Move(_)
+            | ExprKind::Temp(..)
+            | ExprKind::Join(_) => unreachable!("strings are made with `into` or used with `place`"),
+            ExprKind::Scoped(inner, drops) => {
+                let v = self.expr(inner);
+                self.drops(drops);
+                v
+            }
+            ExprKind::StrCall(f, args) => {
+                let args = self.runtime_args(f.params(), args);
+                let call = format!("{}({})", f.name(), args.join(", "));
+                if ty == Type::None {
+                    self.line(format!("{call};"));
+                    String::new()
+                } else {
+                    self.temp(ty, call)
+                }
+            }
             // A copy, so that a later `++` cannot change what was read here.
             ExprKind::Local(id) => self.temp(ty, format!("l{id}")),
             ExprKind::Neg(inner) => {
@@ -288,9 +330,7 @@ impl Gen<'_> {
                 }
             }
             ExprKind::Call(id, args) => {
-                let callee = &self.prog.funcs[*id];
-                let args: Vec<String> = args.iter().map(|a| self.expr(a)).collect();
-                let call = format!("{}({})", func_name(callee), args.join(", "));
+                let call = self.call(*id, args);
                 if ty == Type::None {
                     self.line(format!("{call};"));
                     String::new()
@@ -309,28 +349,116 @@ impl Gen<'_> {
                 if *prefix { self.temp(ty, format!("l{local}")) } else { old }
             }
             ExprKind::Out { newline, arg } => {
-                let nl = *newline as u8;
-                match &arg.kind {
-                    ExprKind::Str(s) => self.line(format!("drachm_out_str({}, {}, {nl});", c_string(s), s.len())),
-                    ExprKind::Text(value) => {
-                        let v = self.expr(value);
-                        let call = match value.ty {
-                            Type::Bool => format!("drachm_out_bool({v}, {nl})"),
-                            Type::Float(32) => format!("drachm_out_f32({v}, {nl})"),
-                            Type::Float(_) => format!("drachm_out_f64({v}, {nl})"),
-                            Type::Int { bits: 128, signed } => {
-                                format!("drachm_out_{}128({}, {nl})", if signed { 's' } else { 'u' }, halves(&v, value.ty))
-                            }
-                            Type::Int { signed: true, .. } => format!("drachm_out_s64((int64_t){v}, {nl})"),
-                            Type::Int { signed: false, .. } => format!("drachm_out_u64((uint64_t){v}, {nl})"),
-                            Type::None | Type::Str => unreachable!(),
-                        };
-                        self.line(format!("{call};"));
-                    }
-                    _ => unreachable!("checked by typeck"),
-                }
+                let p = self.place(arg);
+                self.line(format!("drachm_out_str((const char *){p}.ptr, {p}.len, {});", *newline as u8));
                 String::new()
             }
+        }
+    }
+
+    fn fresh(&mut self, prefix: &str) -> String {
+        self.tmp += 1;
+        format!("{prefix}{}", self.tmp)
+    }
+
+    fn drops(&mut self, locals: &[LocalId]) {
+        for id in locals {
+            self.line(format!("drachm_str_drop(&l{id});"));
+        }
+    }
+
+    /// `f(args)` for a Drachm function. String arguments are owned values,
+    /// each made in its own variable and handed over to the callee.
+    fn call(&mut self, id: FuncId, args: &[Expr]) -> String {
+        let mut vals = Vec::new();
+        for a in args {
+            if a.ty == Type::Str {
+                let v = self.fresh("a");
+                self.line(format!("drachm_str {v};"));
+                self.into(a, &v);
+                vals.push(v);
+            } else {
+                vals.push(self.expr(a));
+            }
+        }
+        format!("{}({})", func_name(&self.prog.funcs[id]), vals.join(", "))
+    }
+
+    /// Arguments for a runtime function: strings by pointer, numbers by value.
+    fn runtime_args(&mut self, params: &[Type], args: &[Expr]) -> Vec<String> {
+        args.iter()
+            .zip(params)
+            .map(|(a, &p)| if p == Type::Str { format!("&{}", self.place(a)) } else { format!("({}){}", c_type(p), self.expr(a)) })
+            .collect()
+    }
+
+    /// Emit what makes the string place `e`; returns a C lvalue for it.
+    fn place(&mut self, e: &Expr) -> String {
+        match &e.kind {
+            ExprKind::Local(id) => format!("l{id}"),
+            ExprKind::Str(s) => {
+                let t = self.fresh("t");
+                self.line(format!("const drachm_str {t} = {};", c_str_value(s)));
+                t
+            }
+            ExprKind::Temp(id, inner) => {
+                let dest = format!("l{id}");
+                self.into(inner, &dest);
+                dest
+            }
+            _ => unreachable!("not a string place"),
+        }
+    }
+
+    /// Emit what writes the owned string `e` to the C lvalue `dest`.
+    fn into(&mut self, e: &Expr, dest: &str) {
+        match &e.kind {
+            ExprKind::Str(s) => self.line(format!("{dest} = (drachm_str){};", c_str_value(s))),
+            ExprKind::Copy(p) => {
+                let p = self.place(p);
+                self.line(format!("drachm_str_copy(&{dest}, &{p});"));
+            }
+            ExprKind::Move(id) => {
+                self.line(format!("{dest} = l{id};"));
+                self.line(format!("l{id} = (drachm_str){{0}};"));
+            }
+            ExprKind::Text(value) => {
+                let v = self.expr(value);
+                let call = match value.ty {
+                    Type::Bool => format!("drachm_text_bool(&{dest}, {v})"),
+                    Type::Float(32) => format!("drachm_text_f32(&{dest}, {v})"),
+                    Type::Float(_) => format!("drachm_text_f64(&{dest}, {v})"),
+                    Type::Int { bits: 128, signed } => {
+                        format!("drachm_text_{}128(&{dest}, {})", if signed { 's' } else { 'u' }, halves(&v, value.ty))
+                    }
+                    Type::Int { signed: true, .. } => format!("drachm_text_s64(&{dest}, (int64_t){v})"),
+                    Type::Int { signed: false, .. } => format!("drachm_text_u64(&{dest}, (uint64_t){v})"),
+                    Type::None | Type::Str => unreachable!("checked by typeck"),
+                };
+                self.line(format!("{call};"));
+            }
+            ExprKind::Radix { value, base, upper } => {
+                let v = self.expr(value);
+                let h = halves(&v, value.ty);
+                self.line(format!("drachm_str_radix(&{dest}, {h}, {}, {base}, {});", signed(value.ty) as u8, *upper as u8));
+            }
+            ExprKind::StrCall(f, args) => {
+                let args = self.runtime_args(f.params(), args);
+                self.line(format!("{}(&{dest}, {});", f.name(), args.join(", ")));
+            }
+            ExprKind::Join(parts) => {
+                let parts: Vec<String> = parts.iter().map(|p| self.place(p)).collect();
+                self.line(format!("drachm_str_join(&{dest}, (const drachm_str[]){{{}}}, {});", parts.join(", "), parts.len()));
+            }
+            ExprKind::Call(id, args) => {
+                let call = self.call(*id, args);
+                self.line(format!("{dest} = {call};"));
+            }
+            ExprKind::Scoped(inner, drops) => {
+                self.into(inner, dest);
+                self.drops(drops);
+            }
+            _ => unreachable!("not an owned string"),
         }
     }
 

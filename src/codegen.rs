@@ -1,13 +1,22 @@
 //! The fast backend: `hir` → Cranelift IR → object file. Used for plain
 //! (non `-O`) builds. Must behave exactly like the C backend in `cgen`.
+//!
+//! Strings live in 24-byte stack slots laid out as `drachm_str` (pointer,
+//! length, capacity) and go to the runtime by pointer. Between Drachm
+//! functions a string parameter is passed as a pointer to a value the callee
+//! takes over (it copies the 24 bytes into its own slot and drops it later),
+//! and a string result is written through a hidden first parameter that
+//! points at where the caller wants it.
 
 use std::collections::HashMap;
 
 use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
-use cranelift_codegen::ir::{types, AbiParam, InstBuilder, Signature, TrapCode, UserFuncName, Value};
+use cranelift_codegen::ir::{
+    types, AbiParam, InstBuilder, MemFlagsData, Signature, StackSlot, StackSlotData, StackSlotKind, TrapCode, UserFuncName, Value,
+};
 use cranelift_codegen::settings::{self, Configurable};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
-use cranelift_module::{DataDescription, FuncId, Linkage, Module};
+use cranelift_module::{DataDescription, DataId, FuncId, Linkage, Module};
 use cranelift_object::{ObjectBuilder, ObjectModule};
 
 use crate::hir::*;
@@ -24,6 +33,11 @@ fn cl_type(t: Type) -> Option<ClType> {
         Type::None | Type::Str => None,
     }
 }
+
+/// Size of a `drachm_str`, and the offsets of its fields.
+const STR_SIZE: u32 = 24;
+const STR_LEN: i32 = 8;
+const STR_CAP: i32 = 16;
 
 fn is_signed(t: Type) -> bool {
     matches!(t, Type::Int { signed: true, .. })
@@ -44,10 +58,14 @@ pub fn compile(prog: &Program) -> Result<Vec<u8>, String> {
     let mut module = ObjectModule::new(builder);
 
     // Declare every function up front so calls can be emitted in any order.
+    let ptr = module.target_config().pointer_type();
     let mut ids = Vec::new();
     for f in &prog.funcs {
         let mut s = module.make_signature();
-        s.params.extend(f.locals[..f.params].iter().filter_map(|l| cl_type(l.ty)).map(AbiParam::new));
+        if f.ret == Type::Str {
+            s.params.push(AbiParam::new(ptr));
+        }
+        s.params.extend(f.locals[..f.params].iter().map(|l| AbiParam::new(cl_type(l.ty).unwrap_or(ptr))));
         s.returns.extend(cl_type(f.ret).map(AbiParam::new));
         ids.push(module.declare_function(&format!("drachm_f_{}", f.name), Linkage::Local, &s).map_err(err)?);
     }
@@ -55,7 +73,7 @@ pub fn compile(prog: &Program) -> Result<Vec<u8>, String> {
     let mut ctx = module.make_context();
     let mut fctx = FunctionBuilderContext::new();
     let mut runtime = HashMap::new();
-    let mut strings = 0;
+    let mut strings = HashMap::new();
 
     for (f, &id) in prog.funcs.iter().zip(&ids) {
         ctx.func.signature = module.declarations().get_function_decl(id).signature.clone();
@@ -68,23 +86,49 @@ pub fn compile(prog: &Program) -> Result<Vec<u8>, String> {
             b.switch_to_block(entry);
             b.seal_block(entry);
 
+            let params = b.block_params(entry).to_vec();
+            let hidden = (f.ret == Type::Str) as usize;
             let mut g = Gen {
                 b,
                 module: &mut module,
                 ids: &ids,
                 runtime: &mut runtime,
                 strings: &mut strings,
+                ptr,
                 vars: Vec::new(),
+                ret_ptr: (hidden == 1).then(|| params[0]),
                 terminated: false,
             };
             for (i, l) in f.locals.iter().enumerate() {
-                let ty = cl_type(l.ty).expect("locals have value types");
-                let var = g.b.declare_var(ty);
-                // Parameters arrive as block parameters; other locals start at
-                // zero (never observed: the checker rejects reads before assignment).
-                let v = if i < f.params { g.b.block_params(entry)[i] } else { g.zero(ty) };
-                g.b.def_var(var, v);
-                g.vars.push(var);
+                let incoming = (i < f.params).then(|| params[hidden + i]);
+                let local = match cl_type(l.ty) {
+                    // Parameters arrive as block parameters; other locals start at
+                    // zero (never observed: the checker rejects reads before assignment).
+                    Some(ty) => {
+                        let var = g.b.declare_var(ty);
+                        let v = match incoming {
+                            Some(v) => v,
+                            None => g.zero(ty),
+                        };
+                        g.b.def_var(var, v);
+                        Slot::Var(var)
+                    }
+                    // A string parameter is taken over from the caller; other
+                    // strings start empty, which is what `Drop` relies on.
+                    None => {
+                        let slot = g.new_slot(STR_SIZE);
+                        let addr = g.b.ins().stack_addr(ptr, slot, 0);
+                        match incoming {
+                            Some(from) => g.copy_str(addr, from),
+                            None => {
+                                let zero = g.b.ins().iconst(types::I64, 0);
+                                g.store_str(addr, zero, zero, zero);
+                            }
+                        }
+                        Slot::Str(slot)
+                    }
+                };
+                g.vars.push(local);
             }
             g.block(&f.body);
             if !g.terminated {
@@ -135,14 +179,25 @@ fn emit_c_main(
     Ok(())
 }
 
+/// Where a local lives: numbers in SSA variables, strings in stack slots.
+#[derive(Clone, Copy)]
+enum Slot {
+    Var(Variable),
+    Str(StackSlot),
+}
+
 struct Gen<'a, 'b> {
     b: FunctionBuilder<'b>,
     module: &'a mut ObjectModule,
     ids: &'a [FuncId],
     /// Runtime functions imported so far.
     runtime: &'a mut HashMap<&'static str, FuncId>,
-    strings: &'a mut usize,
-    vars: Vec<Variable>,
+    /// The read-only data of each string literal emitted so far.
+    strings: &'a mut HashMap<String, DataId>,
+    ptr: ClType,
+    vars: Vec<Slot>,
+    /// Where a function that returns a string writes it.
+    ret_ptr: Option<Value>,
     /// The current block already ended in a terminator (e.g. after `return`).
     terminated: bool,
 }
@@ -191,7 +246,8 @@ impl Gen<'_, '_> {
             Some(id) => *id,
             None => {
                 let mut sig = self.module.make_signature();
-                sig.params.extend(params.iter().copied().map(AbiParam::new));
+                // C expects narrow arguments widened by the caller.
+                sig.params.extend(params.iter().map(|&t| if t.bits() < 32 { AbiParam::new(t).uext() } else { AbiParam::new(t) }));
                 sig.returns.extend(returns.iter().copied().map(AbiParam::new));
                 let id = self.module.declare_function(name, Linkage::Import, &sig).expect("runtime import");
                 self.runtime.insert(name, id);
@@ -242,9 +298,19 @@ impl Gen<'_, '_> {
 
     fn stmt(&mut self, s: &Stmt) {
         match s {
-            Stmt::Assign(id, value) => {
-                let v = self.value(value);
-                self.b.def_var(self.vars[*id], v);
+            Stmt::Assign(id, value) => match self.vars[*id] {
+                Slot::Var(var) => {
+                    let v = self.value(value);
+                    self.b.def_var(var, v);
+                }
+                Slot::Str(_) => {
+                    let dest = self.addr(*id);
+                    self.into(value, dest);
+                }
+            },
+            Stmt::Drop(id) => {
+                let a = self.addr(*id);
+                self.rt("drachm_str_drop", &[self.ptr], &[], &[a]);
             }
             Stmt::If(cond, then, els) => {
                 let c = self.value(cond);
@@ -288,6 +354,12 @@ impl Gen<'_, '_> {
                 self.b.seal_block(exit);
                 self.b.switch_to_block(exit);
             }
+            Stmt::Return(Some(value)) if value.ty == Type::Str => {
+                let dest = self.ret_ptr.expect("a string function has an out pointer");
+                self.into(value, dest);
+                self.b.ins().return_(&[]);
+                self.terminated = true;
+            }
             Stmt::Return(value) => {
                 let vals: Vec<Value> = value.iter().map(|v| self.value(v)).collect();
                 self.b.ins().return_(&vals);
@@ -314,8 +386,24 @@ impl Gen<'_, '_> {
                 _ => self.b.ins().f64const(*v),
             },
             ExprKind::Bool(v) => self.b.ins().iconst(types::I8, *v as i64),
-            ExprKind::Str(_) | ExprKind::Text(_) => unreachable!("text only exists as an argument of io::out"),
-            ExprKind::Local(id) => self.b.use_var(self.vars[*id]),
+            ExprKind::Str(_)
+            | ExprKind::Text(_)
+            | ExprKind::Radix { .. }
+            | ExprKind::Copy(_)
+            | ExprKind::Move(_)
+            | ExprKind::Temp(..)
+            | ExprKind::Join(_) => unreachable!("strings are made with `into` or used with `place`"),
+            ExprKind::Local(id) => self.b.use_var(self.var(*id)),
+            ExprKind::Scoped(inner, drops) => {
+                let v = self.expr(inner);
+                self.drops(drops);
+                return v;
+            }
+            ExprKind::StrCall(f, args) => {
+                let (params, vals) = self.runtime_args(f.params(), args);
+                let returns: Vec<ClType> = cl_type(f.ret()).into_iter().collect();
+                return self.rt(f.name(), &params, &returns, &vals).first().copied();
+            }
             ExprKind::Neg(inner) => {
                 let v = self.value(inner);
                 if ty.is_float() { self.b.ins().fneg(v) } else { self.b.ins().ineg(v) }
@@ -403,14 +491,9 @@ impl Gen<'_, '_> {
                 let v = self.value(inner);
                 self.convert(v, inner.ty, ty)
             }
-            ExprKind::Call(id, args) => {
-                let vals: Vec<Value> = args.iter().map(|a| self.value(a)).collect();
-                let callee = self.module.declare_func_in_func(self.ids[*id], self.b.func);
-                let call = self.b.ins().call(callee, &vals);
-                return self.b.inst_results(call).first().copied();
-            }
+            ExprKind::Call(id, args) => return self.call(*id, args, None),
             ExprKind::IncDec { local, inc, prefix } => {
-                let var = self.vars[*local];
+                let var = self.var(*local);
                 let old = self.b.use_var(var);
                 let new = if ty.is_float() {
                     let one = if ty == Type::Float(32) { self.b.ins().f32const(1.0) } else { self.b.ins().f64const(1.0) };
@@ -582,48 +665,221 @@ impl Gen<'_, '_> {
     }
 
     fn out(&mut self, newline: bool, arg: &Expr) {
+        let p = self.place(arg);
+        let (ptr, len) = self.load_str(p);
         let nl = self.b.ins().iconst(types::I32, newline as i64);
-        let (i32t, i64t) = (types::I32, types::I64);
-        match &arg.kind {
-            ExprKind::Str(s) => {
-                let name = format!("drachm_str_{}", *self.strings);
-                *self.strings += 1;
+        self.rt("drachm_out_str", &[self.ptr, types::I64, types::I32], &[], &[ptr, len, nl]);
+    }
+
+    fn var(&self, id: LocalId) -> Variable {
+        match self.vars[id] {
+            Slot::Var(v) => v,
+            Slot::Str(_) => unreachable!("a string local is not a variable"),
+        }
+    }
+
+    /// The address of a string local.
+    fn addr(&mut self, id: LocalId) -> Value {
+        match self.vars[id] {
+            Slot::Str(slot) => self.b.ins().stack_addr(self.ptr, slot, 0),
+            Slot::Var(_) => unreachable!("not a string local"),
+        }
+    }
+
+    fn new_slot(&mut self, size: u32) -> StackSlot {
+        self.b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, size, 3))
+    }
+
+    fn store_str(&mut self, dest: Value, ptr: Value, len: Value, cap: Value) {
+        let f = MemFlagsData::trusted();
+        self.b.ins().store(f, ptr, dest, 0);
+        self.b.ins().store(f, len, dest, STR_LEN);
+        self.b.ins().store(f, cap, dest, STR_CAP);
+    }
+
+    /// The pointer and length of the string at `addr`.
+    fn load_str(&mut self, addr: Value) -> (Value, Value) {
+        let f = MemFlagsData::trusted();
+        let ptr = self.b.ins().load(self.ptr, f, addr, 0);
+        let len = self.b.ins().load(types::I64, f, addr, STR_LEN);
+        (ptr, len)
+    }
+
+    /// Copy the 24 bytes of a string value (not its text).
+    fn copy_str(&mut self, dest: Value, src: Value) {
+        let f = MemFlagsData::trusted();
+        for off in [0, STR_LEN, STR_CAP] {
+            let v = self.b.ins().load(types::I64, f, src, off);
+            self.b.ins().store(f, v, dest, off);
+        }
+    }
+
+    fn drops(&mut self, locals: &[LocalId]) {
+        for &id in locals {
+            let a = self.addr(id);
+            self.rt("drachm_str_drop", &[self.ptr], &[], &[a]);
+        }
+    }
+
+    /// A not-owned view of a literal's bytes: (pointer, length).
+    fn literal(&mut self, s: &str) -> (Value, Value) {
+        let len = self.b.ins().iconst(types::I64, s.len() as i64);
+        if s.is_empty() {
+            let null = self.b.ins().iconst(self.ptr, 0);
+            return (null, len);
+        }
+        let id = match self.strings.get(s) {
+            Some(id) => *id,
+            None => {
+                let name = format!("drachm_lit_{}", self.strings.len());
                 let id = self.module.declare_data(&name, Linkage::Local, false, false).expect("string data");
                 let mut data = DataDescription::new();
                 data.define(s.as_bytes().to_vec().into_boxed_slice());
                 self.module.define_data(id, &data).expect("string data");
-                let gv = self.module.declare_data_in_func(id, self.b.func);
-                let ptr_ty = self.module.target_config().pointer_type();
-                let ptr = self.b.ins().symbol_value(ptr_ty, gv);
-                let len = self.b.ins().iconst(i64t, s.len() as i64);
-                self.rt("drachm_out_str", &[ptr_ty, i64t, i32t], &[], &[ptr, len, nl]);
+                self.strings.insert(s.to_string(), id);
+                id
+            }
+        };
+        let gv = self.module.declare_data_in_func(id, self.b.func);
+        (self.b.ins().symbol_value(self.ptr, gv), len)
+    }
+
+    /// Call a Drachm function. String arguments are owned values, each made
+    /// in a slot of its own whose address is passed; the callee takes them
+    /// over. `out` is where a string result goes.
+    fn call(&mut self, id: crate::hir::FuncId, args: &[Expr], out: Option<Value>) -> Option<Value> {
+        let mut vals: Vec<Value> = out.into_iter().collect();
+        for a in args {
+            if a.ty == Type::Str {
+                let slot = self.new_slot(STR_SIZE);
+                let addr = self.b.ins().stack_addr(self.ptr, slot, 0);
+                self.into(a, addr);
+                vals.push(addr);
+            } else {
+                vals.push(self.value(a));
+            }
+        }
+        let callee = self.module.declare_func_in_func(self.ids[id], self.b.func);
+        let call = self.b.ins().call(callee, &vals);
+        self.b.inst_results(call).first().copied()
+    }
+
+    /// Arguments for a runtime function: strings by pointer, numbers by value.
+    fn runtime_args(&mut self, params: &[Type], args: &[Expr]) -> (Vec<ClType>, Vec<Value>) {
+        let mut types = Vec::new();
+        let mut vals = Vec::new();
+        for (a, &p) in args.iter().zip(params) {
+            match cl_type(p) {
+                Some(t) => {
+                    types.push(t);
+                    vals.push(self.value(a));
+                }
+                None => {
+                    types.push(self.ptr);
+                    vals.push(self.place(a));
+                }
+            }
+        }
+        (types, vals)
+    }
+
+    /// Emit what makes the string place `e`; returns its address.
+    fn place(&mut self, e: &Expr) -> Value {
+        match &e.kind {
+            ExprKind::Local(id) => self.addr(*id),
+            ExprKind::Str(_) => {
+                let slot = self.new_slot(STR_SIZE);
+                let addr = self.b.ins().stack_addr(self.ptr, slot, 0);
+                self.into(e, addr);
+                addr
+            }
+            ExprKind::Temp(id, inner) => {
+                let addr = self.addr(*id);
+                self.into(inner, addr);
+                addr
+            }
+            _ => unreachable!("not a string place"),
+        }
+    }
+
+    /// Emit what writes the owned string `e` to `dest`.
+    fn into(&mut self, e: &Expr, dest: Value) {
+        let (i32t, i64t, ptr) = (types::I32, types::I64, self.ptr);
+        match &e.kind {
+            ExprKind::Str(s) => {
+                let (p, len) = self.literal(s);
+                let zero = self.b.ins().iconst(i64t, 0);
+                self.store_str(dest, p, len, zero);
+            }
+            ExprKind::Copy(inner) => {
+                let src = self.place(inner);
+                self.rt("drachm_str_copy", &[ptr, ptr], &[], &[dest, src]);
+            }
+            ExprKind::Move(id) => {
+                let src = self.addr(*id);
+                self.copy_str(dest, src);
+                let zero = self.b.ins().iconst(i64t, 0);
+                self.store_str(src, zero, zero, zero);
             }
             ExprKind::Text(value) => {
                 let v = self.value(value);
                 match value.ty {
                     Type::Bool => {
-                        self.rt("drachm_out_bool", &[types::I8, i32t], &[], &[v, nl]);
+                        self.rt("drachm_text_bool", &[ptr, types::I8], &[], &[dest, v]);
                     }
                     Type::Float(32) => {
-                        self.rt("drachm_out_f32", &[types::F32, i32t], &[], &[v, nl]);
+                        self.rt("drachm_text_f32", &[ptr, types::F32], &[], &[dest, v]);
                     }
                     Type::Float(_) => {
-                        self.rt("drachm_out_f64", &[types::F64, i32t], &[], &[v, nl]);
+                        self.rt("drachm_text_f64", &[ptr, types::F64], &[], &[dest, v]);
                     }
                     Type::Int { bits: 128, signed } => {
                         let [lo, hi] = self.halves(v, value.ty);
-                        let name = if signed { "drachm_out_s128" } else { "drachm_out_u128" };
-                        self.rt(name, &[i64t, i64t, i32t], &[], &[lo, hi, nl]);
+                        let name = if signed { "drachm_text_s128" } else { "drachm_text_u128" };
+                        self.rt(name, &[ptr, i64t, i64t], &[], &[dest, lo, hi]);
                     }
                     Type::Int { signed, .. } => {
                         let wide = self.widen64(v, value.ty);
-                        let name = if signed { "drachm_out_s64" } else { "drachm_out_u64" };
-                        self.rt(name, &[i64t, i32t], &[], &[wide, nl]);
+                        let name = if signed { "drachm_text_s64" } else { "drachm_text_u64" };
+                        self.rt(name, &[ptr, i64t], &[], &[dest, wide]);
                     }
                     Type::None | Type::Str => unreachable!("checked by typeck"),
                 }
             }
-            _ => unreachable!("checked by typeck"),
+            ExprKind::Radix { value, base, upper } => {
+                let v = self.value(value);
+                let [lo, hi] = self.halves(v, value.ty);
+                let signed = self.b.ins().iconst(types::I8, is_signed(value.ty) as i64);
+                let base = self.b.ins().iconst(i32t, *base as i64);
+                let upper = self.b.ins().iconst(types::I8, *upper as i64);
+                self.rt("drachm_str_radix", &[ptr, i64t, i64t, types::I8, i32t, types::I8], &[], &[dest, lo, hi, signed, base, upper]);
+            }
+            ExprKind::StrCall(f, args) => {
+                let (mut params, mut vals) = self.runtime_args(f.params(), args);
+                params.insert(0, ptr);
+                vals.insert(0, dest);
+                self.rt(f.name(), &params, &[], &vals);
+            }
+            ExprKind::Join(parts) => {
+                // The parts' values side by side, as the runtime's array.
+                let array = self.new_slot(STR_SIZE * parts.len() as u32);
+                for (i, part) in parts.iter().enumerate() {
+                    let src = self.place(part);
+                    let at = self.b.ins().stack_addr(ptr, array, (STR_SIZE as usize * i) as i32);
+                    self.copy_str(at, src);
+                }
+                let base = self.b.ins().stack_addr(ptr, array, 0);
+                let n = self.b.ins().iconst(i64t, parts.len() as i64);
+                self.rt("drachm_str_join", &[ptr, ptr, i64t], &[], &[dest, base, n]);
+            }
+            ExprKind::Call(id, args) => {
+                self.call(*id, args, Some(dest));
+            }
+            ExprKind::Scoped(inner, drops) => {
+                self.into(inner, dest);
+                self.drops(drops);
+            }
+            _ => unreachable!("not an owned string"),
         }
     }
 }

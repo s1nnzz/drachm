@@ -1,0 +1,55 @@
+// String values: literal forms, escapes, joining, comparing, `::text()`.
+in io;
+
+none main() {
+    // Literal forms and escapes. `str` is another name for `string`.
+    string plain = "tab\there, quote \" and \\, \$ \% \` \' \u{41}\u{e9}\u{1F600}";
+    str short = "short";
+    io::outln(plain);
+    io::outln(short);
+    io::outln("");
+    io::outln("no ${interpolation} in plain strings, { braces } are text");
+    io::outln("""multi-line "quoted" text,
+  indented line, escape\tstill works""");
+    io::outln("""""");
+
+    // Joining.
+    string a = "Drach";
+    string b = a + "m";
+    io::outln(b);
+    io::outln(a + "" + "m" + "!" + "");
+    io::outln(a::join("m")->join("!"));
+    mut string grow = "x";
+    grow += "y";
+    grow += grow;
+    grow += "";
+    grow += grow + "|";
+    io::outln(grow);
+
+    // Comparisons are by bytes.
+    io::outln((b == "Drachm")::text());
+    io::outln((b != "Drachm")::text());
+    io::outln((b == "drachm")::text());
+    io::outln(("abc" < "abd")::text());
+    io::outln(("ab" < "abc")::text());
+    io::outln(("b" > "abc")::text());
+    io::outln(("Z" < "a")::text());
+    io::outln(("abc" <= "abc")::text());
+    io::outln(("abc" >= "abd")::text());
+    io::outln(("" < "a")::text());
+    // Precomposed and combining accents differ as bytes.
+    io::outln(("\u{e9}" == "e\u{301}")::text());
+
+    // Text of numbers and bools.
+    uint8 small = 200;
+    sint64 neg = -9223372036854775807 - 1;
+    uint128 huge = 340282366920938463463374607431768211455;
+    sint128 low = -170141183460469231731687303715884105727 - 1;
+    io::outln(small::text() + " " + neg::text() + " " + huge::text() + " " + low::text());
+    io::outln(0.1::text() + " " + (1.0 / 3.0)::text() + " " + 2.5f32::text() + " " + 1e21::text());
+    io::outln(true::text() + "/" + false::text() + "/" + (1 < 2)::text());
+    io::outln((-5)::text() + " " + 1.5::text() + " " + 3000000000::text());
+    io::outln("copy"::text()->text());
+    string t = b::text();
+    io::outln(t);
+}

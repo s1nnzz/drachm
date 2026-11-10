@@ -1,0 +1,11 @@
+error[E0003]: `${}` needs an expression inside
+strlex.drh:4:23
+error[E0003]: expected an expression, found `}`
+strlex.drh:5:26
+error[E0003]: expected `}` to end the `${`, found name `b`
+strlex.drh:6:25
+error[E0004]: this `${` is never closed
+strlex.drh:7:29
+error[E0008]: a `\` at the end of a line is not an escape
+help: end it with a backtick on the same line
+help: end it with `"""`

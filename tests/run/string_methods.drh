@@ -1,0 +1,99 @@
+// Every string method, on ASCII, accented and emoji text. A character is a
+// grapheme cluster: "e\u{301}" (e + combining acute) is one character, and
+// so are the family emoji (joined with zero-width joiners) and a flag.
+in io;
+
+none show(string label, string value) {
+    io::outln(label + ": [" + value + "]");
+}
+
+none main() {
+    string ascii = "Drachm";
+    string accents = "Cr\u{e8}me bru\u{302}le\u{301}e";   // è precomposed, û and é combining
+    string family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}";
+    string flag = "\u{1F1EF}\u{1F1F5}";
+    string emoji = "a" + family + "b" + flag + "\u{1F600}";
+
+    io::outln("len");
+    io::outln(ascii::len()->text());
+    io::outln(accents::len()->text());
+    io::outln(family::len()->text());
+    io::outln(emoji::len()->text());
+    io::outln(""::len()->text());
+
+    io::outln("isEmpty");
+    io::outln(""::isEmpty()->text() + " " + ascii::isEmpty()->text() + " " + " "::isEmpty()->text());
+
+    show("reverse", ascii::reverse());
+    show("reverse", accents::reverse());
+    show("reverse", emoji::reverse());
+    show("reverse", ""::reverse());
+
+    show("sub", ascii::sub(1, 3));
+    show("sub", ascii::sub(-3, -1));
+    show("sub", ascii::sub(0, 0));
+    show("sub", accents::sub(5, -1));
+    show("sub", emoji::sub(1, 1));
+    show("sub", emoji::sub(-2, -1));
+    show("chain", "dcba"::reverse()->sub(0, 1));
+
+    show("upper", ascii::upper());
+    show("upper", accents::upper());
+    show("upper", "stra\u{df}e"::upper());
+    show("upper", emoji::upper());
+    show("lower", "DRACHM \u{c9}T\u{c9}"::lower());
+    show("trim", "  \t padded \n "::trim());
+    show("trim", ("\u{a0}\u{3000}" + family + " ")::trim());
+    show("trim", "   "::trim());
+
+    io::outln("find");
+    io::outln(ascii::find("a")->text());
+    io::outln(ascii::find("chm")->text());
+    io::outln(ascii::find("z")->text());
+    io::outln(accents::find("b")->text());
+    io::outln(emoji::find("b")->text());
+    io::outln(emoji::find(flag)->text());
+    io::outln(ascii::find("")->text());
+
+    io::outln("contains / startsWith / endsWith");
+    io::outln(ascii::contains("rac")->text() + " " + ascii::contains("car")->text() + " " + emoji::contains(family)->text());
+    io::outln(ascii::startsWith("Dr")->text() + " " + ascii::startsWith("dr")->text() + " " + emoji::startsWith("a")->text());
+    io::outln(ascii::endsWith("hm")->text() + " " + accents::endsWith("e\u{301}e")->text() + " " + emoji::endsWith("\u{1F600}")->text());
+
+    io::outln("count");
+    io::outln("banana"::count("a")->text());
+    io::outln("banana"::count("an")->text());
+    io::outln("aaaa"::count("aa")->text());
+    io::outln((flag + "x" + flag)::count(flag)->text());
+    io::outln("banana"::count("")->text());
+
+    show("join", ascii::join(" & ")->join(accents));
+    show("replace", "banana"::replace("an", "AN"));
+    show("replace", accents::replace("e\u{301}", "\u{e9}"));
+    show("replace", emoji::replace(family, "F"));
+    show("replaceLimit", "banana"::replaceLimit("a", "o", 2));
+    show("replaceLimit", "banana"::replaceLimit("a", "o", 0));
+    show("insert", ascii::insert(0, ">"));
+    show("insert", ascii::insert(6, "<"));
+    show("insert", ascii::insert(-1, "_"));
+    show("insert", emoji::insert(2, "|"));
+    show("remove", ascii::remove(1, 3));
+    show("remove", ascii::remove(-2, -1));
+    show("remove", emoji::remove(1, 3));
+    show("repeat", "ab"::repeat(3));
+    show("repeat", flag::repeat(2));
+    show("repeat", ascii::repeat(0));
+    show("padLeft", "7"::padLeft(3, "0"));
+    show("padLeft", "7"::padLeft(3));
+    show("padLeft", ascii::padLeft(3));
+    show("padLeft", "x"::padLeft(4, "ab"));
+    show("padRight", "7"::padRight(3, "."));
+    show("padRight", "7"::padRight(3));
+    show("padRight", "e\u{301}"::padRight(3, flag));
+    show("text", accents::text());
+
+    // Arguments convert by the usual rules.
+    uint8 three = 3;
+    sint16 one = 1;
+    show("converted", "abcdef"::sub(one, three)->repeat(three));
+}

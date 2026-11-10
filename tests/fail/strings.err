@@ -1,0 +1,32 @@
+error[E0101]: `+` joins strings, but the right side is `uint32`
+help: turn it into text: `hp::text()`
+error[E0101]: `+` joins strings, but the right side is a number
+help: turn it into text: `5::text()`
+error[E0101]: `+` has `uint32` on the left but `string` on the right
+error[E0101]: `-` needs numbers, found `string`
+help: strings join with `+`
+error[E0101]: `*` needs numbers, found `string`
+help: repeat text with `::repeat(n)`
+error[E0101]: `==` has `string` on the left but a number on the right
+error[E0101]: `<` has `string` on the left but `bool` on the right
+error[E0101]: expected `string`, found `uint32`
+error[E0101]: expected `string`, found a number
+help: turn it into text: `7::text()`
+error[E0201]: `string` has no method `length`
+help: Drachm calls this `len`
+error[E0201]: `string` has no method `shout`
+help: string methods are `len`, `isEmpty`
+error[E0901]: `split` returns a list of strings, and lists are not supported yet
+error[E0103]: `sub` takes 2 arguments, but 1 given
+error[E0103]: `padLeft` takes 1 or 2 arguments, but 3 given
+error[E0101]: expected `uint64`, found `string`
+error[E0101]: expected `string`, found `uint32`
+error[E0103]: `text` takes no arguments
+strings.drh:25:24
+error[E0104]: this produces no value to turn into text
+strings.drh:26:20
+error[E0205]: cannot change `s`: it is not `mut`
+error[E0101]: `++` needs a number, found `string`
+error[E0101]: `to` converts numbers, found `string`
+error[E0103]: `sub` takes 2 arguments, but 3 given
+24 errors

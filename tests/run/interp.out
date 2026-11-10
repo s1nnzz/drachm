@@ -1,0 +1,18 @@
+hp: 42
+hi Sam, ratio 0.75, delta -3, ok true
+Sam
+42
+[SamSam]
+no interpolation, { braces } and ${escaped}
+constants: 3 0.3 -3 2.5
+calls: 84 Illy ILLY 3
+nested: <Sam!> and 42
+joined: 42/84
+text with "quotes" and dollars $5 and $ {hp}
+backtick with "double quotes" and ` escaped
+Sam has 42 hp
+multi
+  line Sam
+42
+Sam
+emoji 😀 accents É

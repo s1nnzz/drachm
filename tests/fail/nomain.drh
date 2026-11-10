@@ -2,4 +2,4 @@ in maths;
 
 uint32 helper() { return 1; }
 uint32 helper() { return 2; }
-int oldName(i64 a, float b, string s, uint7 c, float16 d) { return 1; }
+int oldName(i64 a, float b, String s, uint7 c, float16 d) { return 1; }

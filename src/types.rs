@@ -11,7 +11,7 @@ pub enum Type {
     Bool,
     /// The empty type: what a `none` function returns.
     None,
-    /// Text. Until step 2 it only exists as the argument of `io::out`/`io::outln`.
+    /// Text: an owned UTF-8 string (`string`, also spelled `str`).
     Str,
 }
 
@@ -47,7 +47,7 @@ impl Type {
                 _ => Err(TypeError::Unknown),
             },
             "bool" if bits.is_empty() => Ok(Type::Bool),
-            "string" | "str" if bits.is_empty() => Err(TypeError::NotYet),
+            "string" | "str" if bits.is_empty() => Ok(Type::Str),
             _ => Err(TypeError::Unknown),
         }
     }

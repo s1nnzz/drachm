@@ -67,7 +67,17 @@ codes! {
          \x20   x::to<uint8>()->text()";
     E0008: "invalid escape",
         "A string contains a `\\` followed by something that is not an escape.\n\
-         The escapes are \\n \\t \\r \\0 \\\\ \\\" \\' \\` \\$ and \\u{1F600}.";
+         The escapes are \\n \\t \\r \\0 \\\\ \\\" \\' \\` \\$ \\% and \\u{1F600}.";
+    E0009: "invalid format placeholder",
+        "An `io::outf` format has a `%` placeholder that cannot be read. A bare `%`\n\
+         prints the next value as its `::text()`. Options go between the `%` and\n\
+         the value, in this order:\n\n\
+         \x20   %8   %-8   %08      pad to 8 characters: on the left, on the right,\n\
+         \x20                       or with zeros after the sign\n\
+         \x20   %.2               two decimal places (floats)\n\
+         \x20   %x %X %b %o       hex, capital hex, binary, octal (whole numbers)\n\n\
+         For example `%08x` or `%-10.2`. A letter other than x, X, b, o right after\n\
+         a placeholder is an error, and so is `%%`: a percent sign is written `\\%`.";
 
     E0101: "type mismatch",
         "A value of one type was used where another is required.\n\n\
@@ -101,6 +111,12 @@ codes! {
     E0107: "constant division by zero",
         "A whole-number division or remainder has a constant zero on the right.\n\
          It would always panic, so it is rejected at compile time.";
+
+    E0108: "format option does not suit the value",
+        "An `io::outf` placeholder asks for something its value cannot do:\n\n\
+         \x20   io::outf(\"%.2\", count);    // decimal places need a float\n\
+         \x20   io::outf(\"%x\", ratio);     // a base needs a whole number\n\
+         \x20   io::outf(\"%08\", name);     // zero padding needs a number";
 
     E0201: "unknown name",
         "A binding, function, method, module or type was used that does not\n\

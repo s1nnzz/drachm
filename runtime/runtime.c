@@ -1,5 +1,6 @@
-// Drachm runtime: what compiled programs call for printing, panics and the
-// few operations that are too big to emit inline.
+// Drachm runtime: what compiled programs call for printing, panics, turning
+// values into text, and the few operations that are too big to emit inline.
+// String operations themselves are in the Rust library (strings.h).
 //
 // Plain builds compile this file on its own and link it. Optimised (-O)
 // builds paste it at the top of the generated C with DRACHM_INLINE defined,
@@ -7,13 +8,15 @@
 //
 // Both backends must behave identically, so anything with room for
 // disagreement (float to integer wrapping, 128-bit conversions, powers,
-// float printing) lives here and is shared.
+// number and float text) lives here and is shared.
 #include <inttypes.h>
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include "strings.h"
 
 #ifdef DRACHM_INLINE
 #define DRACHM_FN static inline __attribute__((unused))
@@ -38,29 +41,44 @@ static inline drachm_pair drachm_split(drachm_u128 v) {
 
 // ---- panics ---------------------------------------------------------------
 
-DRACHM_FN _Noreturn void drachm_panic(const char *msg) {
+// Never static: the string library (Rust) calls it too. Exits with _Exit so
+// that no exit handlers run: a panic is not a leak.
+_Noreturn void drachm_panic(const char *msg) {
     fflush(stdout);
     fprintf(stderr, "drachm: panic: %s\n", msg);
-    exit(101);
+    _Exit(101);
 }
 
 DRACHM_FN _Noreturn void drachm_div_zero(void) { drachm_panic("division by zero"); }
 
 // ---- output ---------------------------------------------------------------
 
-static inline void drachm_write(const char *s, size_t len, int newline) {
-    fwrite(s, 1, len, stdout);
+DRACHM_FN void drachm_out_str(const char *s, uint64_t len, int newline) {
+    if (len) fwrite(s, 1, (size_t)len, stdout);
     if (newline) putc('\n', stdout);
 }
 
-DRACHM_FN void drachm_out_str(const char *s, uint64_t len, int newline) { drachm_write(s, (size_t)len, newline); }
+// ---- values as text -------------------------------------------------------
+//
+// Each writes a new string to `out`, following the rules in strings.h. Owned
+// buffers come from drachm_str_alloc so the live-string counter stays right.
 
-DRACHM_FN void drachm_out_bool(uint8_t v, int newline) {
-    if (v) drachm_write("true", 4, newline);
-    else drachm_write("false", 5, newline);
+static void drachm_text_bytes(drachm_str *out, const char *s, size_t len) {
+    uint8_t *p = drachm_str_alloc(len);
+    if (len) memcpy(p, s, len);
+    out->ptr = p;
+    out->len = len;
+    out->cap = len;
 }
 
-DRACHM_FN void drachm_out_u128(uint64_t lo, uint64_t hi, int newline) {
+DRACHM_FN void drachm_text_bool(drachm_str *out, uint8_t v) {
+    // Not owned: the text lives in read-only data.
+    out->ptr = (uint8_t *)(v ? "true" : "false");
+    out->len = v ? 4 : 5;
+    out->cap = 0;
+}
+
+DRACHM_FN void drachm_text_u128(drachm_str *out, uint64_t lo, uint64_t hi) {
     drachm_u128 v = drachm_join(lo, hi);
     char buf[40];
     char *p = buf + sizeof buf;
@@ -68,34 +86,42 @@ DRACHM_FN void drachm_out_u128(uint64_t lo, uint64_t hi, int newline) {
         *--p = (char)('0' + (int)(v % 10));
         v /= 10;
     } while (v != 0);
-    drachm_write(p, (size_t)(buf + sizeof buf - p), newline);
+    drachm_text_bytes(out, p, (size_t)(buf + sizeof buf - p));
 }
 
-DRACHM_FN void drachm_out_s128(uint64_t lo, uint64_t hi, int newline) {
-    if (hi >> 63) {
-        drachm_pair m = drachm_split(0 - drachm_join(lo, hi));
-        putc('-', stdout);
-        drachm_out_u128(m.lo, m.hi, newline);
-    } else {
-        drachm_out_u128(lo, hi, newline);
-    }
+DRACHM_FN void drachm_text_s128(drachm_str *out, uint64_t lo, uint64_t hi) {
+    drachm_u128 v = drachm_join(lo, hi);
+    int negative = hi >> 63;
+    if (negative) v = 0 - v;
+    char buf[41];
+    char *p = buf + sizeof buf;
+    do {
+        *--p = (char)('0' + (int)(v % 10));
+        v /= 10;
+    } while (v != 0);
+    if (negative) *--p = '-';
+    drachm_text_bytes(out, p, (size_t)(buf + sizeof buf - p));
 }
 
-DRACHM_FN void drachm_out_u64(uint64_t v, int newline) { drachm_out_u128(v, 0, newline); }
+DRACHM_FN void drachm_text_u64(drachm_str *out, uint64_t v) { drachm_text_u128(out, v, 0); }
 
-DRACHM_FN void drachm_out_s64(int64_t v, int newline) { drachm_out_s128((uint64_t)v, v < 0 ? ~UINT64_C(0) : 0, newline); }
+DRACHM_FN void drachm_text_s64(drachm_str *out, int64_t v) { drachm_text_s128(out, (uint64_t)v, v < 0 ? ~UINT64_C(0) : 0); }
 
 // Floats print as the shortest digits that read back as the same number,
-// always with a decimal point and never in exponent form.
-static void drachm_out_float(double v, int single, int newline) {
+// always with a decimal point and never in exponent form. Writes at most 400
+// bytes to `out` and returns the length.
+static int drachm_float_text(char *out, double v, int single) {
     if (v != v) {
-        drachm_write("nan", 3, newline);
-        return;
+        memcpy(out, "nan", 3);
+        return 3;
     }
     if (v - v != 0) {
-        if (v < 0) drachm_write("-inf", 4, newline);
-        else drachm_write("inf", 3, newline);
-        return;
+        if (v < 0) {
+            memcpy(out, "-inf", 4);
+            return 4;
+        }
+        memcpy(out, "inf", 3);
+        return 3;
     }
     // Shortest scientific form that round-trips: "[-]d.ddde[+-]xx".
     char sci[40];
@@ -112,7 +138,6 @@ static void drachm_out_float(double v, int single, int newline) {
         if (*p != '.') digits[n++] = *p;
     int exp = atoi(p + 1);
 
-    char out[400];
     int len = 0;
     if (negative) out[len++] = '-';
     if (exp >= 0) {
@@ -127,12 +152,61 @@ static void drachm_out_float(double v, int single, int newline) {
         for (int i = 1; i < -exp; i++) out[len++] = '0';
         for (int i = 0; i < n; i++) out[len++] = digits[i];
     }
-    drachm_write(out, (size_t)len, newline);
+    return len;
 }
 
-DRACHM_FN void drachm_out_f64(double v, int newline) { drachm_out_float(v, 0, newline); }
+DRACHM_FN void drachm_text_f64(drachm_str *out, double v) {
+    char buf[400];
+    drachm_text_bytes(out, buf, (size_t)drachm_float_text(buf, v, 0));
+}
 
-DRACHM_FN void drachm_out_f32(float v, int newline) { drachm_out_float((double)v, 1, newline); }
+DRACHM_FN void drachm_text_f32(drachm_str *out, float v) {
+    char buf[400];
+    drachm_text_bytes(out, buf, (size_t)drachm_float_text(buf, (double)v, 1));
+}
+
+// io::outf's `%.N`: exactly `places` decimals, correctly rounded from the
+// binary value. NaN and the infinities print as they do in text.
+DRACHM_FN void drachm_text_fixed(drachm_str *out, double v, uint32_t places) {
+    if (v != v || v - v != 0) {
+        char buf[8];
+        drachm_text_bytes(out, buf, (size_t)drachm_float_text(buf, v, 0));
+        return;
+    }
+    int len = snprintf(NULL, 0, "%.*f", (int)places, v);
+    if (len < 0) drachm_panic("number too long to format");
+    uint8_t *p = drachm_str_alloc((uint64_t)len + 1);
+    snprintf((char *)p, (size_t)len + 1, "%.*f", (int)places, v);
+    out->ptr = p;
+    out->len = (uint64_t)len;
+    out->cap = (uint64_t)len + 1;
+}
+
+// io::outf's `%0N`: number text padded on the left to `width` characters with
+// zeros after any sign. Text that is not digits after the sign (inf, nan) is
+// padded with spaces instead, as C's printf does.
+DRACHM_FN void drachm_text_zero_pad(drachm_str *out, const drachm_str *s, uint64_t width) {
+    uint64_t len = s->len;
+    if (len >= width) {
+        drachm_text_bytes(out, (const char *)s->ptr, (size_t)len);
+        return;
+    }
+    uint64_t sign = len > 0 && s->ptr[0] == '-';
+    int digits = len > sign && s->ptr[sign] >= '0' && s->ptr[sign] <= '9';
+    uint64_t pad = width - len;
+    uint8_t *p = drachm_str_alloc(width);
+    if (digits) {
+        memcpy(p, s->ptr, (size_t)sign);
+        memset(p + sign, '0', (size_t)pad);
+        memcpy(p + sign + pad, s->ptr + sign, (size_t)(len - sign));
+    } else {
+        memset(p, ' ', (size_t)pad);
+        if (len) memcpy(p + pad, s->ptr, (size_t)len);
+    }
+    out->ptr = p;
+    out->len = width;
+    out->cap = width;
+}
 
 // ---- conversions ----------------------------------------------------------
 

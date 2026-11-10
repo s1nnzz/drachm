@@ -4,6 +4,6 @@ error[E0202]: function `helper` is defined twice
 first defined here
 help: Drachm calls this `sint32`
 help: Drachm calls this `float64`
-error[E0901]: the type `string` is not supported yet
+help: Drachm calls this `string`
 help: integer types come in 8, 16, 32, 64 and 128 bits
 error[E0901]: the type `float16` is not supported yet

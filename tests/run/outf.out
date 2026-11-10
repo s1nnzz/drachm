@@ -1,0 +1,21 @@
+Illy has 42 hp (0.9)
+no placeholders, a percent: 100%
+bools true false, float 2.5 and constants 7 -1 0.5
+escapes are text: % %x %.2 tab[	]
+😀
+[3.14] [2] [-0.001] [0.33] [inf] [-inf] [nan]
+[0] [2] [0.2]
+[    42] [42    ] [000042] [-00042] [12345]
+[    Illy] [Illy    ] [toolong]
+[  été] [🇯🇵    ]|
+[-00002.5] [-0002.50] [0.88      ] [     0.875]
+[   inf] [  true]
+255 255 255 255 255
+ff FF 11111111 377
+-ff -FF 101 10
+FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
+[      ff] [FF    ] [ 101] [-000000101]
+ffyz 11.
+value 1 at 502 off, 3. done, 4- dash
+multi-line format: Illy
+and 42 again
