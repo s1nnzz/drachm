@@ -1,0 +1,31 @@
+# Owner answers, 2026-11-10 (to be folded into docs/SPEC.md, the design doc and docs/impl/step3-ownership.md)
+
+Q1 deref: borrows always mean their target. `r = 5;` writes through. `r = &mut other;` re-points r: allowed because the right side is a reference; the borrowed thing can never be assigned a pointer, so the RHS type disambiguates. Reads automatic (`q + 1`).
+Q2 call site: `&` always written for shared borrows: `show(&p);` (and `&mut` as already decided).
+Q3 passing on a held borrow: `add(lend s);` (new keyword `lend`).
+Q4 two-phase: allowed (`s::append(s::len()::text())`); only borrows still alive when the receiver changes are errors (`xs::push(xs::first())`).
+Q5 mut fields through `&`: never. `mut` fields are only special on values you own (immutable binding). Through `&` everything is read-only; changing needs `&mut`. Owner: "if you need it to be changeable you can't only look at it."
+Q6 open: allows field writes, `open` parameters (`none fill(open string s)`), and declaring without a value and assigning once later.
+Q7 partial moves: must say `take`: `string n = take p.name;`. Plain `string m = p.name;` (moving type, owned struct) is an error with fix-it "write `take p.name` or `copy p.name`". After `take`, `p.name` has no value (compile-time, like `uint32 x;`): reading it or using `p` whole is an error until reassigned. `take p.title leaving "none"` puts a value back in the same statement (field keeps being usable). Fields still holding values are dropped at scope end.
+Q8 consuming self: not allowed; methods only borrow `self`.
+Q8b auto-copy: no hidden copies anywhere. `return self.name;` from a borrowed self is an error: "self is borrowed; write `return copy self.name;`". (Owner considered "copy when leaving the context" but found it inconsistent.)
+Q9 lives on functions: required only if ambiguous (body-derived): inferred when the returned borrow can only come from one parameter; E0308 when several.
+Q10 struct lives: names the borrow fields themselves: `struct Pair lives a, b { &string a; &string b; }`; each may borrow from a different place. (Path form `lives p.src` for functions not asked yet.)
+Q11 copy: `copy r` on a borrow copies the pointed-at value (own `string`). `copy n` on a Copy value warns (W0322 "`copy` does nothing for uint32"), a redundancy lint that should be disableable in config `[warnings]`.
+Q12 32-byte rule: rule applies; size = memory size including padding (confirmed: field order can change Copy-ness), plus opt-out word: `struct Handle stays { ... }` never copies automatically.
+Q13 temporaries: borrowing a temporary in a declaration keeps it alive to the end of the block.
+Q16 interfaces: interface methods that may change self say `changes self` after the parameters; struct methods stay inferred and may not change more than the interface allows. (`changes self` only in interfaces.)
+Q17 cleanup: a method with the reserved name `none drop() { }` runs when the value is destroyed. (Implies: structs with drop() can't be partially moved/taken? -> ask; drop order becomes visible.)
+Q14 raw pointers: made with `address of n` (new wordy operator). Everything touching a pointer value (making, copying, comparing, dereferencing) must be inside `unsafe { }`. One pointer kind `*T` (may be written through; no `*mut T`). Null allowed: a pointer can be `none`, tested with `p == none`. `unsafe` functions exist: `unsafe` before the return type; calling one needs an `unsafe { }` block.
+Assembly (owner request): whole functions written in assembly, no inline mixing: `unsafe uint64 cycles() asm { rdtsc; shl rdx, 32; or rax, rdx }` (instructions one per line, body is the asm). Called like any unsafe function. Schedule after C header import (Later). Details (register/ABI mapping, which syntax flavour Intel/AT&T, other CPUs) still to design.
+Q18 clause order: either order for `lives`/`fails` on functions and `lives`/`with` on structs; `drachm fmt` picks one.
+Q15 copying: `*T` pointers MOVE (`copy p` duplicates). `&mut T` moves too: `&mut string r2 = r;` uses up r. (`&T` copies, R8.)
+drop()+take: on a struct with `drop()`, plain `take x.f` is an error; `take x.f leaving v` is allowed (struct stays complete).
+Q10ii: `lives` on functions names whole parameters only (`lives p`), no paths.
+STILL OPEN: Q19 wording of the 03xx message drafts (show with the other draft wordings).
+
+# Step 2/4 follow-ups (same day)
+"""-strings: the newline right after the opening `"""` is dropped; the column of the closing `"""` is the left edge and that much leading whitespace is removed from every line. A line indented less than that is NOT an error: it just loses all its leading whitespace ("clamps"). Applies to f""" too.
+outf: every unescaped `%` is a placeholder (keep). `\%` = literal percent. NEW: `%\` ends a placeholder's options: `io::outf("%\5 apples!", "£")` prints "£5 apples!" (the `5` is text), whereas `"%5 apples!"` is width 5. (My reading of the owner's note "%\ in general should negate anything after the %".)
+Operator methods: overloadable by right-hand type, resolved like constructors (exact, lossless, lossy+warning). Owner note: `v * w` as dot product was a bad example; dot would be a named method.
+Range loops: `by` step word: `for (float64 x of 0.0..1.0 by 0.25)`, `for (uint32 i of 0..10 by 3)` = 0,3,6,9 (stops at the last value not past the end; never clamps to the end). Float ranges require `by`? (option text said float ranges MUST say their step with `by`; integer ranges may.)
