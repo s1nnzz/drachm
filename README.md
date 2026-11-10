@@ -53,6 +53,15 @@ none main() {
   Bitwise operators need parentheses next to arithmetic and comparisons.
 - **Control flow:** `if (...) { } else if (...) { } else { }`, `while (...) { }`,
   `return`. Conditions are always parenthesised.
+- **Loops:** C-style `for (mut uint32 i = 0; i < 10; i++) { }` and inclusive
+  ranges `for (uint8 i of 0..255) { }` (safe at the type's ends).
+  `break;` / `continue;` take a loop count: `break 2;`.
+- **`skip`** leaves `if` blocks the way `break` leaves loops: `skip;` leaves the
+  outermost one, `skip 2;` two levels, `skip to next;` goes on to the next
+  `else if`. Loops are walls.
+- **`match`** on numbers and bools: `case 0 { }`, `case 1, 2 { }`,
+  `case 13..19 { }`, `case _ { }`. No fallthrough; missing values and
+  unreachable cases are warnings (W0109, W0110).
 - **Output:** `io::out` / `io::outln` print text; `::text()` turns a value into text.
 - **Runtime safety:** whole-number division by zero panics with exit code 101.
 
