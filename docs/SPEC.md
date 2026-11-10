@@ -10,7 +10,8 @@ Items marked **OPEN** are undecided. Do not invent answers for them: ask the own
 - Name: Drachm, pronounced /drɑxm/. Source extension: `.drh`.
 - Goal: one language for every kind of project (games, CLI tools, servers,
   systems), that also works as a scripting language.
-- Implementation: compiler in Rust, native code via Cranelift, linked with `cc`.
+- Implementation: compiler in Rust. Plain builds and scripts go through Cranelift;
+  `-O` builds generate C for the system C compiler. Linked with `cc`.
 - Naming convention everywhere (stdlib and user code): **camelCase**.
 
 ---
@@ -53,12 +54,39 @@ none main() { ... }
   ```
 - `uint32 later;` (no value) is allowed; reading it before every path assigns it
   is a compile error.
+- `uint32 later;` on an immutable binding may be assigned exactly once, where
+  it is certainly still unassigned (so not inside a loop it was declared outside of).
+- Parameters are immutable unless written `mut uint32 n`.
 - Operators:
   - arithmetic `+ - * / %`, power `**`; `/` on two integers is whole-number division (`7 / 2` = 3)
   - comparison `== != < <= > >=`; logic `&& || !` (short-circuit)
   - bitwise `& | ^ ~ << >>` (`^` is XOR, never power, outside unit expressions)
   - `++ --`, compound assignment `+= -= *= /= %= **= &= |= ^= <<= >>=`
+- Operands are evaluated left to right.
+- Grouping, tightest first: calls and postfix `++ --`; prefix `- ! ~ ++ --`;
+  `**` (chains from the right); `* / %`; `+ -`; `<< >>`; `& | ^`; comparisons;
+  `&&`; `||`.
+  - Unary minus applies before `**`: `-2 ** 2` is `(-2) ** 2` = 4. `2 ** 3 ** 2` is 512.
+  - **Bitwise operators need parentheses** next to arithmetic or comparisons:
+    `a & 1 == 0` and `a + b << 2` are compile errors (E0006) with a fix-it;
+    write `(a & 1) == 0`, `(a + b) << 2`.
+  - Shifts may sit inside `& | ^` without parentheses (`r << 16 | g << 8 | b`),
+    but `&`, `|`, `^` cannot be mixed with each other, nor `<<` with `>>`,
+    without parentheses. A chain of one operator is fine: `a | b | c`.
+- `++` / `--` work as prefix and postfix inside expressions: `i++` gives the old
+  value, `++i` the new one. The operand must be a `mut` number binding.
+- Assignment and compound assignment are statements, not expressions.
+- `%` takes the sign of the left side (pairs with `/`): `-7 % 3` is `-1`,
+  `7 % -3` is `1`. On floats it is the same rule (C `fmod`).
+- Integer `**` with a negative exponent is whole-number division of 1 by the
+  power: `2 ** -1` is 0, `1 ** -n` is 1, `(-1) ** -n` is 1 or -1, and
+  `0 ** -n` panics like division by zero.
+- Shifting by the type's width or more, or by a negative amount, follows
+  `[behaviour] overflow`: **wrap** = the amount wraps around the width
+  (`1u32 << 40` is `1 << 8`), saturate = the bits fall off, panic = exit 101.
+  A constant amount that wraps warns (W0106).
 - Division by zero: integers panic (exit 101); floats follow IEEE (infinity / NaN).
+  The smallest signed value divided by -1 wraps (under overflow = wrap).
 - Unary `-` on an unsigned value: config `unsigned_negate` = wrap | error | signed
   (signed = becomes the next larger signed type); default **wrap**.
 
@@ -128,12 +156,46 @@ if (a) {                       // outermost
 
 - No `int`/`float` names.
 - A suffix is needed only when nothing else gives the type (`uint8 a = 5;` needs none).
+- Literal forms: decimal with `_` separators (`1_000_000`); `0xFF`, `0b1010`,
+  `0o17` (a plain leading zero stays decimal); exponents `1e9`, `2.5e-3` (always
+  a decimal constant); and word bases `hex FF`, `bin 1010`, `oct 17` (`hex`,
+  `bin`, `oct` are only special directly before digits of that base). Integer
+  suffixes work on all of them (`0xFFu8`, `hex FFu8`).
 - Untyped constant expressions are evaluated exactly at compile time, then typed
   by their result: whole ≥ 0 → `uint32`, negative → `sint32`, decimal → `float64`.
-  `5 - 10` is `-5` as `sint32`.
+  `5 - 10` is `-5` as `sint32`. `0.1 + 0.2` is exactly `0.3`. A whole constant
+  too big for 32 bits grows to the 64-bit, then the 128-bit type.
+  `~` on a constant is exact too (`~0` is `-1`), then fits like any constant:
+  `uint8 m = ~0;` is 255 with W0102; `~0u8` is silent.
+- An untyped constant next to a typed value takes that value's type, whichever
+  side it is on (`3 + total` and `total + 3` are both in `total`'s type).
+- **A constant that doesn't fit** where it is going (`uint8 a = 300;`,
+  `uint32 x = -1;`, `uint32 n = 2.5;`) follows `[behaviour] overflow`: wrap =
+  W0102 and it wraps (300 → 44; decimals drop the fraction first), saturate =
+  W0102 and it clamps (255), panic = compile error.
 - All numeric types convert automatically. **Lossy** conversions print a big
   warning (W0102); lossless ones are silent. Explicit conversion silences it:
   `(damage * 1.5)::to<uint8>()`.
+  - Lossless: integer to an integer type covering its whole range; integer to
+    a float that represents every value exactly (up to 16 bits → `float32`, up
+    to 32 bits → `float64`); `float32` → `float64`. Everything else is lossy.
+  - A value that doesn't fit at runtime follows `[behaviour] overflow` as well,
+    for automatic conversions and `::to<T>()` alike. wrap: integers keep their
+    low bits, floats drop the fraction and then wrap. saturate: clamp to the
+    nearest end. panic: exit 101. NaN and infinities become 0 (or panic).
+- **Mixed types: the left side leads.** In `a + b`, `a < b` and every other
+  two-sided operator, the right side converts to the left side's type (W0102 if
+  lossy) and the operation is done in that type. No exceptions for floats:
+  with `uint32 hp`, `hp * 1.5` is done in `uint32` (1.5 becomes 1, W0102);
+  write `1.5 * hp` or `hp::to<float64>() * 1.5` for a decimal result.
+  - Except counts: the right side of `<<`, `>>` and integer `**` keeps its own
+    integer type; the result has the left side's type.
+- `bool` is not a number: it never converts to or from one, and conditions
+  must be `bool`.
+- `::text()` on a number or bool gives its text. Floats print the shortest
+  digits that read back as the same number, always with a decimal point and
+  never in exponent form: `1.0` → `"1.0"`, `0.1 + 0.2` at runtime →
+  `"0.30000000000000004"`, `1e21` → `"1000000000000000000000.0"`.
 - Overflow: set by config, default **wrap** for signed and unsigned.
 
 ### Strings
