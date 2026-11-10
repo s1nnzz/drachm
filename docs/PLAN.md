@@ -18,7 +18,7 @@ answers into `docs/SPEC.md` and the design doc, and note leftovers under that st
 |---|---|---|
 | 0 | Foundations: lib split, test harness | done |
 | 1 | Migrate v0.1 to Drachm syntax | done (256-bit, float8/16 deferred) |
-| 2 | Strings and structs | not started |
+| 2 | Strings and structs | strings done; structs separately |
 | 3 | Ownership and borrow checking | not started |
 | 4 | `for`, `skip`, `match` | not started |
 | 5 | Constructors, enums, `fails` / `maybe` | not started |
@@ -44,15 +44,17 @@ backends.
 | `src/parser.rs` | recursive descent + precedence climbing → `src/ast.rs`; recovers at `;`, `}` and the next function; enforces the bitwise-parentheses and `::`/`->` rules |
 | `src/consts.rs` | untyped constants: exact big-integer / fraction arithmetic |
 | `src/types.rs` | built-in types, lossless-conversion table |
-| `src/typeck.rs` | names, types, left-side-leads conversions, W0102, definite assignment, all-paths-return → `src/hir.rs` |
-| `src/hir.rs` | the typed tree both backends consume: every conversion explicit, names resolved |
+| `src/typeck.rs` | names, types, left-side-leads conversions, W0102, definite assignment, all-paths-return, string copies and drops → `src/hir.rs` |
+| `src/typeck/strings.rs` | string literals and interpolation, string methods and operators, `io::outf` format parsing |
+| `src/hir.rs` | the typed tree both backends consume: every conversion explicit, names resolved, string ownership explicit (see its module comment) |
 | `src/codegen.rs` | plain builds: HIR → Cranelift IR → object file (`cranelift-object` 0.137) |
 | `src/cgen.rs` | `-O` builds: HIR → C (one `const` temporary per sub-expression) |
 | `src/link.rs` | runs `cc`; caches the compiled runtime in `~/.cache/drachm` |
 | `src/diag/` | `Diagnostic`, `Span`, `Source`; `render.rs` (SPEC section 10 layout, colour); `codes.rs` (code table) |
 | `src/main.rs` | thin CLI: `build`/`run`/`check`/`explain`, `-O` |
-| `runtime/runtime.c` | printing, panics, float→int wrapping, 128-bit division, integer power. Linked for plain builds, pasted inline for `-O` |
-| `tests/run.rs` | golden test harness (how to add a case is at the top of the file) |
+| `runtime/runtime.c` | printing, panics, values as text (numbers, floats, `%.N`, zero padding), float→int wrapping, 128-bit division, integer power. Linked for plain builds, pasted inline for `-O` (with `runtime/strings.h`) |
+| `runtime/strings.h`, `runtime/strings/` | the string runtime: a Rust staticlib (grapheme-aware methods, live-buffer counter) behind a C interface; built by `build.rs`, linked into every program |
+| `tests/run.rs` | golden test harness (how to add a case is at the top of the file); programs run with `DRACHM_CHECK_LEAKS=1` and a leak fails the case |
 | `bench/` | benchmarks with C and Rust twins; `bench/run.sh` prints a comparison |
 
 Backend notes:
@@ -237,7 +239,76 @@ Decided (2026-11-10): string method table confirmed, plus an optional fill
 text on `padLeft`/`padRight`; `io::outf` literal percent is `\%`; outf options
 are width/padding (`%8`, `%-8`, `%08`) and bases (`%x %X %b %o`) besides `%.N`.
 
-**Open (ask owner):** none.
+**Open (ask owner):** none before the step. Found while building strings
+(each has a conservative behaviour for now, marked `OPEN` in the code):
+- `"""` text is kept exactly as written between the delimiters, leading
+  newline and indentation included. Strip the first newline? Dedent?
+- In `io::outf`, a letter right after a placeholder (`%d`, `%s`, `100%x`):
+  `x X b o` always pick a base, any other letter is an error (E0009). A digit
+  right after `%` is always a width (`"%5 apples"` pads), and `%` before a
+  space is a placeholder (`"50% off"` prints a value). Is that the rule?
+- `%%` is rejected (E0009, "write `\%`") rather than read as two placeholders.
+- `%0` (a width of 0) and `%-08` (zeros on the right) are errors.
+- `%08` on non-numbers is an error; on `inf`/`nan` it pads with spaces (as C does).
+- A `\` at the end of a line inside a string is an error (no line continuation).
+- `${...}` may contain string literals with the same quote (`f"${a + "!"}"`):
+  the lexer reads the inner expression as ordinary tokens.
+
+Strings done (2026-11-10); structs are a separate branch. Built: `string`/`str`,
+all literal forms (`"..."`, `f"..."`, backticks, `"""`, `f"""`) with
+`${expr}` and the `\%` escape, `+`/`+=`/comparisons, `::text()` on
+everything, every SPEC method except `split`/`lines`/`chars` (E0901: they
+need lists), `io::outf` with every option. Not built: `\u{UNICODE NAME}`
+escapes (still E0008), `..` (ranges, step 4), user `copy x`. Notes for later
+steps:
+- **Ownership lowering (for step 3).** Typeck makes it explicit in the HIR and
+  the backends add nothing (module comment in `src/hir.rs`). String
+  expressions are *places* (`Local`, `Str`, `Temp`; borrowed) or *owned
+  values* (everything else). Inserted nodes: `Copy(place)` (the deep copy on
+  every assignment, argument and return; user `copy x` does not exist yet),
+  `Move(local)` (only for the hidden local in `s = v`, which becomes
+  `$t = v; Drop(s); s = Move($t)`), `Temp(local, value)` (an owned value
+  stored in a hidden local so it can be borrowed), `Scoped(expr, locals)`
+  (evaluate, then drop: statement temporaries die at the end of their
+  statement, and `return v` drops everything in scope after making `v`),
+  and `Stmt::Drop(local)` at the end of each block in reverse declaration
+  order (parameters at the end of the function). Every string local starts
+  empty and `Drop` empties it, so dropping one that was never set (an
+  unassigned binding, a temporary inside the unevaluated side of `&&`) is
+  harmless: that stands in for drop flags. Step 3 removes `Copy`, `Move`,
+  `Scoped` and `Drop` from typeck and lets MIR build them; `Temp` maps to a
+  MIR temporary. `s += t` is `StrCall(Append, [Local s, t])`, an in-place
+  append (`drachm_str_append`, amortised growth).
+- **ABI.** Cranelift: a string is a 24-byte stack slot (`drachm_str`). A
+  string parameter is passed as a pointer to a value the callee takes over
+  (it copies the 24 bytes into its own slot and drops it); a string result
+  goes through a hidden first pointer parameter. C backend: `drachm_str` by
+  value both ways. Runtime functions always take pointers.
+- **Runtime split.** Unicode work is in the Rust library (`runtime/strings/`,
+  declared in `strings.h`); number/float/bool text, `%.N` (`drachm_text_fixed`,
+  libc `%.*f`, so ties round to even on the binary value) and `%0N` padding
+  are in `runtime.c`, shared by both backends. `drachm_panic` is never
+  `static` (the Rust library calls it) and exits with `_Exit(101)`, so a
+  panic is not reported as a leak. `-O` output pastes `strings.h` in place of
+  runtime.c's `#include "strings.h"`.
+- **Leak checking.** The runtime counts live buffers; `tests/run.rs` runs every
+  program with `DRACHM_CHECK_LEAKS=1` and fails a case that prints
+  `drachm: leaked N strings`.
+- **`io::outf`** needs a plain literal format (anything else is E0901). The
+  lexer keeps string pieces apart (`lexer::StrPiece`: raw text, escapes,
+  interpolations), so only a `%` written directly is a placeholder and errors
+  point into the format. The call becomes one `Out` of a `Join` of pieces.
+- New codes: E0009 (bad placeholder), E0108 (option does not suit the value).
+- Index arguments are `sint64`, counts `uint64`, so passing a `uint64` (such
+  as `s::len() - 1`) to `sub` warns (W0102); negative indexes avoid it.
+- Speed (`bench/run.sh`, ms, Drachm `-O` / C / Rust / plain): strings 254 /
+  95 / 145 / 244 (the others unchanged: collatz 328, fib 119, mandel 167,
+  primes 860). The string runtime skips grapheme segmentation for plain ASCII.
+  What remains is allocation: each turn of the loop makes five strings (the
+  number's text, the interpolation, `repeat`, the `+`, and `sub`) where Rust
+  makes two. Writing an `f"..."`'s pieces straight into one buffer, and
+  appending `+` into a temporary that is about to die, would remove most of
+  them; elsewhere step 3's moves remove the deep copies.
 
 ---
 

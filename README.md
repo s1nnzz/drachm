@@ -37,11 +37,16 @@ none main() {
     io::out("fib(20) = ");
     io::outln(fib(20)::text());
     io::outln((answer::to<float64>() / 4)::text());   // 10.5
+
+    string name = "Drachm";
+    io::outln(f"${name} has ${name::len()} letters"); // interpolation
+    io::outln("dcba"::reverse()->sub(0, 1));          // "ab": `::` first, `->` after
+    io::outf("%-8|%6.2|%08x\n", name, 3.14159, 255);  // Drachm  |  3.14|000000ff
 }
 ```
 
 - **Types:** `uint8` to `uint128`, `sint8` to `sint128`, `float32`, `float64`,
-  `bool`, and `none` for functions that return nothing.
+  `bool`, `string` (also `str`), and `none` for functions that return nothing.
 - **Functions** start with their return type; there is no `fn` keyword.
   `none main()` or `sint32 main()` (returns the exit code).
 - **Bindings** are immutable unless `mut`. `uint32 later;` may be assigned once.
@@ -53,8 +58,17 @@ none main() {
   Bitwise operators need parentheses next to arithmetic and comparisons.
 - **Control flow:** `if (...) { } else if (...) { } else { }`, `while (...) { }`,
   `return`. Conditions are always parenthesised.
-- **Output:** `io::out` / `io::outln` print text; `::text()` turns a value into text.
-- **Runtime safety:** whole-number division by zero panics with exit code 101.
+- **Strings:** UTF-8, where a character is a grapheme cluster. `"..."`,
+  `f"..."` and `` `...` `` with `${expr}`, `"""..."""` and `f"""..."""` over
+  several lines. `+` and `+=` join, comparisons go by bytes, and there are
+  `len isEmpty reverse sub upper lower trim find contains startsWith endsWith
+  count join replace replaceLimit insert remove repeat padLeft padRight`.
+  Each string owns its text and is freed at the end of its scope.
+- **Output:** `io::out` / `io::outln` print text; `io::outf` formats (`%` is
+  any value, `%8 %-8 %08` pad, `%.2` sets decimals, `%x %X %b %o` pick a
+  base, `\%` is a percent sign); `::text()` turns a value into text.
+- **Runtime safety:** whole-number division by zero and a string index out of
+  range panic with exit code 101.
 
 `docs/SPEC.md` has the full design, most of which is still to be built;
 `docs/PLAN.md` has the build plan and progress.
@@ -64,10 +78,11 @@ none main() {
 | Path | Role |
 |---|---|
 | `src/lexer.rs`, `src/parser.rs`, `src/ast.rs` | source → tokens → syntax tree |
-| `src/typeck.rs`, `src/consts.rs`, `src/types.rs` | checking; syntax tree → typed tree (`src/hir.rs`) |
+| `src/typeck.rs`, `src/typeck/strings.rs`, `src/consts.rs`, `src/types.rs` | checking; syntax tree → typed tree (`src/hir.rs`) |
 | `src/codegen.rs` | plain builds: typed tree → Cranelift → object file |
 | `src/cgen.rs` | `-O` builds: typed tree → C |
 | `src/link.rs`, `runtime/runtime.c` | the C compiler driver, and the runtime every program includes |
+| `runtime/strings.h`, `runtime/strings/` | the string runtime (a Rust static library with a C interface) |
 | `src/diag/` | diagnostics: rendering and the error code table |
 | `src/main.rs`, `src/lib.rs` | CLI, and the compiler as a library |
 | `tests/` | golden tests: `cargo test` |
