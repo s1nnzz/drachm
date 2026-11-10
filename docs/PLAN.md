@@ -20,7 +20,7 @@ answers into `docs/SPEC.md` and the design doc, and note leftovers under that st
 | 1 | Migrate v0.1 to Drachm syntax | done (256-bit, float8/16 deferred) |
 | 2 | Strings and structs | done (`\u{NAME}` escapes, user `copy`, `split`/`lines`/`chars` later) |
 | 3 | Ownership and borrow checking | not started |
-| 4 | `for`, `skip`, `match` | control flow done; string patterns, globs, for-each over strings/lists open |
+| 4 | `for`, `skip`, `match` | control flow done; string patterns, `*` globs and for-each over strings left (lists: step 6) |
 | 5 | Constructors, enums, `fails` / `maybe` | not started |
 | 6 | Generics, interfaces, collections | not started |
 | 7 | Modules, config, scripts, stdlib | not started |
@@ -33,9 +33,12 @@ C header import, `drachm fmt`, the Agora registry.
 
 ## Where things stand
 
-Steps 0 and 1 are done: the compiler takes Drachm syntax (`.drh`), all number
-types up to 128 bits, `bool`, `none`, `io::out`/`io::outln`, and has two
-backends.
+Steps 0, 1 and 2 are done, and the control-flow part of step 4: the compiler
+takes Drachm syntax (`.drh`), all number types up to 128 bits, `bool`, `none`,
+owned `string`s with interpolation and `io::outf`, structs (fields that may be
+strings, methods, operators), `for`/ranges/`break N`/`continue N`/`skip`/
+`match`, and has two backends. Ownership is still step 2's: every copy of a
+string, or of a struct holding one, is a deep copy.
 
 | File | Role |
 |---|---|
@@ -43,9 +46,9 @@ backends.
 | `src/lexer.rs` | hand-written lexer → `Vec<Token>`; number literals become exact constants here |
 | `src/parser.rs` | recursive descent + precedence climbing → `src/ast.rs`; recovers at `;`, `}` and the next function; enforces the bitwise-parentheses and `::`/`->` rules |
 | `src/consts.rs` | untyped constants: exact big-integer / fraction arithmetic |
-| `src/types.rs` | built-in types, lossless-conversion table |
+| `src/types.rs` | built-in types, struct types by id (names interned), lossless-conversion table |
 | `src/typeck.rs` | names, types, left-side-leads conversions, W0102, definite assignment, all-paths-return, ownership (copies, temporaries, drops) → `src/hir.rs`; structs, fields, methods, operators |
-| `src/typeck/control.rs` | loops, `break`/`continue`, `if` chains, `skip`, `match` (patterns, W0110/W0111), and the flow state along every jump; jumps drop the strings they leave |
+| `src/typeck/control.rs` | loops, `break`/`continue`, `if` chains, `skip`, `match` (patterns, W0110/W0111), and the flow state along every jump; jumps drop the owning values they leave |
 | `src/typeck/strings.rs` | string literals and interpolation, string methods and operators, `io::outf` format parsing |
 | `src/hir.rs` | the typed tree both backends consume: every conversion explicit, names resolved, ownership explicit (see its module comment); struct layouts |
 | `src/codegen.rs` | plain builds: HIR → Cranelift IR → object file (`cranelift-object` 0.137) |
@@ -59,7 +62,11 @@ backends.
 | `bench/` | benchmarks with C and Rust twins; `bench/run.sh` prints a comparison |
 
 Backend notes:
-- User functions are named `drachm_f_<name>`; a generated C `main` calls `drachm_f_main`.
+- Symbols: functions `drachm_f_<name>`, methods `drachm_m_<len><Struct>_<name>`
+  (`op_add` and so on for operators), automatic `==` `drachm_eq_<Struct>`; a
+  generated C `main` calls `drachm_f_main`. In C, structs are
+  `drachm_s_<Struct>` with fields `f_<name>`, and structs that own strings get
+  `drachm_copy_<Struct>` / `drachm_drop_<Struct>`.
 - The two backends must agree bit for bit. Anything with room to disagree
   goes in `runtime/runtime.c` and is shared. `optimised_output_matches` in
   `tests/run.rs` builds every run case both ways and compares.
@@ -239,8 +246,9 @@ Decided (2026-11-10): string method table confirmed, plus an optional fill
 text on `padLeft`/`padRight`; `io::outf` literal percent is `\%`; outf options
 are width/padding (`%8`, `%-8`, `%08`) and bases (`%x %X %b %o`) besides `%.N`.
 
-**Open (ask owner):** none before the step. Found while building strings
-(each has a conservative behaviour for now, marked `OPEN` in the code):
+**Open (ask owner):** none before the step. Found while building it (each
+has a conservative behaviour for now, marked `OPEN` in the code where it is
+one place). Strings:
 - `"""` text is kept exactly as written between the delimiters, leading
   newline and indentation included. Strip the first newline? Dedent?
 - In `io::outf`, a letter right after a placeholder (`%d`, `%s`, `100%x`):
@@ -254,13 +262,42 @@ are width/padding (`%8`, `%-8`, `%08`) and bases (`%x %X %b %o`) besides `%.N`.
 - `${...}` may contain string literals with the same quote (`f"${a + "!"}"`):
   the lexer reads the inner expression as ordinary tokens.
 
-Strings done (2026-11-10); structs are a separate branch. Built: `string`/`str`,
+Structs (decided while building, not by the owner; conservative errors where unsure):
+- after a field access the chain starts over: `p.pos::len()`, `p::get().x::text()`;
+- a field and a method of one struct may not share a name (E0202);
+- one method per operator symbol (no overloading by parameter type);
+- `==` / `!=` methods must take the struct's own type, and comparison
+  operator methods must return `bool` (E0113);
+- a written `!=` method is used for `!=`; otherwise `!=` is `!(a == b)`;
+- the automatic `==` compares struct fields with their own `==` (custom or
+  automatic), and floats by IEEE (`NaN != NaN`);
+- `self = ...` is an error (E0005), as is calling a method that changes
+  `self` on a temporary value (E0205);
+- fields have no default values; a field cannot be `static`, a method cannot be `mut`;
+- a struct may have no fields; a one-field struct can be built from one
+  value (`Wrap w = 42;`);
+- operator methods never get W0208 (they cannot be `static`).
+
+Strings and structs together (found when the branches were merged):
+- A struct with a `string` field is copied like a string: every assignment,
+  pass and return deep-copies it (the step 2 rule; SPEC section 6 says such
+  structs move, which step 3 brings).
+- `${p}` and `io::outf`'s `%` on a struct are errors (E0101), even when the
+  struct has a `text()` method (the help suggests calling it). Should they
+  call it?
+- The automatic `==` compares string fields by their text (bytes), like `==`
+  on strings.
+- `match` on a struct value is an error (E0101: numbers and bools only).
+
+Done (2026-11-10). Strings and structs were built on separate branches and
+merged; the notes below are per part, then what joining them took.
+
+Strings. Built: `string`/`str`,
 all literal forms (`"..."`, `f"..."`, backticks, `"""`, `f"""`) with
 `${expr}` and the `\%` escape, `+`/`+=`/comparisons, `::text()` on
 everything, every SPEC method except `split`/`lines`/`chars` (E0901: they
 need lists), `io::outf` with every option. Not built: `\u{UNICODE NAME}`
-escapes (still E0008), `..` (ranges, step 4), user `copy x`. Notes for later
-steps:
+escapes (still E0008), user `copy x`. Notes for later steps:
 - **Ownership lowering (for step 3).** Typeck makes it explicit in the HIR and
   the backends add nothing (module comment in `src/hir.rs`). String
   expressions are *places* (`Local`, `Str`, `Temp`; borrowed) or *owned
@@ -310,11 +347,9 @@ steps:
   appending `+` into a temporary that is about to die, would remove most of
   them; elsewhere step 3's moves remove the deep copies.
 
-Structs done (2026-11-10): item 5 and the construction shorthand. Structs
-hold numbers, bools and other structs (string fields wait for strings).
-Golden tests `structs`, `structcalls`, `operators`, `layout`, `structwarn`;
-fail tests `structsyntax`, `structdecl`, `structuse`, `structmut`. Notes for
-later steps:
+Structs: item 5 and the construction shorthand. Golden tests `structs`,
+`structcalls`, `operators`, `layout`, `structwarn`; fail tests
+`structsyntax`, `structdecl`, `structuse`, `structmut`. Notes for later steps:
 - HIR: `Type::Struct { id, name }` (the name is interned so `Type` stays
   `Copy`); `hir::Program::structs` holds each layout (C-style, computed once
   in `hir::layout`). New expressions `Field`, `Struct` (field values in
@@ -335,23 +370,41 @@ later steps:
 - Step 5: the construction shorthand currently always means "all fields in
   declaration order", ignoring visibility. Constructors, `new T of (...)` and
   the automatic constructor disappearing must replace `construct` in typeck.
-- Decided here, not by the owner (conservative errors where unsure; ask):
-  - after a field access the chain starts over: `p.pos::len()`, `p::get().x::text()`;
-  - a field and a method of one struct may not share a name (E0202);
-  - one method per operator symbol (no overloading by parameter type);
-  - `==` / `!=` methods must take the struct's own type, and comparison
-    operator methods must return `bool` (E0109);
-  - a written `!=` method is used for `!=`; otherwise `!=` is `!(a == b)`;
-  - the automatic `==` compares struct fields with their own `==` (custom or
-    automatic), and floats by IEEE (`NaN != NaN`);
-  - `self = ...` is an error (E0005), as is calling a method that changes
-    `self` on a temporary value (E0205);
-  - fields have no default values; a field cannot be `static`, a method cannot be `mut`;
-  - a struct may have no fields; a one-field struct can be built from one
-    value (`Wrap w = 42;`);
-  - operator methods never get W0208 (they cannot be `static`).
-- New codes: E0108-E0110, W0208, E0209-E0213. E0205's explanation now covers
-  fields and changing methods.
+- New codes (renumbered when merged with strings and control flow): E0112
+  (no such operator), E0113 (invalid operator method), E0114 (struct
+  construction), W0208, E0209-E0213. E0205's explanation now covers fields and
+  changing methods. The decisions taken here are in the Open list above.
+
+Strings and structs together. Golden tests `struct_strings`, `struct_flow`;
+fail test `structstrings`.
+- **Owning types.** `string` and every struct with a `string` field
+  (directly or in a struct field; `StructDef::owns`, `Program::owns`) are
+  *owning*: everything the strings notes above say about string places, owned
+  values, `Copy`, `Move`, `Temp`, `Scoped` and `Drop` holds for them. Places
+  are `Local`, `Temp` and `Field` of a place (plus `Str` for strings). Plain
+  structs keep the struct branch's rule: any expression, copied by bits.
+- `Stmt::Drop` takes a `Place`, so `p.name = v` becomes `$t = v;
+  Drop(p.name); p.name = Move($t)`, and `p.name += t` an in-place `Append` on
+  the field. A field of an owning struct that is not a place (`make().name`) is read
+  from a `Temp`; so is a method's receiver.
+- Method receivers of owning structs are always places (by address); the
+  right side of an operator method is an owned copy. The automatic `==`
+  works like a method: `drachm_eq_<Name>` has `has_self`, borrows its left
+  side and drops its (copied) right side.
+- Cranelift: a struct parameter's memory is the caller's fresh copy, which the
+  callee takes over and drops; `copy_bits` / `deep_copy` / `drop_value` /
+  `clear` walk a type's leaves (numbers, bools, strings). Assigning a plain
+  struct still makes the value apart and copies it in, since the value may
+  read the place; an owning place is always empty when assigned, so the value
+  is written straight into it.
+- C: owning locals start `= {0}`; owning arguments are made into their own
+  variable like strings.
+- Checked with `-fsanitize=address,undefined` on every run case (no reports)
+  besides the leak counter.
+- Speed: unchanged by the merges. Measured side by side with the pre-merge
+  compiler (Drachm `-O`, best of 7, on a machine running about 2.7x slower
+  than for the numbers above): collatz 935 / 871 ms, fib 284 / 279, mandel
+  482 / 475, primes 2488 / 2505, strings 770 / 769 (before / after).
 
 ---
 
@@ -421,17 +474,28 @@ walls, `match` levels and `skip to next` inside a case.
 Decided: `skip to next` from the last branch is a compile error; lambdas are
 walls for `skip`.
 
-**Open (ask owner):** how to match a literal `*` in a string pattern (assumed `\*`).
+**Open (ask owner):** how to match a literal `*` in a string pattern (assumed
+`\*`). Found while building control flow (conservative for now):
+- range loop variables must be integers (floats and `bool` are an error);
+- `_` must be alone in its `case`;
+- an empty range pattern (`case 9..2`) is an error rather than a warning;
+- the count after `break`/`continue`/`skip` must be a plain literal without a suffix;
+- a `case` value must be an untyped constant expression or a typed literal
+  with `-`, `~`, `!` (typed arithmetic such as `5u8 + 1u8` is rejected as not
+  a constant);
+- W0110 lists missing values only for `bool` and 8/16-bit integers;
+- constant `true`-valued conditions other than the literal `true` (e.g.
+  `while (1 == 1)`) still count as possibly ending the loop.
 
 Control flow done (2026-11-10): C-style `for`, for-each over inclusive integer
 ranges, `break N` / `continue N`, `skip` / `skip N` / `skip to next`, and
 `match` on integers, floats and bools (values, lists, ranges, `_`). Golden
 tests: `tests/run/{loops,ranges,skip,match,matchwarn}.drh`, `tests/fail/{jumps,
 loops,patterns,flow,forsyntax}.drh`. Notes for later steps:
-- Still open in this step: string patterns and `*` globs, for-each over
-  strings (step 2's strings) and lists (step 6, via `Iterable<T>`). The for-each
-  parser and `ForEach` node already take any expression after `of`; only
-  ranges are accepted so far (strings get E0901).
+- Still to do in this step: `match` on strings (E0901 now), string patterns
+  and `*` globs, and for-each over strings (E0901 now); lists come in step 6
+  (via `Iterable<T>`). The for-each parser and `ForEach` node already take
+  any expression after `of`.
 - HIR: an `if` chain and a `match` are both `Stmt::If { label, branches }`
   (a branch with no test always runs); every loop is `Stmt::Loop { label,
   cond, body, step }`; jumps are `Stmt::Jump(Break | Continue | Leave | Next)`
@@ -444,12 +508,13 @@ loops,patterns,flow,forsyntax}.drh`. Notes for later steps:
   so it never overflows at a type's largest value.
 - The exact `skip` counting rule is written at the top of `src/typeck/control.rs`.
   A chain (`Stmt::If` in the AST holds all its `else if`s) is one level.
-- Strings: every jump (`break`, `continue`, `skip`) first drops the strings
-  of each scope between it and its target, innermost and latest first
+- Strings (added when merged with step 2): every jump (`break`, `continue`,
+  `skip`) first drops the owning locals (strings, structs holding strings) of
+  each scope between it and its target, innermost and latest first
   (`Target::owned` records the target's scope depth). Conditions, `match`
   values and range bounds drop their temporaries right after they are
   evaluated. A C-style `for`'s init binding is dropped after the loop.
-  Golden test `string_jumps`.
+  Golden tests `string_jumps`, `struct_flow`.
 - Flow: each loop and level collects the flow state at every jump to it;
   `while (true)` / `for (;;)` fall out of the bottom only through a `break`.
   `skip to next` joins into the next branch's entry state (so an immutable
@@ -461,15 +526,7 @@ loops,patterns,flow,forsyntax}.drh`. Notes for later steps:
   place), E0011 (`break`/`continue` target), E0012 (`skip` target), E0013
   (`for` step), E0109 (invalid pattern), W0110 (missing case, the SPEC's
   `missing-case`), W0111 (unreachable case).
-- Chosen conservatively, for the owner to confirm: range loop variables
-  must be integers (floats and `bool` are an error); `_` must be alone in its
-  `case`; an empty range pattern (`case 9..2`) is an error; the count after
-  `break`/`continue`/`skip` must be a plain literal without a suffix; a `case`
-  value must be an untyped constant expression or a typed literal with
-  `-`, `~`, `!` (typed arithmetic such as `5u8 + 1u8` is rejected as not a
-  constant); W0110 lists missing values only for `bool` and 8/16-bit
-  integers. Constant `true`-valued conditions other than the literal `true`
-  (e.g. `while (1 == 1)`) still count as possibly ending the loop.
+- The conservative choices made here are in the Open list above.
 
 ---
 

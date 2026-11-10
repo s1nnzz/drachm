@@ -22,6 +22,14 @@ Requires `cc` (gcc or clang) on `PATH`.
 ```cpp
 in io;
 
+struct Player {
+public:
+    string name;
+    mut uint32 hp;                   // a `mut` field can always change
+
+    none hit(uint32 damage) { self.hp -= damage; }
+}
+
 uint64 fib(uint64 n) {
     if (n < 2) { return n; }
     return fib(n - 1) + fib(n - 2);
@@ -42,6 +50,15 @@ none main() {
     io::outln(f"${name} has ${name::len()} letters"); // interpolation
     io::outln("dcba"::reverse()->sub(0, 1));          // "ab": `::` first, `->` after
     io::outf("%-8|%6.2|%08x\n", name, 3.14159, 255);  // Drachm  |  3.14|000000ff
+
+    Player p = "Ann", 100;
+    for (uint32 round of 1..3) {     // inclusive range
+        p::hit(10 * round);
+        match (p.hp) {
+            case 0..50 { io::outln(f"${p.name} is hurt"); }
+            case _     { io::outln(f"${p.name} has ${p.hp} hp"); }
+        }
+    }
 }
 ```
 
@@ -64,15 +81,16 @@ none main() {
 - **`skip`** leaves `if` blocks the way `break` leaves loops: `skip;` leaves the
   outermost one, `skip 2;` two levels, `skip to next;` goes on to the next
   `else if`. Loops are walls.
-- **`match`** on numbers and bools: `case 0 { }`, `case 1, 2 { }`,
-  `case 13..19 { }`, `case _ { }`. No fallthrough; missing values and
-  unreachable cases are warnings (W0110, W0111).
+- **`match`** on numbers and bools (strings not yet): `case 0 { }`,
+  `case 1, 2 { }`, `case 13..19 { }`, `case _ { }`. No fallthrough; missing
+  values and unreachable cases are warnings (W0110, W0111).
 - **Strings:** UTF-8, where a character is a grapheme cluster. `"..."`,
   `f"..."` and `` `...` `` with `${expr}`, `"""..."""` and `f"""..."""` over
   several lines. `+` and `+=` join, comparisons go by bytes, and there are
   `len isEmpty reverse sub upper lower trim find contains startsWith endsWith
   count join replace replaceLimit insert remove repeat padLeft padRight`.
-  Each string owns its text and is freed at the end of its scope.
+  Each string owns its text and is freed at the end of its scope, or when a
+  `break`, `continue`, `skip` or `return` leaves it.
 - **Structs:** `struct Point { public: sint32 x; mut sint32 y; }` with fields,
   `public:`/`private:` sections, methods using `self`, `static` methods,
   operator methods (`Vector3 +(Vector3 o) { ... }`) and automatic `==`
@@ -82,7 +100,7 @@ none main() {
   on an immutable binding. Fields may be strings; every copy of a struct is
   a deep copy for now.
 - **Output:** `io::out` / `io::outln` print text; `io::outf` formats (`%` is
-  any value, `%8 %-8 %08` pad, `%.2` sets decimals, `%x %X %b %o` pick a
+  any number, bool or string, `%8 %-8 %08` pad, `%.2` sets decimals, `%x %X %b %o` pick a
   base, `\%` is a percent sign); `::text()` turns a value into text.
 - **Runtime safety:** whole-number division by zero and a string index out of
   range panic with exit code 101.
