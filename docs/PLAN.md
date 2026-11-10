@@ -20,7 +20,7 @@ answers into `docs/SPEC.md` and the design doc, and note leftovers under that st
 | 1 | Migrate v0.1 to Drachm syntax | done (256-bit, float8/16 deferred) |
 | 2 | Strings and structs | strings done; structs separately |
 | 3 | Ownership and borrow checking | not started |
-| 4 | `for`, `skip`, `match` | not started |
+| 4 | `for`, `skip`, `match` | control flow done; string patterns, globs, for-each over strings/lists open |
 | 5 | Constructors, enums, `fails` / `maybe` | not started |
 | 6 | Generics, interfaces, collections | not started |
 | 7 | Modules, config, scripts, stdlib | not started |
@@ -45,6 +45,7 @@ backends.
 | `src/consts.rs` | untyped constants: exact big-integer / fraction arithmetic |
 | `src/types.rs` | built-in types, lossless-conversion table |
 | `src/typeck.rs` | names, types, left-side-leads conversions, W0102, definite assignment, all-paths-return, string copies and drops → `src/hir.rs` |
+| `src/typeck/control.rs` | loops, `break`/`continue`, `if` chains, `skip`, `match` (patterns, W0110/W0111), and the flow state along every jump; jumps drop the strings they leave |
 | `src/typeck/strings.rs` | string literals and interpolation, string methods and operators, `io::outf` format parsing |
 | `src/hir.rs` | the typed tree both backends consume: every conversion explicit, names resolved, string ownership explicit (see its module comment) |
 | `src/codegen.rs` | plain builds: HIR → Cranelift IR → object file (`cranelift-object` 0.137) |
@@ -188,8 +189,7 @@ shifts, literals, `++`/`--`, float text). Notes for later steps:
 - Strings exist only as the argument of `io::out`/`io::outln` (`Type::Str`,
   `ExprKind::Str`/`Text`). Step 2 replaces this with real strings.
 - `while (true)` counts as never finishing (for missing-return and
-  assignment checks) because there is no `break` yet. Step 4 must look for
-  `break` inside the loop.
+  assignment checks) unless a `break` targets it (done in step 4).
 - Shown to the owner as drafts, not yet confirmed: the wording of W0102,
   W0106 and the new errors; `inf`/`-inf`/`nan` as float text; constant
   division by zero being a compile error for decimals; `<<` next to `>>`
@@ -379,6 +379,54 @@ Decided: `skip to next` from the last branch is a compile error; lambdas are
 walls for `skip`.
 
 **Open (ask owner):** how to match a literal `*` in a string pattern (assumed `\*`).
+
+Control flow done (2026-11-10): C-style `for`, for-each over inclusive integer
+ranges, `break N` / `continue N`, `skip` / `skip N` / `skip to next`, and
+`match` on integers, floats and bools (values, lists, ranges, `_`). Golden
+tests: `tests/run/{loops,ranges,skip,match,matchwarn}.drh`, `tests/fail/{jumps,
+loops,patterns,flow,forsyntax}.drh`. Notes for later steps:
+- Still open in this step: string patterns and `*` globs, for-each over
+  strings (step 2's strings) and lists (step 6, via `Iterable<T>`). The for-each
+  parser and `ForEach` node already take any expression after `of`; only
+  ranges are accepted so far (strings get E0901).
+- HIR: an `if` chain and a `match` are both `Stmt::If { label, branches }`
+  (a branch with no test always runs); every loop is `Stmt::Loop { label,
+  cond, body, step }`; jumps are `Stmt::Jump(Break | Continue | Leave | Next)`
+  naming a label. `match` evaluates its value into a hidden local and turns
+  each case into a test. Cranelift gives each branch test and each loop
+  step/exit its own block; the C backend uses `goto` to labels
+  `ifL_bN` / `ifL_end` / `loopL_next` / `loopL_end` (forward jumps only).
+- A range loop is lowered to `if (start <= end) { counter = start; loop {
+  x = counter; body; step: if (counter == end) break; counter += 1; } }`,
+  so it never overflows at a type's largest value.
+- The exact `skip` counting rule is written at the top of `src/typeck/control.rs`.
+  A chain (`Stmt::If` in the AST holds all its `else if`s) is one level.
+- Strings: every jump (`break`, `continue`, `skip`) first drops the strings
+  of each scope between it and its target, innermost and latest first
+  (`Target::owned` records the target's scope depth). Conditions, `match`
+  values and range bounds drop their temporaries right after they are
+  evaluated. A C-style `for`'s init binding is dropped after the loop.
+  Golden test `string_jumps`.
+- Flow: each loop and level collects the flow state at every jump to it;
+  `while (true)` / `for (;;)` fall out of the bottom only through a `break`.
+  `skip to next` joins into the next branch's entry state (so an immutable
+  binding assigned before it and again in the next branch is an error).
+- Exhaustiveness works on intervals of an order-preserving key per type
+  (signed integers with the sign bit flipped, floats by bit pattern with
+  `-0.0` = `0.0`). Floats are only ever covered by `case _` (NaN).
+- New codes (renumbered when merged with strings): E0010 (range out of
+  place), E0011 (`break`/`continue` target), E0012 (`skip` target), E0013
+  (`for` step), E0109 (invalid pattern), W0110 (missing case, the SPEC's
+  `missing-case`), W0111 (unreachable case).
+- Chosen conservatively, for the owner to confirm: range loop variables
+  must be integers (floats and `bool` are an error); `_` must be alone in its
+  `case`; an empty range pattern (`case 9..2`) is an error; the count after
+  `break`/`continue`/`skip` must be a plain literal without a suffix; a `case`
+  value must be an untyped constant expression or a typed literal with
+  `-`, `~`, `!` (typed arithmetic such as `5u8 + 1u8` is rejected as not a
+  constant); W0110 lists missing values only for `bool` and 8/16-bit
+  integers. Constant `true`-valued conditions other than the literal `true`
+  (e.g. `while (1 == 1)`) still count as possibly ending the loop.
 
 ---
 

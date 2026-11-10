@@ -1,0 +1,79 @@
+// Definite assignment and missing returns across loops, jumps and `match`.
+in io;
+
+// The `break` lets the loop fall out of the bottom.
+uint32 breaks() {
+    while (true) {
+        break;
+    }
+}
+
+// So does `break 2` from an inner loop.
+uint32 breaksTwo() {
+    for (;;) {
+        for (;;) {
+            break 2;
+        }
+    }
+}
+
+// Not every value is handled, so the match can be passed by.
+uint32 partial(uint8 v) {
+    match (v) {
+        case 0..254 { return 1; }
+    }
+}
+
+// Floats need `case _`: NaN equals nothing.
+uint32 floats(float64 v) {
+    match (v) {
+        case 0.0 { return 0; }
+        case -1e300..1e300 { return 1; }
+    }
+}
+
+none main() {
+    // `skip` jumps past the assignment.
+    uint32 a;
+    if (true) {
+        if (true) { skip 2; }
+        a = 1;
+    } else {
+        a = 2;
+    }
+    io::outln(a::text());
+
+    // `continue` jumps past it on some rounds, and the loop may not run at all.
+    mut uint32 c;
+    for (uint32 i of 0..3) {
+        if (i == 1) { continue; }
+        c = i;
+    }
+    io::outln(c::text());
+
+    // Only one `break` assigns before leaving.
+    mut uint32 d;
+    while (true) {
+        if (true) { break; }
+        d = 4;
+        break;
+    }
+    io::outln(d::text());
+
+    // `skip to next` reaches the next branch with `e` already assigned once.
+    uint32 e;
+    if (true) {
+        e = 1;
+        skip to next;
+    } else {
+        e = 2;
+    }
+
+    // A `match` that is not exhaustive may assign nothing.
+    uint32 f;
+    match (a) {
+        case 0 { f = 1; }
+        case 1 { f = 2; }
+    }
+    io::outln(f::text());
+}

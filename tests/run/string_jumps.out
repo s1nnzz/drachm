@@ -1,0 +1,23 @@
+r0 (skipping r1)r2 [leaving at r3]
+outer
+a1b1 a1b2! a2b1 a2b2 a2b3 | a3b1#
+x xx xxx 
+YYY
+ababababab
+0 7 
+ab
+abcabcabc
+0 7 
+else
+ (outer end) top
+one/two/three (outer end) top
+one/two/to nextone/two/four top
+one/two/four top
+empty
+short:xy (no a)
+short:xy
+long:ABCD
+long:ABCDEF
+3,6,12,15,
+found #27
+none

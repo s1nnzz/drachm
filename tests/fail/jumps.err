@@ -1,0 +1,32 @@
+error[E0011]: `break` is not inside a loop
+help: `break` works on loops; use `skip` to leave an `if`, or `return` to leave the function
+error[E0011]: `continue` is not inside a loop
+error[E0011]: `break 0` counts no loops
+the count is at least 1
+error[E0011]: `continue 3` counts 3 loops, but there are only 2 around it
+the outermost loop
+help: `continue 2;` continues the outermost loop
+jumps.drh:8:22
+error[E0012]: `skip` is not inside an `if` or a `match`
+jumps.drh:13:5
+help: `skip` leaves `if` blocks; use `return` to leave the function
+jumps.drh:16:13
+loops are walls: `skip` cannot leave this loop
+help: use `break` to leave the loop, or `continue` to go round again
+error[E0012]: `skip 2` would leave 2 levels, but it is inside only 1
+the outermost level it can leave
+help: `skip 1;` (or `skip;`) leaves the outermost level
+error[E0012]: `skip 0` leaves nothing
+error[E0012]: `skip to next` is in the last branch, so there is no next one
+jumps.drh:25:9
+this chain has no branch after this one
+help: add an `else` branch, or write `skip 1;` to leave the `if`
+jumps.drh:30:9
+this chain has no branch after its `else`
+jumps.drh:34:18
+this `match` has no `case` after this one
+help: `skip 1;` leaves the `match`
+error[E0012]: `skip 3` would leave 3 levels, but it is inside only 2
+note: a whole `if` / `else if` / `else` chain is one level, and so is a `match`
+help: `skip 2;` (or `skip;`) leaves the outermost level
+12 errors

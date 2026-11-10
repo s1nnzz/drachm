@@ -1,0 +1,41 @@
+// `break`, `continue` and `skip` with nowhere to go.
+none main() {
+    break;
+    continue 2;
+    while (true) {
+        for (;;) {
+            break 0;
+            continue 3;
+            break 2;
+        }
+    }
+
+    skip;
+    if (true) {
+        while (true) {
+            skip;
+            if (true) { skip 2; }
+            break;
+        }
+    }
+    if (true) {
+        if (true) { skip 0; }
+    }
+    if (true) {
+        skip to next;
+    }
+    if (true) {
+    } else if (false) {
+    } else {
+        skip to next;
+    }
+    match (3) {
+        case 1 { skip to next; }
+        case _ { skip to next; }
+    }
+    // A chain is one level, not one per `else if`.
+    if (true) {
+    } else if (true) {
+        if (true) { skip 3; }
+    }
+}

@@ -1,0 +1,200 @@
+// Strings and control flow: every jump drops exactly the strings in scope
+// between it and its target, and conditions, `match` values and range
+// bounds drop their temporaries. Run with leak checking, so a missed drop
+// fails the case; printing what survives the jump checks nothing was
+// dropped too early.
+in io;
+
+// `break` and `continue` drop the body's strings; the outer ones live on.
+none breakAndContinue() {
+    string outer = "outer";
+    mut string log = "";
+    mut uint32 i = 0;
+    while (true) {
+        string round = "r" + i::text();
+        i++;
+        if (i == 2) {
+            string why = "skipping " + round;
+            log += "(" + why + ")";
+            continue;
+        }
+        if (i == 4) {
+            string bye = "leaving at " + round;
+            log += "[" + bye + "]";
+            break;
+        }
+        log += round + " ";
+    }
+    io::outln(log);
+    io::outln(outer);
+}
+
+// `break 2` / `continue 2` leave strings at three depths.
+none nested() {
+    mut string log = "";
+    for (uint32 a of 1..3) {
+        string sa = "a" + a::text();
+        for (uint32 b of 1..3) {
+            string sb = sa + "b" + b::text();
+            if (b == 2 && a == 1) {
+                string note = sb + "!";
+                log += note + " ";
+                continue 2;
+            }
+            if (a == 3) {
+                string last = sb + "#";
+                log += last;
+                break 2;
+            }
+            log += sb + " ";
+        }
+        log += "| ";
+    }
+    io::outln(log);
+}
+
+// The init binding of a C-style `for` belongs to the loop: dropped after it,
+// whether the loop ends by its condition or by `break`.
+none forInit() {
+    for (mut string s = "x"; s::len() < 4; s += "x") {
+        io::out(s + " ");
+    }
+    io::outln("");
+    for (mut string s = "y"; true; s += "y") {
+        string t = s::upper();
+        if (s::len() == 3) {
+            io::outln(t);
+            break;
+        }
+    }
+}
+
+// Conditions with temporaries, evaluated many times.
+none conditions(string word) {
+    mut string s = "";
+    while ((s + word)::len() < 12) {
+        s += word;
+    }
+    io::outln(s);
+    for (mut uint32 i = 0; (word + i::text())::len() < word::len() + 2 && i < 30; i += 7) {
+        io::out(i::text() + " ");
+    }
+    io::outln("");
+    if ((word + "?") == "no?") {
+        io::outln("no");
+    } else if ((word + "!")::upper() == "AB!") {
+        io::outln("ab");
+    } else if ((word + word)::len() == 4) {
+        io::outln("four");
+    } else {
+        io::outln("else");
+    }
+}
+
+// `skip`, `skip N` and `skip to next` out of branches holding strings.
+none skips(uint32 n) {
+    string top = "top";
+    if (n > 0) {
+        string one = "one";
+        if (n > 1) {
+            string two = one + "/two";
+            if (n == 2) {
+                string three = two + "/three";
+                io::out(three);
+                skip 2;
+            } else if (n == 3) {
+                string t = two + "/to next";
+                io::out(t);
+                skip to next;
+            } else if (n >= 3) {
+                string four = two + "/four";
+                io::out(four);
+                skip;
+            }
+            io::out(" (inner end)");
+        }
+        io::out(" (outer end)");
+    }
+    io::outln(" " + top);
+}
+
+// `match` with strings in its arms; the matched value has a temporary.
+string describe(string a, string b) {
+    mut string res = "";
+    match ((a + b)::len()) {
+        case 0 {
+            string e = "empty";
+            res = e;
+        }
+        case 1..3 {
+            string s = "short:" + a + b;
+            if (a::isEmpty()) {
+                string why = s + " (no a)";
+                res = why;
+                skip;
+            }
+            res = s;
+        }
+        case 4 {
+            string f = "four";
+            skip to next;
+        }
+        case _ {
+            string l = "long:" + (a + b)::upper();
+            res = l;
+        }
+    }
+    return res;
+}
+
+// Range loops with strings inside, and string temporaries in the bounds.
+none ranges(string word) {
+    mut string acc = "";
+    for (uint64 i of 1..(word + word)::len()) {
+        string piece = word::repeat(i);
+        if (i % 3 == 0) {
+            string dropped = piece + "?";
+            continue;
+        }
+        acc += piece::len()->text() + ",";
+    }
+    io::outln(acc);
+}
+
+// `return` from inside a loop inside a `match` drops everything in scope.
+string find(uint32 target) {
+    string prefix = "found ";
+    for (uint32 i of 0..100) {
+        string label = "#" + i::text();
+        match (i % 10) {
+            case 7 {
+                string hit = prefix + label;
+                if (i == target) {
+                    return hit;
+                }
+            }
+            case _ { }
+        }
+    }
+    return "none";
+}
+
+none main() {
+    breakAndContinue();
+    nested();
+    forInit();
+    conditions("ab");
+    conditions("abc");
+    skips(1);
+    skips(2);
+    skips(3);
+    skips(4);
+    io::outln(describe("", ""));
+    io::outln(describe("", "xy"));
+    io::outln(describe("x", "y"));
+    io::outln(describe("ab", "cd"));
+    io::outln(describe("abc", "def"));
+    ranges("abc");
+    io::outln(find(27));
+    io::outln(find(28));
+}

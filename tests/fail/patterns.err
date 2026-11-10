@@ -1,0 +1,13 @@
+error[E0109]: a `case` pattern must be a constant
+patterns.drh:13:14
+patterns.drh:14:14
+help: compare it in an `if` instead: `if (value == other) { }`
+error[E0109]: this range is empty: its start is above its end
+help: ranges go from low to high: `2..9`
+error[E0109]: `_` must be the only pattern in its `case`
+error[E0101]: expected `uint32`, found `bool`
+error[E0101]: expected `bool`, found a number
+error[E0109]: a range pattern needs numbers, but this `match` is on `bool`
+error[E0901]: matching on text is not supported yet
+error[E0104]: `match` needs a value, but this produces none
+9 errors

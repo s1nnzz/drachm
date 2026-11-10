@@ -1,0 +1,123 @@
+// For-each over inclusive ranges, including the very ends of each type.
+in io;
+
+sint32 bound(sint32 v) {
+    io::out("bound ");
+    io::out(v::text());
+    io::out(" ");
+    return v;
+}
+
+none main() {
+    for (uint32 i of 0..9) { io::out(i::text()); }
+    io::outln("");
+
+    // Start above end: runs zero times. Start equal to end: once.
+    for (uint32 i of 5..4) { io::outln("never"); }
+    for (uint32 i of 7..7) { io::outln(i::text()); }
+
+    // The bounds are evaluated once, left then right.
+    for (sint32 i of bound(-2)..bound(2)) {
+        io::out(i::text());
+        io::out(" ");
+    }
+    io::outln("");
+
+    // Negative bounds, and bounds from bindings of another type.
+    uint8 lo = 3;
+    sint16 hi = -1;
+    for (sint16 i of -lo::to<sint16>()..hi) {
+        io::out(i::text());
+        io::out(" ");
+    }
+    io::outln("");
+
+    // Changing a `mut` loop variable does not change the iteration.
+    for (mut uint32 i of 1..3) {
+        i *= 10;
+        io::out(i::text());
+        io::out(" ");
+    }
+    io::outln("");
+
+    // `continue` and `break`.
+    for (uint32 i of 0..100) {
+        if (i == 3) { continue; }
+        if (i == 6) { break; }
+        io::out(i::text());
+    }
+    io::outln("");
+
+    // `continue` on the very last value still ends the loop.
+    for (uint8 i of 253..255) {
+        if (i == 255) { continue; }
+        io::out(i::text());
+        io::out(" ");
+    }
+    io::outln("");
+
+    // `continue 2` from an inner range loop.
+    for (uint32 a of 1..3) {
+        for (uint32 b of 1..3) {
+            if (b == 2) { continue 2; }
+            io::out(a::text());
+            io::out(b::text());
+            io::out(" ");
+        }
+    }
+    io::outln("");
+
+    // Whole ranges of small types: exactly 256 and 65536 times.
+    mut uint32 count = 0;
+    for (uint8 i of 0..255) { count++; }
+    io::outln(count::text());
+    count = 0;
+    for (sint8 i of -128..127) { count++; }
+    io::outln(count::text());
+    count = 0;
+    for (uint16 i of 0..65535) { count++; }
+    io::outln(count::text());
+    count = 0;
+    for (sint16 i of -32768..32767) { count++; }
+    io::outln(count::text());
+    for (uint8 i of 255..255) { io::outln(i::text()); }
+
+    // The ends of every width.
+    for (sint8 i of -128..-126) { io::out(i::text()); io::out(" "); }
+    for (sint8 i of 125..127) { io::out(i::text()); io::out(" "); }
+    io::outln("");
+    for (uint32 i of 4294967293..4294967295) { io::out(i::text()); io::out(" "); }
+    io::outln("");
+    for (sint32 i of 2147483646..2147483647) { io::out(i::text()); io::out(" "); }
+    for (sint32 i of -2147483648..-2147483647) { io::out(i::text()); io::out(" "); }
+    io::outln("");
+    for (uint64 i of 18446744073709551613..18446744073709551615) { io::out(i::text()); io::out(" "); }
+    io::outln("");
+    for (sint64 i of -9223372036854775808..-9223372036854775806) { io::out(i::text()); io::out(" "); }
+    io::outln("");
+    for (sint64 i of 9223372036854775805..9223372036854775807) { io::out(i::text()); io::out(" "); }
+    io::outln("");
+    for (uint128 i of 340282366920938463463374607431768211453..340282366920938463463374607431768211455) {
+        io::out(i::text());
+        io::out(" ");
+    }
+    io::outln("");
+    for (sint128 i of -170141183460469231731687303715884105728..-170141183460469231731687303715884105727) {
+        io::out(i::text());
+        io::out(" ");
+    }
+    io::outln("");
+    for (sint128 i of 170141183460469231731687303715884105726..170141183460469231731687303715884105727) {
+        io::out(i::text());
+        io::out(" ");
+    }
+    io::outln("");
+    // Across zero in 128 bits.
+    for (sint128 i of -2..2) { io::out(i::text()); io::out(" "); }
+    io::outln("");
+
+    // Start above end at the extremes: still zero times.
+    for (uint64 i of 18446744073709551615..0) { io::outln("never"); }
+    for (sint128 i of 170141183460469231731687303715884105727..-170141183460469231731687303715884105728) { io::outln("never"); }
+    io::outln("done");
+}

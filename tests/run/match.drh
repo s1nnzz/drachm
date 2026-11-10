@@ -1,0 +1,196 @@
+// `match` on integers, floats and bools: values, lists, ranges, `_`.
+in io;
+
+none show(uint32 n) {
+    match (n) {
+        case 0      { io::outln("zero"); }
+        case 1, 2   { io::outln("one or two"); }
+        case 13..19 { io::outln("teen"); }
+        case 2 + 1  { io::outln("three"); }
+        case _      { io::outln("other"); }
+    }
+}
+
+// Covers every value without `case _`.
+none sign(sint64 n) {
+    match (n) {
+        case -9223372036854775808     { io::outln("min"); }
+        case -9223372036854775807..-1 { io::outln("negative"); }
+        case 0                        { io::outln("zero"); }
+        case 1..9223372036854775806   { io::outln("positive"); }
+        case 9223372036854775807      { io::outln("max"); }
+    }
+}
+
+none quarter(uint8 b) {
+    match (b) {
+        case 0..63    { io::outln("first"); }
+        case 64..127  { io::outln("second"); }
+        case 128..191 { io::outln("third"); }
+        case 192..255 { io::outln("fourth"); }
+    }
+}
+
+none yesNo(bool b) {
+    match (b) {
+        case true  { io::outln("yes"); }
+        case false { io::outln("no"); }
+    }
+}
+
+none temp(float64 t) {
+    match (t) {
+        case 0.0              { io::outln("freezing"); }
+        case -273.15..-0.0001 { io::outln("below"); }
+        case 0.5, 1.5         { io::outln("a half"); }
+        case 100.0            { io::outln("boiling"); }
+        case _                { io::outln("other"); }
+    }
+}
+
+none small(float32 f) {
+    match (f) {
+        case 0.1 { io::outln("0.1"); }
+        case _   { io::outln("not 0.1"); }
+    }
+}
+
+// Typed constants as patterns, converted to the matched type.
+none typed(sint32 v) {
+    match (v) {
+        case 5u8   { io::outln("five"); }
+        case -1s8  { io::outln("minus one"); }
+        case ~0u16 { io::outln("65535"); }
+        case -(2 ** 31) { io::outln("min"); }
+        case _     { io::outln("other"); }
+    }
+}
+
+none wide(uint128 v) {
+    match (v) {
+        case 340282366920938463463374607431768211455 { io::outln("max"); }
+        case 0..18446744073709551615                 { io::outln("fits 64 bits"); }
+        case _                                       { io::outln("big"); }
+    }
+}
+
+none wideSigned(sint128 v) {
+    match (v) {
+        case -170141183460469231731687303715884105728..-1 { io::outln("negative"); }
+        case 0                                            { io::outln("zero"); }
+        case 1..170141183460469231731687303715884105727   { io::outln("positive"); }
+    }
+}
+
+uint32 next(uint32 v) {
+    io::out("evaluated ");
+    return v;
+}
+
+// Every case returns, and the cases cover everything: no `return` needed after.
+uint32 code(bool b) {
+    match (b) {
+        case true  { return 1; }
+        case false { return 0; }
+    }
+}
+
+uint32 grade(uint8 score) {
+    match (score) {
+        case 90..255 { return 1; }
+        case 0..89   { return 2; }
+    }
+}
+
+sint32 always(sint32 x) {
+    match (x) {
+        case _ { return x; }
+    }
+}
+
+none main() {
+    show(0);
+    show(2);
+    show(3);
+    show(15);
+    show(20);
+
+    sign(-9223372036854775808);
+    sign(-5);
+    sign(0);
+    sign(7);
+    sign(9223372036854775807);
+
+    quarter(0);
+    quarter(127);
+    quarter(128);
+    quarter(255);
+
+    yesNo(true);
+    yesNo(false);
+
+    float64 zero = 0.0;
+    temp(-zero);
+    temp(-10.0);
+    temp(-273.15);
+    temp(-300.0);
+    temp(1.5);
+    temp(100.0);
+    temp(0.25);
+    temp(zero / zero);
+
+    small(0.1);
+    small(0.2);
+
+    typed(5);
+    typed(-1);
+    typed(65535);
+    typed(-2147483648);
+    typed(255);
+
+    wide(340282366920938463463374607431768211455);
+    wide(18446744073709551615);
+    wide(18446744073709551616);
+    wideSigned(-170141183460469231731687303715884105728);
+    wideSigned(0);
+    wideSigned(170141183460469231731687303715884105727);
+
+    // The value is evaluated once, however many cases are tested.
+    match (next(17)) {
+        case 1 { io::outln("one"); }
+        case 2 { io::outln("two"); }
+        case 3..10 { io::outln("three to ten"); }
+        case _ { io::outln("more"); }
+    }
+
+    // An untyped constant gets its default type.
+    match (-1) {
+        case -1 { io::outln("minus one"); }
+        case _ { io::outln("other"); }
+    }
+
+    // `break` and `continue` from inside cases.
+    for (uint32 i of 0..9) {
+        match (i % 4) {
+            case 0 { continue; }
+            case 3 { if (i > 5) { break; } }
+            case _ { }
+        }
+        io::out(i::text());
+    }
+    io::outln("");
+
+    io::out(code(true)::text());
+    io::out(code(false)::text());
+    io::out(grade(95)::text());
+    io::out(grade(40)::text());
+    io::outln(always(-4)::text());
+
+    // Assigned in every case of an exhaustive match: certainly assigned after it.
+    uint32 x;
+    match (zero < 1.0) {
+        case true  { x = 10; }
+        case false { x = 20; }
+    }
+    io::outln(x::text());
+}

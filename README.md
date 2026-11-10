@@ -58,6 +58,15 @@ none main() {
   Bitwise operators need parentheses next to arithmetic and comparisons.
 - **Control flow:** `if (...) { } else if (...) { } else { }`, `while (...) { }`,
   `return`. Conditions are always parenthesised.
+- **Loops:** C-style `for (mut uint32 i = 0; i < 10; i++) { }` and inclusive
+  ranges `for (uint8 i of 0..255) { }` (safe at the type's ends).
+  `break;` / `continue;` take a loop count: `break 2;`.
+- **`skip`** leaves `if` blocks the way `break` leaves loops: `skip;` leaves the
+  outermost one, `skip 2;` two levels, `skip to next;` goes on to the next
+  `else if`. Loops are walls.
+- **`match`** on numbers and bools: `case 0 { }`, `case 1, 2 { }`,
+  `case 13..19 { }`, `case _ { }`. No fallthrough; missing values and
+  unreachable cases are warnings (W0110, W0111).
 - **Strings:** UTF-8, where a character is a grapheme cluster. `"..."`,
   `f"..."` and `` `...` `` with `${expr}`, `"""..."""` and `f"""..."""` over
   several lines. `+` and `+=` join, comparisons go by bytes, and there are
@@ -78,7 +87,7 @@ none main() {
 | Path | Role |
 |---|---|
 | `src/lexer.rs`, `src/parser.rs`, `src/ast.rs` | source → tokens → syntax tree |
-| `src/typeck.rs`, `src/typeck/strings.rs`, `src/consts.rs`, `src/types.rs` | checking; syntax tree → typed tree (`src/hir.rs`) |
+| `src/typeck.rs`, `src/typeck/{strings,control}.rs`, `src/consts.rs`, `src/types.rs` | checking; syntax tree → typed tree (`src/hir.rs`) |
 | `src/codegen.rs` | plain builds: typed tree → Cranelift → object file |
 | `src/cgen.rs` | `-O` builds: typed tree → C |
 | `src/link.rs`, `runtime/runtime.c` | the C compiler driver, and the runtime every program includes |

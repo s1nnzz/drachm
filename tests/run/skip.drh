@@ -1,0 +1,260 @@
+// `skip`, `skip N` and `skip to next`: every example from SPEC section 3,
+// walls, `match` levels, and chains counting as one level.
+in io;
+
+bool yes(uint32 n) {
+    io::out(" test");
+    io::out(n::text());
+    return true;
+}
+
+bool no(uint32 n) {
+    io::out(" test");
+    io::out(n::text());
+    return false;
+}
+
+// The SPEC's example, once per form of `skip` in the innermost `if`.
+none specBare() {
+    io::out("skip:");
+    if (yes(1)) {                   // outermost
+        if (yes(2)) {
+            if (yes(3)) {           // innermost
+                skip;               // -> (3)
+                io::out(" never");
+            } else if (yes(4)) { io::out(" d"); }
+            io::out(" (1)");
+        }
+        io::out(" (2)");
+    }
+    io::out(" (3)");
+    io::outln("");
+}
+
+none specOne() {
+    io::out("skip 1:");
+    if (yes(1)) {
+        if (yes(2)) {
+            if (yes(3)) {
+                skip 1;             // -> (1)
+                io::out(" never");
+            } else if (yes(4)) { io::out(" d"); }
+            io::out(" (1)");
+        }
+        io::out(" (2)");
+    }
+    io::out(" (3)");
+    io::outln("");
+}
+
+none specTwo() {
+    io::out("skip 2:");
+    if (yes(1)) {
+        if (yes(2)) {
+            if (yes(3)) {
+                skip 2;             // -> (2)
+                io::out(" never");
+            } else if (yes(4)) { io::out(" d"); }
+            io::out(" (1)");
+        }
+        io::out(" (2)");
+    }
+    io::out(" (3)");
+    io::outln("");
+}
+
+none specThree() {
+    io::out("skip 3:");
+    if (yes(1)) {
+        if (yes(2)) {
+            if (yes(3)) {
+                skip 3;             // -> (3), like bare `skip`
+                io::out(" never");
+            } else if (yes(4)) { io::out(" d"); }
+            io::out(" (1)");
+        }
+        io::out(" (2)");
+    }
+    io::out(" (3)");
+    io::outln("");
+}
+
+none specNext() {
+    io::out("skip to next:");
+    if (yes(1)) {
+        if (yes(2)) {
+            if (yes(3)) {
+                skip to next;       // -> tests `else if (d)`
+                io::out(" never");
+            } else if (yes(4)) { io::out(" d"); }
+            io::out(" (1)");
+        }
+        io::out(" (2)");
+    }
+    io::out(" (3)");
+    io::outln("");
+}
+
+// When the next test fails, nothing in the chain runs.
+none nextFails() {
+    io::out("next fails:");
+    if (yes(1)) {
+        skip to next;
+    } else if (no(2)) {
+        io::out(" never");
+    }
+    io::outln(" after");
+}
+
+// `skip to next` into an `else`, through an `else if` that skips on.
+none nextToElse() {
+    io::out("next to else:");
+    if (yes(1)) {
+        skip to next;
+    } else if (yes(2)) {
+        io::out(" second");
+        skip to next;
+    } else {
+        io::out(" else");
+    }
+    io::outln(" after");
+}
+
+// A whole `if` / `else if` / `else` chain is one level: `skip 2` from inside an
+// `else if` leaves the inner `if` and the chain, `skip 3` the `if` around both.
+none chainLevels(uint32 v) {
+    io::out("chain ");
+    io::out(v::text());
+    io::out(":");
+    if (yes(1)) {
+        if (v == 0) {
+            io::out(" zero");
+        } else if (v == 1) {
+            if (yes(2)) { skip 2; }
+            io::out(" never");
+        } else {
+            if (yes(3)) { skip 3; }
+            io::out(" never");
+        }
+        io::out(" after chain");
+    }
+    io::outln(" end");
+}
+
+// Loops are walls: bare `skip` leaves the outermost `if` inside the loop body.
+none walls() {
+    io::out("walls:");
+    if (yes(1)) {
+        for (uint32 i of 1..2) {
+            if (yes(i * 10)) {
+                if (yes(i * 10 + 1)) {
+                    skip;
+                }
+                io::out(" never");
+            }
+            io::out(" after");
+        }
+        io::out(" loop done");
+        // After the loop, the `if` outside it counts again.
+        if (yes(2)) { skip 2; }
+        io::out(" never");
+    }
+    io::outln(" end");
+}
+
+// `match` is not a wall; each `case` is a branch of one level.
+none matchLevels(uint32 v) {
+    io::out("match ");
+    io::out(v::text());
+    io::out(":");
+    if (yes(1)) {
+        match (v) {
+            case 0 {
+                if (yes(2)) { skip 1; }
+                io::out(" case 0");
+                if (yes(3)) { skip 2; }
+                io::out(" never");
+            }
+            case 1, 2 {
+                io::out(" case 1, 2");
+                skip to next;
+            }
+            case 2..5 {
+                io::out(" case 2..5");
+                skip;
+            }
+            case _ {
+                io::out(" case _");
+                skip 1;
+            }
+        }
+        io::out(" after match");
+    }
+    io::outln(" end");
+}
+
+// `skip` in a `match` inside a loop leaves the `match`, not the loop.
+none matchInLoop() {
+    io::out("match in loop:");
+    for (uint32 i of 0..3) {
+        match (i) {
+            case 1 {
+                skip;
+            }
+            case 2 {
+                break;
+            }
+            case _ {
+                io::out(" ");
+                io::out(i::text());
+            }
+        }
+        io::out(" next");
+    }
+    io::outln(" end");
+}
+
+// Definite assignment follows `skip`: `x` gets a value on every path.
+uint32 assigned(bool a, bool b) {
+    uint32 x;
+    if (a) {
+        if (b) {
+            x = 1;
+            skip;
+        }
+        x = 2;
+    } else {
+        x = 3;
+    }
+    return x;
+}
+
+none main() {
+    specBare();
+    specOne();
+    specTwo();
+    specThree();
+    specNext();
+    nextFails();
+    nextToElse();
+    chainLevels(0);
+    chainLevels(1);
+    chainLevels(2);
+    walls();
+    matchLevels(0);
+    matchLevels(1);
+    matchLevels(2);
+    matchLevels(3);
+    matchLevels(9);
+    matchInLoop();
+    io::out(assigned(true, true)::text());
+    io::out(assigned(true, false)::text());
+    io::outln(assigned(false, true)::text());
+
+    // At the top of a function body.
+    if (true) {
+        io::out("top");
+        skip;
+    }
+    io::outln(" level");
+}

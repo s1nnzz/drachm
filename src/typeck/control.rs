@@ -1,0 +1,843 @@
+//! Loops, `break` / `continue`, `if` chains, `skip` and `match`: checking
+//! them, following definite assignment along every jump, and lowering them
+//! to `hir::Stmt::If`, `Loop` and `Jump`.
+//!
+//! How `skip` counts (SPEC section 3):
+//! - A *level* is a whole `if` / `else if` / `else` chain, or a whole `match`
+//!   (its cases are the branches). A statement is inside a level when it is
+//!   in one of the level's branch bodies.
+//! - Loops are walls: only the levels inside the body of the innermost loop
+//!   around the `skip` count, or, outside any loop, the levels inside the
+//!   function body. Number those levels 1 (innermost) to L (outermost).
+//! - `skip N;` leaves levels 1 to N and carries on after level N, skipping
+//!   its remaining branches. N = 0 and N > L are errors.
+//! - `skip;` is `skip L;`: it leaves the outermost level.
+//! - `skip to next;` leaves the current branch of level 1 and tests the next
+//!   branch: the next `else if` condition or `case` patterns, or runs the
+//!   `else`. In the last branch it is an error.
+//! - With no level at all (L = 0), every form of `skip` is an error.
+
+use std::collections::HashMap;
+
+use num_rational::BigRational;
+
+use super::{int_lit, origin, resolve_binding_type, scoped, Checker, Flow, Val};
+use crate::ast::{self, ExprKind, Pattern, SkipTarget};
+use crate::consts::Const;
+use crate::diag::{codes, Diagnostic, Span};
+use crate::hir;
+use crate::types::Type;
+
+/// Something a jump can go to. Each keeps the flow states of the jumps to
+/// it, cut down to the locals that exist outside it (`base`), and the depth
+/// of `Checker::owned` outside it (`owned`): a jump to it drops the strings
+/// of every scope from there in.
+pub(super) enum Target {
+    Loop { label: hir::Label, span: Span, base: usize, owned: usize, breaks: Vec<Flow>, continues: Vec<Flow> },
+    /// One `skip` level: an `if` chain or a `match`, now in branch number `branch`.
+    Level {
+        label: hir::Label,
+        span: Span,
+        is_match: bool,
+        /// An `if` chain that ends in `else`.
+        has_else: bool,
+        base: usize,
+        owned: usize,
+        branch: usize,
+        branches: usize,
+        leaves: Vec<Flow>,
+        nexts: Vec<Flow>,
+    },
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Edge {
+    Break,
+    Continue,
+    Leave,
+    Next,
+}
+
+/// How a branch of a chain is chosen.
+pub(super) enum Test<'e> {
+    /// An `if` / `else if` condition, checked when the chain gets to it.
+    Cond(&'e ast::Expr),
+    /// `else` or `case _`.
+    Always,
+    /// A `case`'s patterns, already checked; `None` if they had an error.
+    Value(Option<hir::Expr>),
+}
+
+/// The constant value of a pattern, in the matched type.
+#[derive(Clone, Copy)]
+enum Lit {
+    Int(u128),
+    Float(f64),
+    Bool(bool),
+}
+
+/// The state after any of several paths: `first` or one of `rest`.
+fn join_all(first: Flow, rest: Vec<Flow>) -> Flow {
+    rest.into_iter().fold(first, Flow::join)
+}
+
+fn local(id: hir::LocalId, ty: Type) -> hir::Expr {
+    hir::Expr { kind: hir::ExprKind::Local(id), ty }
+}
+
+fn binary(op: hir::BinOp, l: hir::Expr, r: hir::Expr) -> hir::Expr {
+    let ty = if op.is_comparison() { Type::Bool } else { l.ty };
+    hir::Expr { kind: hir::ExprKind::Binary(op, Box::new(l), Box::new(r)), ty }
+}
+
+fn logic(and: bool, lhs: hir::Expr, rhs: hir::Expr) -> hir::Expr {
+    hir::Expr { kind: hir::ExprKind::Logic { and, lhs: Box::new(lhs), rhs: Box::new(rhs) }, ty: Type::Bool }
+}
+
+fn mask(ty: Type) -> u128 {
+    match ty {
+        Type::Int { bits: 128, .. } => u128::MAX,
+        Type::Int { bits, .. } => (1u128 << bits) - 1,
+        _ => unreachable!("not an integer type"),
+    }
+}
+
+impl Lit {
+    fn expr(self, ty: Type) -> hir::Expr {
+        let kind = match self {
+            Lit::Int(b) => hir::ExprKind::Int(b),
+            Lit::Float(f) => hir::ExprKind::Float(f),
+            Lit::Bool(b) => hir::ExprKind::Bool(b),
+        };
+        hir::Expr { kind, ty }
+    }
+
+    /// The value's place in an unsigned order that agrees with the type's
+    /// own order, for working out which values the cases cover. Float zero
+    /// and negative zero are equal, so they share a key.
+    fn key(self, ty: Type) -> u128 {
+        match self {
+            Lit::Int(b) => match ty {
+                Type::Int { bits, signed: true } => b ^ (1u128 << (bits - 1)),
+                _ => b,
+            },
+            Lit::Float(f) => {
+                let bits = if f == 0.0 { 0 } else { f.to_bits() };
+                // Positive floats order like their bits; negative ones in
+                // reverse. The `+ 1` puts the smallest negative right below zero.
+                (if bits >> 63 == 0 { bits | 1 << 63 } else { (!bits).wrapping_add(1) }) as u128
+            }
+            Lit::Bool(b) => b as u128,
+        }
+    }
+}
+
+/// Every key a value of `ty` can have (floats: besides NaN, which has none).
+fn domain(ty: Type) -> (u128, u128) {
+    match ty {
+        Type::Int { .. } => (0, mask(ty)),
+        Type::Bool => (0, 1),
+        _ => (0, u64::MAX as u128),
+    }
+}
+
+/// The value with key `k` in an integer type or `bool`, as source text.
+fn describe(k: u128, ty: Type) -> String {
+    match ty {
+        Type::Bool => (k == 1).to_string(),
+        Type::Int { bits, signed } => {
+            let b = if signed { k ^ (1u128 << (bits - 1)) } else { k };
+            match Const::from_int_bits(b, ty) {
+                Const::Int(v) => v.to_string(),
+                Const::Dec(_) => unreachable!(),
+            }
+        }
+        _ => unreachable!("floats are never listed"),
+    }
+}
+
+/// Evaluate a typed constant expression: literals, `-`, `~`, `!` and
+/// conversions, with the same results the program would get at run time.
+fn fold(e: hir::Expr) -> Option<Lit> {
+    let ty = e.ty;
+    Some(match e.kind {
+        hir::ExprKind::Int(b) => Lit::Int(b),
+        hir::ExprKind::Float(f) => Lit::Float(f),
+        hir::ExprKind::Bool(b) => Lit::Bool(b),
+        hir::ExprKind::Neg(inner) => match fold(*inner)? {
+            Lit::Int(b) => Lit::Int(b.wrapping_neg() & mask(ty)),
+            Lit::Float(f) => Lit::Float(-f),
+            Lit::Bool(_) => return None,
+        },
+        hir::ExprKind::BitNot(inner) => match fold(*inner)? {
+            Lit::Int(b) => Lit::Int(!b & mask(ty)),
+            _ => return None,
+        },
+        hir::ExprKind::Not(inner) => match fold(*inner)? {
+            Lit::Bool(b) => Lit::Bool(!b),
+            _ => return None,
+        },
+        hir::ExprKind::Convert(inner) => {
+            let from = inner.ty;
+            let v = fold(*inner)?;
+            let exact = match v {
+                Lit::Int(b) => Const::from_int_bits(b, from),
+                Lit::Float(f) => match BigRational::from_float(f) {
+                    Some(r) => Const::Dec(r),
+                    // NaN and the infinities become 0.
+                    None => Const::Int(0.into()),
+                },
+                Lit::Bool(_) => return None,
+            };
+            match (ty, v) {
+                (Type::Int { .. }, _) => Lit::Int(exact.wrap_to_int(ty)),
+                (Type::Float(32), Lit::Float(f)) => Lit::Float(f as f32 as f64),
+                (_, Lit::Float(f)) => Lit::Float(f),
+                _ => Lit::Float(exact.to_float(ty)),
+            }
+        }
+        _ => return None,
+    })
+}
+
+/// The keys the cases so far handle: sorted, disjoint, non-touching ranges.
+#[derive(Default)]
+struct Coverage(Vec<(u128, u128)>);
+
+impl Coverage {
+    fn covers(&self, (lo, hi): (u128, u128)) -> bool {
+        self.0.iter().any(|&(a, b)| a <= lo && hi <= b)
+    }
+
+    fn add(&mut self, lo: u128, hi: u128) {
+        self.0.push((lo, hi));
+        self.0.sort_unstable();
+        let mut merged: Vec<(u128, u128)> = Vec::new();
+        for (a, b) in self.0.drain(..) {
+            match merged.last_mut() {
+                Some(last) if a <= last.1.saturating_add(1) => last.1 = last.1.max(b),
+                _ => merged.push((a, b)),
+            }
+        }
+        self.0 = merged;
+    }
+
+    /// The ranges of keys in `lo..=hi` that are not covered.
+    fn gaps(&self, (lo, hi): (u128, u128)) -> Vec<(u128, u128)> {
+        let mut out = Vec::new();
+        let mut next = Some(lo);
+        for &(a, b) in &self.0 {
+            if let Some(n) = next
+                && a > n
+            {
+                out.push((n, a - 1));
+            }
+            next = b.checked_add(1);
+        }
+        if let Some(n) = next
+            && n <= hi
+        {
+            out.push((n, hi));
+        }
+        out
+    }
+}
+
+impl Checker<'_> {
+    pub(super) fn new_label(&mut self) -> hir::Label {
+        self.labels += 1;
+        self.labels - 1
+    }
+
+    fn target_span(&self, idx: usize) -> Span {
+        match &self.targets[idx] {
+            Target::Loop { span, .. } | Target::Level { span, .. } => *span,
+        }
+    }
+
+    /// Record the flow state at a jump to `targets[idx]` and end the path
+    /// here. Returns the target's label and its `owned` depth.
+    fn record(&mut self, idx: usize, edge: Edge) -> (hir::Label, usize) {
+        let mut f = self.flow.clone();
+        self.flow.reachable = false;
+        match &mut self.targets[idx] {
+            Target::Loop { label, base, owned, breaks, continues, .. } => {
+                f.truncate(*base);
+                if edge == Edge::Continue { continues } else { breaks }.push(f);
+                (*label, *owned)
+            }
+            Target::Level { label, base, owned, leaves, nexts, .. } => {
+                f.truncate(*base);
+                if edge == Edge::Next { nexts } else { leaves }.push(f);
+                (*label, *owned)
+            }
+        }
+    }
+
+    /// Check a chain of branches (an `if` chain or a `match`) as one `skip`
+    /// level. `exhaustive` says that some branch always runs even though
+    /// none is `Test::Always`. Returns `None` if a test had an error.
+    pub(super) fn chain(
+        &mut self,
+        label: hir::Label,
+        span: Span,
+        is_match: bool,
+        parts: Vec<(Test, &ast::Block)>,
+        exhaustive: bool,
+    ) -> Option<Vec<hir::Branch>> {
+        let base = self.flow.definite.len();
+        let branches = parts.len();
+        let has_else = !is_match && matches!(parts.last(), Some((Test::Always, _)));
+        self.targets.push(Target::Level {
+            label,
+            span,
+            is_match,
+            has_else,
+            base,
+            owned: self.owned.len(),
+            branch: 0,
+            branches,
+            leaves: Vec::new(),
+            nexts: Vec::new(),
+        });
+        let mut entry = self.flow.clone();
+        let mut ends = Vec::new();
+        let mut out = Vec::new();
+        let mut ok = true;
+        for (i, (test, body)) in parts.into_iter().enumerate() {
+            self.flow = entry;
+            let (test, always) = match test {
+                Test::Cond(c) => (self.cond(c), false),
+                Test::Always => (None, true),
+                Test::Value(v) => (v, false),
+            };
+            ok &= always || test.is_some();
+            if let Some(Target::Level { branch, .. }) = self.targets.last_mut() {
+                *branch = i;
+            }
+            let tested = self.flow.clone();
+            let (body, end) = self.branch(body, tested.clone());
+            ends.push(end);
+            let Some(Target::Level { nexts, .. }) = self.targets.last_mut() else { unreachable!() };
+            let nexts = std::mem::take(nexts);
+            // The next test is reached when this one fails, or by `skip to next`.
+            entry = join_all(Flow { reachable: tested.reachable && !always, ..tested }, nexts);
+            out.push(hir::Branch { test, body });
+        }
+        let Some(Target::Level { leaves, .. }) = self.targets.pop() else { unreachable!() };
+        // `entry` is now the path on which no branch ran.
+        if exhaustive {
+            entry.reachable = false;
+        }
+        self.flow = join_all(join_all(entry, ends), leaves);
+        ok.then_some(out)
+    }
+
+    /// Check a loop body and step, given the flow state where the loop
+    /// starts (after its condition, if it has one). `forever` means the
+    /// condition never ends the loop. Returns the body and the step.
+    pub(super) fn looped(
+        &mut self,
+        label: hir::Label,
+        span: Span,
+        forever: bool,
+        body: &ast::Block,
+        step: Option<&ast::Stmt>,
+    ) -> (hir::Block, hir::Block) {
+        let entry = self.flow.clone();
+        let base = entry.definite.len();
+        self.targets.push(Target::Loop { label, span, base, owned: self.owned.len(), breaks: Vec::new(), continues: Vec::new() });
+        self.loop_depth += 1;
+        let (body, body_end) = self.branch(body, entry.clone());
+        let Some(Target::Loop { continues, .. }) = self.targets.last_mut() else { unreachable!() };
+        let continues = std::mem::take(continues);
+        // The step runs after the body and after every `continue`.
+        self.flow = join_all(body_end, continues);
+        let before_step = self.flow.clone();
+        let mut step_b = Vec::new();
+        if let Some(s) = step {
+            self.scopes.push(HashMap::new());
+            self.stmt(s, &mut step_b);
+            self.scopes.pop();
+        }
+        self.flow.truncate(base);
+        self.loop_depth -= 1;
+        let Some(Target::Loop { breaks, .. }) = self.targets.pop() else { unreachable!() };
+        // The loop ends when its condition is false, the first time or any
+        // later one, or at a `break`. What is certainly assigned is what was
+        // at the start (assignments only add up), but anything assigned in
+        // the loop may have been.
+        let mut exit = Flow { reachable: entry.reachable && !forever, ..entry };
+        for later in [&before_step, &self.flow] {
+            for (a, b) in exit.maybe.iter_mut().zip(&later.maybe) {
+                *a |= *b;
+            }
+        }
+        self.flow = join_all(exit, breaks);
+        (body, step_b)
+    }
+
+    /// `for (T name of a..b) { }`. Lowered to
+    ///
+    /// ```text
+    /// start = a; end = b;
+    /// if (start <= end) {
+    ///     counter = start;
+    ///     loop { name = counter; body; step: if (counter == end) break; counter += 1; }
+    /// }
+    /// ```
+    ///
+    /// so the counter never steps past `end`, even at the type's largest value.
+    pub(super) fn for_each(&mut self, s: &ast::Stmt, out: &mut hir::Block) {
+        let ast::Stmt::ForEach { mutable, ty: ty_name, name, name_span, iter, body, span } = s else { unreachable!() };
+        let ty = resolve_binding_type(ty_name, self.diags);
+        let bounds = match &iter.kind {
+            ExprKind::Range(lo, hi) => match ty {
+                Some(t) if t.is_int() => {
+                    let a = self.coerce(lo, t);
+                    let temps = self.take_temps();
+                    let a = a.map(|a| scoped(a, temps));
+                    let b = self.coerce(hi, t);
+                    let temps = self.take_temps();
+                    let b = b.map(|b| scoped(b, temps));
+                    a.zip(b)
+                }
+                _ => {
+                    self.expr(lo);
+                    self.expr(hi);
+                    self.take_temps();
+                    if let Some(t) = ty {
+                        // Open: whether float (or other) range loops exist, and how they would step.
+                        self.diags.push(
+                            Diagnostic::at(&codes::E0101, ty_name.span, format!("a range loop counts in whole numbers, so its variable cannot be `{t}`"))
+                                .note(format!("this is `{t}`"))
+                                .help("use an integer type such as `uint32` or `sint64`"),
+                        );
+                    }
+                    None
+                }
+            },
+            _ => {
+                self.not_iterable(iter);
+                self.take_temps();
+                None
+            }
+        };
+
+        let len = self.flow.definite.len();
+        self.scopes.push(HashMap::new());
+        self.owned.push(Vec::new());
+        let hidden = bounds.map(|(a, b)| {
+            let t = a.ty;
+            (self.hidden_named("range start", t), self.hidden_named("range end", t), self.hidden_named("range counter", t), a, b, t)
+        });
+        // The variable belongs to the loop: it gets a new value each time round.
+        self.loop_depth += 1;
+        let var = self.declare(name, ty, *mutable, *name_span, false);
+        self.loop_depth -= 1;
+        self.flow.definite[var] = true;
+        self.flow.maybe[var] = true;
+        let label = self.new_label();
+        let (body, _) = self.looped(label, *span, false, body, None);
+        self.scopes.pop();
+        // Range loop variables are numbers, so nothing here needs dropping
+        // yet; a loop over strings would hold its variable here.
+        let owned = self.owned.pop().unwrap();
+        debug_assert!(owned.is_empty());
+        self.flow.truncate(len);
+
+        let Some((start, end, counter, a, b, t)) = hidden else { return };
+        let mut inner = vec![hir::Stmt::Assign(var, local(counter, t))];
+        inner.extend(body);
+        let step = vec![
+            hir::Stmt::If {
+                label: self.new_label(),
+                branches: vec![hir::Branch {
+                    test: Some(binary(hir::BinOp::Eq, local(counter, t), local(end, t))),
+                    body: vec![hir::Stmt::Jump(hir::Jump::Break(label))],
+                }],
+            },
+            hir::Stmt::Assign(counter, binary(hir::BinOp::Add, local(counter, t), int_lit(1, t))),
+        ];
+        out.push(hir::Stmt::Assign(start, a));
+        out.push(hir::Stmt::Assign(end, b));
+        out.push(hir::Stmt::If {
+            label: self.new_label(),
+            branches: vec![hir::Branch {
+                test: Some(binary(hir::BinOp::Le, local(start, t), local(end, t))),
+                body: vec![
+                    hir::Stmt::Assign(counter, local(start, t)),
+                    hir::Stmt::Loop { label, cond: None, body: inner, step },
+                ],
+            }],
+        });
+    }
+
+    /// Report the thing after `of` that is not a range.
+    fn not_iterable(&mut self, iter: &ast::Expr) {
+        let Some(v) = self.expr(iter) else { return };
+        let d = match &v {
+            Val::Expr(e) if e.ty == Type::Str => {
+                Diagnostic::at(&codes::E0901, iter.span, "looping over a string is not supported yet")
+            }
+            _ => {
+                let found = match &v {
+                    Val::Const(_) => "a number".to_string(),
+                    Val::Expr(e) => format!("`{}`", e.ty),
+                };
+                Diagnostic::at(&codes::E0101, iter.span, format!("cannot loop over {found}"))
+                    .note(format!("this is {found}"))
+                    .help("to count, loop over a range: `for (uint32 i of 0..9) { }`")
+            }
+        };
+        self.diags.push(d);
+    }
+
+    /// `break`, `continue`, with an optional count of loops.
+    /// Returns the jump and the `owned` depth of its target.
+    pub(super) fn break_target(&mut self, cont: bool, count: Option<(u64, Span)>, span: Span) -> Option<(hir::Jump, usize)> {
+        let word = if cont { "continue" } else { "break" };
+        let loops: Vec<usize> = (0..self.targets.len()).rev().filter(|&i| matches!(self.targets[i], Target::Loop { .. })).collect();
+        let n = count.map_or(1, |c| c.0);
+        let at = count.map_or(span, |c| c.1);
+        let k = loops.len();
+        let d = if loops.is_empty() {
+            Diagnostic::at(&codes::E0011, span, format!("`{word}` is not inside a loop"))
+                .note("no loop here")
+                .help(format!("`{word}` works on loops; use `skip` to leave an `if`, or `return` to leave the function"))
+        } else if n == 0 {
+            Diagnostic::at(&codes::E0011, at, format!("`{word} 0` counts no loops"))
+                .note("the count is at least 1")
+                .help(format!("`{word};` is the same as `{word} 1;`, for the innermost loop"))
+        } else if n > k as u64 {
+            Diagnostic::at(
+                &codes::E0011,
+                at,
+                format!("`{word} {n}` counts {n} loops, but there {} only {k} around it", if k == 1 { "is" } else { "are" }),
+            )
+            .note("too many")
+            .label(self.target_span(loops[k - 1]), "the outermost loop")
+            .help(format!("`{word} {k};` {} the outermost loop", if cont { "continues" } else { "leaves" }))
+        } else {
+            let idx = loops[n as usize - 1];
+            return Some(if cont {
+                let (l, depth) = self.record(idx, Edge::Continue);
+                (hir::Jump::Continue(l), depth)
+            } else {
+                let (l, depth) = self.record(idx, Edge::Break);
+                (hir::Jump::Break(l), depth)
+            });
+        };
+        self.diags.push(d);
+        None
+    }
+
+    /// `skip`, `skip N` and `skip to next`, counted as described at the top of this file.
+    /// Returns the jump and the `owned` depth of its target.
+    pub(super) fn skip_target(&mut self, target: SkipTarget, span: Span) -> Option<(hir::Jump, usize)> {
+        let wall = self.targets.iter().rposition(|t| matches!(t, Target::Loop { .. }));
+        // Innermost first.
+        let levels: Vec<usize> = (wall.map_or(0, |w| w + 1)..self.targets.len()).rev().collect();
+        let what = match target {
+            SkipTarget::Outermost => "skip".to_string(),
+            SkipTarget::Levels(n, _) => format!("skip {n}"),
+            SkipTarget::Next => "skip to next".to_string(),
+        };
+        let wall_label = "loops are walls: `skip` cannot leave this loop";
+        let k = levels.len();
+        let d = if levels.is_empty() {
+            let d = Diagnostic::at(&codes::E0012, span, format!("`{what}` is not inside an `if` or a `match`")).note("nothing to skip here");
+            match wall {
+                Some(w) => d
+                    .label(self.target_span(w), wall_label)
+                    .help("use `break` to leave the loop, or `continue` to go round again"),
+                None => d.help("`skip` leaves `if` blocks; use `return` to leave the function"),
+            }
+        } else if let SkipTarget::Next = target {
+            let idx = levels[0];
+            let Target::Level { branch, branches, is_match, has_else, span: level_span, .. } = self.targets[idx] else { unreachable!() };
+            if branch + 1 < branches {
+                let (l, depth) = self.record(idx, Edge::Next);
+                return Some((hir::Jump::Next(l, branch + 1), depth));
+            }
+            let (label, help) = if is_match {
+                ("this `match` has no `case` after this one", "`skip 1;` leaves the `match`")
+            } else if has_else {
+                ("this chain has no branch after its `else`", "`skip 1;` leaves the `if`")
+            } else {
+                ("this chain has no branch after this one", "add an `else` branch, or write `skip 1;` to leave the `if`")
+            };
+            Diagnostic::at(&codes::E0012, span, "`skip to next` is in the last branch, so there is no next one")
+                .note("in the last branch")
+                .label(level_span, label)
+                .help(help)
+        } else {
+            let (n, at) = match target {
+                SkipTarget::Levels(n, s) => (n, s),
+                _ => (k as u64, span),
+            };
+            if n == 0 {
+                Diagnostic::at(&codes::E0012, at, "`skip 0` leaves nothing")
+                    .note("the count is at least 1")
+                    .help("`skip 1;` leaves the innermost `if`, and `skip;` the outermost")
+            } else if n > k as u64 {
+                let mut d = Diagnostic::at(
+                    &codes::E0012,
+                    at,
+                    format!("`skip {n}` would leave {n} levels, but it is inside only {k}"),
+                )
+                .note("too many")
+                .label(self.target_span(levels[k - 1]), "the outermost level it can leave")
+                .note_line("a whole `if` / `else if` / `else` chain is one level, and so is a `match`");
+                if let Some(w) = wall {
+                    d = d.label(self.target_span(w), wall_label);
+                }
+                d.help(format!("`skip {k};` (or `skip;`) leaves the outermost level"))
+            } else {
+                let (l, depth) = self.record(levels[n as usize - 1], Edge::Leave);
+                return Some((hir::Jump::Leave(l), depth));
+            }
+        };
+        self.diags.push(d);
+        None
+    }
+
+    pub(super) fn match_stmt(&mut self, value: &ast::Expr, cases: &[ast::Case], span: Span, out: &mut hir::Block) {
+        let v = self.expr(value).and_then(|v| self.materialise(v, value.span));
+        // The value's temporaries die once it is stored.
+        let temps = self.take_temps();
+        let v = match v {
+            Some(v) if v.ty.is_numeric() || v.ty == Type::Bool => Some(v),
+            Some(v) => {
+                let d = if v.ty == Type::Str {
+                    Diagnostic::at(&codes::E0901, value.span, "matching on text is not supported yet")
+                } else {
+                    Diagnostic::at(&codes::E0104, value.span, "`match` needs a value, but this produces none").note("returns `none`")
+                };
+                self.diags.push(d);
+                None
+            }
+            None => None,
+        };
+        let ty = v.as_ref().map(|v| v.ty);
+        // Evaluated once, before any case is tested.
+        let tmp = v.map(|v| {
+            let id = self.hidden_named("match value", v.ty);
+            out.push(hir::Stmt::Assign(id, scoped(v, temps)));
+            id
+        });
+
+        let mut cover = Coverage::default();
+        // The first `case _`.
+        let mut any: Option<Span> = None;
+        let mut clean = true;
+        let mut tests = Vec::new();
+        for case in cases {
+            let mut keys = Vec::new();
+            let mut values = Vec::new();
+            let mut wildcard = false;
+            let mut ok = true;
+            for p in &case.patterns {
+                match p {
+                    Pattern::Any(s) => {
+                        wildcard = true;
+                        if case.patterns.len() > 1 {
+                            // Open: whether `_` may share a case with other patterns (it would make them pointless).
+                            self.diags.push(
+                                Diagnostic::at(&codes::E0109, *s, "`_` must be the only pattern in its `case`")
+                                    .note("this matches everything")
+                                    .help("`case _` already matches every value; remove the other patterns"),
+                            );
+                            ok = false;
+                        }
+                    }
+                    Pattern::Expr(e) => match self.pattern(e, ty) {
+                        Some((lo, hi)) => {
+                            let t = ty.unwrap();
+                            keys.push((lo.key(t), hi.key(t)));
+                            values.push((lo, hi));
+                        }
+                        None => ok = false,
+                    },
+                }
+            }
+            if let (Some(t), true) = (ty, ok) {
+                let why = if any.is_some() {
+                    Some("it comes after `case _`, which matches everything")
+                } else if wildcard {
+                    (!t.is_float() && cover.covers(domain(t))).then_some("the cases before it already handle every value")
+                } else {
+                    keys.iter().all(|k| cover.covers(*k)).then_some("every value it matches is handled by an earlier case")
+                };
+                if let Some(why) = why {
+                    let mut d = Diagnostic::at(&codes::W0111, case.span, "this case can never run").note(why);
+                    if let Some(a) = any {
+                        d = d.label(a, "this matches everything");
+                    }
+                    self.diags.push(d.help("remove it, or move it above the case that handles its values"));
+                }
+            }
+            clean &= ok;
+            for (lo, hi) in keys {
+                cover.add(lo, hi);
+            }
+            if wildcard && ok && any.is_none() {
+                any = Some(case.span);
+            }
+            tests.push(match (tmp, ty) {
+                _ if wildcard => Test::Always,
+                (Some(tmp), Some(t)) if ok => {
+                    let test = values.into_iter().map(|(lo, hi)| {
+                        if lo.key(t) == hi.key(t) {
+                            binary(hir::BinOp::Eq, local(tmp, t), lo.expr(t))
+                        } else {
+                            logic(true, binary(hir::BinOp::Ge, local(tmp, t), lo.expr(t)), binary(hir::BinOp::Le, local(tmp, t), hi.expr(t)))
+                        }
+                    });
+                    Test::Value(test.reduce(|a, b| logic(false, a, b)))
+                }
+                _ => Test::Value(None),
+            });
+        }
+
+        let exhaustive = any.is_some() || ty.is_some_and(|t| !t.is_float() && cover.covers(domain(t)));
+        if let Some(t) = ty
+            && clean
+            && !exhaustive
+        {
+            self.warn_missing(t, &cover, value, span);
+        }
+        let label = self.new_label();
+        let parts = tests.into_iter().zip(cases).map(|(t, c)| (t, &c.body)).collect();
+        if let Some(branches) = self.chain(label, span, true, parts, exhaustive)
+            && !branches.is_empty()
+        {
+            out.push(hir::Stmt::If { label, branches });
+        }
+    }
+
+    /// W0110 for a `match` whose cases leave values unhandled. Small types
+    /// get the missing values listed.
+    fn warn_missing(&mut self, ty: Type, cover: &Coverage, value: &ast::Expr, span: Span) {
+        let what = self.quote(value.span, "the value");
+        let small = match ty {
+            Type::Bool => true,
+            Type::Int { bits, .. } => bits <= 16,
+            _ => false,
+        };
+        let d = if small {
+            let gaps = cover.gaps(domain(ty));
+            let items: Vec<String> = gaps
+                .iter()
+                .take(4)
+                .map(|&(a, b)| if a == b { format!("`{}`", describe(a, ty)) } else { format!("`{}..{}`", describe(a, ty), describe(b, ty)) })
+                .collect();
+            let list = match items.len() {
+                _ if gaps.len() > 4 => format!("{} and {} more", items.join(", "), gaps.len() - 4),
+                1 => items[0].clone(),
+                n => format!("{} or {}", items[..n - 1].join(", "), items[n - 1]),
+            };
+            let them = if gaps.len() == 1 && gaps[0].0 == gaps[0].1 { "it" } else { "them" };
+            Diagnostic::at(&codes::W0110, span, format!("this `match` does not handle {list}"))
+                .note(format!("{what} is `{ty}`"))
+                .help(format!("add a `case` for {them}, or `case _ {{ }}` for everything else"))
+        } else {
+            let mut d = Diagnostic::at(&codes::W0110, span, format!("this `match` on `{ty}` does not handle every value"))
+                .note("there is no `case _`")
+                .help("add `case _ { }` for the values no case handles");
+            if ty.is_float() {
+                d = d.note_line("on floats only `case _` handles every value: NaN is equal to nothing");
+            }
+            d
+        };
+        self.diags.push(d);
+    }
+
+    /// A `case` pattern: a constant, or a range of two. Returns its lowest
+    /// and highest value (the same for a single value).
+    fn pattern(&mut self, e: &ast::Expr, ty: Option<Type>) -> Option<(Lit, Lit)> {
+        let ExprKind::Range(lo, hi) = &e.kind else {
+            let v = self.pattern_value(e, ty)?;
+            return Some((v, v));
+        };
+        if ty == Some(Type::Bool) {
+            self.diags.push(
+                Diagnostic::at(&codes::E0109, e.span, "a range pattern needs numbers, but this `match` is on `bool`")
+                    .note("this is a range")
+                    .help("write `case true` or `case false`"),
+            );
+            return None;
+        }
+        let a = self.pattern_value(lo, ty);
+        let b = self.pattern_value(hi, ty);
+        let (a, b, t) = (a?, b?, ty?);
+        if a.key(t) > b.key(t) {
+            // Open: an empty range could instead be a warning (it matches nothing).
+            let (l, h) = (self.text(lo.span).to_string(), self.text(hi.span).to_string());
+            self.diags.push(
+                Diagnostic::at(&codes::E0109, e.span, "this range is empty: its start is above its end")
+                    .note("matches nothing")
+                    .help(format!("ranges go from low to high: `{h}..{l}`")),
+            );
+            return None;
+        }
+        Some((a, b))
+    }
+
+    /// One constant in a pattern, converted to the matched type.
+    fn pattern_value(&mut self, e: &ast::Expr, ty: Option<Type>) -> Option<Lit> {
+        let v = self.expr(e)?;
+        let ty = ty?;
+        match v {
+            Val::Const(c) => fold(self.into(Val::Const(c), ty, origin(e))?),
+            Val::Expr(h) => {
+                let from = h.ty;
+                let Some(lit) = fold(h) else {
+                    self.diags.push(
+                        Diagnostic::at(&codes::E0109, e.span, "a `case` pattern must be a constant")
+                            .note("this is worked out when the program runs")
+                            .help("compare it in an `if` instead: `if (value == other) { }`"),
+                    );
+                    return None;
+                };
+                // A typed constant of another type converts by the usual rules (W0102 if lossy).
+                fold(self.into(Val::Expr(lit.expr(from)), ty, origin(e))?)
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn coverage_merges_and_finds_gaps() {
+        let mut c = Coverage::default();
+        c.add(10, 20);
+        c.add(0, 4);
+        c.add(5, 9);
+        assert_eq!(c.0, [(0, 20)]);
+        assert!(c.covers((3, 17)));
+        assert!(!c.covers((15, 21)));
+        c.add(u128::MAX - 1, u128::MAX);
+        assert_eq!(c.gaps((0, u128::MAX)), [(21, u128::MAX - 2)]);
+        assert_eq!(Coverage::default().gaps((0, 1)), [(0, 1)]);
+    }
+
+    #[test]
+    fn keys_keep_the_order() {
+        let floats = [f64::NEG_INFINITY, -1e300, -1.0, -5e-324, 0.0, 5e-324, 1.0, f64::INFINITY];
+        let keys: Vec<u128> = floats.iter().map(|f| Lit::Float(*f).key(Type::F64)).collect();
+        assert!(keys.windows(2).all(|w| w[0] < w[1]), "{keys:?}");
+        // Zero and negative zero are equal; the smallest negative sits right below them.
+        assert_eq!(Lit::Float(-0.0).key(Type::F64), keys[4]);
+        assert_eq!(keys[3] + 1, keys[4]);
+
+        let s8 = Type::Int { bits: 8, signed: true };
+        let ints: Vec<u128> = [0x80u128, 0xFF, 0, 1, 0x7F].iter().map(|b| Lit::Int(*b).key(s8)).collect();
+        assert_eq!(ints, [0, 0x7F, 0x80, 0x81, 0xFF]);
+        assert_eq!(describe(0, s8), "-128");
+        assert_eq!(describe(0xFF, s8), "127");
+    }
+}

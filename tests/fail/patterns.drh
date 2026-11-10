@@ -1,0 +1,31 @@
+// `case` patterns must be constants of the matched type.
+in io;
+
+uint32 seven() { return 7; }
+
+none nothing() { }
+
+none main() {
+    uint32 n = 5;
+    uint32 m = 6;
+    bool b = true;
+    match (n) {
+        case m { }
+        case seven() { }
+        case 9..2 { }
+        case 1, _ { }
+        case true { }
+        case _ { }
+    }
+    match (b) {
+        case 1 { }
+        case false..true { }
+        case _ { }
+    }
+    match ("text") {
+        case _ { }
+    }
+    match (nothing()) {
+        case _ { }
+    }
+}

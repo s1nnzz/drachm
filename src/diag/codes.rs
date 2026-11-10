@@ -78,6 +78,38 @@ codes! {
          \x20   %x %X %b %o       hex, capital hex, binary, octal (whole numbers)\n\n\
          For example `%08x` or `%-10.2`. A letter other than x, X, b, o right after\n\
          a placeholder is an error, and so is `%%`: a percent sign is written `\\%`.";
+    E0010: "range out of place",
+        "An inclusive range `a..b` was used somewhere other than the two places\n\
+         ranges can go so far: after `of` in a `for` loop and as a `case`\n\
+         pattern.\n\n\
+         \x20   for (uint32 i of 0..9) { }     // ok: 0 to 9\n\
+         \x20   match (n) { case 1..5 { } }    // ok\n\
+         \x20   uint32 r = 0..9;               // error";
+    E0011: "no loop to leave",
+        "`break` and `continue` work on loops. `break N;` and `continue N;` count\n\
+         N loops outward (default 1), so N must be at least 1 and at most the\n\
+         number of loops around the statement.\n\n\
+         \x20   while (a) {\n\
+         \x20       for (uint32 i of 0..9) {\n\
+         \x20           continue 2;            // next round of `while (a)`\n\
+         \x20           break 3;               // error: only 2 loops\n\
+         \x20       }\n\
+         \x20   }\n\n\
+         To leave an `if`, use `skip`; to leave the function, `return`.";
+    E0012: "nothing to skip",
+        "`skip` leaves `if` blocks the way `break` leaves loops. A whole\n\
+         `if` / `else if` / `else` chain is one level, and so is a `match` (each\n\
+         `case` is a branch of it). Bare `skip;` leaves the outermost level,\n\
+         `skip N;` leaves N levels counting outward from the innermost, and\n\
+         `skip to next;` goes on to the next branch of the innermost level.\n\n\
+         Loops are walls: only the levels inside the current loop body count\n\
+         (or inside the function body, outside any loop). This error means\n\
+         there is no level to leave, N is 0 or larger than the number of\n\
+         levels, or `skip to next` is in the last branch, which has no next one.";
+    E0013: "invalid `for` header",
+        "The step of a `for (init; condition; step)` loop must be an assignment,\n\
+         a compound assignment, `++` / `--`, or a call:\n\n\
+         \x20   for (mut uint32 i = 0; i < 10; i += 2) { }";
 
     E0101: "type mismatch",
         "A value of one type was used where another is required.\n\n\
@@ -111,12 +143,28 @@ codes! {
     E0107: "constant division by zero",
         "A whole-number division or remainder has a constant zero on the right.\n\
          It would always panic, so it is rejected at compile time.";
-
     E0108: "format option does not suit the value",
         "An `io::outf` placeholder asks for something its value cannot do:\n\n\
          \x20   io::outf(\"%.2\", count);    // decimal places need a float\n\
          \x20   io::outf(\"%x\", ratio);     // a base needs a whole number\n\
          \x20   io::outf(\"%08\", name);     // zero padding needs a number";
+    E0109: "invalid pattern",
+        "A `case` pattern must be a constant of the matched type: a number or\n\
+         constant expression (`case 3`, `case -1`, `case 2 ** 8`), `true` or\n\
+         `false`, an inclusive range of numbers whose start is not above its\n\
+         end (`case 13..19`), or `_` on its own (`case _`), which matches\n\
+         anything.";
+    W0110: "missing case",
+        "A `match` has values that no `case` handles, so for those nothing\n\
+         runs. Add the missing cases, or `case _ { }` for everything else.\n\n\
+         \x20   match (flag) {\n\
+         \x20       case true { }\n\
+         \x20   }                             // W0110: `false` is not handled\n\n\
+         On float values only `case _` handles everything (NaN equals nothing).";
+    W0111: "unreachable case",
+        "A `case` can never run: it comes after `case _`, or every value it\n\
+         matches is already handled by the cases before it. Cases are tested in\n\
+         order and the first one that matches runs.";
 
     E0201: "unknown name",
         "A binding, function, method, module or type was used that does not\n\

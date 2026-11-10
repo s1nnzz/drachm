@@ -1,0 +1,11 @@
+error[E0013]: a `for` step must be an assignment, `++`/`--` or a call
+help: for example `i++` or `i += 2`
+error[E0003]: expected `(` after `for`, found keyword `mut`
+error[E0003]: the count after `break` must be a plain whole number
+error[E0003]: expected `;`, found name `x`
+help: the count after `continue` is a whole number written out, like `continue 2;`
+error[E0003]: expected `next` after `skip to`, found `;`
+error[E0003]: expected `next` after `skip to`, found name `end`
+help: write `skip;`, `skip 2;` or `skip to next;`
+error[E0003]: expected `case` or `}`, found a number
+9 errors

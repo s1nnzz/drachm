@@ -1,0 +1,22 @@
+warning[W0110]: this `match` does not handle `6..9` or `11..255`
+`b` is `uint8`
+help: add a `case` for them, or `case _ { }` for everything else
+warning[W0110]: this `match` does not handle `false`
+warning[W0110]: this `match` does not handle `0`
+help: add a `case` for it, or `case _ { }` for everything else
+warning[W0110]: this `match` does not handle `1`, `3`, `5`, `7` and 1 more
+warning[W0110]: this `match` on `uint32` does not handle every value
+warning[W0110]: this `match` on `float64` does not handle every value
+note: on floats only `case _` handles every value: NaN is equal to nothing
+warning[W0111]: this case can never run
+matchwarn.drh:44:9
+it comes after `case _`, which matches everything
+this matches everything
+matchwarn.drh:49:9
+every value it matches is handled by an earlier case
+matchwarn.drh:56:9
+the cases before it already handle every value
+warning[W0102]: `300` does not fit `uint8`
+matchwarn.drh:62:14
+matchwarn.drh:68:24
+11 warnings

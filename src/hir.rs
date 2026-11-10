@@ -15,7 +15,8 @@
 //! and the arguments of a `Call` (the callee owns its parameters and drops
 //! them). The checker inserts every `Copy`, `Move`, `Temp`, `Scoped` and
 //! `Drop`; the backends only carry them out and add no ownership logic of
-//! their own.
+//! their own. That includes jumps: a `Jump` comes right after the `Drop`s of
+//! every `string` local in scope between it and its target.
 
 use crate::types::Type;
 
@@ -41,18 +42,44 @@ pub struct Local {
     pub ty: Type,
 }
 
+/// Names an `If` or a `Loop` for the jumps that target it. Unique within a function.
+pub type Label = usize;
+
 pub type Block = Vec<Stmt>;
 
 pub enum Stmt {
     /// Store a value in a local. For a `string` local the value is owned
     /// and the local is empty beforehand.
     Assign(LocalId, Expr),
-    If(Expr, Block, Block),
-    While(Expr, Block),
+    /// Tests the branches in order and runs the body of the first whose
+    /// test holds (a branch with no test always does), then carries on
+    /// after the whole statement. `if` chains and `match` both become this.
+    If { label: Label, branches: Vec<Branch> },
+    /// Each time round: if there is a `cond` and it is false, the loop ends;
+    /// otherwise `body` runs, then `step`. `continue` jumps to `step`.
+    Loop { label: Label, cond: Option<Expr>, body: Block, step: Block },
+    Jump(Jump),
     Return(Option<Expr>),
     Expr(Expr),
     /// Free what a `string` local owns, if anything, and leave it empty.
     Drop(LocalId),
+}
+
+pub struct Branch {
+    pub test: Option<Expr>,
+    pub body: Block,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Jump {
+    /// Leave the `Loop`.
+    Break(Label),
+    /// Go to the `Loop`'s step.
+    Continue(Label),
+    /// Leave the `If`, skipping its remaining branches.
+    Leave(Label),
+    /// Test branch number `n` of the `If` (and the ones after it, as usual).
+    Next(Label, usize),
 }
 
 pub struct Expr {
