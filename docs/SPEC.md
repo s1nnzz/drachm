@@ -217,13 +217,16 @@ if (a) {                       // outermost
   backtick strings (both single-line): `f"hp: ${hp}"`, `` `hi ${name}` ``. Plain
   `"..."` never interpolates. Bare `{ }` are ordinary text everywhere.
 - Multi-line: `"""..."""`; `f"""..."""` interpolates.
-- Escapes: `\n \t \r \0 \\ \" \' \` \$`, `\u{1F600}` by code point, and
+- Escapes: `\n \t \r \0 \\ \" \' \` \$ \%`, `\u{1F600}` by code point, and
   `\u{GREEK SMALL LETTER ALPHA}` by Unicode name.
 - `io::outf("% has % hp (%.1)\n", name, hp, pct)`: a bare `%` prints any value
-  (its `::text()`); `%.N` sets decimal places. **OPEN:** literal percent sign
-  (assumed `%%`) and other format options (width, padding, hex).
+  (its `::text()`). Options sit between the `%` and the value:
+  - `%.N` decimal places; `%8` pad to 8 characters on the left, `%-8` on the
+    right, `%08` pad with zeros;
+  - `%x` hex, `%X` capital hex, `%b` binary, `%o` octal.
+  - A literal percent sign is written `\%` (in any string, `\%` is `%`).
 
-String methods (signatures are a draft the owner should confirm):
+String methods (confirmed 2026-11-10):
 
 | Method | Returns | Example |
 |---|---|---|
@@ -240,7 +243,8 @@ String methods (signatures are a draft the owner should confirm):
 | `replace(from, to)` | `string` | all matches |
 | `replaceLimit(from, to, n)` | `string` | first n matches |
 | `insert(index, text)` / `remove(start, end)` | `string` | `remove` both inclusive |
-| `repeat(n)` / `padLeft(w)` / `padRight(w)` | `string` | |
+| `repeat(n)` | `string` | |
+| `padLeft(w)` / `padRight(w)` | `string` | optional fill text: `"7"::padLeft(3, "0")` = `"007"` |
 
 ### Collections
 

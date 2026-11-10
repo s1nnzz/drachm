@@ -233,9 +233,11 @@ Also in this step: the field-order and named-field construction shorthand
 (`Vector3 p = 1, 2, 3;` / `Vector3 p = z: 3, x: 1, y: 2;`, never mixed), so
 structs are usable before full constructors arrive in step 5.
 
-**Open (ask owner):**
-- Confirm the string method signatures in SPEC section 4 (they are a draft).
-- `io::outf`: literal percent sign (assumed `%%`), width/padding/hex options.
+Decided (2026-11-10): string method table confirmed, plus an optional fill
+text on `padLeft`/`padRight`; `io::outf` literal percent is `\%`; outf options
+are width/padding (`%8`, `%-8`, `%08`) and bases (`%x %X %b %o`) besides `%.N`.
+
+**Open (ask owner):** none.
 
 ---
 
