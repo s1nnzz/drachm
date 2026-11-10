@@ -1,0 +1,55 @@
+{
+  "name": "drachm",
+  "displayName": "Drachm",
+  "description": "Syntax highlighting and basic editing support for the Drachm programming language (.drh).",
+  "version": "0.1.0",
+  "publisher": "drachm",
+  "license": "UNLICENSED",
+  "private": true,
+  "engines": {
+    "vscode": "^1.60.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Snippets"
+  ],
+  "keywords": [
+    "drachm",
+    "drh"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "drachm",
+        "aliases": [
+          "Drachm",
+          "drachm"
+        ],
+        "extensions": [
+          ".drh"
+        ],
+        "firstLine": "^#!.*\\bdrachm\\b",
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "drachm",
+        "scopeName": "source.drachm",
+        "path": "./syntaxes/drachm.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "drachm",
+        "path": "./snippets/drachm.json"
+      }
+    ]
+  },
+  "scripts": {
+    "test": "vscode-tmgrammar-test -g syntaxes/drachm.tmLanguage.json \"tests/*.drh\""
+  },
+  "devDependencies": {
+    "vscode-tmgrammar-test": "^0.1.3"
+  }
+}

@@ -72,3 +72,8 @@ none main() {
 | `src/main.rs`, `src/lib.rs` | CLI, and the compiler as a library |
 | `tests/` | golden tests: `cargo test` |
 | `bench/` | benchmarks against C and Rust: `bench/run.sh` |
+
+## Editor support
+
+A VS Code extension (syntax highlighting, snippets, bracket handling for `.drh`) lives in
+`editors/vscode/`; see its README for installing and packaging.

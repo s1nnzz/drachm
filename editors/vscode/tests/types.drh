@@ -1,0 +1,111 @@
+// SYNTAX TEST "source.drachm" "types, generics, borrows and operators"
+    uint8 a; uint16 b; uint32 c; uint64 d; uint128 e; uint256 f;
+//  ^^^^^ storage.type.primitive.drachm
+//           ^^^^^^ storage.type.primitive.drachm
+//                     ^^^^^^ storage.type.primitive.drachm
+//                               ^^^^^^ storage.type.primitive.drachm
+//                                         ^^^^^^^ storage.type.primitive.drachm
+//                                                    ^^^^^^^ storage.type.primitive.drachm
+    sint8 a; sint16 b; sint32 c; sint64 d; sint128 e; sint256 f;
+//  ^^^^^ storage.type.primitive.drachm
+//                                         ^^^^^^^ storage.type.primitive.drachm
+//                                                    ^^^^^^^ storage.type.primitive.drachm
+    float8 a; float16 b; float32 c; float64 d; bool e; string s; str t;
+//  ^^^^^^ storage.type.primitive.drachm
+//            ^^^^^^^ storage.type.primitive.drachm
+//                                  ^^^^^^^ storage.type.primitive.drachm
+//                                             ^^^^ storage.type.primitive.drachm
+//                                                     ^^^^^^ storage.type.primitive.drachm
+//                                                     ^^^ storage.type.primitive.drachm
+    uint32 integer = 1; uint32 floats = 2;
+//         ^^^^^^^ - storage.type.drachm
+//                             ^^^^^^ - storage.type.drachm
+    Map<string, uint32> ages = { "Illy": 18 };
+//  ^^^ support.type.builtin.drachm
+//     ^ meta.type-arguments.drachm punctuation.definition.typeparameters.begin.drachm
+//      ^^^^^^ meta.type-arguments.drachm storage.type.primitive.drachm
+//              ^^^^^^ meta.type-arguments.drachm storage.type.primitive.drachm
+//                    ^ meta.type-arguments.drachm punctuation.definition.typeparameters.end.drachm
+//                               ^^^^^^ string.quoted.double.drachm
+//                                       ^^ constant.numeric.integer.decimal.drachm
+    List<List<uint32>> grid;
+//       ^^^^ meta.type-arguments.drachm support.type.builtin.drachm
+//            ^^^^^^ meta.type-arguments.drachm meta.type-arguments.drachm storage.type.primitive.drachm
+    Optional<Circle> o;
+//           ^^^^^^ meta.type-arguments.drachm entity.name.type.drachm
+    struct Stack<T> { T[?] items; none push(T item) { self.items::push(item); } }
+//         ^^^^^ entity.name.type.drachm
+//               ^ meta.type-arguments.drachm entity.name.type.drachm
+//                     ^^^ storage.modifier.array.drachm
+//                                     ^^^^ entity.name.function.drachm
+//                                ^^^^ constant.language.none.drachm
+    float64 total<T with Shape>(T[?] shapes) { }
+//          ^^^^^ entity.name.function.drachm
+//                  ^^^^ meta.type-arguments.drachm keyword.other.drachm
+//                       ^^^^^ meta.type-arguments.drachm entity.name.type.drachm
+    uint8[4] rgba = [255, 0, 0, 255];
+//  ^^^^^ storage.type.primitive.drachm
+//                   ^^^ constant.numeric.integer.decimal.drachm
+    string[?] names = ["Illy", "Sam"];
+//        ^^^ storage.modifier.array.drachm
+        &uint32 first = &xs[0];
+//      ^ keyword.operator.borrow.drachm
+//                      ^ keyword.operator.borrow.drachm
+        push(&mut xs, 1);
+//           ^^^^ storage.modifier.borrow.drachm
+    none push(&mut uint32[?] xs, uint32 n) { }
+//            ^^^^ storage.modifier.borrow.drachm
+//       ^^^^ entity.name.function.drachm
+    none report(&Shape s) { }
+//              ^ keyword.operator.borrow.drachm
+//               ^^^^^ entity.name.type.drachm
+        float64<m> dist = 100.0<m>;
+//             ^ meta.unit.drachm punctuation.definition.unit.begin.drachm
+//              ^ meta.unit.drachm storage.type.unit.drachm
+//                        ^^^^^ constant.numeric.float.drachm
+//                              ^ meta.unit.drachm storage.type.unit.drachm
+        float64<m/s> speed = dist / time;
+//              ^^^ meta.unit.drachm storage.type.unit.drachm
+//                                ^ keyword.operator.arithmetic.drachm
+        float64<s> time = 9.6<s>; 10<km> + 100<m>;
+//                        ^^^ constant.numeric.float.drachm
+//                           ^ meta.unit.drachm
+//                                       ^ keyword.operator.arithmetic.drachm
+        if (i < n && n > 3) { }
+//            ^ keyword.operator.comparison.drachm - meta.type-arguments.drachm
+//                     ^ keyword.operator.comparison.drachm - meta.type-arguments.drachm
+        bool lt = a < B; bool gt = a > B;
+//                  ^ keyword.operator.comparison.drachm
+//                                   ^ keyword.operator.comparison.drachm
+        a = b * c; a = b ** c; a *= 2; a **= 2;
+//            ^ keyword.operator.arithmetic.drachm - keyword.operator.pointer.drachm
+//                       ^^ keyword.operator.arithmetic.drachm
+//                               ^^ keyword.operator.assignment.drachm
+//                                       ^^^ keyword.operator.assignment.drachm
+        a = b & c; a = b && c; a &= 1;
+//            ^ keyword.operator.bitwise.drachm - keyword.operator.borrow.drachm
+//                       ^^ keyword.operator.logical.drachm
+//                               ^^ keyword.operator.assignment.drachm
+        a = (b + c) * d; a = x * y;
+//                  ^ keyword.operator.arithmetic.drachm
+//                             ^ keyword.operator.arithmetic.drachm
+        a = r << 16 | g << 8 | b; a <<= 1; a >>= 1;
+//            ^^ keyword.operator.bitwise.drachm
+//                  ^ keyword.operator.bitwise.drachm
+//                                  ^^^ keyword.operator.assignment.drachm
+//                                           ^^^ keyword.operator.assignment.drachm
+        i++; --j; a == b; a != b; a <= b; a >= b; a ^ b; ~a;
+//       ^^ keyword.operator.arithmetic.drachm
+//           ^^ keyword.operator.arithmetic.drachm
+//                  ^^ keyword.operator.comparison.drachm
+//                          ^^ keyword.operator.comparison.drachm
+//                                  ^^ keyword.operator.comparison.drachm
+//                                                  ^ keyword.operator.bitwise.drachm
+//                                                       ^ keyword.operator.bitwise.drachm
+        uint32 x = 7 % 2 - 1 / 3;
+//                   ^ keyword.operator.arithmetic.drachm
+//                           ^ keyword.operator.arithmetic.drachm
+        uint32 hex = 1; hex = hex + bin; oct = 2;
+//             ^^^ - constant.numeric.drachm
+//                                  ^^^ - constant.numeric.drachm
+//                                       ^^^ - constant.numeric.drachm

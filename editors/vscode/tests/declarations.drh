@@ -1,0 +1,172 @@
+// SYNTAX TEST "source.drachm" "declarations and keywords"
+//--!$unsafe: true
+//^^^^ comment.line.double-slash.file-flag.drachm punctuation.definition.file-flag.drachm
+//    ^^^^^^ comment.line.double-slash.file-flag.drachm entity.name.tag.file-flag.key.drachm
+//            ^^^^ comment.line.double-slash.file-flag.drachm string.unquoted.file-flag.value.drachm
+//--!$dep json: 1.2
+//    ^^^^^^^^ entity.name.tag.file-flag.key.drachm
+//              ^^^ string.unquoted.file-flag.value.drachm
+    // ordinary comment
+//     ^^^^^^^^ comment.line.double-slash.drachm - entity.name.tag.drachm
+    /* block */ uint32 x;
+//     ^^^^^ comment.block.drachm
+//                     ^ - comment.block.drachm
+    uint32 add(uint32 a, uint32 b) {
+//  ^^^^^^ storage.type.primitive.drachm
+//         ^^^ entity.name.function.drachm
+//             ^^^^^^ storage.type.primitive.drachm
+        return a + b;
+//      ^^^^^^ keyword.control.drachm
+//               ^ keyword.operator.arithmetic.drachm
+    none greet() { io::outln("hi"); }
+//  ^^^^ constant.language.none.drachm
+//       ^^^^^ entity.name.function.drachm
+//                 ^^ - entity.name.function.drachm
+//                   ^^ keyword.operator.accessor.drachm
+//                     ^^^^^ entity.name.function.drachm
+//                           ^^^^ string.quoted.double.drachm
+    none main() {
+//       ^^^^ entity.name.function.drachm
+    mut uint32 total = 0;
+//  ^^^ storage.modifier.mut.drachm
+//      ^^^^^^ storage.type.primitive.drachm
+//             ^^^^^ - entity.name.function.drachm
+//                   ^ keyword.operator.assignment.drachm
+//                     ^ constant.numeric.integer.decimal.drachm
+    open string[?] xs = [];
+//  ^^^^ storage.modifier.drachm
+//       ^^^^^^ storage.type.primitive.drachm
+//             ^^^ storage.modifier.array.drachm
+    uint32? age = ages["Bob"] maybe 0;
+//        ^ storage.modifier.optional.drachm
+//                            ^^^^^ keyword.control.error.drachm
+    T max<T>(T a, T b) { if (a > b) { return a; } return b; }
+//    ^^^ entity.name.function.drachm
+//       ^ meta.type-arguments.drachm punctuation.definition.typeparameters.begin.drachm
+//                             ^ keyword.operator.comparison.drachm
+//                       ^^ keyword.control.drachm
+    struct Circle with Shape and Drawable {
+//  ^^^^^^ storage.type.drachm
+//         ^^^^^^ entity.name.type.drachm
+//                ^^^^ keyword.other.drachm
+//                     ^^^^^ entity.name.type.drachm
+//                               ^^^^^^^^ entity.name.type.drachm
+    enum Shape {
+//  ^^^^ storage.type.drachm
+//       ^^^^^ entity.name.type.drachm
+    interface Shape3D extends Shape {
+//  ^^^^^^^^^ storage.type.drachm
+//            ^^^^^^^ entity.name.type.drachm
+//                    ^^^^^^^ keyword.other.drachm
+    public:
+//  ^^^^^^ storage.modifier.drachm
+//        ^ punctuation.separator.label.drachm
+    private:
+//  ^^^^^^^ storage.modifier.drachm
+//         ^ punctuation.separator.label.drachm
+    Circle(float64 radius) { self.r = radius; }
+//  ^^^^^^ entity.name.function.constructor.drachm
+//         ^^^^^^^ storage.type.primitive.drachm
+//                           ^^^^ variable.language.self.drachm
+//                                ^ variable.other.property.drachm
+    Port(uint32 n) fails BadPort { }
+//  ^^^^ entity.name.function.constructor.drachm
+//                 ^^^^^ keyword.control.error.drachm
+    static Circle unit() { return new Circle of (1.0); }
+//  ^^^^^^ storage.modifier.drachm
+//         ^^^^^^ entity.name.type.drachm
+//                ^^^^ entity.name.function.drachm - storage.type.drachm
+//                                ^^^ keyword.operator.new.drachm
+//                                           ^^ keyword.other.drachm
+//                                               ^^^ constant.numeric.float.drachm
+    Vector3 +(Vector3 o) { }
+//          ^ entity.name.function.operator.drachm
+    bool ==(T o) { }
+//       ^^ entity.name.function.operator.drachm
+    &string longest(&string a, &string b) lives a, b { }
+//  ^ keyword.operator.borrow.drachm
+//          ^^^^^^^ entity.name.function.drachm
+//                                        ^^^^^ keyword.other.drachm
+    struct Parser lives src { &string src; }
+//         ^^^^^^ entity.name.type.drachm
+//                ^^^^^ keyword.other.drachm
+    unit m;
+//  ^^^^ meta.unit-declaration.drachm storage.type.drachm
+//       ^ entity.name.type.unit.drachm
+    unit N = kg * m / s^2;
+//       ^ entity.name.type.unit.drachm
+//           ^^ entity.name.type.unit.drachm
+//                      ^ constant.numeric.integer.decimal.drachm
+    unit km = 1000 m;
+//            ^^^^ constant.numeric.integer.decimal.drachm
+//        ^ entity.name.type.unit.drachm
+    test "adds" { assert(add(1, 2) == 3); }
+//  ^^^^ keyword.other.test.drachm
+//       ^^^^^^ string.quoted.double.drachm
+//                ^^^^^^ entity.name.function.call.drachm
+    uint32 test = 5;
+//         ^^^^ - keyword.other.test.drachm
+        skip;
+//      ^^^^ keyword.control.skip.drachm
+        skip to next;
+//      ^^^^ keyword.control.skip.drachm
+//           ^^ keyword.control.skip.drachm
+//              ^^^^ keyword.control.skip.drachm
+    uint32 to = 1; T? next() { }
+//         ^^ - keyword.control.drachm
+//                    ^^^^ entity.name.function.drachm - keyword.control.drachm
+    for (string name of names) { }
+//  ^^^ keyword.control.drachm
+//                   ^^ keyword.other.drachm
+    for (uint32 i of 0..9) { }
+//                    ^^ keyword.operator.range.drachm
+        break 2; continue;
+//      ^^^^^ keyword.control.drachm
+//               ^^^^^^^^ keyword.control.drachm
+    match (x) { case 1, 2 { } case _ { } }
+//  ^^^^^ keyword.control.drachm
+//              ^^^^ keyword.control.drachm
+//                                 ^ variable.language.wildcard.drachm
+    case Rect(float64 w, float64 h) { }
+//       ^^^^ entity.name.type.drachm
+//            ^^^^^^^ storage.type.primitive.drachm
+    case none { }
+//       ^^^^ constant.language.none.drachm
+    if (a) { } else if (b) { } else { }
+//             ^^^^ keyword.control.drachm
+    bool t = true && !false;
+//           ^^^^ constant.language.boolean.drachm
+//                ^^ keyword.operator.logical.drachm
+//                   ^ keyword.operator.logical.drachm
+        fail Empty;
+//      ^^^^ keyword.control.error.drachm
+        fail LoadFailed because e;
+//                      ^^^^^^^ keyword.control.error.drachm
+    uint32 b = parse(input) fails;
+//             ^^^^^ entity.name.function.call.drachm
+//                          ^^^^^ keyword.control.error.drachm
+    uint32 c = parse(input) fails with (ParseError e) => {
+//                                ^^^^ keyword.other.drachm
+//                                                    ^^ keyword.operator.arrow.drachm
+        otherwise (any e) => { }
+//      ^^^^^^^^^ keyword.control.error.drachm
+//                 ^^^ storage.type.any.drachm
+    string c = copy b;
+//             ^^^^ keyword.other.drachm
+    thread::spawn(move () => { prepare(); });
+//                ^^^^ storage.modifier.drachm
+//                             ^^^^^^^ entity.name.function.call.drachm
+    async string fetch(string url) { }
+//  ^^^^^ storage.modifier.drachm
+//               ^^^^^ entity.name.function.drachm
+    string page = fetch(url)::await;
+//                            ^^^^^ keyword.control.await.drachm
+    uint64 n = fetch(url)::await->len();
+//                              ^^ keyword.operator.accessor.chain.drachm
+//                                ^^^ entity.name.function.drachm
+    unsafe { *p = 7; }
+//  ^^^^^^ keyword.other.drachm
+//           ^ keyword.operator.pointer.drachm
+    *uint8 raw;
+//  ^ keyword.operator.pointer.drachm
+//   ^^^^^ storage.type.primitive.drachm

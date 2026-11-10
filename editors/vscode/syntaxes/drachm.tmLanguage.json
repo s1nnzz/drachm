@@ -1,0 +1,971 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Drachm",
+  "scopeName": "source.drachm",
+  "fileTypes": [
+    "drh"
+  ],
+  "patterns": [
+    {
+      "include": "#code"
+    }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "match": "^(//)(--!\\$)([^:\\n]*?)\\s*(:)\\s*(.*?)\\s*$",
+          "name": "comment.line.double-slash.file-flag.drachm",
+          "captures": {
+            "1": {
+              "name": "punctuation.definition.comment.drachm"
+            },
+            "2": {
+              "name": "punctuation.definition.file-flag.drachm"
+            },
+            "3": {
+              "name": "entity.name.tag.file-flag.key.drachm"
+            },
+            "4": {
+              "name": "punctuation.separator.key-value.drachm"
+            },
+            "5": {
+              "name": "string.unquoted.file-flag.value.drachm"
+            }
+          }
+        },
+        {
+          "match": "^(#!).*$",
+          "name": "comment.line.shebang.drachm",
+          "captures": {
+            "1": {
+              "name": "punctuation.definition.comment.shebang.drachm"
+            }
+          }
+        },
+        {
+          "match": "(//).*$",
+          "name": "comment.line.double-slash.drachm",
+          "captures": {
+            "1": {
+              "name": "punctuation.definition.comment.drachm"
+            }
+          }
+        },
+        {
+          "begin": "/\\*",
+          "end": "\\*/",
+          "name": "comment.block.drachm",
+          "captures": {
+            "0": {
+              "name": "punctuation.definition.comment.drachm"
+            }
+          }
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "include": "#outf-call"
+        },
+        {
+          "name": "string.quoted.triple.interpolated.drachm",
+          "begin": "\\bf\"\"\"",
+          "end": "\"\"\"",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.begin.drachm"
+            }
+          },
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.end.drachm"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#escapes"
+            },
+            {
+              "name": "meta.interpolation.drachm",
+              "begin": "\\$\\{",
+              "end": "\\}",
+              "beginCaptures": {
+                "0": {
+                  "name": "punctuation.section.interpolation.begin.drachm"
+                }
+              },
+              "endCaptures": {
+                "0": {
+                  "name": "punctuation.section.interpolation.end.drachm"
+                }
+              },
+              "patterns": [
+                {
+                  "begin": "\\{",
+                  "end": "\\}",
+                  "patterns": [
+                    {
+                      "include": "#code"
+                    }
+                  ]
+                },
+                {
+                  "include": "#code"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.triple.drachm",
+          "begin": "\"\"\"",
+          "end": "\"\"\"",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.begin.drachm"
+            }
+          },
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.end.drachm"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#escapes"
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.double.interpolated.drachm",
+          "begin": "\\bf\"",
+          "end": "(\")|$",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.begin.drachm"
+            }
+          },
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.end.drachm"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#escapes"
+            },
+            {
+              "name": "meta.interpolation.drachm",
+              "begin": "\\$\\{",
+              "end": "\\}",
+              "beginCaptures": {
+                "0": {
+                  "name": "punctuation.section.interpolation.begin.drachm"
+                }
+              },
+              "endCaptures": {
+                "0": {
+                  "name": "punctuation.section.interpolation.end.drachm"
+                }
+              },
+              "patterns": [
+                {
+                  "begin": "\\{",
+                  "end": "\\}",
+                  "patterns": [
+                    {
+                      "include": "#code"
+                    }
+                  ]
+                },
+                {
+                  "include": "#code"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "string.interpolated.backtick.drachm",
+          "begin": "`",
+          "end": "(`)|$",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.begin.drachm"
+            }
+          },
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.end.drachm"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#escapes"
+            },
+            {
+              "name": "meta.interpolation.drachm",
+              "begin": "\\$\\{",
+              "end": "\\}",
+              "beginCaptures": {
+                "0": {
+                  "name": "punctuation.section.interpolation.begin.drachm"
+                }
+              },
+              "endCaptures": {
+                "0": {
+                  "name": "punctuation.section.interpolation.end.drachm"
+                }
+              },
+              "patterns": [
+                {
+                  "begin": "\\{",
+                  "end": "\\}",
+                  "patterns": [
+                    {
+                      "include": "#code"
+                    }
+                  ]
+                },
+                {
+                  "include": "#code"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.double.drachm",
+          "begin": "\"",
+          "end": "(\")|$",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.begin.drachm"
+            }
+          },
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.end.drachm"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#escapes"
+            }
+          ]
+        }
+      ]
+    },
+    "escapes": {
+      "patterns": [
+        {
+          "name": "constant.character.escape.drachm",
+          "match": "\\\\[ntr0\\\\\"'`$%]"
+        },
+        {
+          "name": "constant.character.escape.unicode.drachm",
+          "match": "\\\\u\\{(?:[0-9A-Fa-f]+|[A-Z][A-Z0-9 -]*)\\}"
+        },
+        {
+          "name": "invalid.illegal.unknown-escape.drachm",
+          "match": "\\\\."
+        }
+      ]
+    },
+    "outf-call": {
+      "begin": "(?:(::)|\\b)(outf)(\\s*\\()\\s*(?=\")",
+      "end": "(?<=\")",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.operator.accessor.drachm"
+        },
+        "2": {
+          "name": "entity.name.function.drachm"
+        },
+        "3": {
+          "name": "punctuation.section.arguments.begin.drachm"
+        }
+      },
+      "patterns": [
+        {
+          "name": "string.quoted.double.format.drachm",
+          "begin": "\"",
+          "end": "(\")|$",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.begin.drachm"
+            }
+          },
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.end.drachm"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#escapes"
+            },
+            {
+              "name": "constant.other.placeholder.drachm",
+              "match": "%-?0?[0-9]*(?:\\.[0-9]+)?[xXbo]?"
+            }
+          ]
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "match": "\\b(hex)([ \\t]+)([0-9A-Fa-f][0-9A-Fa-f_]*)([us][0-9]*)?(?![A-Za-z0-9_])",
+          "captures": {
+            "1": {
+              "name": "constant.numeric.base.drachm"
+            },
+            "3": {
+              "name": "constant.numeric.integer.hexadecimal.drachm"
+            },
+            "4": {
+              "name": "storage.type.number.suffix.drachm"
+            }
+          }
+        },
+        {
+          "match": "\\b(bin)([ \\t]+)([01][01_]*)([us][0-9]*)?(?![A-Za-z0-9_])",
+          "captures": {
+            "1": {
+              "name": "constant.numeric.base.drachm"
+            },
+            "3": {
+              "name": "constant.numeric.integer.binary.drachm"
+            },
+            "4": {
+              "name": "storage.type.number.suffix.drachm"
+            }
+          }
+        },
+        {
+          "match": "\\b(oct)([ \\t]+)([0-7][0-7_]*)([us][0-9]*)?(?![A-Za-z0-9_])",
+          "captures": {
+            "1": {
+              "name": "constant.numeric.base.drachm"
+            },
+            "3": {
+              "name": "constant.numeric.integer.octal.drachm"
+            },
+            "4": {
+              "name": "storage.type.number.suffix.drachm"
+            }
+          }
+        },
+        {
+          "match": "\\b(0x[0-9A-Fa-f_]*)([us][0-9]*)?\\b",
+          "captures": {
+            "1": {
+              "name": "constant.numeric.integer.hexadecimal.drachm"
+            },
+            "2": {
+              "name": "storage.type.number.suffix.drachm"
+            }
+          }
+        },
+        {
+          "match": "\\b(0b[01_]*)([us][0-9]*)?\\b",
+          "captures": {
+            "1": {
+              "name": "constant.numeric.integer.binary.drachm"
+            },
+            "2": {
+              "name": "storage.type.number.suffix.drachm"
+            }
+          }
+        },
+        {
+          "match": "\\b(0o[0-7_]*)([us][0-9]*)?\\b",
+          "captures": {
+            "1": {
+              "name": "constant.numeric.integer.octal.drachm"
+            },
+            "2": {
+              "name": "storage.type.number.suffix.drachm"
+            }
+          }
+        },
+        {
+          "match": "\\b(\\d[\\d_]*\\.\\d[\\d_]*(?:[eE][+-]?\\d+)?|\\d[\\d_]*[eE][+-]?\\d+)(f[0-9]*)?\\b",
+          "captures": {
+            "1": {
+              "name": "constant.numeric.float.drachm"
+            },
+            "2": {
+              "name": "storage.type.number.suffix.drachm"
+            }
+          }
+        },
+        {
+          "match": "\\b(\\d[\\d_]*)([fus][0-9]*)?\\b",
+          "captures": {
+            "1": {
+              "name": "constant.numeric.integer.decimal.drachm"
+            },
+            "2": {
+              "name": "storage.type.number.suffix.drachm"
+            }
+          }
+        },
+        {
+          "match": "(?<=[0-9])(<)([A-Za-z_][A-Za-z0-9_]*(?:\\s*[*/^]\\s*[A-Za-z0-9_]+)*)(>)",
+          "name": "meta.unit.drachm",
+          "captures": {
+            "1": {
+              "name": "punctuation.definition.unit.begin.drachm"
+            },
+            "2": {
+              "name": "storage.type.unit.drachm"
+            },
+            "3": {
+              "name": "punctuation.definition.unit.end.drachm"
+            }
+          }
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "match": "(?<=float8|float16|float32|float64)(<)([A-Za-z_][A-Za-z0-9_]*(?:\\s*[*/^]\\s*[A-Za-z0-9_]+)*)(>)",
+          "name": "meta.unit.drachm",
+          "captures": {
+            "1": {
+              "name": "punctuation.definition.unit.begin.drachm"
+            },
+            "2": {
+              "name": "storage.type.unit.drachm"
+            },
+            "3": {
+              "name": "punctuation.definition.unit.end.drachm"
+            }
+          }
+        },
+        {
+          "begin": "(?<=[A-Za-z0-9_])(<)(?=\\s*(?:&\\s*(?:mut\\s+)?|\\*)?(?:(?:(?:uint|sint)(?:8|16|32|64|128|256)|float(?:8|16|32|64)|bool|string|str)|none|[A-Z][A-Za-z0-9_]*)\\b[^;(){}=&|!]*?>)",
+          "end": "(>)",
+          "name": "meta.type-arguments.drachm",
+          "beginCaptures": {
+            "1": {
+              "name": "punctuation.definition.typeparameters.begin.drachm"
+            }
+          },
+          "endCaptures": {
+            "1": {
+              "name": "punctuation.definition.typeparameters.end.drachm"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#types"
+            },
+            {
+              "include": "#numbers"
+            },
+            {
+              "match": ",",
+              "name": "punctuation.separator.comma.drachm"
+            },
+            {
+              "match": "\\b(?:with|and)\\b",
+              "name": "keyword.other.drachm"
+            }
+          ]
+        },
+        {
+          "match": "&\\s*mut\\b",
+          "name": "storage.modifier.borrow.drachm"
+        },
+        {
+          "match": "\\bmut\\b",
+          "name": "storage.modifier.mut.drachm"
+        },
+        {
+          "match": "\\[\\?\\]",
+          "name": "storage.modifier.array.drachm"
+        },
+        {
+          "match": "\\?",
+          "name": "storage.modifier.optional.drachm"
+        },
+        {
+          "match": "\\b(?:(?:uint|sint)(?:8|16|32|64|128|256)|float(?:8|16|32|64)|bool|string|str)\\b",
+          "name": "storage.type.primitive.drachm"
+        },
+        {
+          "match": "\\bnone\\b",
+          "name": "constant.language.none.drachm"
+        },
+        {
+          "match": "\\b(?:List|Map|OrderedMap|Optional|Array|Channel|Mutex|Iterable|Vector[234]|Matrix[34]|Quaternion)\\b",
+          "name": "support.type.builtin.drachm"
+        },
+        {
+          "match": "\\b[A-Z][A-Z0-9_]+\\b",
+          "name": "constant.other.drachm"
+        },
+        {
+          "match": "\\b[A-Z][A-Za-z0-9_]*\\b",
+          "name": "entity.name.type.drachm"
+        }
+      ]
+    },
+    "type-decl": {
+      "patterns": [
+        {
+          "match": "&(?!\\s*mut\\b)",
+          "name": "keyword.operator.borrow.drachm"
+        },
+        {
+          "match": "\\*",
+          "name": "keyword.operator.pointer.drachm"
+        },
+        {
+          "include": "#types"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "match": "\\b(skip)(?:\\s+(to)\\s+(next)\\b)?",
+          "captures": {
+            "1": {
+              "name": "keyword.control.skip.drachm"
+            },
+            "2": {
+              "name": "keyword.control.skip.drachm"
+            },
+            "3": {
+              "name": "keyword.control.skip.drachm"
+            }
+          }
+        },
+        {
+          "match": "(::)(await)\\b",
+          "captures": {
+            "1": {
+              "name": "keyword.operator.accessor.drachm"
+            },
+            "2": {
+              "name": "keyword.control.await.drachm"
+            }
+          }
+        },
+        {
+          "match": "\\b(?:if|else|while|for|match|case|return|break|continue|await)\\b",
+          "name": "keyword.control.drachm"
+        },
+        {
+          "match": "\\b(?:fails|fail|otherwise|maybe|because)\\b",
+          "name": "keyword.control.error.drachm"
+        },
+        {
+          "match": "\\b(?:in|out|from|as)\\b",
+          "name": "keyword.control.import.drachm"
+        },
+        {
+          "match": "\\b(?:struct|enum|interface|failure)\\b",
+          "name": "storage.type.drachm"
+        },
+        {
+          "match": "\\b(?:static|public|private|open|async|move)\\b",
+          "name": "storage.modifier.drachm"
+        },
+        {
+          "match": "\\bnew\\b",
+          "name": "keyword.operator.new.drachm"
+        },
+        {
+          "match": "\\b(?:of|with|extends|lives|copy|unsafe|exit)\\b",
+          "name": "keyword.other.drachm"
+        },
+        {
+          "match": "\\b(?:true|false)\\b",
+          "name": "constant.language.boolean.drachm"
+        },
+        {
+          "match": "\\b(?:self|Self)\\b",
+          "name": "variable.language.self.drachm"
+        },
+        {
+          "match": "\\bany\\b",
+          "name": "storage.type.any.drachm"
+        },
+        {
+          "match": "\\b_\\b",
+          "name": "variable.language.wildcard.drachm"
+        }
+      ]
+    },
+    "declarations": {
+      "patterns": [
+        {
+          "match": "(?:^|(?<=[{};]))\\s*(public|private)\\s*(:)(?!:)",
+          "captures": {
+            "1": {
+              "name": "storage.modifier.drachm"
+            },
+            "2": {
+              "name": "punctuation.separator.label.drachm"
+            }
+          }
+        },
+        {
+          "match": "\\b(struct|enum|interface)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "storage.type.drachm"
+            },
+            "2": {
+              "name": "entity.name.type.drachm"
+            }
+          }
+        },
+        {
+          "begin": "\\b(failure)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "end": "\\}",
+          "name": "meta.failure.drachm",
+          "beginCaptures": {
+            "1": {
+              "name": "storage.type.drachm"
+            },
+            "2": {
+              "name": "entity.name.type.failure.drachm"
+            }
+          },
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.section.block.end.drachm"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#comments"
+            },
+            {
+              "name": "string.quoted.double.interpolated.drachm",
+              "begin": "\"",
+              "end": "(\")|$",
+              "beginCaptures": {
+                "0": {
+                  "name": "punctuation.definition.string.begin.drachm"
+                }
+              },
+              "endCaptures": {
+                "0": {
+                  "name": "punctuation.definition.string.end.drachm"
+                }
+              },
+              "patterns": [
+                {
+                  "include": "#escapes"
+                },
+                {
+                  "name": "meta.interpolation.drachm",
+                  "begin": "\\$\\{",
+                  "end": "\\}",
+                  "beginCaptures": {
+                    "0": {
+                      "name": "punctuation.section.interpolation.begin.drachm"
+                    }
+                  },
+                  "endCaptures": {
+                    "0": {
+                      "name": "punctuation.section.interpolation.end.drachm"
+                    }
+                  },
+                  "patterns": [
+                    {
+                      "begin": "\\{",
+                      "end": "\\}",
+                      "patterns": [
+                        {
+                          "include": "#code"
+                        }
+                      ]
+                    },
+                    {
+                      "include": "#code"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "include": "#numbers"
+            },
+            {
+              "match": "\\bexit\\b",
+              "name": "keyword.other.drachm"
+            },
+            {
+              "include": "#types"
+            },
+            {
+              "include": "#operators"
+            }
+          ]
+        },
+        {
+          "begin": "(?:^|(?<=[{};]))\\s*\\b(unit)\\s+([A-Za-z_][A-Za-z0-9_]*)(?=\\s*[;=])",
+          "end": ";",
+          "name": "meta.unit-declaration.drachm",
+          "beginCaptures": {
+            "1": {
+              "name": "storage.type.drachm"
+            },
+            "2": {
+              "name": "entity.name.type.unit.drachm"
+            }
+          },
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.terminator.statement.drachm"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#comments"
+            },
+            {
+              "include": "#numbers"
+            },
+            {
+              "match": "[A-Za-z_][A-Za-z0-9_]*",
+              "name": "entity.name.type.unit.drachm"
+            },
+            {
+              "match": "[*/^=]",
+              "name": "keyword.operator.drachm"
+            }
+          ]
+        },
+        {
+          "match": "(?:^|(?<=[{};]))\\s*\\b(test)(?=\\s+\")",
+          "captures": {
+            "1": {
+              "name": "keyword.other.test.drachm"
+            }
+          }
+        },
+        {
+          "match": "(?:^|(?<=[{};]))\\s*((?:(?:static|public|private|async|mut|open)\\s+)*)((?!(?:otherwise|any|failure|because|exit|extends|self|mut|if|else|while|for|of|match|case|return|skip|struct|enum|interface|with|static|public|private|new|in|out|from|as|fails|fail|maybe|copy|lives|open|break|continue|unsafe|async|await|move|true|false)\\b)(?:&\\s*(?:mut\\s+)?|\\*)?[A-Za-z_][A-Za-z0-9_]*(?:<[^;(){}=<>]*(?:<[^;(){}=<>]*>[^;(){}=<>]*)*>)?(?:\\[[?0-9]*\\])*\\??)\\s+(==|!=|<=|>=|<<|>>|\\*\\*|\\[\\]|[-+*/%<>&|^~!])(?=\\s*\\()",
+          "captures": {
+            "1": {
+              "patterns": [
+                {
+                  "include": "#keywords"
+                },
+                {
+                  "include": "#types"
+                }
+              ]
+            },
+            "2": {
+              "patterns": [
+                {
+                  "include": "#type-decl"
+                }
+              ]
+            },
+            "3": {
+              "name": "entity.name.function.operator.drachm"
+            }
+          }
+        },
+        {
+          "match": "(?:^|(?<=[{};]))\\s*((?:(?:static|public|private|async|mut|open)\\s+)*)((?!(?:otherwise|any|failure|because|exit|extends|self|mut|if|else|while|for|of|match|case|return|skip|struct|enum|interface|with|static|public|private|new|in|out|from|as|fails|fail|maybe|copy|lives|open|break|continue|unsafe|async|await|move|true|false)\\b)(?:&\\s*(?:mut\\s+)?|\\*)?[A-Za-z_][A-Za-z0-9_]*(?:<[^;(){}=<>]*(?:<[^;(){}=<>]*>[^;(){}=<>]*)*>)?(?:\\[[?0-9]*\\])*\\??)\\s+([A-Za-z_][A-Za-z0-9_]*)(?=\\s*\\(|<[^;(){}=]*>\\s*\\()",
+          "captures": {
+            "1": {
+              "patterns": [
+                {
+                  "include": "#keywords"
+                },
+                {
+                  "include": "#types"
+                }
+              ]
+            },
+            "2": {
+              "patterns": [
+                {
+                  "include": "#type-decl"
+                }
+              ]
+            },
+            "3": {
+              "name": "entity.name.function.drachm"
+            }
+          }
+        },
+        {
+          "match": "(?:^|(?<=[{};]))\\s*([A-Z][A-Za-z0-9_]*)(?=\\s*\\([^()]*\\)\\s*(?:fails\\b[^{;]*)?\\{)",
+          "captures": {
+            "1": {
+              "name": "entity.name.function.constructor.drachm"
+            }
+          }
+        }
+      ]
+    },
+    "calls": {
+      "patterns": [
+        {
+          "match": "(::)\\s*([A-Za-z_][A-Za-z0-9_]*)(?=\\s*\\(|<[^;(){}=]*>\\s*\\()",
+          "captures": {
+            "1": {
+              "name": "keyword.operator.accessor.drachm"
+            },
+            "2": {
+              "name": "entity.name.function.drachm"
+            }
+          }
+        },
+        {
+          "match": "(->)\\s*([A-Za-z_][A-Za-z0-9_]*)(?=\\s*\\(|<[^;(){}=]*>\\s*\\()",
+          "captures": {
+            "1": {
+              "name": "keyword.operator.accessor.chain.drachm"
+            },
+            "2": {
+              "name": "entity.name.function.drachm"
+            }
+          }
+        },
+        {
+          "match": "(::)\\s*([A-Z][A-Za-z0-9_]*)\\b",
+          "captures": {
+            "1": {
+              "name": "keyword.operator.accessor.drachm"
+            },
+            "2": {
+              "name": "entity.name.type.drachm"
+            }
+          }
+        },
+        {
+          "match": "(?<![.\\d])(\\.)(?!\\.)\\s*([A-Za-z_][A-Za-z0-9_]*)(?=\\s*\\()",
+          "captures": {
+            "1": {
+              "name": "punctuation.accessor.drachm"
+            },
+            "2": {
+              "name": "entity.name.function.drachm"
+            }
+          }
+        },
+        {
+          "match": "(?<![.\\d])(\\.)(?!\\.)\\s*([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "punctuation.accessor.drachm"
+            },
+            "2": {
+              "name": "variable.other.property.drachm"
+            }
+          }
+        },
+        {
+          "match": "\\b([a-z_][A-Za-z0-9_]*)(?=\\s*\\(|<[^;(){}=]*>\\s*\\()",
+          "name": "entity.name.function.call.drachm"
+        },
+        {
+          "match": "::",
+          "name": "keyword.operator.accessor.drachm"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "match": "=>",
+          "name": "keyword.operator.arrow.drachm"
+        },
+        {
+          "match": "->",
+          "name": "keyword.operator.accessor.chain.drachm"
+        },
+        {
+          "match": "\\.\\.",
+          "name": "keyword.operator.range.drachm"
+        },
+        {
+          "match": "\\*(?=\\s+from\\b)",
+          "name": "keyword.operator.wildcard.drachm"
+        },
+        {
+          "match": "(?<![\\w)\\]&])&(?![&=\\s])",
+          "name": "keyword.operator.borrow.drachm"
+        },
+        {
+          "match": "(?<![\\w)\\]*])\\*(?=[A-Za-z_])",
+          "name": "keyword.operator.pointer.drachm"
+        },
+        {
+          "match": "\\*\\*=|<<=|>>=|[-+*/%&|^]=|=(?![=>])",
+          "name": "keyword.operator.assignment.drachm"
+        },
+        {
+          "match": "==|!=|<=|>=|<(?!<)|>(?!>)",
+          "name": "keyword.operator.comparison.drachm"
+        },
+        {
+          "match": "&&|\\|\\||!",
+          "name": "keyword.operator.logical.drachm"
+        },
+        {
+          "match": "<<|>>|[&|^~]",
+          "name": "keyword.operator.bitwise.drachm"
+        },
+        {
+          "match": "\\*\\*|\\+\\+|--|[-+*/%]",
+          "name": "keyword.operator.arithmetic.drachm"
+        },
+        {
+          "match": ";",
+          "name": "punctuation.terminator.statement.drachm"
+        },
+        {
+          "match": ",",
+          "name": "punctuation.separator.comma.drachm"
+        }
+      ]
+    },
+    "code": {
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "include": "#strings"
+        },
+        {
+          "include": "#numbers"
+        },
+        {
+          "include": "#declarations"
+        },
+        {
+          "include": "#keywords"
+        },
+        {
+          "include": "#calls"
+        },
+        {
+          "include": "#types"
+        },
+        {
+          "include": "#operators"
+        }
+      ]
+    }
+  }
+}

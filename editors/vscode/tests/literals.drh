@@ -1,0 +1,44 @@
+// SYNTAX TEST "source.drachm" "number literals"
+    uint32 a = 1_000_000;
+//             ^^^^^^^^^ constant.numeric.integer.decimal.drachm
+    uint32 a = 0xFF; uint32 b = 0b1010; uint32 c = 0o17;
+//             ^^^^ constant.numeric.integer.hexadecimal.drachm
+//                              ^^^^^^ constant.numeric.integer.binary.drachm
+//                                                 ^^^^ constant.numeric.integer.octal.drachm
+    uint32 d = 017;
+//             ^^^ constant.numeric.integer.decimal.drachm
+    float64 e = 1e9; float64 f = 2.5e-3; float64 g = 2.5;
+//              ^^^ constant.numeric.float.drachm
+//                               ^^^^^^ constant.numeric.float.drachm
+//                                                   ^^^ constant.numeric.float.drachm
+        5u8; 5s; 5u; 7s128; 0xFFu8;
+//      ^ constant.numeric.integer.decimal.drachm
+//       ^^ storage.type.number.suffix.drachm
+//                    ^^^^ storage.type.number.suffix.drachm
+//                              ^^ storage.type.number.suffix.drachm
+        2.5f32; 5.0f; 5f; 2.5f64;
+//      ^^^ constant.numeric.float.drachm
+//         ^^^ storage.type.number.suffix.drachm
+//                 ^ storage.type.number.suffix.drachm
+        hex FF; bin 1010; oct 17; hex FFu8;
+//      ^^^ constant.numeric.base.drachm
+//          ^^ constant.numeric.integer.hexadecimal.drachm
+//              ^^^ constant.numeric.base.drachm
+//                  ^^^^ constant.numeric.integer.binary.drachm
+//                        ^^^ constant.numeric.base.drachm
+//                            ^^ constant.numeric.integer.octal.drachm
+//                                      ^^ storage.type.number.suffix.drachm
+        hex zz; bin 12; oct 9; hex = 5; hex;
+//      ^^^ - constant.numeric.drachm
+//              ^^^ - constant.numeric.base.drachm
+//                      ^^^ - constant.numeric.base.drachm
+        for (uint32 i of 1..9) { }
+//                       ^ constant.numeric.integer.decimal.drachm
+//                        ^^ keyword.operator.range.drachm
+        5::text(); (-7 / 2)::text();
+//      ^ constant.numeric.integer.decimal.drachm
+//         ^^^^ entity.name.function.drachm
+        abc1 = x2 + y_3;
+//      ^^^^ - constant.numeric.drachm
+//             ^^ - constant.numeric.drachm
+//                  ^^^ - constant.numeric.drachm

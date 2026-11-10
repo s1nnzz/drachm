@@ -1,0 +1,52 @@
+// SYNTAX TEST "source.drachm" "modules, calls and chains"
+#!/usr/bin/env drachm
+//^^^^^^^^^^^^^^^^^^^ comment.line.shebang.drachm
+    in io;
+//  ^^ keyword.control.import.drachm
+    in physics from game as phys;
+//             ^^^^ keyword.control.import.drachm
+//                       ^^ keyword.control.import.drachm
+    in * from game.audio as audio;
+//     ^ keyword.operator.wildcard.drachm
+//                ^ punctuation.accessor.drachm
+//                 ^^^^^ variable.other.property.drachm
+    out Vector3, gravity;
+//  ^^^ keyword.control.import.drachm
+        io::outln(answer::text());
+//        ^^ keyword.operator.accessor.drachm
+//          ^^^^^ entity.name.function.drachm
+//                        ^^^^ entity.name.function.drachm
+        "dcba"::reverse()->sub(0, 1);
+//              ^^^^^^^ entity.name.function.drachm
+//                       ^^ keyword.operator.accessor.chain.drachm
+//                         ^^^ entity.name.function.drachm
+        uint8 d = (damage * 1.5)::to<uint8>();
+//                                ^^ entity.name.function.drachm
+//                                   ^^^^^ meta.type-arguments.drachm storage.type.primitive.drachm
+        Shape t = Shape::Empty;
+//                       ^^^^^ entity.name.type.drachm
+        Circle c = Circle::unit();
+//                         ^^^^ entity.name.function.drachm
+        phys::Vector3 v = 1, 2, 3;
+//            ^^^^^^^ entity.name.type.drachm
+        uint32 n = max<uint32>(5, 9);
+//                 ^^^ entity.name.function.call.drachm
+//                     ^^^^^^ meta.type-arguments.drachm storage.type.primitive.drachm
+        uint32 m = max(a, b);
+//                 ^^^ entity.name.function.call.drachm
+        self.items::push(item);
+//           ^^^^^ variable.other.property.drachm
+//                  ^^^^ entity.name.function.drachm
+        p.x = 1;
+//       ^ punctuation.accessor.drachm
+//        ^ variable.other.property.drachm
+        fs::open(path);
+//          ^^^^ entity.name.function.drachm - storage.modifier.drachm
+        Vector3 p = new Vector3 of (x: 1, y: 2, z: 3);
+//                      ^^^^^^^ support.type.builtin.drachm
+        names::each((string n) => io::outln(n));
+//                   ^^^^^^ storage.type.primitive.drachm
+//                             ^^ keyword.operator.arrow.drachm
+        for (uint32 i of 0..9) { }
+//                       ^ constant.numeric.integer.decimal.drachm
+//                          ^ constant.numeric.integer.decimal.drachm

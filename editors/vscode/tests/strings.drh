@@ -1,0 +1,86 @@
+// SYNTAX TEST "source.drachm" "strings, escapes, interpolation and format placeholders"
+        string a = "plain ${not code} 100%";
+//                 ^^^^^^^^^^^^^^^^^^^^^^^^ string.quoted.double.drachm
+//                        ^^ - meta.interpolation.drachm
+//                                       ^ - constant.other.placeholder.drachm
+        string b = "a\nb\tc\r\0\\ \" \' \` \$ \%";
+//                   ^^ string.quoted.double.drachm constant.character.escape.drachm
+//                      ^^ constant.character.escape.drachm
+//                         ^^ constant.character.escape.drachm
+//                           ^^ constant.character.escape.drachm
+//                             ^^ constant.character.escape.drachm
+//                                ^^ constant.character.escape.drachm
+//                                   ^^ constant.character.escape.drachm
+//                                      ^^ constant.character.escape.drachm
+//                                         ^^ constant.character.escape.drachm
+//                                            ^^ constant.character.escape.drachm
+        string c = "\u{1F600} \u{GREEK SMALL LETTER ALPHA}";
+//                  ^^^^^^^^^ constant.character.escape.unicode.drachm
+//                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ constant.character.escape.unicode.drachm
+        string d = "bad \q";
+//                      ^^ invalid.illegal.unknown-escape.drachm
+        string e = f"hp: ${hp} and ${a + b::text()}";
+//                 ^^ string.quoted.double.interpolated.drachm punctuation.definition.string.begin.drachm
+//                       ^^ meta.interpolation.drachm punctuation.section.interpolation.begin.drachm
+//                         ^^ meta.interpolation.drachm - entity.name.function.drachm
+//                                     ^ meta.interpolation.drachm keyword.operator.arithmetic.drachm
+//                                          ^^^^ meta.interpolation.drachm entity.name.function.drachm
+//                                                 ^ punctuation.definition.string.end.drachm
+        string f = `hi ${name} \` \$`;
+//                 ^ string.interpolated.backtick.drachm punctuation.definition.string.begin.drachm
+//                     ^^ meta.interpolation.drachm
+//                             ^^ constant.character.escape.drachm
+//                                ^^ constant.character.escape.drachm
+        string g = f"n=${1 + 2} {braces} stay";
+//                       ^ meta.interpolation.drachm constant.numeric.integer.decimal.drachm
+//                              ^^^^^^^^ - meta.interpolation.drachm
+        string h = """
+//                 ^^^ string.quoted.triple.drachm punctuation.definition.string.begin.drachm
+      many "lines" with ${no} interpolation \n
+//         ^^^^^^^ string.quoted.triple.drachm
+//                      ^^^^^ - meta.interpolation.drachm
+//                                          ^^ constant.character.escape.drachm
+    """;
+//  ^^^ string.quoted.triple.drachm punctuation.definition.string.end.drachm
+        string i = f"""
+//                 ^^^^ string.quoted.triple.interpolated.drachm
+      total ${a + {1}} done
+//          ^^ meta.interpolation.drachm
+//              ^ meta.interpolation.drachm keyword.operator.arithmetic.drachm
+//                 ^ meta.interpolation.drachm constant.numeric.integer.decimal.drachm
+    """;
+//  ^^^ punctuation.definition.string.end.drachm
+        uint32 after = 1;
+//      ^^^^^^ storage.type.primitive.drachm - string.drachm
+        io::outf("% has %.2 \% %8 %-8 %08 %x %X %b %o\n", name, hp);
+//          ^^^^ entity.name.function.drachm
+//                ^ string.quoted.double.format.drachm constant.other.placeholder.drachm
+//                      ^^^ constant.other.placeholder.drachm
+//                          ^^ constant.character.escape.drachm - constant.other.placeholder.drachm
+//                             ^^ constant.other.placeholder.drachm
+//                                ^^^ constant.other.placeholder.drachm
+//                                    ^^^ constant.other.placeholder.drachm
+//                                        ^^ constant.other.placeholder.drachm
+//                                           ^^ constant.other.placeholder.drachm
+//                                              ^^ constant.other.placeholder.drachm
+//                                                 ^^ constant.other.placeholder.drachm
+//                                                        ^^^^ - string.drachm
+        io::outln("100% sure");
+//                    ^ - constant.other.placeholder.drachm
+    failure ToolError {
+//  ^^^^^^^ meta.failure.drachm storage.type.drachm
+//          ^^^^^^^^^ entity.name.type.failure.drachm
+        NoInput              "no input file"          exit 2,
+//      ^^^^^^^ meta.failure.drachm entity.name.type.drachm
+//                           ^^^^^^^^^^^^^^^ string.quoted.double.interpolated.drachm
+//                                                    ^^^^ keyword.other.drachm
+//                                                         ^ constant.numeric.integer.decimal.drachm
+        BadConfig(string k)  "bad config key ${k}"    exit 3,
+//                ^^^^^^ storage.type.primitive.drachm
+//                                           ^^^^ string.quoted.double.interpolated.drachm meta.interpolation.drachm
+        LoadFailed           "couldn't load save",
+//                           ^^^^^^^^^^^^^^^^^^^^ string.quoted.double.interpolated.drachm
+    }
+//  ^ meta.failure.drachm punctuation.section.block.end.drachm
+        uint32 outside = 1;
+//      ^^^^^^ storage.type.primitive.drachm - meta.failure.drachm

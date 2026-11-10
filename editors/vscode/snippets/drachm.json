@@ -1,0 +1,63 @@
+{
+  "Main function": {
+    "prefix": "main",
+    "body": ["in io;", "", "none main() {", "\t$0", "}"],
+    "description": "Program entry point"
+  },
+  "Function": {
+    "prefix": "func",
+    "body": ["${1:uint32} ${2:name}(${3:uint32 a}) {", "\t$0", "}"],
+    "description": "Function (return type first)"
+  },
+  "Struct": {
+    "prefix": "struct",
+    "body": ["struct ${1:Name} {", "\t${2:uint32} ${3:field};", "", "\t${1}(${2} ${3}) { self.${3} = ${3}; }", "\t$0", "}"],
+    "description": "Struct with a constructor"
+  },
+  "If / else": {
+    "prefix": "ifelse",
+    "body": ["if (${1:condition}) {", "\t$2", "} else {", "\t$0", "}"],
+    "description": "if with else"
+  },
+  "If": {
+    "prefix": "if",
+    "body": ["if (${1:condition}) {", "\t$0", "}"]
+  },
+  "While": {
+    "prefix": "while",
+    "body": ["while (${1:condition}) {", "\t$0", "}"]
+  },
+  "For (C-style)": {
+    "prefix": "for",
+    "body": ["for (mut uint32 ${1:i} = 0; ${1} < ${2:10}; ${1}++) {", "\t$0", "}"]
+  },
+  "For each": {
+    "prefix": "foreach",
+    "body": ["for (${1:string} ${2:item} of ${3:items}) {", "\t$0", "}"],
+    "description": "for-each loop uses `of`"
+  },
+  "Match": {
+    "prefix": "match",
+    "body": ["match (${1:value}) {", "\tcase ${2:0} {", "\t\t$3", "\t}", "\tcase _ {", "\t\t$0", "\t}", "}"]
+  },
+  "Test block": {
+    "prefix": "test",
+    "body": ["test \"${1:name}\" {", "\tassert(${2:condition});$0", "}"]
+  },
+  "Enum": {
+    "prefix": "enum",
+    "body": ["enum ${1:Name} {", "\t${2:First},", "\t${3:Second}(${4:float64} ${5:value}),", "}"]
+  },
+  "Interface": {
+    "prefix": "interface",
+    "body": ["interface ${1:Name} {", "\t${2:float64} ${3:method}();", "}"]
+  },
+  "Failure": {
+    "prefix": "failure",
+    "body": ["failure ${1:Name} {", "\t${2:Variant}  \"${3:message}\"  exit ${4:1},", "}"]
+  },
+  "Print line": {
+    "prefix": "outln",
+    "body": "io::outln(${1:text});"
+  }
+}
