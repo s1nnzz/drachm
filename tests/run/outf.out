@@ -14,7 +14,7 @@ escapes are text: % %x %.2 tab[	]
 ff FF 11111111 377
 -ff -FF 101 10
 FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
-[      ff] [FF    ] [ 101] [-000000101]
+[000000ff] [FF    ] [ 101] [-000000101]
 ffyz 11.
 value 1 at 502 off, 3. done, 4- dash
 multi-line format: Illy

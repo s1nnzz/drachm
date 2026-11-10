@@ -182,9 +182,9 @@ DRACHM_FN void drachm_text_fixed(drachm_str *out, double v, uint32_t places) {
     out->cap = (uint64_t)len + 1;
 }
 
-// io::outf's `%0N`: number text padded on the left to `width` characters with
-// zeros after any sign. Text that is not digits after the sign (inf, nan) is
-// padded with spaces instead, as C's printf does.
+// io::outf's `%0N`: number text (decimal or another base) padded on the left
+// to `width` characters with zeros after any sign. `inf` and `nan` are padded
+// with spaces instead, as C's printf does.
 DRACHM_FN void drachm_text_zero_pad(drachm_str *out, const drachm_str *s, uint64_t width) {
     uint64_t len = s->len;
     if (len >= width) {
@@ -192,7 +192,7 @@ DRACHM_FN void drachm_text_zero_pad(drachm_str *out, const drachm_str *s, uint64
         return;
     }
     uint64_t sign = len > 0 && s->ptr[0] == '-';
-    int digits = len > sign && s->ptr[sign] >= '0' && s->ptr[sign] <= '9';
+    int digits = len > sign && s->ptr[sign] != 'i' && s->ptr[sign] != 'n';
     uint64_t pad = width - len;
     uint8_t *p = drachm_str_alloc(width);
     if (digits) {
