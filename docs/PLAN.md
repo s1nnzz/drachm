@@ -102,8 +102,7 @@ Done (2026-11-10). Notes for later steps:
 - Speed baseline (`bench/run.sh`, Drachm `-O` vs `cc -O2` vs `rustc -O`):
   `fib` 1238 ms vs 298 / 569 ms; `primes` 4984 ms vs 4591 / 2919 ms. Cranelift
   does no inlining, loop optimisation or recursion elimination, so call-heavy
-  code is 2-4x behind LLVM/GCC. Backend strategy is an open question for the
-  owner (see Open under "Performance" below).
+  code is 2-4x behind LLVM/GCC. See "Performance" below for the decision.
 
 ---
 
@@ -403,8 +402,17 @@ Goal from the owner: benchmark speed on par with Rust. Measure with
 `bench/run.sh` after every step that touches codegen, and add a benchmark
 whenever a step adds something worth measuring (strings, structs, lists).
 
-**Open (ask owner):** backend strategy for optimised builds (asked 2026-11-10;
-record the answer here).
+Decided (2026-11-10): **Cranelift for plain builds and scripts, generated C for
+`-O`.** With `-O` the compiler emits C and hands it to the system C compiler
+(`cc -O2` or better), which is already needed for linking. Rules:
+- Both backends must give identical program behaviour; the
+  `optimised_output_matches` golden test checks every run case both ways.
+- The C must pin down Drachm semantics itself: wrapping overflow (do signed
+  arithmetic through unsigned casts or use `-fwrapv`), checked division, exact
+  integer widths (`<stdint.h>`, `__int128`), IEEE floats (no `-ffast-math`).
+- Mark functions `static` so the C compiler can inline freely.
+
+**Open (ask owner):** none.
 
 ---
 
