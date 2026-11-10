@@ -1,0 +1,37 @@
+// The classics, in Drachm.
+
+fn fib(n: i64) -> i64 {
+    if n < 2 {
+        return n;
+    }
+    return fib(n - 1) + fib(n - 2);
+}
+
+fn is_prime(n: i64) -> bool {
+    if n < 2 { return false; }
+    var d: i64 = 2;
+    while d * d <= n {
+        if n % d == 0 { return false; }
+        d = d + 1;
+    }
+    return true;
+}
+
+fn main() -> i64 {
+    let answer: i64 = 40 + 2;
+    print(answer);
+    print(fib(20));
+
+    var i: i64 = 0;
+    var primes: i64 = 0;
+    while i < 100 {
+        if is_prime(i) { primes = primes + 1; }
+        i = i + 1;
+    }
+    print(primes);
+
+    print(is_prime(97) && !is_prime(91));
+    print(-7 / 2);
+    print(true || 1 / 0 == 0); // short-circuits: no division by zero
+    return 0;
+}
