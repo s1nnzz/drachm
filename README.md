@@ -1,9 +1,38 @@
 # Drachm
 
-A statically typed, natively compiled programming language (files end in
-`.drh`). The compiler is written in Rust. Plain builds go through
-[Cranelift](https://cranelift.dev) and compile in milliseconds; `-O` builds
-generate C for the system C compiler and run as fast as C or Rust.
+**Drachm** (pronounced /drɑxm/, files end in `.drh`) is a statically typed,
+natively compiled programming language meant for every kind of project:
+games, command-line tools, servers and systems code, and quick scripts too.
+
+It reads like C with wordy English keywords (`with`, `of`, `lives`, `maybe`,
+`fails with`, `skip`, `take`, `lend`), checks ownership and borrowing at
+compile time with no garbage collector, and aims to run as fast as C or Rust.
+
+The compiler is written in Rust and has two backends:
+
+- **plain builds** go through [Cranelift](https://cranelift.dev) and compile
+  in milliseconds;
+- **`-O` builds** generate C for the system C compiler and run at C speed.
+
+Both backends must behave identically, bit for bit; the test suite builds
+every program both ways and compares.
+
+## Status
+
+Early, but real programs compile and run. See [`docs/PLAN.md`](docs/PLAN.md)
+for the full plan.
+
+| Step | | |
+|---|---|---|
+| 0 | Library split, diagnostics, golden tests, benchmarks | done |
+| 1 | Drachm syntax, every number type up to 128 bits, both backends | done |
+| 2 | Strings (UTF-8, grapheme-aware) and structs | done |
+| 3 | Ownership, moves, borrow checking, `unsafe` | designed, in progress |
+| 4 | `for`, ranges, `skip`, `match` | control flow done; string patterns to do |
+| 5 | Constructors, enums, `fails` / `maybe` error handling | to do |
+| 6 | Generics, interfaces, collections, lambdas | to do |
+| 7 | Modules, `drachm.toml`, scripts, standard library | config parser in progress |
+| 8 | Language server | VS Code highlighting done |
 
 ## Usage
 
@@ -105,8 +134,28 @@ none main() {
 - **Runtime safety:** whole-number division by zero and a string index out of
   range panic with exit code 101.
 
-`docs/SPEC.md` has the full design, most of which is still to be built;
-`docs/PLAN.md` has the build plan and progress.
+## Speed
+
+`bench/run.sh` runs each benchmark in Drachm, C and Rust and checks they print
+the same result. Best of 5 runs, milliseconds (one machine, Linux x86-64):
+
+| bench | Drachm `-O` | C `-O3` | Rust `-O3` | Drachm plain |
+|---|---|---|---|---|
+| collatz (integer loop) | 328 | 331 | 418 | 897 |
+| fib (recursive calls) | 119 | 109 | 228 | 401 |
+| mandel (floating point) | 167 | 177 | 185 | 247 |
+| primes (trial division) | 860 | 1509 | 860 | 1443 |
+| strings (build and scan text) | 254 | 95 | 145 | 244 |
+
+The string benchmark is still allocation-bound; step 3's moves remove most of
+the copies it makes today.
+
+## Documentation
+
+- [`docs/SPEC.md`](docs/SPEC.md): the language as designed (most of it not yet built).
+- [`docs/PLAN.md`](docs/PLAN.md): the build plan, progress and open questions.
+- [`docs/impl/`](docs/impl): implementation specs for upcoming steps.
+- `drachm explain E0101`: the long explanation of any error or warning code.
 
 ## Layout
 
