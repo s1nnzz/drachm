@@ -129,13 +129,66 @@ pub unsafe extern "C-unwind" fn drachm_str_copy(out: *mut DrachmStr, s: *const D
     }
 }
 
+/// Write an owned string made of `parts` laid end to end, copying straight
+/// into the new buffer.
+unsafe fn emit_parts(out: *mut DrachmStr, parts: &[&[u8]]) {
+    let total = parts.iter().try_fold(0usize, |n, p| n.checked_add(p.len())).filter(|&n| n <= isize::MAX as usize);
+    let Some(total) = total else { panic_with(c"string too long") };
+    let p = drachm_str_alloc(total as u64);
+    let mut at = 0;
+    for part in parts.iter().filter(|p| !p.is_empty()) {
+        unsafe { ptr::copy_nonoverlapping(part.as_ptr(), p.add(at), part.len()) };
+        at += part.len();
+    }
+    unsafe { out.write(DrachmStr { ptr: p, len: total as u64, cap: total as u64 }) };
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn drachm_str_concat(out: *mut DrachmStr, a: *const DrachmStr, b: *const DrachmStr) {
-    let (a, b) = unsafe { (bytes(a), bytes(b)) };
-    let mut v = Vec::with_capacity(a.len() + b.len());
-    v.extend_from_slice(a);
-    v.extend_from_slice(b);
-    unsafe { emit(out, &v) };
+    unsafe { emit_parts(out, &[bytes(a), bytes(b)]) };
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn drachm_str_join(out: *mut DrachmStr, parts: *const DrachmStr, n: u64) {
+    let parts = if n == 0 { &[][..] } else { unsafe { std::slice::from_raw_parts(parts, n as usize) } };
+    let slices: Vec<&[u8]> = parts.iter().map(|p| unsafe { bytes(p) }).collect();
+    unsafe { emit_parts(out, &slices) };
+}
+
+/// Only raw pointer reads and writes here: `t` may be the same string as `s`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn drachm_str_append(s: *mut DrachmStr, t: *const DrachmStr) {
+    let (sp, slen, scap) = unsafe { ((*s).ptr, (*s).len, (*s).cap) };
+    let (tp, tlen) = unsafe { ((*t).ptr, (*t).len) };
+    if tlen == 0 {
+        return;
+    }
+    let Some(len) = slen.checked_add(tlen).filter(|&n| n <= isize::MAX as u64) else { panic_with(c"string too long") };
+    let (buf, cap) = if scap >= len {
+        (sp, scap)
+    } else if scap == 0 {
+        // Not owned: start an owned buffer; both inputs stay readable meanwhile.
+        let cap = len.max(16);
+        let p = drachm_str_alloc(cap);
+        if slen > 0 {
+            unsafe { ptr::copy_nonoverlapping(sp, p, slen as usize) };
+        }
+        (p, cap)
+    } else {
+        let cap = len.max(scap.saturating_mul(2)).min(isize::MAX as u64);
+        let p = unsafe { libc::realloc(sp as *mut _, cap as usize) } as *mut u8;
+        if p.is_null() {
+            panic_with(c"out of memory");
+        }
+        (p, cap)
+    };
+    // When `t` lives in `s`'s buffer, its bytes moved along with it.
+    let inside = scap > 0 && tp >= sp && (tp as usize) < sp as usize + slen as usize;
+    let src = if inside { unsafe { buf.add(tp as usize - sp as usize) } } else { tp };
+    unsafe {
+        ptr::copy(src, buf.add(slen as usize), tlen as usize);
+        s.write(DrachmStr { ptr: buf, len, cap });
+    }
 }
 
 // ---- comparison -------------------------------------------------------------
@@ -478,6 +531,45 @@ const ACUTE: &str = "\u{301}"; // a bare combining mark
         unsafe { drachm_str_concat(&mut z, &EMPTY, &EMPTY) };
         assert_eq!((z.ptr, z.len, z.cap), (ptr::null_mut(), 0, 0));
         assert!(drachm_str_alloc(0).is_null());
+    }
+
+    #[test]
+    fn joining() {
+        let parts = [lit("ab"), EMPTY, lit(FLAG), lit("")];
+        assert_eq!(run(|o| unsafe { drachm_str_join(o, parts.as_ptr(), 4) }), format!("ab{FLAG}"));
+        assert_eq!(run(|o| unsafe { drachm_str_join(o, parts.as_ptr(), 1) }), "ab");
+        let mut z = EMPTY;
+        unsafe { drachm_str_join(&mut z, ptr::null(), 0) };
+        assert_eq!((z.ptr, z.len, z.cap), (ptr::null_mut(), 0, 0));
+    }
+
+    #[test]
+    fn appending() {
+        let before = drachm_str_live();
+        // Appending to a literal makes it owned; appending nothing changes nothing.
+        let mut s = lit("ab");
+        unsafe { drachm_str_append(&mut s, &EMPTY) };
+        assert_eq!(s.cap, 0);
+        unsafe { drachm_str_append(&mut s, &lit("cd")) };
+        assert!(s.cap >= 4);
+        assert_eq!(unsafe { bytes(&s) }, b"abcd");
+        // Appending a string to itself, in place and with a reallocation.
+        for _ in 0..4 {
+            let sp: *mut DrachmStr = &mut s;
+            unsafe { drachm_str_append(sp, sp) };
+        }
+        assert_eq!(unsafe { bytes(&s) }, "abcd".repeat(16).as_bytes());
+        for i in 0..100 {
+            unsafe { drachm_str_append(&mut s, &lit(if i % 2 == 0 { "x" } else { E_ACUTE })) };
+        }
+        assert_eq!(s.len, 64 + 50 + 100);
+        // Other tests run in parallel, so only a lower bound is certain.
+        assert!(drachm_str_live() > before);
+        unsafe { drachm_str_drop(&mut s) };
+        let mut e = EMPTY;
+        unsafe { drachm_str_append(&mut e, &lit("x")) };
+        assert_eq!(unsafe { bytes(&e) }, b"x");
+        unsafe { drachm_str_drop(&mut e) };
     }
 
     #[test]

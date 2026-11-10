@@ -31,6 +31,12 @@ typedef struct {
 void drachm_str_drop(drachm_str *s);                            // frees if owned; leaves *s empty
 void drachm_str_copy(drachm_str *out, const drachm_str *s);     // deep copy (a not-owned input may be shared)
 void drachm_str_concat(drachm_str *out, const drachm_str *a, const drachm_str *b);
+void drachm_str_join(drachm_str *out, const drachm_str *parts, uint64_t n); // the n strings of `parts`, in order
+// Append `t` to `s` in place (the one exception to "out never aliases an
+// input": `t` may be `s`). `s` may be not owned; it is owned afterwards
+// unless `t` is empty. Capacity grows geometrically, so appending in a loop
+// is linear overall.
+void drachm_str_append(drachm_str *s, const drachm_str *t);
 
 // Allocation counter for tests: live owned buffers. Printed to stderr at exit
 // as "drachm: leaked N strings" when DRACHM_CHECK_LEAKS is set and N != 0.
