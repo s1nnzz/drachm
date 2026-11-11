@@ -655,10 +655,12 @@ VS Code first (decided).
 ## Documentation site (cross-cutting)
 
 Goal: a browsable site for people learning Drachm, separate from the design
-documents. Lives in `site/`, built with mdBook (a single Rust binary, Markdown
-sources, search built in), published to GitHub Pages by a workflow in
-`.github/workflows/`. Drachm code blocks are highlighted with a small
-highlight.js grammar for Drachm until a proper one exists.
+documents. Lives in `site/`: a Next.js site built with Fumadocs and exported
+as static files (the owner likes Next.js and the look of
+alloy-luau.github.io: big hero, side-by-side code panels, chapter cards).
+Content is plain Markdown in `site/content/`; Drachm code is highlighted by
+Shiki using the VS Code TextMate grammar in `editors/vscode/syntaxes/`, so the
+editor and the site always agree.
 
 Rules:
 - Only document what the compiler accepts today. Designed-but-not-built
@@ -673,7 +675,7 @@ methods, control flow, errors/diagnostics, the CLI), and the error index
 (generated from `src/diag/codes.rs`, matching `drachm explain`).
 
 Decided (2026-11-11): repo and site stay private for now; build locally with
-`mdbook serve site`. The Pages workflow is kept but not enabled.
+`npm run dev` in `site/`. The Pages workflow is kept but not enabled.
 
 **Open (ask owner):** domain (docs.drachm.dev?) once it goes public.
 
