@@ -1,0 +1,38 @@
+in io;
+
+// Units may be declared in any order and may use each other.
+unit N = kg * m / s^2;
+unit kg;
+unit m;
+unit s;
+unit km = 1000 m;
+unit Hz = 1 / s;
+unit pct = 0.01;
+unit degC = K offset -273.15;
+unit K;
+
+// Units in struct fields and in signatures.
+struct Body {
+    float64<kg> mass;
+    mut float64<m/s> speed;
+    uint8<s> ticks;
+    float64<degC> temp;
+    float64<pct> share;
+}
+
+// `N` and `kg*m/s^2` are the same type.
+float64<kg*m/s^2> same(float64<N> f) {
+    return f;
+}
+
+float64<pct> ratio(float64<pct> r) {
+    return r;
+}
+
+float64<Hz> freq(float64<1/s> f) {
+    return f;
+}
+
+none main() {
+    io::outln("units declared");
+}

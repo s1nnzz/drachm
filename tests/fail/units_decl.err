@@ -1,0 +1,10 @@
+error[E0403]: `a` is defined in terms of itself (a -> b -> a)
+error[E0403]: `m` is declared twice
+error[E0403]: a unit's factor must be a number greater than zero
+error[E0403]: `offset` goes only after a single unit
+error[E0402]: unknown unit `xyz`
+error[E0405]: a unit's power is too large
+error[E0402]: unknown unit `parsec`
+error[E0405]: `string` cannot have a unit
+error[E0405]: `bool` cannot have a unit
+error[E0405]: `Vec` cannot have a unit

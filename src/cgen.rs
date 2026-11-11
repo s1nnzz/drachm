@@ -174,6 +174,7 @@ pub(crate) fn c_type(t: Type) -> String {
         Type::None => "void",
         Type::Struct { name, .. } => return struct_name(name),
         Type::Ref { to, .. } | Type::Ptr { to } => return format!("{} *", c_type(*to)),
+        _ => unreachable!("units are erased before the backends"),
     };
     name.to_string()
 }
@@ -665,7 +666,7 @@ impl Gen<'_> {
                     }
                     Type::Int { signed: true, .. } => format!("drachm_text_s64(&{dest}, (int64_t){v})"),
                     Type::Int { signed: false, .. } => format!("drachm_text_u64(&{dest}, (uint64_t){v})"),
-                    Type::None | Type::Str | Type::Struct { .. } | Type::Ref { .. } | Type::Ptr { .. } => unreachable!("checked by typeck"),
+                    _ => unreachable!("checked by typeck"),
                 };
                 self.line(format!("{call};"));
             }

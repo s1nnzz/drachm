@@ -484,6 +484,24 @@ value at all yet. Give the whole struct a value first:
     p = ...;
     p.hp = 5;
 
+## E0402: unknown unit
+
+A unit was used that is not declared. Declare it with `unit NAME;` for a
+new base unit, or `unit NAME = ...;` to give it a size in other units,
+such as `unit km = 1000 m;`.
+
+## E0403: bad unit declaration
+
+A `unit` declaration is not valid: a name declared twice, a unit defined
+in terms of itself, a factor that is not a number greater than zero, an
+`offset` after anything but a single unit, or a name that is not plain
+ASCII letters, digits and `_`.
+
+## E0405: a unit cannot go here
+
+A unit in angle brackets (`float64<m>`) goes only on a number type, and a
+unit's power (`m^2`) must stay within the range of a 16-bit exponent.
+
 ## E0901: not supported yet
 
 This is part of Drachm's design, but this version of the compiler does

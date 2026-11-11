@@ -44,7 +44,8 @@ pub(crate) fn cl_type(t: Type) -> Option<ClType> {
         Type::Float(_) => Some(types::F64),
         Type::Bool => Some(types::I8),
         Type::Ref { .. } | Type::Ptr { .. } => Some(types::I64),
-        Type::None | Type::Str | Type::Struct { .. } => None,
+        // None, string and structs have no scalar type; units are erased.
+        _ => None,
     }
 }
 
@@ -1096,7 +1097,7 @@ impl Gen<'_, '_> {
                         let name = if signed { "drachm_text_s64" } else { "drachm_text_u64" };
                         self.rt(name, &[ptr, i64t], &[], &[dest, wide]);
                     }
-                    Type::None | Type::Str | Type::Struct { .. } | Type::Ref { .. } | Type::Ptr { .. } => unreachable!("checked by typeck"),
+                    _ => unreachable!("checked by typeck"),
                 }
             }
             ExprKind::Radix { value, base, upper } => {
