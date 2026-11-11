@@ -895,7 +895,10 @@ fn check_body(g: &mut Globals, src: &str, diags: &mut Vec<Diagnostic>, f: &ast::
         span: f.span,
         body_end: f.body.end,
         is_unsafe: f.is_unsafe.is_some(),
-        lives: None,
+        // Parameter indexes with `self` as 0 (names that are no parameter were reported as E0309).
+        lives: (!f.lives.is_empty()).then(|| {
+            f.lives.iter().filter_map(|(n, _)| f.params.iter().position(|p| p.name == *n).map(|i| i + has_self as usize)).collect()
+        }),
         symbol,
         params: f.params.len() + has_self as usize,
         has_self,
