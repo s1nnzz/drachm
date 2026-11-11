@@ -31,7 +31,17 @@ build; pages not listed are not published. The landing page's chapter list is
 generated from the same file.
 
 A line `<!-- example: NAME -->` becomes `examples/NAME.drh` as a `drachm` code
-block, followed by `examples/NAME.out` in a collapsed "Output" block.
+block, followed by `examples/NAME.out` as a `text` block titled "output".
+
+### Code in lessons
+
+Each `##`/`###` section with code is prose (left) plus one code panel (right).
+Fence meta: `title="hello.drh"` adds a label (`output` / `expected output`
+render as a terminal strip). `solution` collapses the block behind "Show
+solution". A paragraph starting with `<!-- focus: 3-5 -->` (or `3,7-8`) is
+linked to those lines of the section's first code block: the paragraph nearest
+the viewport middle, or hovered, highlights them. Headings starting "Your turn"
+are exercises. `<!-- solution-of: NAME -->` renders nothing.
 
 ## Highlighting
 

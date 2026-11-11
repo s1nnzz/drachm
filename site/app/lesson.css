@@ -1,0 +1,166 @@
+/*
+ * Lesson sections. Each `##`/`###` section with code is a `.drh-step`: prose
+ * on the left, and the code as ONE panel (`.drh-code-col`) on the right. The
+ * panel is the only surface: blocks inside it have no border or background,
+ * they are separated by a hairline and a small label. Output blocks are a
+ * terminal strip in the same panel. Below 1100px the panel sits under the prose.
+ */
+.drh-step {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+  margin-top: 3.5rem;
+}
+.drh-step:first-child { margin-top: 0; }
+.drh-step > .drh-prose,
+.drh-step > .drh-code-col { min-width: 0; }
+.drh-step > .drh-prose > :first-child { margin-top: 0; }
+
+.drh-code-col {
+  background: var(--color-fd-muted);
+  border: 1px solid var(--color-fd-border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  align-self: start;
+}
+.drh-code-col > * { margin: 0; }
+.drh-code-col > * + * { border-top: 1px solid var(--color-fd-border); }
+
+/* A block */
+.drh-block { position: relative; margin: 0; font-size: 13px; }
+.drh-label {
+  padding: 0.6rem 1rem 0;
+  font: 500 0.6875rem/1 var(--font-mono);
+  letter-spacing: 0.03em;
+  color: var(--color-fd-muted-foreground);
+}
+.drh-scroll { overflow-x: auto; outline: none; }
+.drh-scroll:focus-visible { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--drh) 45%, transparent); }
+.drh-block pre {
+  margin: 0;
+  padding: 0.6rem 0 0.9rem;
+  min-width: max-content;
+  background: transparent !important;
+  font: 400 13px/1.75 var(--font-mono);
+  counter-reset: line;
+}
+.drh-block code { display: grid; font: inherit; }
+.drh-block .line { display: block; position: relative; padding: 0 1rem 0 0; min-height: 1.75em; }
+.drh-block .line::before {
+  counter-increment: line;
+  content: counter(line);
+  display: inline-block;
+  width: 2.75rem;
+  margin-right: 0.9rem;
+  padding-right: 0.25rem;
+  text-align: right;
+  color: var(--color-fd-muted-foreground);
+  opacity: 0.55;
+  user-select: none;
+}
+.drh-block span { color: var(--shiki-light); }
+.dark .drh-block span { color: var(--shiki-dark); }
+
+/* Terminal strip: output and expected output */
+.drh-term .drh-label { text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.625rem; }
+.drh-term pre { padding-top: 0.45rem; font-size: 12.5px; }
+.drh-term .line::before { content: none; }
+.drh-term .line { padding-left: 1rem; }
+.drh-term span { color: var(--color-fd-muted-foreground) !important; }
+
+/* Copy button, on hover/focus */
+.drh-copy {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.5rem;
+  z-index: 2;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  border: 1px solid var(--color-fd-border);
+  background: var(--color-fd-background);
+  color: var(--color-fd-muted-foreground);
+  font: 500 0.6875rem/1 var(--font-sans);
+  cursor: pointer;
+  opacity: 0;
+}
+.drh-block:hover .drh-copy,
+.drh-copy:focus-visible { opacity: 1; }
+.drh-copy:hover { color: var(--color-fd-foreground); }
+@media (hover: none) { .drh-copy { opacity: 1; } }
+
+/* Focus walkthrough: linked lines */
+.drh-block .line[data-hl]::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--color-fd-foreground) 7%, transparent);
+  border-left: 2px solid var(--drh);
+  pointer-events: none;
+}
+pre[data-focus-on] .line:not([data-hl]) > span { opacity: 0.4; }
+pre[data-focus-on] .line:not([data-hl])::before { opacity: 0.3; }
+
+.drh-focus { position: relative; }
+.drh-focus::before {
+  content: '';
+  position: absolute;
+  left: -0.75rem;
+  top: 0.15em;
+  bottom: 0.15em;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--drh);
+  opacity: 0;
+}
+.drh-focus[data-active]::before { opacity: 0.85; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .drh-block .line > span, .drh-block .line::before, .drh-copy, .drh-focus::before { transition: opacity 0.15s ease; }
+  .drh-block .line[data-hl]::after { animation: drh-in 0.15s ease; }
+  @keyframes drh-in { from { opacity: 0; } }
+}
+
+/* Exercises */
+.drh-exercise-label {
+  margin: 0 0 0.5rem;
+  font: 500 0.6875rem/1 var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--drh);
+}
+.drh-exercise { border-top: 1px solid color-mix(in srgb, var(--drh) 45%, transparent); padding-top: 1.25rem; }
+
+/* Collapsed solution */
+.drh-solution > summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 0.6rem 1rem;
+  font: 500 0.75rem/1 var(--font-sans);
+  color: var(--color-fd-muted-foreground);
+  user-select: none;
+}
+.drh-solution > summary::-webkit-details-marker { display: none; }
+.drh-solution > summary:hover { color: var(--color-fd-foreground); }
+.drh-solution > summary:focus-visible { outline: 2px solid color-mix(in srgb, var(--drh) 45%, transparent); outline-offset: -2px; }
+.drh-solution > summary::before { content: 'Show '; }
+.drh-solution[open] > summary::before { content: 'Hide '; }
+.drh-solution[open] > summary { border-bottom: 1px solid var(--color-fd-border); }
+.drh-solution > .drh-block { border-top: 0; }
+
+@media (min-width: 1100px) {
+  .drh-step {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+    gap: 2.5rem;
+    align-items: start;
+  }
+  .drh-code-col {
+    position: sticky;
+    top: calc(var(--fd-docs-row-2, 3.5rem) + 1.5rem);
+    max-height: calc(100dvh - var(--fd-docs-row-2, 3.5rem) - 3rem);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+}
+@media (max-width: 1099px) {
+  .drh-focus::before { left: -0.6rem; }
+}

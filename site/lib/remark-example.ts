@@ -7,7 +7,7 @@ const MARKER = /^\s*<!--\s*example:\s*([\w./-]+?)\s*-->\s*$/;
 
 /**
  * Replaces `<!-- example: NAME -->` with the contents of examples/NAME.drh as a
- * ```drachm block, followed by examples/NAME.out in a collapsed "Output" block.
+ * ```drachm block, followed by examples/NAME.out as a ```text title="output" block.
  */
 export function remarkExample() {
   return (tree: Root) => {
@@ -24,15 +24,7 @@ export function remarkExample() {
       out.push({ type: 'code', lang: 'drachm', meta: `title="${name}.drh"`, value: readFileSync(drh, 'utf8').replace(/\n+$/, '') });
       const outFile = path.join(examplesDir, `${name}.out`);
       if (existsSync(outFile)) {
-        out.push({
-          type: 'mdxJsxFlowElement',
-          name: 'details',
-          attributes: [{ type: 'mdxJsxAttribute', name: 'className', value: 'drh-output' }],
-          children: [
-            { type: 'mdxJsxFlowElement', name: 'summary', attributes: [], children: [{ type: 'text', value: 'Output' }] },
-            { type: 'code', lang: 'text', value: readFileSync(outFile, 'utf8').replace(/\n+$/, '') },
-          ],
-        } as never);
+        out.push({ type: 'code', lang: 'text', meta: 'title="output"', value: readFileSync(outFile, 'utf8').replace(/\n+$/, '') });
       }
     }
     tree.children = out;

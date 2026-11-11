@@ -4,6 +4,8 @@ import { DocsPage, DocsBody, DocsTitle, DocsDescription } from 'fumadocs-ui/layo
 import defaultMdxComponents from 'fumadocs-ui/mdx';
 import { docBySlug, flatDocs } from '@/lib/content';
 import { renderDoc } from '@/lib/render';
+import { CodeBlock } from '@/components/code-block';
+import { Walkthrough } from '@/components/walkthrough';
 
 type Props = { params: Promise<{ slug?: string[] }> };
 
@@ -30,7 +32,8 @@ export default async function Page({ params }: Props) {
       <DocsTitle>{doc.title}</DocsTitle>
       <DocsDescription>{doc.description}</DocsDescription>
       <DocsBody>
-        <Body components={defaultMdxComponents} />
+        <Body components={{ ...defaultMdxComponents, pre: CodeBlock }} />
+        <Walkthrough key={doc.slug} />
       </DocsBody>
     </DocsPage>
   );
