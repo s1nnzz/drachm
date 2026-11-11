@@ -73,14 +73,57 @@ impl Gen<'_> {
             }
         }
         let order = reverse_postorder(body);
+        let mentions = mentions(body);
         let mut pieces = Vec::new();
         for (k, &b) in order.iter().enumerate() {
             self.out.clear();
             let block = &body.blocks[b];
-            for s in &block.statements {
+            let mut stmts = &block.statements[..];
+            // A comparison used only by the branch right after it goes into
+            // the `if` itself: GCC's branch heuristics and inlining do
+            // measurably better on `if (n < 2)` than on a flag variable.
+            let mut cond = None;
+            if let TerminatorKind::If { cond: Operand::Copy(p) | Operand::Move(p), .. } = &block.terminator.kind
+                && p.proj.is_empty()
+                && mentions[p.local.index()] == 2
+                && matches!(body.locals[p.local].kind, LocalKind::Temp)
+                && let Some((last, rest)) = stmts.split_last()
+                && let StatementKind::Assign(d, Rvalue::Binary(op, a, b)) = &last.kind
+                && d.local == p.local
+                && d.proj.is_empty()
+                && op.is_comparison()
+            {
+                let operand = self.op_ty(a);
+                let (a, b) = (self.operand(a), self.operand(b));
+                cond = Some(format!("({})", self.binary(*op, operand, &a, &b)));
+                stmts = rest;
+            }
+            // Likewise `_0 = x; return _0;` becomes `return x;`.
+            if matches!(block.terminator.kind, TerminatorKind::Return)
+                && let Some((last, rest)) = stmts.split_last()
+                && let StatementKind::Assign(d, rv) = &last.kind
+                && d.local == Local(0)
+                && d.proj.is_empty()
+                && matches!(body.locals[Local(0)].ty, Type::Int { .. } | Type::Float(_) | Type::Bool)
+            {
+                let text = match rv {
+                    Rvalue::Use(op) => Some(self.operand(op)),
+                    Rvalue::Binary(op, a, b) if !matches!(op, BinOp::Div | BinOp::Rem) => {
+                        let operand = self.op_ty(a);
+                        let (a, b) = (self.operand(a), self.operand(b));
+                        Some(self.binary(*op, operand, &a, &b))
+                    }
+                    _ => None,
+                };
+                if let Some(text) = text {
+                    cond = Some(text);
+                    stmts = rest;
+                }
+            }
+            for s in stmts {
                 self.statement(&s.kind);
             }
-            self.terminator(&block.terminator.kind, order.get(k + 1).copied());
+            self.terminator(&block.terminator.kind, order.get(k + 1).copied(), cond);
             pieces.push((b, std::mem::take(&mut self.out)));
         }
         for (b, piece) in pieces {
@@ -302,11 +345,11 @@ impl Gen<'_> {
 
     // ---- terminators -------------------------------------------------------
 
-    fn terminator(&mut self, k: &TerminatorKind, next: Option<BlockId>) {
+    fn terminator(&mut self, k: &TerminatorKind, next: Option<BlockId>, cond_text: Option<String>) {
         match k {
             TerminatorKind::Goto(t) => self.goto(*t, next),
             TerminatorKind::If { cond, then, els } => {
-                let c = self.operand(cond);
+                let c = cond_text.unwrap_or_else(|| self.operand(cond));
                 if then == els {
                     self.goto(*then, next);
                 } else if Some(*then) == next {
@@ -322,7 +365,9 @@ impl Gen<'_> {
                 }
             }
             TerminatorKind::Return => {
-                if self.body.locals[Local(0)].ty == Type::None {
+                if let Some(v) = cond_text {
+                    self.line(format!("return {v};"));
+                } else if self.body.locals[Local(0)].ty == Type::None {
                     self.line("return;");
                 } else {
                     self.line("return l0;");
@@ -396,4 +441,48 @@ impl Gen<'_> {
             }
         }
     }
+}
+
+/// How many places of each local the body mentions (a definition counts).
+fn mentions(body: &Body) -> Vec<usize> {
+    let mut n = vec![0usize; body.locals.len()];
+    let op = |o: &Operand, n: &mut Vec<usize>| {
+        if let Some(p) = crate::mir::cleanup::operand_place(o) {
+            n[p.local.index()] += 1;
+        }
+    };
+    for block in body.blocks.iter() {
+        for s in &block.statements {
+            match &s.kind {
+                StatementKind::Assign(d, rv) => {
+                    n[d.local.index()] += 1;
+                    for p in crate::mir::cleanup::rvalue_places(rv) {
+                        n[p.local.index()] += 1;
+                    }
+                }
+                StatementKind::Drop { place, flag, .. } => {
+                    n[place.local.index()] += 1;
+                    if let Some(f) = flag {
+                        n[f.index()] += 1;
+                    }
+                }
+                StatementKind::FakeRead(p) => n[p.local.index()] += 1,
+                _ => {}
+            }
+        }
+        match &block.terminator.kind {
+            TerminatorKind::If { cond, .. } => op(cond, &mut n),
+            TerminatorKind::Switch { discr, .. } => op(discr, &mut n),
+            TerminatorKind::Call { args, dest, .. } => {
+                for a in args {
+                    op(&a.op, &mut n);
+                }
+                if let Some(d) = dest {
+                    n[d.local.index()] += 1;
+                }
+            }
+            _ => {}
+        }
+    }
+    n
 }

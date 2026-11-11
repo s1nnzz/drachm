@@ -182,14 +182,14 @@ struct TempFacts {
     moves: Vec<(BlockId, usize)>,
 }
 
-fn operand_place(op: &Operand) -> Option<&Place> {
+pub(crate) fn operand_place(op: &Operand) -> Option<&Place> {
     match op {
         Operand::Copy(p) | Operand::Move(p) => Some(p),
         Operand::Const(_) => None,
     }
 }
 
-fn rvalue_places(rv: &Rvalue) -> Vec<&Place> {
+pub(crate) fn rvalue_places(rv: &Rvalue) -> Vec<&Place> {
     let ops: Vec<&Operand> = match rv {
         Rvalue::Use(a) | Rvalue::Neg(a) | Rvalue::Not(a) | Rvalue::BitNot(a) | Rvalue::Convert(a, _) => vec![a],
         Rvalue::Binary(_, a, b) | Rvalue::IntPow(a, b) => vec![a, b],
