@@ -1,22 +1,24 @@
 # Step 3 implementation spec: ownership and borrow checking
 
-Status: **draft for implementation**, written 2026-11-10 against commit
-`ade8668` plus the step 2 and step 4 work described in `docs/PLAN.md`.
+Status: **ready for implementation**. Written 2026-11-10; revised 2026-11-11
+with the owner's answers (`docs/impl/owner-answers.md`, SPEC §6) and checked
+against the code at `2f26fb3` (steps 2 and 4 done; Appendix A is filled in).
+First-wave briefs: `wp0a.md`, `wp0b.md`, `wp1.md` in this directory.
 
 Audience: an engineer who has read `CLAUDE.md`, `docs/SPEC.md` and
 `docs/PLAN.md`, but not the design discussions. Everything needed to build
-step 3 is here; where this document depends on code that was being written in
-parallel when it was drafted, it says so in a **LOOK FIRST** box.
+step 3 is here. Appendix A records what the code looked like when this was
+revised.
 
 Rules that bind this document (from `CLAUDE.md`):
 
-- The language owner decides every user-visible behaviour. Section 5 lists the
-  behaviours the SPEC does not settle. Do not pick an answer yourself: ask, then
-  record the answer in `docs/SPEC.md` and the design doc. Where a work package
-  needs an answer that has not arrived, build the rest and make the undecided
-  case report `E0901` ("not supported yet"), which is easy to relax later.
-- Every diagnostic message in section 4 is a **draft** for the owner to
-  approve. Use the texts as written until they are approved or changed.
+- The language owner decides every user-visible behaviour. Section 5 records the
+  owner's answers and ends with a "Still open" list. Do not decide those
+  yourself: the code reports `E0901` ("not supported yet") with the message
+  given there, and the case is relaxed when the owner answers.
+- The diagnostic texts in section 4 were written by the implementer (Q19:
+  owner review pending). Use them as written; the owner reviews them in one
+  pass later, from the table at the end of section 4.
 - Engineering choices (data structures, algorithms) are made here; the ones
   users can see are flagged with **(visible)**.
 
@@ -26,32 +28,32 @@ Contents
 2. The MIR
 3. The analyses
 4. Diagnostics
-5. Open language questions
+5. Owner answers, and what is still open
 6. Work packages
 7. Performance notes
 
-Appendix A: LOOK FIRST checklist for the parallel branches.
+Appendix A: what the code looks like (answered).
 Appendix B: MIR text format.
 
 ---
 
-## 0. Code that must be inspected before starting
+## 0. State of the code
 
-When this was written, three branches were being merged that this step builds
-on. Their code could not be read. The spec is written against the HIR at
-`ade8668` plus those features as described in SPEC and PLAN. Before starting
-any work package, read Appendix A and fill in the table there (a ten-minute
-job); each work package also has its own LOOK FIRST box.
+The three branches (strings, structs, control flow) are merged. Appendix A
+answers what this spec needed to know; the consequences are folded into the
+sections below. The facts that matter most:
 
-- **(a) strings** (PLAN step 2 items 1-4, 6): real `string` values
-  (`{ptr, len, cap}`, `runtime/strings.h`), explicit copy and drop operations
-  in the HIR, and **deep copy on every assignment or pass** as a stand-in for
-  moves.
-- **(b) structs** (PLAN step 2 item 5): fields, `mut` fields, methods with
-  implicit `self`, `static` methods, operator methods, the construction
-  shorthand, C layout, large structs passed by pointer.
-- **(c) control flow** (PLAN step 4): `for` (C-style and `of`), `break N`,
-  `continue N`, `skip`/`skip N`/`skip to next`, `match`.
+- The HIR has no spans and no borrow types or nodes. `Type` is `Copy`; structs
+  are `Struct { id, name: &'static str }` (`types.rs`).
+- typeck inserts the step 2 workaround nodes (`Copy`, `Move`, `Temp`,
+  `Scoped`, `Stmt::Drop`). The MIR builder ignores them (2.2a) so the old HIR
+  backends keep working until WP4/WP6.
+- typeck already lowers `for`, `while`, `break N`, `continue N`, `skip` and
+  `match` to `Stmt::If / Loop / Jump` with labels. Looping over a string and
+  `match` on a string are `E0901` in typeck, so MIR has nothing to do for them.
+- Each struct already has size, alignment and field offsets (`hir::layout`).
+- Tests already run with `DRACHM_CHECK_LEAKS=1`; double-free detection does not
+  exist yet. The `03xx` codes are all unused.
 
 ---
 
@@ -76,6 +78,7 @@ At the end of step 3:
    - lifetime inference for function signatures, and checking of `lives`
      clauses on functions and structs;
    - inference of each method's `self` borrow mode;
+   - `take`, `lend`, `address of`, and the user `drop()` method;
    - `unsafe { }` blocks, `*T`, and the `//--!$unsafe: true` file flag.
 3. **Drop elaboration**: every owned value is dropped exactly once, on every
    path, including partially moved structs; drop flags only where the path
@@ -95,9 +98,8 @@ At the end of step 3:
   `xs::push`; until lists exist, the tests use strings and struct fields.
 - `fails` / `maybe` (step 5). Section 2.6 says how a failing call will appear
   in MIR so step 5 does not need to change the analyses.
-- User-defined destructors (not in the SPEC; see open question Q17). Dropping
-  is compiler-generated only: strings free their buffer, structs drop their
-  fields.
+- `changes self` on interface methods (step 6; this step only infers struct
+  methods), interfaces, and `asm` functions (Later).
 - Threads and data-race checking (later).
 - Optimisations on MIR beyond the small cleanup pass in 2.8.
 
@@ -107,26 +109,30 @@ Section numbers refer to `docs/SPEC.md`.
 
 | # | Rule | Source |
 |---|---|---|
-| S1 | Bindings are immutable by default. `mut` = may be reassigned **and** changed (mutating methods, `&mut` borrows, field writes). `open` = contents may change (mutating methods, `&mut`), never reassigned. `mut open` is redundant (warning). | §2 |
+| S1 | Bindings are immutable by default. `mut` = may be reassigned **and** changed (mutating methods, `&mut` borrows, field writes). `open` = contents may change (mutating methods, `&mut`, field writes), never reassigned; `open` parameters are allowed, and an `open` binding may be declared without a value and assigned once. `mut open` is redundant (warning). | §2 |
 | S2 | `uint32 later;` may be declared without a value; reading before every path assigns it is an error. An immutable binding declared that way may be assigned exactly once, where it is certainly still unassigned (so not inside a loop it was declared outside of). | §2 |
 | S3 | Parameters are immutable unless written `mut uint32 n`. | §2 |
 | S4 | Strings, lists and most structs **move** on assignment or pass; the source is unusable afterwards (E0301 "used after it moved"). | §6 |
 | S5 | Numbers, bools, and structs whose fields are all copyable and whose total size is at most 32 bytes **copy** automatically. | §6 |
 | S6 | Explicit copy: `string c = copy b;`. | §6 |
-| S7 | Borrows `&T` (shared, many) and `&mut T` (exclusive). The call site writes it: `push(&mut xs, 1)`. Lending `&mut` needs a `mut` or `open` binding. | §6, PLAN step 3 "Decided" |
-| S8 | Struct fields are immutable unless marked `mut`. A `mut` field can always be changed, even on an immutable value (like C++ `mutable`). | §6 |
-| S9 | Struct fields may hold borrows; the struct names what it borrows from: `struct Parser lives src { &string src; }`. | §6 |
-| S10 | Structs holding raw pointers never copy automatically (explicit `copy` still works). | §6 |
+| S7 | Borrows `&T` (shared, many) and `&mut T` (exclusive). The call site always writes them: `show(&p)`, `push(&mut xs, 1)`; passing on a `&mut` you hold is `lend r`. A borrow means its target: reads are automatic, `r = 5` writes through, `r = &mut other` re-points. `&T` copies, `&mut T` moves. Lending `&mut` needs a `mut` or `open` binding. | §6 |
+| S8 | Struct fields are immutable unless marked `mut`. A `mut` field can be changed on a value you own, even through an immutable binding. Through any `&` everything is read-only, `mut` fields too. | §6 |
+| S9 | Struct fields may hold borrows; `lives` names the borrow fields themselves: `struct Pair lives a, b { &string a; &string b; }`. | §6 |
+| S10 | Raw pointers `*T` move (`copy p` duplicates), so a struct holding one is not Copy. | §6 |
 | S11 | E0302's exact style (message, labels "is borrowed here" / "change attempted here" / "the borrow is still used here", `help:`). Other borrow errors are written in the same style. | §6 |
 | S12 | Lifetimes are inferred. When needed, `lives` names the parameters a returned borrow comes from: `&string longest(&string a, &string b) lives a, b { }`. | §6 |
 | S13 | Returning a borrow derived from exactly one borrowed parameter is inferred; ambiguous cases ask for `lives a, b`. `lives` is checked at the definition and used at call sites. | PLAN step 3 item 6 |
 | S14 | `self` is never declared; its shared vs mutable borrow mode is **inferred** from the method body. A method that assigns `self.x` or calls a mutating method is `&mut self`, otherwise `&self`. Error messages say which was inferred and why. | §5, PLAN step 3 item 7 |
-| S15 | Raw pointers `*T` need BOTH the file flag `//--!$unsafe: true` AND an `unsafe { }` block. `*p = 7;` dereferences. | §6 |
+| S15 | Raw pointers `*T` need BOTH the file flag `//--!$unsafe: true` AND an `unsafe { }` block around everything that touches a pointer value (`address of n`, copying, comparing, `*p`). `none` is null. `unsafe` functions need an `unsafe { }` block to call. | §6 |
 | S16 | File flags are `//--!$key: value` lines, allowed only at the very top of a file. | §1 |
 | S17 | No garbage collector. Values are destroyed at the end of their scope, in reverse declaration order. | §6, PLAN step 2 item 6 |
 | S18 | Runtime faults panic: message and exit code 101. | §7 |
 | S19 | Operands are evaluated left to right. | §2 |
 | S20 | Diagnostic codes `03xx` are ownership; E0301 and E0302 are fixed. Report all errors. | §10 |
+| S21 | Moving a field out says `take p.name`; `take p.t leaving v` puts a value back; a plain field move is an error. Methods never consume `self`; `return self.name` from a borrowed `self` is an error. | §6 |
+| S22 | A method `none drop()` runs when a value is destroyed. On such a struct plain `take x.f` is an error; `take x.f leaving v` is allowed. | §6 |
+| S23 | `struct H stays { }` never copies automatically; the 32-byte rule counts memory size with padding. `copy r` on a borrow copies the target; `copy n` on a Copy value warns W0322. | §6 |
+| S24 | Borrowing a temporary in a declaration keeps it alive to the end of the block. Receivers are two-phase. | §6 |
 
 ### 1.4 Readings this spec relies on
 
@@ -135,40 +141,71 @@ the reading given here. They are not open questions, but show them to the
 owner together with section 5 so a wrong reading is caught early.
 
 - **R1 (field writes).** A non-`mut` field can be written exactly when the
-  value containing it can be changed: through a `mut` binding, or through a
-  `&mut` borrow. A `mut` field can be written through any place, including an
-  immutable binding (S8). Writing a `mut` field *through a `&` borrow* is open
-  (Q5).
+  value containing it can be changed: through a `mut` or `open` binding, or
+  through a `&mut` borrow. A `mut` field can be written on a value you own
+  through any binding, immutable ones included (so `&mut p.hp` of a `mut`
+  field is also fine there), but never through a `&` borrow (Q5). `self` is a
+  borrow, so a method that writes `self.hp` (even a `mut` field) is `&mut
+  self`. A write to a `mut` field still conflicts with loans of that place.
 - **R2 (builtins borrow).** `io::out`, `io::outln`, `io::outf`, the string
   operators (`+`, comparisons, interpolation `${}`) and every string method
-  take their string operands and arguments by shared borrow, implicitly.
-  `io::outln(name); io::outln(name);` is valid. ("Methods return a new
-  string; the original is never modified", §4.) Q2 is about *user* functions.
+  take their string operands by shared borrow, implicitly, and no `&` is
+  written for them. They also accept a `&string` (R4). `io::outln(name);
+  io::outln(name);` is valid. Q2 ("always write `&`") is about *user* functions.
 - **R3 (receivers).** A method receiver is borrowed implicitly at the call:
-  `xs::push(9)` and `p::heal()` write no `&`/`&mut` (SPEC §6's own example).
-  The receiver binding still needs to be `mut` or `open` for a mutating method.
-- **R4 (auto-deref for `.` and `::`).** Field access and method calls look
-  through borrows: `self.r` where `self` is a borrow, `first::text()` where
-  `first` is `&uint32` (SPEC examples). Other operations on borrows are open
-  (Q1).
+  `xs::push(9)` and `p::heal()` write no `&`/`&mut`. The receiver binding must
+  be `mut` or `open` for a mutating method.
+- **R4 (a borrow means its target).** Wherever a borrow-typed expression is
+  used and the expected type is not itself a borrow (operands, conditions,
+  `.` and `::`, builtin arguments, declarations of non-borrow type, `copy`),
+  typeck reads through it by inserting `ExprKind::Deref`. Where a borrow is
+  expected (declaration of a borrow type, borrow parameter, borrow return,
+  assignment to a borrow, `lend`) the borrow itself is used. Moving a non-Copy
+  value out through a borrow is E0310.
 - **R5 (drop order).** Locals: reverse declaration order (S17). Struct fields:
-  declaration order. Temporaries: at the end of the statement that made them.
-  None of this is observable until user destructors exist (Q17).
+  declaration order, after the struct's own `drop()` has run. Temporaries: at
+  the end of the statement that made them, except R12. Now observable through
+  `drop()`.
 - **R6 (panics).** A panic exits the process immediately; nothing is dropped.
   So there is no unwinding and no cleanup path in MIR.
 - **R7 (`while (true)`).** A loop whose condition is the literal `true` (or a
-  C-style `for` with no condition) only finishes through `break`. This is
-  today's typeck rule, now falling out of the CFG.
-- **R8 (borrow types copy).** `&T` is copyable (8 bytes, any number of shared
-  borrows may exist). `&mut T` is not copyable (Q3 is about how one is passed
-  on).
+  C-style `for` with no condition) only finishes through `break`.
+- **R8 (borrow types).** `&T` copies (8 bytes, any number may exist). `&mut T`
+  and `*T` move: `f(r)` or `&mut string r2 = r;` uses `r` up; `lend r` passes
+  it on and keeps `r` (Q3, Q15).
 - **R9 (`unsafe` is narrow).** An `unsafe { }` block allows raw-pointer
-  operations; it does not switch off move or borrow checking of ordinary
-  places.
+  operations and calls of `unsafe` functions; it does not switch off move or
+  borrow checking of ordinary places.
 - **R10 (string literals).** A string literal is a value of type `string`
   that does not own its bytes (`cap == 0` in `runtime/strings.h`); dropping it
   does nothing, and a later change (methods return new strings) never writes
   to it. So moving and copying literals is free.
+- **R11 (W0322).** `copy e` warns whenever the *result* type is Copy,
+  including `copy r` with `r: &uint32`.
+- **R12 (temporary extension).** Only when a declaration's whole initializer
+  is `&e` / `&mut e` and `e` is not a place does the temporary live to the end
+  of the block (Q13). A borrow of a temporary anywhere else, or in an
+  assignment, dies at the end of the statement (E0306 if used later).
+- **R13 (two-phase).** Only the implicit `&mut` borrow of a method receiver is
+  two-phase (Q4). Explicit `&mut x` arguments are not.
+- **R14 (clause order).** `lives`, `with` and `stays` on a struct, `lives` and
+  `fails` on a function, may come in any order, each at most once (Q18;
+  `stays` joins the group by extension).
+- **R15 (`take`).** `take` is for fields: `take p.name`. Moving a whole local
+  stays plain (`string b = a;`). A plain `take` is a move (allowed on an
+  immutable owned binding); `leaving v` is also a write to the field, so it
+  needs a changeable place (E0205 as for any assignment). `v` is evaluated
+  after the take, so it cannot read the taken field.
+- **R16 (`drop()`).** Reserved method name, shape `none drop()`, non-static;
+  its `self` is `&mut`. A struct with `drop()` is never Copy (a duplicate would
+  run `drop` twice), and is never partially moved (Q17).
+- **R17 (E0324).** Applies where a non-Copy field of an owned path is used as a
+  value to be moved: assignment or declaration source, by-value argument,
+  `return`, struct field value, `leaving` value. Receivers and builtin operands
+  borrow, so `p.name::len()` and `io::outln(p.name)` are fine.
+- **R18 (re-point or write through).** `r = rhs` re-points `r` when `rhs` has a
+  borrow type (and needs `r` to be `mut`); otherwise it writes through. `r += 1`
+  and `r++` always write through.
 
 ---
 
@@ -208,55 +245,65 @@ pub fn build(c: &Checked, out: &Path, optimise: bool) -> Result<(), String>;
 FILE` that prints the elaborated MIR (Appendix B format) to stdout; tests use
 it (6.2).
 
-**Per-function gating.** Today the type checker runs only on a parse-clean
-file and its output is used only when there are no errors. Keep that, but
-gate MIR per function: `typeck` records `hir::Func::has_errors` (the number
-of errors before and after checking the function differ). The MIR builder
-skips such functions, and the analyses treat calls *to* them as calls to a
-function whose signature is fully known (signatures are checked before
-bodies) and whose inferred facts (self mode, `lives` sets) are "unknown":
-unknown self mode never produces a mutability error at a call site, unknown
-`lives` never produces a borrow error. This keeps one mistake from producing a
-cascade, and keeps today's behaviour where E0207 is reported next to type
-errors in other functions. **(visible)** E0207, E0205 and E0105 are no longer
-reported inside a function that has a type error. Existing fail tests do not
-mix them; check after WP2.
+**No per-function gating.** `lib::check` returns no HIR when any error was
+found (lib.rs:19-30), so MIR checks run only on type-clean programs. Keep that.
+**(visible)** E0105, E0205 and E0207 are therefore no longer reported next to
+type errors. `tests/fail/flow.drh` (E0105, E0205, E0207) and `structmut.drh`
+(E0205 together with E0101/E0114/E0201/E0211) mix them: when a code moves to
+MIR, move its cases into new `own_*.drh` files and keep the rest in place.
 
 ### 2.2 What happens to the HIR
 
-The HIR stays a tree. It changes in these ways (WP0, WP1):
+The HIR stays a tree in its present shape (`hir.rs`: `Stmt::{Assign, If, Loop,
+Jump, Return, Expr, Drop}`, jumps by label). Changes (WP0a, WP1):
 
-1. **Spans.** `hir::Expr` gets `span: Span`; `hir::Stmt` becomes
-   `struct Stmt { kind: StmtKind, span: Span }`; `hir::Local` gets
-   `span: Span` (the declared name), `mutability: Mutability`, `is_param:
-   bool`; `hir::Func` gets `name_span`, `span` (signature), `has_errors`.
-   MIR diagnostics need all of these; typeck already has them at hand.
-2. **Places.** Assignment targets become place expressions:
-   `StmtKind::Assign(PlaceExpr, Expr)` with
-   `struct PlaceExpr { local: LocalId, proj: Vec<HirProj>, span: Span }` and
-   `enum HirProj { Field(FieldIdx), Deref }`. Field reads stay expressions
-   (`ExprKind::Field(Box<Expr>, FieldIdx)`, from branch (b)).
-3. **New expressions**: `ExprKind::Borrow { mutable: bool, place: Box<Expr> }`,
-   `ExprKind::Deref(Box<Expr>)` (raw pointers, and borrows if Q1 says so),
-   `ExprKind::DeepCopy(Box<Expr>)` for the user's `copy x`,
-   `ExprKind::Unsafe(Block)` / `StmtKind::Unsafe(Block)`.
-4. **Removed**: the `Flow` struct and everything it fed in `typeck.rs`
-   (`flow`, `branch`, `Flow::join`, the reachability flag, the late-init
-   branch of `check_assignable`, `read_local`'s E0207). Typeck keeps the
-   *type* checks of assignments (E0101 etc.) and records mutability; all
-   E0205, E0207 and E0105 reporting moves to MIR (WP2, WP5) with **the same
-   message texts** so `tests/fail/immutable.err` and `unassigned.err` keep
-   passing.
-5. **Removed** (WP8): step 2's inserted deep copies and drops. The HIR no
-   longer contains drops at all (the MIR builder inserts them from scopes);
-   the only copy left is the user's `copy x`.
+1. **Spans.** `hir::Expr.span`; `hir::Local` gets `span`, `mutability:
+   Mutability {Fixed, Mut, Open}`, `is_param`; `hir::Place.span`;
+   `Branch.end` and `Loop.end` (span of the closing `}`, for E0306) and
+   `Func.body_end`; `Func.name_span`, `Func.span`, `Func.is_unsafe`.
+   `Expr::new(kind, ty)` gives a dummy span so untouched construction sites
+   compile; real spans go on everything a diagnostic can point at (reads of
+   locals, field accesses, calls and each argument, borrows, assignments,
+   returns).
+2. **Places.** `Place { local, proj: Vec<HirProj>, span }`,
+   `enum HirProj { Field(usize), Deref }` (replaces `fields`).
+3. **New nodes.** `Stmt::Decl(LocalId)` at each user declaration (before its
+   initializer's `Assign`), `Stmt::Unsafe(Block)`; `ExprKind::Borrow{mutable,
+   place}`, `Deref`, `DeepCopy` (user `copy`), `Take{place, leaving}`, `Lend`,
+   `AddressOf`, `NullPtr`. Backends get trivial arms (`Decl` ignored, `Unsafe`
+   runs its block); the others cannot reach a backend before WP4 (WP0a gates
+   `lib::build`).
+4. **Struct data.** `FieldDef.mutable`; `StructDef.copy` (2.7), `stays`,
+   `has_drop: Option<FuncId>`, `lives: Vec<usize>` (indices of the borrow
+   fields named by `lives`).
+5. **Removed in WP2/WP5:** `Flow` (typeck.rs:852) **and its uses in
+   `typeck/control.rs`** (`Target` carries `Flow`s; `chain`, `looped`,
+   `for_each`, `match_stmt` join them), the late-init branch of
+   `check_assignable`, `read_local`'s E0207. E0105/E0205/E0207 move to MIR with
+   **the same texts**.
+6. **Removed in WP6:** the legacy nodes of 2.2a.
 
-> **LOOK FIRST (a), (b), (c):** how branch (a) represents its copy and drop
-> operations in the HIR (node names, whether user `copy` and inserted copies
-> are the same node); how (b) represents field reads, field writes, method
-> calls and `self`; how (c) represents `for`, `break N`, `continue N`, `skip`
-> and `match`. Keep their node names where they fit the list above; add the
-> missing ones.
+#### 2.2a Legacy nodes (until WP6)
+
+typeck still inserts step 2's ownership workaround. The MIR builder ignores it
+and makes its own moves and drops, so moves are real in MIR from WP1 on while
+the HIR backends keep using the legacy nodes. (WP1 phase A, which runs in
+parallel with WP0a, instead translates the legacy nodes faithfully: `Copy` →
+`DeepCopy`, `Stmt::Drop` and the `Scoped` list → `Drop`, no scope frames. Phase
+B switches to the table below once `Stmt::Decl` and spans exist.)
+
+| Legacy HIR | MIR builder |
+|---|---|
+| `Copy(e)` | `⟦e⟧` as if the `Copy` were not there (a move for non-Copy types) |
+| `Move(l)` | `Operand::Move(l)` |
+| `Temp(l, e)` | `l = ⟦e⟧` (StorageLive at first sight); the value is the place `l`; `l` joins the statement frame (B4) |
+| `Scoped(e, locals)` | `⟦e⟧`; the list is ignored |
+| `Stmt::Drop(p)` | ignored |
+
+Hidden locals (not introduced by `Decl`) get `StorageLive` in `bb0`, never a
+`StorageDead`, and only get drops through `Temp` registration. User locals and
+their scopes come from `Decl` and the block structure (`Branch.body`,
+`Loop.body`, `Loop.step`, `Func.body`).
 
 ### 2.3 Data structures
 
@@ -267,20 +314,19 @@ small `IndexVec<I, T>` (a `Vec<T>` indexed by `I`); write it in
 ```rust
 use crate::diag::Span;
 use crate::types::Type;              // after step 2 this includes Str, Struct, Ref, Ptr
-use crate::hir::{FuncId, StructId, FieldIdx};
+use crate::hir::{FuncId, StructId};   // plain `usize` aliases; field indexes are `usize`
 
 newtype_index!(Local);               // _0 is the return place
 newtype_index!(BlockId);             // bb0 is the entry block
 newtype_index!(StrId);               // index into Program::strings
 
 pub struct Program {
-    pub bodies: IndexVec<FuncId, Option<Body>>, // None: function had type errors (never when building)
+    pub bodies: Vec<Option<Body>>,              // by FuncId; every function has a body today
     pub main: FuncId,
     pub strings: IndexVec<StrId, String>,       // literal pool, shared by both backends
-    pub structs: IndexVec<StructId, StructInfo>, // see LOOK FIRST (b): may already exist in hir
-    pub layouts: Layouts,                        // 2.7: one layout table for both backends
+    // structs and layouts: hir::Program::structs (extended, 2.2 item 4); no copy here
     pub self_modes: Vec<Option<SelfMode>>,       // by FuncId; None for non-methods
-    pub lives: IndexVec<FuncId, LivesSig>,       // 3.6: inferred or declared
+    pub lives: Vec<LivesSig>,                    // by FuncId; 3.6: inferred or declared
 }
 
 pub struct Body {
@@ -292,6 +338,7 @@ pub struct Body {
     pub blocks: IndexVec<BlockId, BasicBlock>,
     pub scopes: IndexVec<ScopeId, Scope>, // lexical scopes, for diagnostics only
     pub unsafe_flag: bool,               // the file allows `unsafe` (copied from FileFlags)
+    pub unsafe_fn: bool,                 // declared `unsafe`
 }
 
 pub struct LocalDecl {
@@ -350,7 +397,8 @@ pub struct Terminator { pub kind: TerminatorKind, pub span: Span, pub unsafe_ctx
 pub enum TerminatorKind {
     Goto(BlockId),
     If { cond: Operand, then: BlockId, els: BlockId },
-    /// Integer/bool switch. `match` on numbers, later on enum tags.
+    /// Integer/bool switch. Defined, printed and validated, but the builder
+    /// does not emit it: `match` already arrives as an if-chain (2.5).
     Switch { discr: Operand, cases: Vec<(u128, BlockId)>, otherwise: BlockId },
     /// A call. `dest` is None for calls returning `none`. Never unwinds (R6).
     Call { callee: Callee, args: Vec<Arg>, dest: Option<Place>, target: BlockId },
@@ -366,18 +414,13 @@ pub enum TerminatorKind {
 pub struct Arg { pub op: Operand, pub span: Span }  // per-argument spans for "moved here" labels
 
 pub enum Callee {
-    Func(FuncId),            // user function or method (self is args[0])
-    Runtime(RtFn),           // runtime/strings.h and runtime.c entry points
+    Func(FuncId),                        // user function or method (self is args[0])
+    Str(hir::StrFn),                     // runtime/strings.h and drachm_text_*; string args are `&string` temps (B3)
+    Out { newline: bool },               // io::out / io::outln of a `&string`
+    Text,                                // hir::ExprKind::Text: number or bool to an owned string
+    Radix { base: u32, upper: bool },    // hir::ExprKind::Radix
+    Join,                                // hir::ExprKind::Join: any number of `&string`, owned result
 }
-
-/// One variant per runtime entry point the MIR may call. Each has a fixed
-/// Drachm-level signature (`RtFn::sig`) used by type and borrow checking:
-/// which arguments are borrowed (all string inputs, R2), and whether the
-/// result is written to an out-pointer (string results). LOOK FIRST (a):
-/// branch (a) has a list like this somewhere; reuse it.
-pub enum RtFn { OutStr, OutBool, OutU64, OutS64, OutU128, OutS128, OutF32, OutF64,
-                StrConcat, StrLen, StrIsEmpty, StrReverse, StrSub, /* ... every strings.h fn */
-                StrCopy, StrDrop, StrEq, StrCmp, /* ... */ }
 
 pub enum PanicKind { /* filled by step 6: Bounds, ... */ }
 
@@ -386,7 +429,7 @@ pub type Projs = SmallVec<[Proj; 2]>;  // or a plain Vec; places are short
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Proj {
-    Field(FieldIdx),    // on a struct-typed prefix
+    Field(usize),    // on a struct-typed prefix
     Deref,              // on a `&T`, `&mut T` or `*T` typed prefix
 }
 
@@ -413,7 +456,7 @@ pub enum Rvalue {
     IntPow(Operand, Operand),
     Convert(Operand, Type),             // numeric only
     Ref(BorrowKind, Place),             // `&place` / `&mut place`
-    RawRef(bool /* mutable */, Place),  // making a `*T`; syntax pending Q14
+    RawRef(Place),                      // `address of place`: makes a `*T` (needs unsafe)
     /// A struct value built from its fields in declaration order. The
     /// operands are evaluated left to right in *source* order before this
     /// statement (the builder puts each in a temp), so field order here does
@@ -426,7 +469,7 @@ pub enum Rvalue {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum BorrowKind {
     Shared,
-    Mut { two_phase: bool },   // two_phase only if Q4 allows it (3.5.6)
+    Mut { two_phase: bool },   // two_phase: receiver borrows only (3.5.6)
 }
 
 pub struct Scope { pub parent: Option<ScopeId>, pub span: Span, pub kind: ScopeKind }
@@ -467,33 +510,36 @@ every pass in debug builds of the compiler, `cfg(debug_assertions)`):
 
 ### 2.4 Types in MIR
 
-MIR uses `types::Type`. Step 3 adds borrow and pointer types to it:
+MIR uses `types::Type` (types.rs:9: `Copy` and `Hash`; structs are `Struct { id,
+name: &'static str }`, the name interned by `types::intern`). Step 3 adds two
+variants with the same leak-intern trick, so `Type` stays `Copy` and no type
+table is needed:
 
 ```rust
-pub enum Type {
-    Int { bits: u16, signed: bool }, Float(u16), Bool, None,
-    Str,                         // from (a)
-    Struct(StructId),            // from (b)
-    Ref { mutable: bool, to: TyId },
-    Ptr { mutable: bool, to: TyId },   // `*T`; mutability of raw pointers pending Q14
+pub enum Type { /* existing variants, */
+    Ref { mutable: bool, to: &'static Type },  // &T / &mut T; `to` is never itself a Ref
+    Ptr { to: &'static Type },                 // *T: one kind, may be written through, may be none
+}
+impl Type {
+    pub fn borrow(mutable: bool, to: Type) -> Type;  // interns `to` in a static Mutex<HashSet<&'static Type>>
+    pub fn ptr(to: Type) -> Type;
 }
 ```
 
-`Type` is `Copy` today. Keep it `Copy` by interning the pointee: a global
-`TyId(u32)` into a `TypeTable { types: Vec<Type>, map: HashMap<Type, TyId> }`
-owned by `hir::Program` and passed by reference. **LOOK FIRST (b):** if
-branch (b) already moved to interned types or made `Type` non-`Copy`, follow
-what it did instead.
+`Display` prints `&T`, `&mut T`, `*T`. Every exhaustive `match` on `Type` gets
+arms: `hir::scalar_size` (hir.rs:96; Ref and Ptr are 8 bytes, aligned 8),
+`codegen::cl_type` (codegen.rs:40; the pointer type), `cgen::c_type`
+(cgen.rs:133; `T *`).
 
 Region information is **not** stored in `Type`. The borrow checker gives each
 local a vector of *region slots*, one per borrow position in its type, in a
 fixed pre-order:
 
 ```rust
-fn region_slots(ty: Type, t: &TypeTable, structs: &StructTable) -> usize {
+fn region_slots(ty: Type, structs: &[StructDef]) -> usize {
     match ty {
-        Type::Ref { to, .. } => 1 + region_slots(t[to], t, structs),
-        Type::Struct(s) => structs[s].region_params.len(),  // `lives` names, 3.6.4
+        Type::Ref { to, .. } => 1 + region_slots(*to, structs),
+        Type::Struct { id, .. } => structs[id].lives.len(),  // `lives` names, 3.6.4
         _ => 0,                                             // Ptr: raw, untracked
     }
 }
@@ -509,20 +555,19 @@ So `&string` has one slot, `&Parser` (with `struct Parser lives src`) has two
 ```rust
 struct Builder<'a> {
     hir: &'a hir::Program, func: &'a hir::Func, modes: &'a [Option<SelfMode>],
+    diags: &'a mut Vec<Diagnostic>,     // the builder reports E0324/E0325 itself
     body: Body,                         // being built; blocks have Option<Terminator>
     cur: BlockId,                       // the block statements are appended to
     local_map: Vec<Local>,              // hir::LocalId -> mir::Local
     scopes: Vec<ScopeFrame>,            // the scope stack (drops to emit on exit)
-    breakables: Vec<Breakable>,         // loops and if-levels, for break/continue/skip
+    targets: HashMap<hir::Label, Target>, // for Jump
     unsafe_depth: u32,
 }
 
 struct ScopeFrame { id: ScopeId, owned: Vec<Local> }   // locals declared here, in order
-enum Breakable {
-    Loop { break_to: BlockId, continue_to: BlockId, scope_depth: usize },
-    /// One level of an if-chain (or one `match` case), for `skip`.
-    IfLevel { exit: BlockId, next_branch: Option<BlockId>, scope_depth: usize },
-    Wall,   // pushed by a loop body (and later lambdas): skip may not cross it
+enum Target {                           // keyed by the label typeck gave the If/Loop
+    Loop { exit: BlockId, step: BlockId, scope_depth: usize },
+    If { exit: BlockId, tests: Vec<BlockId>, scope_depth: usize },
 }
 ```
 
@@ -563,7 +608,19 @@ enum Breakable {
   from; `Arg` gets the argument's span; `Drop`/`StorageDead` emitted at a
   scope end get the span of the closing `}` (the HIR block needs its end
   span; add `hir::Block { stmts, end: Span }` if not there) or of the
-  `return`/`break` that caused them.
+  `return`/`break` that caused them (`Branch.end`, `Loop.end`,
+  `Func.body_end`).
+- B9. *Temporaries in declarations.* A declaration whose whole initializer is
+  `Borrow(e)` with `e` not a place puts the temp for `e` in the enclosing
+  *block* frame, just before the declared local, so it dies after it (Q13,
+  R12). Everything else uses the statement frame.
+- B10. *Field moves.* `as_operand` of a place of non-Copy type whose
+  projections contain a `Field` and no `Deref` is **E0324**, unless it comes
+  from `Take`. With a `Deref` in the projections it emits `Move` and the moves
+  pass reports E0310. Receivers, builtin operands, `Ref` and `DeepCopy` use
+  `as_place` and are not moves (R17).
+- B11. *Two-phase.* A method receiver's `&mut` borrow is `Mut { two_phase:
+  true }`; every other borrow has `two_phase: false`.
 
 **Lowering table.** `⟦e⟧ → op` means "emit statements, produce an operand".
 
@@ -575,63 +632,57 @@ enum Breakable {
 | `Field(e, f)` | place `as_place(e)` + `Field(f)`; if `e` is a borrow, insert `Deref` first (R4) |
 | `Neg/Not/BitNot(e)` | `_t = Neg(⟦e⟧)` → `Copy(_t)` |
 | `Binary(op, l, r)` | `a = ⟦l⟧; b = ⟦r⟧; _t = Binary(op, a, b)` |
-| `Binary` on strings (`+`, `==`, `<` …) | `_a = &⟦l⟧place; _b = &⟦r⟧place; _t = call rt(copy _a, copy _b)` (R2) |
+| `StrCall(f, args)` (also `+`, `==`, `<` … on strings) | each string arg is a place: `_a = &place`; `_t = call Str(f)(copy _a, …)` (R2) |
 | `Shift`, `IntPow`, `Convert` | as `Binary` |
 | `Logic { and, l, r }` | `_t = ⟦l⟧; If _t → bbR / bbJ`, `bbR: _t = ⟦r⟧; goto bbJ` (for `||` the branches swap). Short-circuit is control flow. |
-| `IncDec { local, inc, prefix }` | `_old = copy _l; _l = Binary(Add/Sub, copy _l, 1)`; value is `_old` (postfix) or `copy _l` read into a temp (prefix) |
+| `IncDec { place, inc, prefix }` | `_old = copy place; place = Binary(Add/Sub, copy place, 1)`; value is `_old` (postfix) or `copy place` read into a temp (prefix) |
 | `Call(f, args)` | each arg `⟦a⟧` left to right (borrowed params: B3); `_t = call f(args) -> bbNext` |
-| method call `recv::m(args)` (b) | receiver: `as_place(recv)` (temp if not a place); `_s = &place` or `&mut place` by `modes[m]` (if `recv` is already a borrow: `&(*recv)` / `&mut (*recv)`, a reborrow); then args; `call m(copy/move _s, args)`. A `static` method has no receiver. |
-| `Borrow { mutable, e }` | `_t = Ref(Shared/Mut, as_place(e))`; on a non-place `e`, materialise a temp first (lifetime of that temp: Q13) |
-| `DeepCopy(e)` | Copy type: same as `⟦e⟧` (W0322 if Q11 says so); else `_t = DeepCopy(as_place(e))` |
+| method call `recv::m(args)` (b) | receiver: `as_place(recv)` (temp if not a place); `_s = &place` or `&mut place` by `modes[m]` (if `recv` is already a borrow: `&(*recv)` / `&mut (*recv)`, a reborrow); then args; `call m(copy/move _s, args)` (B11). A `static` method has no receiver. |
+| `Borrow { mutable, e }` | `_t = Ref(Shared/Mut, as_place(e))`; on a non-place `e`, materialise a temp first (its lifetime: B9) |
+| `DeepCopy(e)` | `e` is a place; a borrow place is read through first (`copy r` copies the target, Q11): `_t = DeepCopy(place)`. A Copy result was already warned (W0322) and lowers as a plain copy |
 | `Deref(e)` | place `as_place(e)` + `Deref` |
+| `Take { place, leaving: None }` | `_t = Use(Move(place))`; value `Move(_t)`; the place is now uninitialised (3.1) |
+| `Take { place, leaving: Some(v) }` | `_t = Use(Move(place)); _v = ⟦v⟧; place = Use(move _v)` (no `Drop`: the place is uninitialised); value `Move(_t)` |
+| `Lend(e)` | `_t = Ref(Mut{two_phase:false}, (*as_place(e)))`, a reborrow; value `Move(_t)` |
+| `AddressOf(e)` | `_t = RawRef(as_place(e))` |
+| `NullPtr` | `Const(Int(0, ptr type))` |
 | struct construction (b) | each field value `⟦v⟧` in *source* order into temps; `_t = Aggregate(S, ops in field order)` |
-| `Out { newline, arg }`, `Text` | runtime calls (`RtFn`), arguments borrowed (R2) |
-| `f"..${e}.."` (a) | the runtime calls branch (a) chose, all inputs borrowed |
-| `StmtKind::Let(l, Some(e))` | `StorageLive(_l)`; `_l = Use(⟦e⟧)` |
-| `StmtKind::Let(l, None)` | `StorageLive(_l)` only |
-| `StmtKind::Assign(p, e)` | B6 |
-| `StmtKind::Expr(e)` | `⟦e⟧`, result discarded: a temp with drop glue is dropped at the end of the statement (B4) |
-| `If(c, a, b)` | `_c = ⟦c⟧; If _c → bbA / bbB`; each branch in its own scope; both `goto bbJoin`. Push an `IfLevel` per chain level (below) |
-| `While(c, body)` | `goto bbHead; bbHead: _c = ⟦c⟧; If _c → bbBody / bbExit`. Literal `true`: `goto bbBody` instead (R7). Body in a `LoopBody` scope; ends with `goto bbHead`. Push `Wall` and `Loop { break_to: bbExit, continue_to: bbHead }` |
+| `Out { newline, arg }`, `Text`, `Radix` | `Callee::Out/Text/Radix`, string argument borrowed (R2) |
+| `Join(parts)` (interpolation, `io::outf`) | `Callee::Join`, every part a `&string` temp |
+| `Stmt::Decl(l)` | `StorageLive(_l)`; register `l` in the current frame |
+| `Stmt::Assign(p, e)` (initializer or later) | B6 when the type needs drop, else `p = Use(⟦e⟧)`; a call result goes through a temp (B7) |
+| `Stmt::Unsafe(block)` | like `Unsafe(block)` below |
+| `Stmt::Expr(e)` | `⟦e⟧`, result discarded: a temp with drop glue is dropped at the end of the statement (B4) |
+| `If`, `Loop`, `Jump`, `match` | see "Control flow" below |
 | `Return(e)` | `_0 = Use(⟦e⟧)` (moves the value out, so it is not dropped); drops of all frames (B5); `Return` |
 | `Unsafe(block)` | `unsafe_depth += 1` while lowering; every statement/terminator built gets `unsafe_ctx = true` |
 | end of function body | if `cur` is reachable: drops of the function frame; `Return` for `none` functions, else `Unreachable` (E0105 is reported by WP2 using CFG reachability, see 3.1.5) |
 
-**Control flow from branch (c)** (port the lowering logic (c) wrote for the
-backends; the rules are SPEC §3):
+**Control flow.** typeck already lowered `for`, `while`, `break N`, `continue
+N`, `skip` and `match` to `Stmt::If / Loop / Jump`, every jump naming its
+target by label (control.rs), so the builder does no level counting. A `Jump`
+first emits `Drop`/`StorageDead` for every scope frame above the target's
+`scope_depth` (innermost first), then `goto`.
 
-| HIR (c) | MIR |
+| HIR | MIR |
 |---|---|
-| C-style `for (init; cond; step) body` | new scope for `init`; `goto bbHead; bbHead: cond → bbBody / bbExit`; body; `goto bbStep; bbStep: step; goto bbHead`. `continue` goes to `bbStep`. No cond: `goto bbBody` (R7). |
-| `for (T x of range)` | iteration state in temps (current, end, done flag, inclusive ranges need the done flag to avoid overflow at the maximum); each iteration: `StorageLive(_x); _x = copy _cur;` body; `Drop/StorageDead(_x)` at the end of the body and on `continue`/`break`. |
-| `for (string c of s)` | `_it = &s` (a shared borrow, so `s` cannot change during the loop); each iteration the runtime call that (c) used writes a fresh owned one-character string into `_c` (or the loop ends); `_c` is dropped at the end of each iteration unless moved. |
-| `break N` / `continue N` | find the N-th `Loop` on the `breakables` stack (counting outward); emit drops for every scope frame above its `scope_depth`; `goto break_to / continue_to`. |
-| `skip N` / `skip` / `skip to next` | find the target `IfLevel` (SPEC §3: count outward from the innermost; bare `skip` = outermost level inside the nearest `Wall`; `skip to next` = innermost level's `next_branch`); drops for scopes above its `scope_depth`; `goto exit / next_branch`. The compile errors (N too large, no next branch) are reported where (c) reports them; keep their codes. |
-| `match (x)` on numbers/bools | `_d = ⟦x⟧`; `FakeRead`; `Switch { discr: _d, cases, otherwise }` for value cases; ranges and mixed patterns become a chain of compare-and-branch blocks. Each case body is a scope and an `IfLevel` whose `next_branch` is the next case's test block. |
-| `match (s)` on strings | `_d = as_place(s)` (not moved); `_b = &_d` once; each case: runtime equality/glob call on `copy _b` → `If`. |
-
-> **LOOK FIRST (c):** how (c) lowered `skip`, `break N` and `match` in each
-> backend, and which runtime functions do string iteration and globbing.
-> The MIR builder must give exactly the same behaviour; (c)'s golden tests
-> are the acceptance test (WP4).
-
-**If-chain levels in detail.** For `if (a) {A} else if (b) {B} else {C}`
-the builder creates `bbTestA, bbA, bbTestB, bbB, bbC, bbJoin`. While
-lowering `A` it pushes `IfLevel { exit: bbJoin, next_branch: Some(bbTestB) }`;
-while lowering `B`: `next_branch: Some(bbC)`; while lowering `C`:
-`next_branch: None`. A nested `if` inside `A` pushes its own level on top.
+| `If { label, branches }` | blocks `test_k`, `body_k` per branch, and `exit`. `test_k`: `_c = ⟦test⟧; If _c → body_k / test_{k+1}` (last one: `/ exit`); a branch with no test goes straight to its body; each body is an `IfBranch` scope ending with `goto exit`. `Target::If { exit, tests, depth }` is live while lowering the bodies |
+| `Loop { label, cond, body, step }` | `goto head; head: cond → body / exit` (no cond: `goto body`, R7); body in a `LoopBody` scope, then `goto stepbb; stepbb: step; goto head`. `Target::Loop { exit, step, depth }` |
+| `Jump::Break(l)` / `Continue(l)` | drops, then `goto exit` / `goto step` |
+| `Jump::Leave(l)` / `Next(l, n)` | drops, then `goto exit` / `goto tests[n]` |
+| `match` | already an `If` chain of comparisons (numbers and bools only), so `Switch` is never emitted. Looping over a string and `match` on a string are `E0901` in typeck (control.rs:481, 613): nothing to lower |
 
 #### Worked example 1
 
 ```cpp
 in io;
 
-none take(string s) { io::outln(s); }
+none consume(string s) { io::outln(s); }
 
 none main() {
     string a = "hi";
     if (a::isEmpty()) {
-        take(a);
+        consume(a);
     }
     io::outln("done");
 }
@@ -653,7 +704,7 @@ bb0:
 bb1:
   If copy _3 -> bb2, bb3
 bb2:
-  call take(move _1) -> bb3
+  call consume(move _1) -> bb3
 bb3:
   call OutStr(const "done", const true) -> bb4
 bb4:
@@ -675,7 +726,7 @@ bb0:
   ...
 bb2:
   _4 = const false
-  call take(move _1) -> bb3
+  call consume(move _1) -> bb3
 ...
 bb4:
   Drop(_1) if _4
@@ -696,32 +747,31 @@ ordinary `Return` with scope drops.
 pub fn needs_drop(ty: Type, cx: &Cx) -> bool {
     match ty {
         Type::Str => true,
-        Type::Struct(s) => cx.structs[s].fields.iter().any(|f| needs_drop(f.ty, cx)),
-        _ => false,       // numbers, bool, none, &T, &mut T, *T
+        Type::Struct(s) => cx.structs[s].has_drop.is_some() || cx.structs[s].fields.iter().any(|f| needs_drop(f.ty, cx)),
+        _ => false,       // numbers, bool, none, &T, &mut T, *T (raw pointers are never dropped)
     }
 }
 ```
 
-`is_copy(ty)`: numbers, `bool`, `none`, `&T` → true; `&mut T`, `Str` →
-false; `*T` → pending Q15 (until answered: true, matching C pointers, and
-note it in the PLAN); `Struct(s)` → every field `is_copy`, no field (at any
-depth) is a `*T` (S10), and `layout.size <= 32` (S5; padding question: Q12).
-Compute once per struct, memoised; struct fields cannot contain the struct
-itself by value, so the recursion ends.
+`is_copy(ty)`: numbers, `bool`, `none`, `&T` → true; `&mut T`, `*T`, `Str` →
+false (Q15); `Struct(s)` → `StructDef.copy`, computed once in typeck next to
+`lay_out`: not `stays`, no `drop()` (R16), every field `is_copy`, and `size <=
+32` where `size` is `StructDef.size`, the memory size including tail padding
+(Q12: reordering fields can change Copy-ness). A `*T` or `&mut T` field makes
+the struct non-Copy through the fields rule (S10 follows). Struct fields cannot
+contain the struct itself by value, so the recursion ends.
 
-**Layouts.** One `Layouts` table (`src/layout.rs`), computed once with C rules
-(size, alignment, field offsets; `uint128`/`sint128` align 16, `bool` 1
-byte, `string` 24/8, borrows and pointers 8/8). Both backends read it. The C
-backend also emits, after each struct definition,
-`_Static_assert(sizeof(S) == N && offsetof(S, f) == K, "layout");` so that a
-disagreement between the table and the C compiler fails the build instead of
-corrupting memory. **LOOK FIRST (b):** branch (b) has a layout function;
-move it here if it is inside one backend.
+**Layouts.** Already shared: `hir::layout` and `StructDef.size / align /
+FieldDef.offset` (hir.rs:44-110) are computed once in typeck (typeck.rs:541)
+and read by both backends; there is no new table. The C backend adds
+`_Static_assert(sizeof(S) == N && offsetof(S, f) == K, "layout");` after each
+struct definition so a disagreement with the C compiler fails the build.
 
 **Glue functions**, generated once per struct type that needs them, by a
 shared module `src/glue.rs` that both backends call to get a description:
 
-- `drop_glue(S)`: for each field in declaration order (R5) that needs drop:
+- `drop_glue(S)`: if `S` has a user `drop()`, call it first with the address
+  of the value; then for each field in declaration order (R5) that needs drop:
   drop it (`drachm_str_drop(&p->f)` or the field struct's glue).
 - `copy_glue(S)`: field by field: Copy fields bitwise, strings with
   `drachm_str_copy`, struct fields with their glue.
@@ -772,13 +822,13 @@ is a register value.
   never writes to its source.
 - `Drop { place, flag: Some(f) }`: `brif f, bbDrop, bbAfter`, glue call in
   `bbDrop`. `flag: None`: glue call inline.
-- `Call`: arguments by the ABI from branch (b) (by value, or by pointer for
-  large aggregates). **`Move` of a by-pointer aggregate argument passes the
-  address of the source place itself, with no copy**: the source is dead
-  after the move, so the callee may own and even write that memory. `Copy`
-  of a by-pointer aggregate (a Copy struct over the by-pointer threshold)
-  copies into a fresh stack slot first, because the callee may change a `mut`
-  parameter. String results are written through the out-pointer `addr(dest)`.
+- `Call`: today's ABI (Appendix A, A3): every string or struct argument is a
+  pointer to a fresh copy that the callee takes over; a string or struct result
+  is written through a hidden first pointer (codegen.rs:55, 974). With MIR, a
+  `Move` of such an argument passes the **address of the source place itself**,
+  with no copy (the source is dead afterwards); a `Copy` first copies into a
+  fresh stack slot, because the callee may change a `mut` parameter. The C
+  backend passes strings and structs by value, `self` by pointer (cgen.rs:123).
 - `Unreachable` → `trap(TrapCode::unwrap_user(1))` (as today's dead end).
 - `Panic(k)` → call `drachm_panic(msg)`, then `trap`.
 
@@ -979,33 +1029,34 @@ When a use fails, find *why*:
 Report each move path at most once per function (keep a `reported:
 BitSet<MovePathId>`), as today ("one report per binding is enough").
 
-#### 3.1.4 Partial moves (decided here, owner may override: Q7)
+#### 3.1.4 Partial moves: `take` (Q7)
 
-**Allowed:** moving a field out of a struct held in an owned local or
-parameter, at any depth (`string n = p.name;`, `take(p.inner.name);`). After
-that:
+Moving a field out of a struct you own says `take`: `string n = take p.name;`.
 
-- `p.name` and anything inside it are unusable (E0301) until reassigned;
-- other fields stay usable (`p.hp` is fine);
-- `p` as a whole is unusable (E0301, "after `p.name` moved") until `p.name`
-  is reassigned or `p` is reassigned;
-- `p.name = …` re-initialises the field;
-- at the end of the scope only the remaining fields are dropped (3.3).
+- A plain use of a non-Copy field of an owned path as a value to move
+  (`string m = p.name;`, a by-value argument, `return`, ...) is **E0324** from
+  the builder (B10, R17); fix-it "write `take p.name` or `copy p.name`".
+- `take place` is a `Move` of that move path (any depth, no `Deref`). Then
+  `p.name` and everything inside it is unusable (E0301) until reassigned; other
+  fields stay usable; `p` as a whole is unusable (E0301, partial variant) until
+  `p.name` or `p` is reassigned; `p.name = …` re-initialises; at scope end only
+  the fields that still hold values are dropped (3.3).
+- `take p.title leaving v`: move, then re-initialise in the same statement, so
+  `p.title` stays usable (R15).
+- A struct with `drop()`: plain `take x.f` is **E0325**; `take x.f leaving v`
+  is allowed and the struct stays complete (Q17).
+- Not allowed: moving out through a borrow, `self` included (`return
+  self.name;` is E0310 with the Q8b help `return copy self.name;`), or through
+  a raw pointer (E0310, "use `copy`"). Plain `take` through a borrow is E0310
+  too; `take … leaving` through a borrow, `take` of a Copy field or of a whole
+  local, and `take` of a non-place (E0327) are in the "Still open" list or
+  E0327.
+- Methods never consume `self` (Q8): there is no by-value `self`.
 
-**Not allowed:**
-
-- moving out through a borrow, including out of `self` (E0310): the owner
-  expects the value to be whole when the borrow ends;
-- moving out through a raw pointer (E0310, "use `copy`"): nothing tracks it;
-- moving out of a struct that has a user destructor, should Q17 add them.
-
-*Justification.* Move paths are per field anyway (the analysis needs them for
-`p.name = …` writes), so allowing partial moves costs nothing in the checker
-and nothing at runtime: the remaining fields' drops are decided statically or
-with one flag per moved field. Forbidding it would force users to `copy`
-fields out of structs they own and are about to throw away, which is exactly
-the copying step 3 exists to remove. Moving out of borrows must stay an
-error, because the lender would later drop or read a hole.
+*Justification.* Move paths are per field anyway, so partial moves cost nothing
+in the checker or at run time. Spelling them `take` makes the hole visible in
+the source, and keeps accidental field moves from silently leaving a struct
+half-empty.
 
 #### 3.1.5 Missing return (E0105)
 
@@ -1035,7 +1086,8 @@ Compute SCCs once per body (Tarjan, `mir/traversal.rs`).
 The builder decides `Copy` vs `Move` per operand from `is_copy(type)` (2.7).
 There is no separate pass. `copy x` on a non-Copy type becomes
 `Rvalue::DeepCopy(place)`, which *uses* `x` (it must be initialised and not
-`&mut`-borrowed) but does not move it. `DeepCopy` of a type that contains a
+`&mut`-borrowed) but does not move it. For a borrow `r`, `copy r` is `DeepCopy((*r))`: an owned
+copy of the target (Q11). `DeepCopy` of a type that contains a
 `&mut T` field is E0315 (the copy would be a second `&mut`).
 
 ### 3.3 Drop elaboration
@@ -1050,8 +1102,11 @@ which returns the replacement statements:
 ```text
 elaborate(p, loc):
     if !needs_drop(type(p)):              return []
-    if p has child move paths:            // someone moved/assigned a field separately
-        // No user destructors (Q17): dropping a struct is dropping its fields.
+    if p has child move paths and !has_drop(type(p)):   // someone moved/assigned a field separately
+        // A type with a user `drop()` is never opened: it is whole at every Drop
+        // (plain `take` is E0325; `leaving` re-inits in the same statement), so one
+        // Drop of the whole value runs `drop()` and then the fields. Otherwise
+        // dropping a struct is dropping its fields.
         return concat(for each field f of type(p) in declaration order:
                         elaborate(child(p, f), loc))
             // child(p, f) is f's move path if it exists, otherwise a virtual
@@ -1101,7 +1156,7 @@ struct Player { string name; string title; mut uint32 hp; }
 none main() {
     Player p = "Illy", "Dr", 10;
     if (p.hp > 5) {
-        take(p.name);
+        consume(take p.name);
     }
 }
 ```
@@ -1127,10 +1182,10 @@ bb_end:
   callee arguments.
 - Kill (def): `Assign(_l, …)` and call `dest = _l` to a **whole** local with
   no projection; `StorageDead(_l)`.
-- `Drop(p)` is **not** a use for region liveness: dropping a string or a
-  struct never reads what any borrow inside it points to (there are no user
-  destructors; Q17 would change this into "drop-liveness": a drop of a value
-  with a destructor would keep its regions live).
+- `Drop(p)` is **not** a use for region liveness, except when `type(p)` has a
+  user `drop()` (itself or in a field): then it is a use of `p`, so the borrows
+  a struct holds stay live until its drop point (drop-liveness, Q17). Strings
+  and plain structs never read through their borrows when dropped.
 
 Results are needed per point. Store the block-end sets and recompute inside
 a block by walking backwards (cheap; bodies are small). The borrow checker
@@ -1332,22 +1387,22 @@ borrows across calls).
 Shared borrows of the same place never conflict, and copying a `&T` is a
 Read of the borrow variable, which never conflicts with the loan it holds.
 
-**Two-phase borrows (pending Q4).** If the owner allows arguments that read
-what the receiver changes (`s::insert(s::len(), "!")`-style calls on a
-mutating method), mark the receiver borrow and explicit `&mut` call
-arguments `Mut { two_phase: true }`. Such a loan is *reserved* from its
-creation until its *activation*: the first use of the temp that holds it
-(always the call, by construction). While reserved it conflicts like a
-Shared loan; at activation, check a MutBorrow of its place against all
-other loans in scope. If Q4 says no, `two_phase` is always false and the
-example is E0304. Implement the flag either way (it is ten lines); the
-builder just never sets it.
+**Two-phase borrows (Q4: allowed).** The implicit `&mut` borrow of a method
+receiver is `Mut { two_phase: true }`: *reserved* from its creation until its
+*activation* (the first use of the temp that holds it, always the call). While
+reserved it conflicts like a Shared loan, so `s::append(s::len()::text())` is
+fine (the arguments only read `s`). At activation it is checked as a MutBorrow
+of its place against all other loans in scope, so `xs::push(xs::first())` is
+an error (E0302, "change attempted here"; the borrow returned by `first` is
+still used by the call). Explicit `&mut x` arguments are not two-phase (R13).
 
-**Reborrows.** Passing on a borrow (Q3) lowers to `_t = &mut (*r)` (or
+**Reborrows.** Passing on a borrow you hold (`lend r`, Q3) lowers to `_t = &mut (*r)` (or
 `&(*r)`): a new loan of the place `*r`, with constraint C3 tying it to `r`'s
 region. While `_t` is live, `r` itself is MutBorrow'ed through its deref, so
 using `r` directly is E0304; after the call `_t` is dead and `r` is usable
-again. This is what makes `&mut` parameters usable more than once in a body.
+again. This is what makes `&mut` parameters usable more than once in a body. A bare
+`&mut` local passed or assigned (`f(r)`, `&mut string r2 = r;`) is a `Move`,
+not a reborrow (Q15): `r` is used up.
 
 #### 3.5.7 Explaining an error
 
@@ -1479,7 +1534,7 @@ call graph's SCCs** (Tarjan over `Callee::Func` edges): callees first.
   check the body: `required ⊆ declared` else E0309 (naming the extra
   parameter and labelling the return that causes it, 3.6.5).
 - A function without a clause, alone in its SCC: compute `required`; then
-  (pending Q9, the rule from PLAN item 6 is shown):
+  (Q9: body-derived):
   - `|required| == 0` and the result has slots: the result borrows nothing
     that outlives the call → the body necessarily returns a borrow of a local
     or a temporary → E0307 has already been reported by the loan check;
@@ -1496,22 +1551,21 @@ call graph's SCCs** (Tarjan over `Callee::Func` edges): callees first.
 #### 3.6.4 `lives` on structs
 
 `struct Parser lives src { &string src; uint32 pos; }` declares the struct's
-**region parameters**: one per name after `lives`. What exactly the name
-denotes is **Q10**; the machinery handles any number of region parameters,
-each attached to one or more borrow fields:
+**region parameters**, one per name after `lives`. Each name is a **borrow
+field of the struct itself** (Q10), and different fields may borrow from
+different places: `struct Pair lives a, b { &string a; &string b; }`.
 
-- Every field type's borrow slots must be attached to a region parameter.
-  A struct with a borrow field and no `lives` clause → E0314. A `lives` name
-  attached to no field → E0314 ("`lives x` names nothing this struct
-  borrows").
-- A field whose type is another struct with region parameters
-  (`Lexer lives src { Parser p; }`) maps that struct's parameters to the
-  outer struct's.
-- Variance per parameter: 3.5.3.
-- A struct value's region slots (2.4) are its parameters, in `lives` order.
-
-A function parameter `Parser p` then has one universal region per parameter
-of `Parser`, named `p.src` in messages.
+- The `lives` list must name exactly the fields whose type is a borrow. A
+  borrow field not listed, or a name that is not a borrow field → E0314.
+  The list order is the slot order.
+- A borrow field's type may be `&T` / `&mut T` with `T` having no region slots.
+  A field whose type is a struct with `lives`, a borrow of one, or anything
+  with two or more slots → `E0901` (Still open).
+- Variance per parameter: 3.5.3. A struct value's region slots (2.4) are its
+  parameters, in `lives` order. A function parameter `Parser p` has one
+  universal region per parameter, named `p.src` in messages.
+- On functions, `lives` names whole parameters only (`lives p`), never paths
+  (Q10ii). Clause order: R14.
 
 #### 3.6.5 Explaining `lives` errors
 
@@ -1574,16 +1628,15 @@ body. A *self place* is a place expression whose root is `self`, with field
 projections (and derefs of borrow fields).
 
 1. An assignment, compound assignment or `++`/`--` whose target is a self
-   place, **unless** the place reaches a `mut` field before any `Deref`
-   (S8/R1; if Q5 decides that `mut` fields are not writable through `&`,
-   remove this exception). A write *through* a `&mut` field (`*self.out = …`)
+   place, with **no exception for `mut` fields**: `self` is a borrow, and through a
+   borrow everything is read-only (Q5, R1). A write *through* a `&mut` field (`*self.out = …`)
    counts: a `&mut` stored in `self` can only be used through a unique path.
 2. `&mut <self place>` anywhere (as a call argument or a binding).
 3. A method call whose receiver is a self place and whose callee is
    currently `Mut` (including built-in mutating methods, none in step 3).
 
-Moving out of a self place is not evidence; it is E0310 at MIR time (or a
-consuming method, Q8).
+Moving out of a self place is not evidence; it is E0310 at MIR time. There
+are no consuming methods (Q8).
 
 **Fixpoint across methods** (mutual recursion, and methods of one struct
 calling methods of a field's struct):
@@ -1601,6 +1654,11 @@ while let Some(m) = worklist.pop():
 This is the least fixpoint: two methods that only call each other stay
 `Shared`. It terminates because modes only go from Shared to Mut.
 
+A method named `drop` is always `Mut` (reserved name, called with exclusive
+access). `changes self` (Q16) is written only on interface methods and matters
+in step 6 (a struct's method may not change more than its interface allows);
+nothing in step 3 reads it.
+
 **Using the result.**
 
 - The MIR builder types `self` as `&Self` or `&mut Self` and emits receiver
@@ -1612,10 +1670,10 @@ This is the least fixpoint: two methods that only call each other stay
 - The language server (step 8) shows the mode as an inlay hint; keep the
   `Vec<Option<SelfMode>>` in `Checked`.
 
-> **LOOK FIRST (b):** how (b) passes `self` today (always a pointer, as
-> PLAN's "by-pointer ABI" suggests) and whether its typeck already rejects
-> writes to non-`mut` fields of `self`. If it does, that check moves to MIR
-> (3.8), because whether `self` is writable is now inferred, not fixed.
+> Present code (A7, A8): `self` is parameter 0 (`has_self`), always by address;
+> typeck already runs this fixpoint on the HIR (`SelfUse`, typeck.rs:59;
+> `report_fixed_receivers`, typeck.rs:586; `check_field_change`, typeck.rs:1367).
+> WP3 moves that logic into `ownership/self_mode.rs` with the changes above.
 
 ### 3.8 Mutability
 
@@ -1632,7 +1690,7 @@ fn changeable(place: &Place, body: &Body) -> Changeable {
             Fixed if param => NoParam(place.local),
             Fixed => NoBinding(place.local),
         },
-        Some(Field(f)) if field_is_mut(parent_type, f) => Yes,   // S8; Q5 may restrict this through `&`
+        Some(Field(f)) if field_is_mut(parent_type, f) && !has_deref(parent) => Yes,  // S8: only on a value you own (Q5)
         Some(Field(_)) => changeable(parent),
         Some(Deref) => match type(parent) {
             Ref { mutable: true, .. } => Yes,   // the &mut itself need not be in a `mut` binding
@@ -1648,10 +1706,13 @@ Checks:
 | Operation | Requirement | Error |
 |---|---|---|
 | `Assign(_l, …)` whole local | `Mut`; or first assignment of a `Fixed`/`Open` non-param (3.1.6) | E0205 (all variants) |
-| `Assign(p.f…, …)` (write with projections) | `changeable(p.f…) == Yes`; for an `Open` root: pending Q6 | E0205 (binding root), E0311 (through `&`) |
+| `Assign(p.f…, …)` (write with projections) | `changeable(p.f…) == Yes` (an `Open` root counts: field writes are allowed, Q6) | E0205 (binding root), E0311 (through `&`) |
 | `Ref(Mut, p)` | `changeable(p) == Yes` | E0312 (binding root), E0311 (through `&`) |
 | receiver of a `Mut` method | as `Ref(Mut, …)`, but message names the method and the self-mode reason | E0312 / E0311 |
-| `IncDec`, compound assignment | as assignment of the place | E0205 / E0311 |
+| `IncDec`, compound assignment | as assignment of the place (on a borrow: through it, R18) | E0205 / E0311 |
+| `r = <borrow>` (re-point a borrow binding, R18) | the binding is `Mut` (or a first late-init assignment) | E0205 |
+| `r = <non-borrow>` (write through `*r`) | `r` is a `&mut` | E0311 |
+| `RawRef(p)` (`address of p`) | `changeable(p) == Yes` | E0901 (Still open) |
 
 `mut open` on one binding: W0323 at the parse/typeck level (it is syntax).
 
@@ -1683,10 +1744,11 @@ Checks (pass `unsafety`, MIR, using `Statement::unsafe_ctx` and
 
 | Thing | Needs |
 |---|---|
-| the `unsafe { }` block itself | the file flag, else E0317 at the `unsafe` keyword (once per block) |
-| writing the type `*T` anywhere | the file flag, else E0317 (typeck reports it, at the type) |
-| `Deref` of a `*T` place (read or write) | `unsafe_ctx`, else E0316 |
-| making a pointer (`RawRef`) and copying one | pending Q14 |
+| an `unsafe { }` block, an `unsafe` function declaration, a `*T` type written anywhere, `address of` | the file flag, else E0317 (typeck, once per site) |
+| `RawRef` (`address of`), `Deref` of a `*T` (read or write), `DeepCopy` of a `*T` (`copy p`), a `*T` operand of `==` / `!=`, the constant `none` as a pointer | `unsafe_ctx`, else E0316 |
+| a call of an `unsafe` function | `unsafe_ctx`, else E0316 (call variant) |
+| any other pointer-typed operand (move, pass, return, declare) outside `unsafe_ctx` | `E0901` (Still open) |
+| an unsafe operation inside an `unsafe` function but outside a block | `E0901` (Still open: whether the body counts as unsafe) |
 
 Borrow checking ignores places with a `Deref` of a `*T` in their prefix
 (they create no loans that matter: C3 stops; conflicts are not checked for
@@ -1695,9 +1757,11 @@ such accesses), and moving out through one is E0310 (R9).
 ---
 ## 4. Diagnostics
 
-**Every text in this section is a DRAFT** for the owner to approve (PLAN step
-3 "Open"). E0301 and E0302 are fixed by the SPEC (code and E0302's layout);
-their wording beyond the SPEC example is also a draft.
+**Wording written by the implementer; owner review pending (Q19).** Treat the
+texts as final for implementation; the table at the end of this section lists
+every message line for the review. E0301 and E0302 are fixed by the SPEC (code
+and E0302's layout); their wording beyond the SPEC example is also by the
+implementer.
 
 Conventions, matching SPEC §6 and today's `typeck.rs` messages:
 - message: lower case, what went wrong, names in backticks;
@@ -1738,8 +1802,13 @@ step needs (file flags, `mut open`), so that parallel branches adding
 | W0319 | unknown file flag | flags |
 | E0320 | borrow stored into another parameter | lives |
 | E0321 | missing `&` / `&mut` at the call site | typeck |
-| W0322 | `copy` of a value that copies anyway | typeck (pending Q11) |
+| W0322 | `copy` of a value that copies anyway | typeck |
 | W0323 | `mut open` is redundant | parser/typeck |
+| E0324 | field moved without `take` | builder (B10) |
+| E0325 | `take` on a struct with `drop()` | builder |
+| E0326 | `lend` of something that is not a `&mut` you hold | typeck |
+| E0327 | `take` / `copy` / `address of` of something that is not a variable or field | typeck |
+| E0328 | `drop` has the wrong shape | typeck (declarations) |
 
 Existing codes whose reporting moves to MIR with unchanged texts: E0105,
 E0205, E0207. E0205 gains one variant for `open` (below).
@@ -1772,6 +1841,11 @@ Variants (same code):
   `copy p.name`".
 - maybe moved: label "`name` moved here, on some paths" when the use is
   reachable without passing the move.
+- a `&mut` borrow moved (`f(r)` or `&mut string r2 = r;`): label "`r` (a `&mut`
+  borrow) moved here"; help "to keep using `r` afterwards, pass it on with
+  `lend r`".
+- a `stays` struct: help "`Handle` is marked `stays`, so it never copies
+  automatically; write `copy h`".
 
 Explain: values of types that do not copy automatically move on assignment,
 pass and return; the source cannot be used again until given a new value.
@@ -1840,12 +1914,12 @@ error[E0305]: cannot move `name` while it is borrowed
    |
  5 |     &string first = &name;
    |                     ----- `name` is borrowed here
- 6 |     take(name);
+ 6 |     consume(name);
    |          ^^^^ moved here
  7 |     io::outln(first);
    |               ----- the borrow is still used here
    |
- help: finish using `first` before moving `name`, or move a copy: `take(copy name)`
+ help: finish using `first` before moving `name`, or move a copy: `consume(copy name)`
 ```
 
 ### E0306 does not live long enough
@@ -1890,7 +1964,7 @@ point at something it owns".
 
 ### E0308 missing `lives`
 
-As in worked example 4 (3.6). Pending Q9, which may change when this fires.
+As in worked example 4 (3.6). It fires only when several parameters could be the source (Q9).
 
 ### E0309 `lives` does not match the body
 
@@ -1924,7 +1998,10 @@ error[E0310]: cannot move `p.name` out of a borrow
  help: return a copy: `return copy p.name;`
 ```
 
-For `self`: secondary label "`self` is borrowed by `nameOf`" (pending Q8).
+For `self` (Q8b): message "cannot move `self.name` out of a borrow", secondary
+label "`self` is borrowed by `nameOf`", help "`self` is borrowed; write `return
+copy self.name;`". `take self.name` gets the same message with help "`take`
+cannot move out of a borrow; write `copy self.name`".
 For a raw pointer: "cannot move out through a raw pointer"; same help.
 
 ### E0311 cannot change through a `&` borrow
@@ -1983,7 +2060,7 @@ error[E0205]: cannot reassign `xs`: it is `open`, not `mut`
 error[E0313]: cannot give `p.hp` a value: `p` has moved
   --> main.drh:4:5
    |
- 3 |     take(p);
+ 3 |     consume(p);
    |          - `p` moved here
  4 |     p.hp = 5;
    |     ^^^^ assigned here
@@ -2003,8 +2080,8 @@ error[E0314]: `Parser` holds a borrow, so it must say what it borrows from
  help: add `lives src`: `struct Parser lives src { ... }`
 ```
 
-Variant: "`lives x` names nothing `Parser` borrows" (the exact form depends
-on Q10).
+Variants: "`lives x` names nothing `Parser` borrows" (`x` is not a borrow
+field); "field `b` is a borrow, but `lives` does not name it" (help: add `b`).
 
 ### E0315 cannot copy a value holding `&mut`
 
@@ -2030,6 +2107,10 @@ error[E0316]: reading through a raw pointer needs an `unsafe { }` block
    |
  help: wrap it: `unsafe { v = *p; }`, and check that `p` points at a live `uint32`
 ```
+
+Other operations get the same code with their own label: `address of n`
+("makes a raw pointer here"), `copy p`, `p == none`, `none` as a pointer, and
+calling an `unsafe` function ("`cycles` is an `unsafe` function").
 
 ### E0317 `unsafe` without the file flag
 
@@ -2084,314 +2165,213 @@ error[E0321]: `grow` takes `&mut string` here, so the call must say so
  help: write `grow(&mut xs)`
 ```
 
-For `&` parameters this depends on Q2 (if shared borrows are automatic, the
-`&` variant never fires).
+The same for `&` parameters (Q2): "`show` takes `&Player` here, so the call
+must say so", help "write `show(&p)`". Passing a `&mut` borrow where a `&` is
+expected is `E0901` (Still open).
+
+### E0324 field moved without `take`
+
+```text
+error[E0324]: cannot move `p.name` out of `p` without `take`
+  --> main.drh:5:19
+   |
+ 5 |     string m = p.name;
+   |                ^^^^^^ this would leave `p` without a name
+   |
+ help: write `take p.name` to move it out, or `copy p.name` to keep both
+```
+
+Note: after `take`, `p.name` has no value until it is given a new one.
+
+### E0325 `take` on a struct with `drop()`
+
+```text
+error[E0325]: cannot take `f.path` out of a `File`: it has a `drop()`
+  --> main.drh:6:18
+   |
+ 1 | struct File { string path; none drop() { } }
+   |                            ---- `drop` runs when a `File` is destroyed, so it must stay whole
+ 6 |     string s = take f.path;
+   |                ^^^^^^^^^^^ taken here
+   |
+ help: put a value back in the same statement: `take f.path leaving ""`
+```
+
+### E0326 `lend` needs a `&mut` you hold
+
+```text
+error[E0326]: `lend` passes on a `&mut` borrow you hold, and `n` is not one
+  --> main.drh:3:9
+   |
+ 2 |     uint32 n = 1;
+   |     ------ `n` is a `uint32`, not a `&mut`
+ 3 |     add(lend n);
+   |         ^^^^^^ nothing to pass on
+   |
+ help: to lend `n` itself, write `add(&mut n)`
+```
+
+### E0327 not a variable or field
+
+```text
+error[E0327]: `take` needs a field of a variable, like `p.name`
+  --> main.drh:4:18
+   |
+ 4 |     string s = take make();
+   |                ^^^^^^^^^^^ `make()` is a temporary value; there is nothing to take it out of
+   |
+ help: use the value directly: `string s = make();`
+```
+
+Variants: "`copy` needs a variable or a field, like `copy name`" (help: name
+the value first); "`address of` needs a variable or a field, like `address of n`".
+
+### E0328 `drop` has the wrong shape
+
+```text
+error[E0328]: `drop` must be written `none drop()`
+  --> main.drh:3:5
+   |
+ 3 |     string drop(uint32 how) { }
+   |     ^^^^^^^^^^^^^^^^^^^^^^^ `drop` runs by itself when the value is destroyed, so it takes nothing and returns nothing
+   |
+ help: write `none drop() { ... }`, not `static`, with no parameters
+```
 
 ### W0322 / W0323
 
-- W0322 (pending Q11): "`copy` does nothing here: `uint32` always copies";
-  help "remove `copy`".
+- W0322: "`copy` does nothing for `uint32`" (label on `copy`; help "remove
+  `copy`: `uint32` always copies"). Fires when the result type is Copy (R11).
+  Disabling this lint is a `[warnings]` setting in the project config (step 7);
+  nothing in step 3.
 - W0323: "`mut open` says the same as `mut`" (label on `open`; help "write
   `mut string xs`"). SPEC §2 decides that this is a warning.
 
+### Message lines, for the owner's review pass (Q19)
+
+| Code | Message line |
+|---|---|
+| E0301 | `name` is used after it moved |
+| E0302 | cannot change `name` while it is borrowed |
+| E0303 | `p` is already borrowed with `&mut` |
+| E0304 | cannot use `p.hp` while `p` is borrowed with `&mut` |
+| E0305 | cannot move `name` while it is borrowed |
+| E0306 | `local` does not live long enough |
+| E0307 | cannot return a borrow of `s`, which belongs to this function |
+| E0308 | `longest` returns a borrow, but which parameter it borrows from depends on the path |
+| E0309 | `pick` returns a borrow of `b`, but its `lives` names only `a` |
+| E0310 | cannot move `p.name` out of a borrow |
+| E0311 | cannot change `p.hp` through a `&` borrow |
+| E0312 | cannot lend `xs` as `&mut`: it is neither `mut` nor `open` |
+| E0205 (open) | cannot reassign `xs`: it is `open`, not `mut` |
+| E0313 | cannot give `p.hp` a value: `p` has moved |
+| E0314 | `Parser` holds a borrow, so it must say what it borrows from |
+| E0315 | cannot copy `w`: it holds a `&mut` borrow |
+| E0316 | using a raw pointer needs an `unsafe { }` block |
+| E0317 | `unsafe` is not enabled in this file |
+| E0318 | file flags must be at the very top of the file / `unsafe` must be `true` or `false`, found `yes` |
+| W0319 | unknown file flag `unsfe` |
+| E0320 | cannot store a borrow of `b` inside `a` |
+| E0321 | `grow` takes `&mut string` here, so the call must say so |
+| W0322 | `copy` does nothing for `uint32` |
+| W0323 | `mut open` says the same as `mut` |
+| E0324 | cannot move `p.name` out of `p` without `take` |
+| E0325 | cannot take `f.path` out of a `File`: it has a `drop()` |
+| E0326 | `lend` passes on a `&mut` borrow you hold, and `n` is not one |
+| E0327 | `take` needs a field of a variable, like `p.name` |
+| E0328 | `drop` must be written `none drop()` |
+
 ---
 
-## 5. Open language questions
+## 5. Owner answers, and what is still open
 
-These are user-visible behaviours step 3 needs that the SPEC does not settle.
-**Do not decide them.** Ask the owner a few at a time with
-`AskUserQuestion` (code previews in ```cpp fences), record the answers in
-`docs/SPEC.md`, the design doc and this file. The options are in no order of
-preference. Where a work package needs an answer that has not come yet, the
-package says what to build meanwhile (usually: report E0901 for the undecided
-case).
+Answered 2026-11-10 (`owner-answers.md`, SPEC §6). The options that were offered
+are gone; only the answers are kept. Anything the answers leave undecided is in
+"Still open" below and is `E0901` in the code.
 
-### Q1. Reading and writing through a borrow
+- **Q1 answered.** A borrow always means its target: reads are automatic,
+  `r = 5;` writes through, `r = &mut other;` re-points `r` (allowed because the
+  right side is a reference). No explicit `*` on borrows. (R4, R18)
+- **Q2 answered.** `&` is always written for shared borrows of user functions:
+  `show(&p);` (and `&mut` as before). Builtins and receivers stay implicit.
+- **Q3 answered.** Passing on a held borrow is `add(lend s);`. `lend` is a new
+  reserved word.
+- **Q4 answered.** Two-phase receivers are allowed; only borrows still alive at
+  activation are errors (3.5.6).
+- **Q5 answered.** `mut` fields are special only on values you own; through any
+  `&` everything is read-only.
+- **Q6 answered.** `open` allows field writes, `open` parameters, and declaring
+  without a value and assigning once.
+- **Q7 answered.** Partial moves say `take`; plain field move is E0324;
+  `take p.f leaving v` puts a value back (3.1.4).
+- **Q8 answered.** No consuming `self`. **Q8b:** no hidden copies; `return
+  self.name;` from a borrowed `self` is an error (E0310) with the help `return
+  copy self.name;`.
+- **Q9 answered.** `lives` on a function is needed only when the returned borrow
+  could come from several parameters (body-derived; E0308 otherwise).
+- **Q10 answered.** A struct's `lives` names its borrow fields themselves, each
+  possibly borrowing from a different place. **Q10ii:** function `lives` names
+  whole parameters only.
+- **Q11 answered.** `copy r` on a borrow copies the target (an owned value);
+  `copy n` on a Copy value warns W0322 (disableable via config `[warnings]`).
+- **Q12 answered.** The 32-byte rule counts memory size including padding;
+  `struct H stays { }` never copies automatically.
+- **Q13 answered.** Borrowing a temporary in a declaration keeps it alive to the
+  end of the block (B9, R12).
+- **Q14 answered.** `address of n` makes a pointer; everything touching a
+  pointer value needs `unsafe { }`; one kind `*T` (writable); `none` is null,
+  tested with `p == none`; `unsafe` before a function's return type, calls need
+  a block. (3.9)
+- **Q15 answered.** `*T` moves (`copy p` duplicates); `&mut T` moves; `&T` copies.
+- **Q16 answered.** Interface methods that may change `self` say `changes self`
+  after the parameters; struct methods stay inferred. Step 6 only.
+- **Q17 answered.** A method `none drop() { }` runs when the value is destroyed;
+  plain `take x.f` on such a struct is an error, `take x.f leaving v` is allowed.
+- **Q18 answered.** `lives`/`fails` on functions and `lives`/`with` on structs
+  in either order; `drachm fmt` picks one (R14).
+- **Q19: wording written by implementer, owner review pending.** Section 4 is
+  final for implementation; the message table at its end is for the review.
+  Codes stay in `03xx`.
 
-With `&mut uint32 r = &mut n;` and `&uint32 q = &n;`: what does arithmetic or
-assignment look like? (`.` and `::` look through borrows already, R4.)
+Assembly functions (`unsafe uint64 cycles() asm { ... }`) are out of scope
+(Later, after C header import).
 
-- **A. Explicit `*`**, as for raw pointers: `uint32 m = *q + 1; *r = 5;`
-- **B. Automatic for reads, `*` for writes**: `uint32 m = q + 1;` (a borrow
-  reads as its value wherever a value is expected) but `*r = 5;`, since
-  `r = …` reassigns the borrow itself.
-- **C. A word for writing through** (original): reads are automatic, writes
-  say where they go: `set r to 5;` vs `r = &other;` to point elsewhere.
-- **D. Borrows are never reassigned** (original): a borrow binding always
-  means its target, so `r = 5;` writes through, and pointing it elsewhere
-  needs a new binding.
+### Still open
 
-```cpp
-&mut uint32 r = &mut n;
-*r = 5;          // A, B
-set r to 5;      // C
-r = 5;           // D
-```
+The code reports `E0901` for each of these, with the message given, so that
+the case is easy to relax when the owner answers. Not in the list: things this
+spec reads in the obvious way (R1-R18).
 
-### Q2. Does the call site write `&` for shared borrows?
-
-S7 shows `push(&mut xs, 1)` and PLAN records "explicit `&mut` at call
-sites" as decided. For shared borrows, R2 already covers builtins; this is
-about user functions such as `none show(&Player p)`.
-
-- **A. Always written**: `show(&p);` Every borrow is visible at the call.
-- **B. Only `&mut` is written**: `show(p);` borrows automatically because the
-  parameter is `&Player`; only changes are marked at the call.
-- **C. Both accepted**: `show(p)` and `show(&p)` mean the same.
-- **D. Read-only parameters by keyword** (original): a parameter written
-  `string name` with a `reads` marker, e.g. `none show(reads Player p)`, is
-  borrowed implicitly and cannot be changed; `&Player` remains for borrows
-  that are stored or returned.
-
-```cpp
-none show(&Player p) { io::outln(p.name); }
-show(&p);    // A (C)
-show(p);     // B (C)
-```
-
-### Q3. Passing on a borrow you hold
-
-Inside `none fill(&mut string s)`, calling `none add(&mut string t)`:
-
-- **A. Write `&mut` again**: `add(&mut s);` A borrow of a borrow is the same
-  borrow passed on (there are no `&&string` types).
-- **B. Pass it plainly**: `add(s);` passes the borrow on for the call; `s`
-  stays usable afterwards.
-- **C. Both accepted.**
-- **D. `lend` keyword** (original): `add(lend s);` makes "I'm handing my
-  borrow on for this call" visible and distinct from creating a new one.
-
-### Q4. Can a call's arguments read what the receiver changes?
-
-```cpp
-open string s = "ab";
-s::push(s::len()::text());   // receiver is borrowed `&mut` first (left to right)
-```
-
-(`push` stands for any mutating method; lists arrive in step 6.)
-
-- **A. Allowed**: the `&mut` borrow of the receiver only starts when the call
-  itself starts (the arguments are evaluated first, while it is "reserved").
-- **B. Error E0304**: write `string n = s::len()::text(); s::push(n);`
-- **C. Allowed only for Copy results** (original): arguments may read the
-  receiver if what they produce copies (numbers, bools), never if they
-  produce a borrow into it.
-
-### Q5. `mut` fields reached through a `&` borrow
-
-S8 says a `mut` field "can always be changed, even on an immutable value". Is
-that also true through a shared `&` borrow (`&self` methods, `&Player`
-parameters)? It matters for soundness: if `p.name` is a `mut string` and
-someone holds `&p.name` while a `&self` method replaces `self.name`, the
-borrow points at freed memory.
-
-- **A. Yes, for every type, but a `mut` field cannot be borrowed** (only read
-  by copy or `copy`): `&p.name` is an error when `name` is `mut`.
-- **B. Yes, only for fields of Copy types** (numbers, bools, small structs); a
-  `mut string` field needs a `&mut` path like any other field.
-- **C. Only on owned values**: a `mut` field is writable on an immutable
-  *binding*, but through a `&` borrow it is read-only like the rest.
-- **D. Yes, and borrows of `mut` fields are short** (original): `&p.hp` of a
-  `mut` field is allowed only within one statement (it may be passed to a
-  call but not kept in a binding).
-
-This decides 3.7 rule 1's exception and 3.8's `Field(f) if mut` arm, and
-whether C may get `restrict` on `&` parameters (7.3).
-
-### Q6. What an `open` binding allows
-
-S1: `open` = "contents may change (mutating methods, `&mut`), never
-reassigned". Not settled:
-
-- field writes: `open Player p = …; p.hp = 3;`
-  - **A.** allowed (changing a field is changing contents);
-  - **B.** not allowed (only methods and `&mut` change an `open` value);
-- `open` parameters: `none fill(open string s)`
-  - **A.** allowed (the function owns `s`, may change but not reassign it);
-  - **B.** not allowed (parameters are `mut` or nothing, S3);
-- an `open` binding declared without a value (`open string s;`) assigned once
-  later:
-  - **A.** allowed like an immutable binding (S2);
-  - **B.** not allowed.
-
-### Q7. Partial moves (decided in 3.1.4; please confirm)
-
-This spec allows moving a field out of a struct you own, which makes the
-struct unusable as a whole until the field gets a new value; it forbids
-moving out of borrows. Alternatives:
-
-- **A. As in 3.1.4.**
-- **B. No partial moves**: `string n = p.name;` is an error; write
-  `copy p.name`, or take the whole struct apart.
-- **C. Take by word** (original): moving a field out must say so,
-  `string n = take p.name;`, and `p` is unusable after; plain
-  `string n = p.name;` is an error with a fix-it.
-
-```cpp
-Player p = "Illy", "Dr", 10;
-string n = p.name;     // A: fine; p.title still usable, p as a whole not
-io::outln(p.title);
-```
-
-### Q8. Methods that consume `self`
-
-`self` is inferred `&self` or `&mut self` (S14). A method that moves out of
-`self` (`string intoName() { return self.name; }`) cannot work with either.
-
-- **A. Not allowed**: E0310; return `copy self.name`.
-- **B. Inferred by-value `self`**: a method that moves out of `self` takes it
-  by value; calling it moves the receiver (`p::intoName()`, then `p` is
-  unusable).
-- **C. A marker on the method** (original): `string intoName() takes self {
-  … }` (wordy clause after the parameters, like `lives`), so consuming a
-  receiver is always visible in the signature.
-
-### Q9. When `lives` is required on a function
-
-PLAN item 6 reads as: inferred from the body when the returned borrow comes
-from exactly one parameter, required when it comes from several. Options:
-
-- **A. Body-derived, as PLAN reads** (3.6.3): inferred for one, E0308 for
-  several.
-- **B. Signature rule**: inferred only when exactly one parameter holds a
-  borrow; otherwise `lives` is always required, whatever the body does
-  (changing a body never changes the signature callers see).
-- **C. Always inferred**: `lives` is optional documentation, checked when
-  written.
-- **D. Inferred inside a module, required on exported functions** (original):
-  functions listed in `out` must write `lives` (their contract is public);
-  private ones never need it.
-
-The inference algorithm is the same for all four; only when E0308 fires
-differs.
-
-### Q10. What a struct's `lives` names
-
-`struct Parser lives src { &string src; }` uses one name that is also the
-field name. With several borrow fields:
-
-- **A. Field names**: `lives` lists exactly the borrow fields; each may borrow
-  from a different place. `struct Pair lives a, b { &string a; &string b; }`
-- **B. One source per struct**: `lives` names one thing all its borrow fields
-  borrow from; `struct Tokens lives text { &string all; &string rest; }`
-- **C. Named sources with fields assigned to them** (original):
-  `struct Pair lives left, right { &string a from left; &string b from right; }`
-
-And, for functions: may `lives` point into a struct parameter's sources?
-
-- **i.** only whole parameters: `lives p` (the result keeps the borrow of
-  `p` itself alive, even if it came from the text `p` borrows);
-- **ii.** also paths (original): `&string word(&Parser p) lives p.src` (the
-  result lives as long as the text, not as long as the borrow of the parser).
-
-### Q11. `copy` on borrows and on values that copy anyway
-
-- On a borrow `&string r`: `string s = copy r;`
-  - **A.** copies the string it points at (gives an owned `string`);
-  - **B.** copies the borrow (gives another `&string`);
-  - **C.** error: write `copy *r` (or whatever Q1 says).
-- On a Copy value (`copy n` with `uint32 n`):
-  - **A.** silent;
-  - **B.** warning W0322 "`copy` does nothing here";
-  - **C.** error.
-
-### Q12. The 32-byte Copy rule in detail
-
-- Size: **A.** the struct's size in memory including alignment padding (what
-  is actually copied); **B.** the sum of its fields' sizes (padding does not
-  count; reordering fields never changes Copy-ness).
-- Opting out/in: a library struct silently changing between copy and move
-  when a field is added breaks its users.
-  - **A.** no opt-out; the rule is the rule;
-  - **B.** an opt-out word on the struct (original): `struct Handle stays { … }`
-    never copies automatically;
-  - **C.** an opt-in instead: only structs marked `struct V copies { … }`
-    copy automatically, and the compiler checks they qualify.
-
-### Q13. Borrowing a temporary
-
-```cpp
-&string t = &"  hi "::trim();   // the trimmed string is a temporary
-io::outln(t);
-```
-
-- **A. The temporary lives to the end of the block** when it is borrowed in a
-  declaration.
-- **B. Error**: name it first (`string tt = "  hi "::trim(); &string t = &tt;`).
-- **C. The declaration takes ownership silently** (original): borrowing a
-  temporary in a declaration makes the binding own it, and `t` behaves as an
-  immutable owned `string`.
-
-### Q14. Raw pointers in detail
-
-SPEC §6 gives `*T`, `*p = 7;`, the file flag and `unsafe { }`. Not settled:
-
-- **Making one**: **A.** from a borrow, by conversion: `*uint32 p =
-  (&mut n)::to<*uint32>();` **B.** by a word (original): `*uint32 p = address
-  of n;` **C.** a borrow converts automatically where a pointer is expected.
-- **What needs `unsafe { }`**: **A.** only reading/writing through a pointer;
-  **B.** every expression that mentions a pointer value (making, copying,
-  comparing, dereferencing).
-- **Pointer mutability**: **A.** one `*T` that may be written through; **B.**
-  `*T` read-only and `*mut T` writable.
-- **Null**: **A.** `*T` may be `none`-like null (`p == none`); **B.** no null
-  until C import arrives.
-- **`unsafe` functions**: **A.** none, only blocks; **B.** `unsafe` before a
-  function's return type marks it, and calls need a block.
-
-Until answered, WP9 implements: the flag, `unsafe { }`, the `*T` type,
-dereference inside `unsafe { }`, and E0901 for making pointers.
-
-### Q15. Do raw pointers and `&mut` copy?
-
-- `*T` values: **A.** copy automatically (like C); **B.** move like strings;
-  **C.** copy, but only inside `unsafe { }`.
-- `&mut T` values (R8 makes `&T` copy): assigning `&mut string r2 = r;`
-  **A.** moves `r` (then `r` is unusable); **B.** is an error (pass it on
-  with Q3's form instead).
-
-### Q16. Self mode where there is no body to infer from
-
-Interface methods (step 6) have no body, and a library author may want a
-method to stay `&mut self` for the future even if it does not change `self`
-yet.
-
-- **A. Interfaces infer from all implementations** (a method is `&mut self`
-  if any implementation's is); no syntax.
-- **B. A marker in interface signatures only** (original, wordy):
-  `interface Counter { none bump() changes self; }`; struct methods stay
-  inferred and must not exceed what the interface says.
-- **C. An optional marker everywhere**: `changes self` may be written on any
-  method; it is checked (or forces `&mut self`), never required except in
-  interfaces.
-
-### Q17. User-defined cleanup when a value is dropped
-
-Not in the SPEC. Files, sockets and locks (step 7) need it, and it changes
-drop elaboration (a struct with cleanup can't be partially moved; drop order
-becomes visible; liveness must count drops, 3.4).
-
-- **A. A method with a reserved name**: `none drop() { … }` runs when the
-  value is destroyed.
-- **B. A block in the struct** (original): `struct File { … on drop { close(self.fd); } }`
-- **C. No user cleanup**: library types wrap runtime handles that the runtime
-  closes; users call `close()` explicitly.
-
-Step 3 does not need the answer; it only needs to know whether to keep the
-"open the drop into fields" shortcut of 3.3, which stays valid for structs
-without cleanup under every option.
-
-### Q18. Clause order in signatures and struct heads
-
-- Functions: `T f(..) lives a fails E { }` or `T f(..) fails E lives a { }`?
-  **A.** `lives` first; **B.** `fails` first; **C.** either order.
-- Structs: `struct Parser lives src with Shape { }` or `with Shape lives src`?
-  **A.** `lives` first; **B.** `with` first; **C.** either.
-
-### Q19. Message wording
-
-All of section 4 (drafts), and whether non-ownership codes (file flags,
-`mut open`) should move out of `03xx`.
+1. **A borrow of a borrow.** `&r` / `&mut r` where `r` is already a borrow
+   binding, `&&x`, and `&&T` / `&mut &T` in a type: "borrowing a borrow is not
+   supported yet; use `lend r` to pass on a `&mut`". (By Q1 `&mut r` could mean
+   a borrow of the target, which would make `lend` redundant.)
+2. **`lend` on a shared borrow** (`lend q` with `q: &T`): "`lend` on a `&`
+   borrow is not supported yet".
+3. **A `&mut` where a `&` is expected** (argument, declaration, return):
+   "using a `&mut` where a `&` is expected is not supported yet".
+4. **`*r` on a borrow** (not a pointer): "`*` on a borrow is not supported yet;
+   a borrow already means its target".
+5. **More `take` forms.** `take … leaving` through a borrow, `take` of a Copy
+   field, `take` of a whole local: "this form of `take` is not supported yet".
+6. **Calling `drop` yourself** (`x::drop()`): "calling `drop` yourself is not
+   supported yet".
+7. **Struct borrow fields with several slots:** a field of a struct type that
+   has `lives`, or a borrow of one: "a field that borrows a struct with
+   `lives` is not supported yet".
+8. **Pointers outside `unsafe`.** Moving, passing, returning or declaring a
+   `*T` value outside an `unsafe` block (only making, copying, comparing and
+   dereferencing are decided): "using a raw pointer outside `unsafe { }` is not
+   decided yet". Likewise an unsafe operation inside an `unsafe` function but
+   outside a block: "inside an `unsafe` function, whether a block is still
+   needed is not decided yet".
+9. **`address of` an immutable binding** (the pointer may be written through):
+   "`address of` a binding that is not `mut` or `open` is not decided yet".
+10. **`none` as a value** anywhere except against a `*T` ("`none` as a value is
+    not supported yet").
+11. **Two-phase for explicit `&mut` arguments** (`f(&mut x, x::len())`):
+    *not* E0901; it is the ordinary conflict error (E0304), the conservative
+    reading (R13).
 
 ---
 
@@ -2400,9 +2380,9 @@ All of section 4 (drafts), and whether non-ownership codes (file flags,
 Order and parallelism:
 
 ```text
-WP0a syntax & types (borrows, open, copy, lives, unsafe, *T) ──┐
-WP0b file flags ───────────────────────────────────────────────┤ (parallel)
-WP1  MIR data structures, builder, printer, validator ─────────┘ (needs WP0a for borrow nodes; can start on numbers)
+WP0a syntax & types (borrows, open, copy, take, lend, lives, unsafe, *T, spans) ─┐
+WP0b file flags ─────────────────────────────────────────────────────────────────┤ (parallel)
+WP1  MIR data structures, builder, printer, validator ──────────────────────────┘ (phase A parallel with WP0a, on the existing HIR; phase B after WP0a)
  ├─ WP2  init & move analyses (replaces Flow) ──┐
  ├─ WP3  self-mode inference (HIR) ─────────────┤ (parallel with WP2)
  ├─ WP4  backends on MIR ───────────────────────┤ (numeric programs right after WP1; strings after WP6)
@@ -2420,146 +2400,26 @@ check (once WP6 lands) clean. Golden test conventions are those at the top
 of `tests/run.rs`. New fail tests go in `tests/fail/own_*.drh`, new run
 tests in `tests/run/own_*.drh`, MIR tests in `tests/mir/` (WP1).
 
-The test programs below are written against the readings in 1.4. Where an
-open question changes how a program must be written, it is marked
-`[Qn]`; adjust it when the answer comes.
+The first-wave packages (WP0a, WP0b, WP1) have their own briefs with exact
+file ownership: `wp0a.md`, `wp0b.md`, `wp1.md`. Test programs below follow the
+owner's answers; `take` is a reserved word, so helper functions are called
+`consume`.
 
-### WP0a: syntax and types
+### WP0a, WP0b, WP1
 
-**Files:** `src/lexer.rs` (nothing new: `open`, `copy`, `lives`, `unsafe`
-are already keywords), `src/parser.rs`, `src/ast.rs`, `src/types.rs`,
-`src/typeck.rs`, `src/hir.rs`, `src/diag/codes.rs`.
-
-**Build:**
-1. Types: `&T`, `&mut T`, `*T` in type position (Type gets `Ref`/`Ptr`
-   with interned pointee, 2.4). `*T` requires the file flag (E0317,
-   reported by typeck; WP0b supplies the flag).
-2. Bindings and params: `open` modifier next to `mut` (`mut open` → W0323).
-   Record `Mutability` in `hir::Local`.
-3. Expressions: prefix `&e`, `&mut e`, `copy e`, `*e` (deref); `unsafe { }`
-   as a statement. The lexer produces `&&` as one token: in prefix position
-   the parser must split it into two `&` (or reject `&&x` with a clear error
-   if Q3 rules out borrows of borrows: until then, reject with E0901).
-   Assignment targets become place expressions (`p.f = …`, `*r = …`).
-4. `lives a, b` after a function's parameter list; `struct X lives a, b`
-   (order with `with`/`fails` per Q18; until answered, accept `lives`
-   directly after `)` / the struct name only).
-5. Type checking: `&e` has type `&T`; field access and methods auto-deref
-   (R4); a call argument for a `&`/`&mut` parameter must be a borrow of the
-   right kind (E0321 for `&mut`; for `&`, Q2); `copy e` type = `e`'s type
-   (or per Q11 for borrows); struct declarations: E0314.
-6. HIR additions from 2.2 (spans, places, new nodes).
-
-**Pitfalls:** binary `&` vs prefix `&` (prefix only where an operand is
-expected); `*` likewise; the bitwise-parentheses rule (E0006) must not fire
-on prefix `&`. `&mut x` is one unit: `&mut` then a place.
-
-**Acceptance:** `cargo test` still green (no behaviour change for old
-programs). New fail tests:
-
-```cpp
-// tests/fail/own_syntax.drh
-in io;
-struct Parser { &string src; }
-none main() {
-    mut open uint32 a = 1;
-    uint32 b = 2;
-    grow(b);
-}
-none grow(&mut uint32 n) { }
-```
-`.err`: `error[E0314]: `Parser` holds a borrow`, `warning[W0323]`,
-`error[E0321]: `grow` takes `&mut uint32` here`.
-
-### WP0b: file flags
-
-**Files:** new `src/flags.rs`, `src/lib.rs` (call it before lexing, pass
-`unsafe_allowed` down), `src/diag/codes.rs`.
-
-**Build:** 3.9's parser and E0318/W0319. Unit tests in `flags.rs` for:
-shebang first, several flags, flag after code, bad value, unknown key.
-
-**Acceptance:** fail tests
-
-```cpp
-//--!$unsafe: yes
-none main() { }
-```
-→ `error[E0318]: `unsafe` must be `true` or `false``; and a file whose second
-code line is `//--!$unsafe: true` → `file flags must be at the very top`.
-
-### WP1: MIR, builder, printer, validator
-
-**LOOK FIRST (a), (b), (c)** (Appendix A), all of it.
-
-**Files:** new `src/mir/{mod,index,ty,build,print,validate,traversal}.rs`,
-`src/lib.rs` (`Checked`), `src/main.rs` (`--dump-mir`), `tests/run.rs` (MIR
-tests).
-
-**Build:**
-1. 2.3's types; `place_ty`, `region_slots`, `needs_drop`, `is_copy`.
-2. The builder, the whole lowering table of 2.5, including (c)'s control
-   flow and (b)'s method calls. Drops emitted at every scope exit with
-   `reason`. Receiver borrows use `SelfMode` from WP3; until WP3 lands, use
-   `&mut` for every method whose body (b)'s typeck accepted as mutating
-   self, else `&` (or simply always `&mut`; nothing checks it yet).
-3. `print.rs`: Appendix B format; `validate.rs`: V1-V9 (V3 only after
-   checks; reducibility check in debug builds).
-4. `Body::fallthrough_end` for E0105.
-5. MIR golden tests: `tests/mir/NAME.drh` + `NAME.mir`; each non-blank line
-   of `NAME.mir` must appear in `drachm check --dump-mir` output (same
-   matching as fail tests: robust to numbering changes elsewhere).
-6. `--dump-mir` dumps the MIR *after* elaboration once WP6 exists; before
-   that, as built.
-
-At the end of WP1 nothing uses the MIR yet except tests; the old HIR
-backends still run.
-
-**Pitfalls:** evaluation order (B1) for method chains `a::f()->g(b)`:
-receiver, then `f`'s args, call, then `g`'s args; short-circuit `&&` inside
-an argument list; `IncDec` inside an argument (`f(i++, i)` must pass old `i`
-then new `i`); `return` inside nested loops/ifs must emit drops for every
-frame; `skip` must emit drops for the frames it leaves.
-
-**Acceptance:** for every existing `tests/run` and `examples` program,
-building MIR and validating it succeeds (add a unit test that walks all of
-them). MIR tests:
-
-```cpp
-// tests/mir/scope_drops.drh
-none main() {
-    string a = "x";
-    {
-        string b = "y";
-    }
-    string c = "z";
-}
-```
-`.mir` contains, in this order: `Drop(_2)` (b, at the inner `}`), then at
-the end `Drop(_3)`, `Drop(_1)` (reverse order: c before a). (Write the
-expected local numbers after looking at the first dump.)
-
-```cpp
-// tests/mir/break_drops.drh
-none main() {
-    mut uint32 i = 0;
-    while (true) {
-        string s = "x";
-        if (i == 3) { break; }
-        i++;
-    }
-}
-```
-`.mir`: the block ending in the `break` jump contains `Drop(_s)` before its
-`goto`.
+See `docs/impl/wp0a.md` (syntax, types, typeck, HIR additions), `wp0b.md`
+(file flags) and `wp1.md` (MIR data structures, builder, printer, validator).
+WP0a and WP1 need a stronger implementer than WP0b.
 
 ### WP2: initialisation and move analyses
 
 **Files:** new `src/mir/{dataflow,moves}.rs`, `src/mir/check.rs`; remove
-`Flow` from `src/typeck.rs`.
+`Flow` from `src/typeck.rs` **and `src/typeck/control.rs`** (2.2 item 5); split
+the E0105/E0207 cases out of `tests/fail/flow.drh` into new `own_*` files.
 
 **Build:** 3.0, 3.1 (MoveData, the four analyses, use checks E0301/E0207,
-E0313, E0310, E0315, E0105 from CFG reachability). 3.1.6 is in WP5.
+E0313, E0310, E0315, E0105 from CFG reachability). 3.1.6 is in WP5. The
+builder (WP1) already reports E0324/E0325; the fail tests for them live here.
 
 **Pitfalls:** report the *first* use after a move, once per path; a `Move`
 operand inside a loop must see the move from the previous iteration
@@ -2571,7 +2431,7 @@ texts must stay exactly as today.
 passing. New fail tests (one file each, `.err` lines given):
 
 ```cpp
-// own_use_after_move.drh  [Q2 for `greet`'s parameter: it takes `string`, so no question]
+// own_use_after_move.drh
 in io;
 none greet(string s) { io::outln(s); }
 none main() {
@@ -2586,23 +2446,23 @@ none main() {
 ```cpp
 // own_move_in_loop.drh
 in io;
-none take(string s) { }
+none consume(string s) { }
 none main() {
     string s = "x";
     mut uint32 i = 0;
-    while (i < 2) { take(s); i++; }
+    while (i < 2) { consume(s); i++; }
 }
 ```
 → `E0301`, `in the previous time round the loop`.
 
 ```cpp
-// own_partial.drh  [Q7]
+// own_partial.drh
 in io;
 struct Player { string name; string title; }
-none take(string s) { }
+none consume(string s) { }
 none main() {
     Player p = "Illy", "Dr";
-    take(p.name);
+    consume(take p.name);
     io::outln(p.title);          // fine
     Player q = p;                // E0301: `p` is used after `p.name` moved
 }
@@ -2610,12 +2470,12 @@ none main() {
 
 ```cpp
 // own_maybe_moved.drh
-none take(string s) { }
+none consume(string s) { }
 bool flip() { return true; }
 none main() {
     string s = "x";
-    if (flip()) { take(s); }
-    take(s);
+    if (flip()) { consume(s); }
+    consume(s);
 }
 ```
 → `E0301`, `moved here, on some paths`.
@@ -2627,6 +2487,50 @@ string nameOf(&Player p) { return p.name; }
 none main() { }
 ```
 → `error[E0310]: cannot move `p.name` out of a borrow`, `help: return a copy: `return copy p.name;``.
+
+```cpp
+// own_self_move.drh  (Q8b)
+struct Player {
+    string name;
+    string nameOf() { return self.name; }
+}
+none main() { }
+```
+→ `error[E0310]: cannot move `self.name` out of a borrow`, `` help: `self` is borrowed; write `return copy self.name;` ``.
+
+```cpp
+// own_field_move.drh
+struct Player { string name; }
+none main() {
+    Player p = "Illy";
+    string m = p.name;
+}
+```
+→ `error[E0324]: cannot move `p.name` out of `p` without `take``, `help: write `take p.name``.
+
+```cpp
+// own_take_drop.drh
+struct File {
+    string path;
+    none drop() { }
+}
+none main() {
+    File f = "a";
+    string s = take f.path;
+}
+```
+→ `error[E0325]: cannot take `f.path` out of a `File`: it has a `drop()``, `` take f.path leaving "" ``.
+
+```cpp
+// own_move_mut_borrow.drh  (Q15)
+none add(&mut string t) { }
+none fill(&mut string s) {
+    add(s);
+    add(s);
+}
+none main() { }
+```
+→ `error[E0301]: `s` is used after it moved`, `` pass it on with `lend s` ``.
 
 Run test (moves that are fine):
 
@@ -2648,10 +2552,10 @@ reassigned (EverInit, 3.1.6):
 
 ```cpp
 // own_reassign_moved.drh
-none take(string s) { }
+none consume(string s) { }
 none main() {
     string b = "x";
-    take(b);
+    consume(b);
     b = "new";
 }
 ```
@@ -2659,7 +2563,9 @@ none main() {
 
 ### WP3: self-mode inference
 
-**LOOK FIRST (b):** methods, `self`, field mutability flags.
+Starting point: `SelfUse` / `report_fixed_receivers` / `check_field_change` in
+`typeck.rs` (59, 586, 1367) already run this fixpoint on the HIR; move that
+logic here, with the changes in 3.7 (no `mut`-field exception; `drop` is `Mut`).
 
 **Files:** new `src/ownership/{mod,self_mode}.rs`; `src/lib.rs`.
 
@@ -2672,13 +2578,13 @@ struct Counter {
     mut uint32 reads;
     none bump() { self.n = self.n + 1; }      // Mut: writes self.n
     none bumpTwice() { self::bump(); self::bump(); }   // Mut: calls bump
-    uint32 get() { self.reads = self.reads + 1; return self.n; }  // Shared: `reads` is a mut field [Q5]
+    uint32 get() { self.reads = self.reads + 1; return self.n; }  // Mut: a `mut` field is still read-only through a borrow (Q5)
     none ping(uint32 k) { if (k > 0) { self::pong(k - 1); } }    // Shared (mutual recursion, no change)
     none pong(uint32 k) { if (k > 0) { self::ping(k - 1); } }    // Shared
 }
 ```
-Expected: bump Mut(Writes "self.n"), bumpTwice Mut(Calls bump), get Shared,
-ping/pong Shared.
+Expected: bump Mut(Writes "self.n"), bumpTwice Mut(Calls bump), get
+Mut(Writes "self.reads"), ping/pong Shared.
 
 **Pitfalls:** method calls on a *field* of self whose type is another struct
 (`self.inner::grow()`): look up the field type's method; the reason chain
@@ -2689,8 +2595,7 @@ prints the inferred reason.
 
 ### WP4: backends on MIR
 
-**LOOK FIRST (a), (b):** the string and struct code in both backends: ABI
-for strings (pointer to a 24-byte slot?), by-pointer threshold, sret.
+Answered in Appendix A (A3, A4).
 
 **Files:** `src/codegen.rs`, `src/cgen.rs` (rewritten around MIR), new
 `src/layout.rs`, `src/glue.rs`, new `src/mir/cleanup.rs`.
@@ -2701,17 +2606,14 @@ pass on MIR (keep them only until then; do not maintain two paths).
 Order inside the package: (1) numbers, bools, calls, control flow (all the
 existing tests) on both backends; run `bench/run.sh` and compare with the
 numbers in PLAN step 1 (must be within noise, ±3%); (2) strings and structs,
-which need correct drops, so (2) completes after WP6 (until then, run string
-tests with drops left unelaborated *and* the step 2 copies still in place —
-i.e. keep (a)'s deep copies in the builder behind a temporary flag until WP6
-removes them).
+which need real drops. Cutover rule until WP6 lands: a program is compiled from
+MIR only if no MIR local in it has `needs_drop(ty)`; all others still go
+through the old HIR path (2.2a). WP6 deletes the old path.
 
 **Pitfalls:** Cranelift variables vs stack slots (`in_memory`); never write
 to the source of a `Move`; fall-through layout in C (label only when needed,
-`bbN:;` with the semicolon); C `switch` on 128-bit values is not allowed
-(lower 128-bit `Switch` to an `if` chain in the C backend, or keep the builder
-from producing them); signed `Switch` case values are stored as zero-extended
-bits like `Constant::Int`.
+`bbN:;` with the semicolon); the builder never emits `Switch` (`match` is an if-chain), so the C `switch`
+path can wait.
 
 **Acceptance:** every existing run/example test passes on both backends;
 `optimised_output_matches` passes; benches within ±3% for collatz, fib,
@@ -2724,8 +2626,8 @@ mandel, primes. All MIR-specific invariants validated in debug builds during
 from `typeck.rs`.
 
 **Build:** 3.8 and 3.1.6; method-receiver checks with self-mode notes;
-`open` rules where Q6 is answered (until then: field writes on `open` and
-`open` parameters → E0901).
+`open` rules (Q6: field writes, `open` parameters and declare-once are all
+allowed).
 
 **Acceptance:** `tests/fail/immutable.err` unchanged and passing. New:
 
@@ -2753,10 +2655,36 @@ none main() { }
 ```
 → `error[E0311]: cannot call `retitle` through a `&` borrow`, `` `retitle` changes `self`: it writes `self.title` ``.
 
+```cpp
+// own_mut_field_shared.drh  (Q5)
+struct Player { string name; mut uint32 hp; }
+none hurt(&Player p) { p.hp = p.hp - 1; }
+none main() { }
+```
+→ `error[E0311]: cannot change `p.hp` through a `&` borrow`.
+
+```cpp
+// tests/run/own_open_ok.drh  (Q6)
+in io;
+struct Player { string name; uint32 hp; }
+none rename(open Player p) { p.hp = 9; }
+none main() {
+    open Player p = "Illy", 1;
+    p.hp = 5;
+    rename(&mut p);
+    open string later;
+    later = "x";
+    io::outln(later + p.hp::text());
+}
+```
+`.out`: `x9`. (`rename(&mut p)` passes an `open` binding to an `open` parameter
+as `&mut`; adjust only if WP0a settles the parameter spelling differently.)
+
 ### WP6: drop elaboration, workaround removal, leak tests
 
-**LOOK FIRST (a):** where the deep copies are inserted (typeck? HIR
-builder?), and how user `copy` differs from them.
+Answered (A5, A6): the nodes are in 2.2a; delete the drop plumbing too
+(`Checker::owned`, `temps`, `scoped`, typeck.rs:885-1030, and `owned` in
+control.rs).
 
 **Files:** new `src/mir/drops.rs`; `src/mir/build.rs` (drop the temporary
 deep-copy flag from WP4); `src/typeck.rs` / wherever (a) inserts copies
@@ -2764,7 +2692,8 @@ deep-copy flag from WP4); `src/typeck.rs` / wherever (a) inserts copies
 `tests/run.rs` (leak checking).
 
 **Build:**
-1. 3.3 elaboration with flags.
+1. 3.3 elaboration with flags, including the user `drop()` rule (a type with
+   `drop()` is dropped whole: glue calls `drop` first, then the fields).
 2. Remove step 2's deep-copy-on-assign: inserted copies and HIR drops go;
    only `ExprKind::DeepCopy` from user `copy` remains. String assignment,
    passing and returning become moves.
@@ -2774,9 +2703,9 @@ deep-copy flag from WP4); `src/typeck.rs` / wherever (a) inserts copies
    frees or reallocates) checks the pointer is in the set and removes it;
    if not: print `drachm: double free of a string` to stderr and
    `abort()`. Without the variable, nothing changes (no cost).
-4. Harness: `run_case` and `optimised_output_matches` run every program with
-   `DRACHM_CHECK_LEAKS=1`. For a case whose expected exit code is 0, stderr
-   must not contain `drachm: leaked` or `double free`. (Panicking cases exit
+4. Harness: it already sets `DRACHM_CHECK_LEAKS=1` and fails on `drachm:
+   leaked` (tests/run.rs:59-66, 190); add `double free` to what fails. For a
+   case whose expected exit code is 0, stderr must contain neither. (Panicking cases exit
    101 without dropping, R6, so they are exempt.) Add the leak check to
    `examples` too.
 
@@ -2795,19 +2724,19 @@ must also be leak-free):
 // tests/run/own_drops.drh
 in io;
 struct Player { string name; string title; }
-none take(string s) { io::outln(s); }
+none consume(string s) { io::outln(s); }
 bool odd(uint32 i) { return i % 2 == 1; }
 none main() {
     mut uint32 i = 0;
     while (i < 4) {
         Player p = "n" + i::text(), "t" + i::text();
-        if (odd(i)) { take(p.name); }       // partial move on some iterations
+        if (odd(i)) { consume(take p.name); }  // partial move on some iterations
         string s = "x" + i::text();
-        if (i == 2) { take(s); }            // conditional move
+        if (i == 2) { consume(s); }            // conditional move
         i++;
     }
     string last = "end";
-    take(last);
+    consume(last);
 }
 ```
 `.out`: `n1`, `x2`, `n3`, `end` on separate lines. Leak check: clean.
@@ -2837,6 +2766,40 @@ none main() {
 ```
 `.out`: `HIHI`.
 
+```cpp
+// tests/run/own_drop_method.drh
+in io;
+struct Guard {
+    string name;
+    none drop() { io::outln("drop " + self.name); }
+}
+none main() {
+    Guard a = "a";
+    if (true) {
+        Guard b = "b";
+        io::outln("inner");
+    }
+    Guard c = "c";
+    io::outln("end");
+}
+```
+`.out`: `inner`, `drop b`, `end`, `drop c`, `drop a` (reverse declaration order).
+
+```cpp
+// tests/run/own_take_leaving.drh
+in io;
+struct Player { string name; string title; }
+none main() {
+    mut Player p = "Illy", "Dr";
+    string t = take p.title leaving "none";
+    io::outln(t + " " + p.title);
+    string n = take p.name;
+    p.name = "Sam";
+    io::outln(n + " " + p.name);
+}
+```
+`.out`: `Dr none`, `Illy Sam`. Leak check clean.
+
 Also a MIR test: `tests/mir/drop_flag.drh` = worked example 1, `.mir` lines
 `Drop(_1) if _4` (adjust numbers) and no unconditional `Drop(_1)`.
 
@@ -2845,9 +2808,8 @@ Also a MIR test: `tests/mir/drop_flag.drh` = worked example 1, `.mir` lines
 **Files:** new `src/mir/liveness.rs`, `src/mir/borrowck/{mod,regions,
 constraints,loans,conflicts,explain}.rs`.
 
-**Build:** 3.4, 3.5. Two-phase per Q4 (flag implemented, set only if Q4 =
-A). Reborrow lowering per Q3 (until answered: accept only Q3-A's form
-`&mut s` on a `&mut` binding, as a reborrow).
+**Build:** 3.4, 3.5. Two-phase for receiver borrows (Q4). `lend r` reborrow (Q3); a bare `&mut`
+local passed on is a move (Q15).
 
 **Pitfalls:** the `Reassign` drop is a Write, not E0306; loans of a
 temporary used in one call die at the call (liveness does it, but check);
@@ -2879,7 +2841,7 @@ none main() {
     &mut Player a = &mut p;
     &mut Player b = &mut p;
     heal(a);
-    heal(b);              // [Q3/Q15: passing a held &mut; adjust]
+    heal(b);
 }
 ```
 → `error[E0303]: `p` is already borrowed with `&mut``.
@@ -2903,7 +2865,7 @@ under a shared loan).
 // own_dies_too_soon.drh
 in io;
 none main() {
-    mut &string keep = &"a";      // [Q13: use a named string instead if Q13 = B]
+    mut &string keep = &"a";      // a declaration temporary lives to the end of the block (Q13)
     if (true) {
         string local = "x";
         keep = &local;
@@ -2922,6 +2884,36 @@ none main() {
 none main() { }
 ```
 → `error[E0307]: cannot return a borrow of `s``.
+
+```cpp
+// own_two_phase_live.drh  (Q4: a borrow still alive at activation)
+struct Bag {
+    string a;
+    &string first() { return &self.a; }
+    none put(&string s) { self.a = copy s; }
+}
+none main() {
+    mut Bag b = "x";
+    b::put(b::first());
+}
+```
+→ `error[E0302]: cannot change `b` while it is borrowed`.
+
+```cpp
+// tests/run/own_two_phase.drh  (Q4)
+in io;
+struct Counter {
+    uint32 n;
+    none add(uint32 k) { self.n = self.n + k; }
+    uint32 get() { return self.n; }
+}
+none main() {
+    mut Counter c = 1;
+    c::add(c::get());
+    io::outln(c.n::text());
+}
+```
+`.out`: `2`.
 
 Run tests that must be **accepted** (the non-lexical cases):
 
@@ -2950,14 +2942,13 @@ none main() {
 parameters, variance).
 
 **Build:** 3.6 entirely: per-body inference, call-graph SCC order, recursion
-fixpoint, E0307/E0308/E0309/E0320, struct region parameters (Q10: until
-answered, implement option A's reading for one name, which is also the
-SPEC's only example, and report E0901 for two or more names).
+fixpoint, E0307/E0308/E0309/E0320, struct region parameters (Q10: field names; several
+names allowed).
 
 **Acceptance:**
 
 ```cpp
-// own_missing_lives.drh  [Q9]
+// own_missing_lives.drh
 &string longest(&string a, &string b) {
     if (a::len() > b::len()) { return a; }
     return b;
@@ -2965,6 +2956,13 @@ SPEC's only example, and report E0901 for two or more names).
 none main() { }
 ```
 → `error[E0308]`, `returns a borrow of `a` here`, `help: write `lives a, b``.
+
+```cpp
+// own_struct_lives.drh  (Q10; added by WP0a, E0314 is a declaration check)
+struct Pair lives a { &string a; &string b; }
+none main() { }
+```
+→ `error[E0314]`, `field `b` is a borrow, but `lives` does not name it`.
 
 ```cpp
 // own_wrong_lives.drh
@@ -3032,12 +3030,12 @@ none main() {
 **Files:** new `src/mir/unsafety.rs`; typeck for `*T`; both backends for
 `Deref` of pointers (already covered by place addressing).
 
-**Build:** 3.9's checks; pointer creation per Q14 (until answered: E0901).
+**Build:** 3.9's checks; `address of`, `none` as a null pointer, `unsafe` functions (Q14).
 
 **Acceptance:**
 
 ```cpp
-// own_unsafe_no_flag.drh
+// own_unsafe_no_flag.drh  (added by WP0a, E0317 is reported by typeck)
 none main() { unsafe { } }
 ```
 → `error[E0317]: `unsafe` is not enabled in this file`.
@@ -3050,8 +3048,29 @@ none main() { }
 ```
 → `error[E0316]: reading through a raw pointer needs an `unsafe { }` block`.
 
-A run test that writes through a pointer waits for Q14 (there is no way to
-make one yet).
+```cpp
+// own_unsafe_call.drh
+//--!$unsafe: true
+unsafe uint32 one() { return 1; }
+none main() { uint32 x = one(); }
+```
+→ `error[E0316]: calling `one`, an `unsafe` function, needs an `unsafe { }` block`.
+
+```cpp
+// tests/run/own_unsafe_ptr.drh
+//--!$unsafe: true
+in io;
+unsafe none bump(*uint32 p) { unsafe { *p = *p + 1; } }
+none main() {
+    mut uint32 n = 41;
+    unsafe {
+        *uint32 p = address of n;
+        bump(p);
+    }
+    io::outln(n::text());
+}
+```
+`.out`: `42`. (`bump(p)` inside the block moves `p`.)
 
 ### WP10: performance pass
 
@@ -3124,19 +3143,15 @@ generated code, and how to keep it fast.
   that a `&mut T` parameter is the only way to reach its target during the
   call, so the C backend may declare such parameters `T *restrict`. This is
   what lets LLVM optimise Rust's `&mut`; GCC and Clang do the same with
-  `restrict`. For `&T` parameters, `const T *restrict` is valid only if the
-  target cannot change during the call, which depends on **Q5** (`mut`
-  fields writable through `&` break it, the same way Rust's `Cell` turns off
-  `noalias`): emit it only for types with no `mut` field at any depth, or
-  for all `&` if Q5 = C. Getting this wrong is a miscompile, so gate it
+  `restrict`. For `&T` parameters `const T *restrict` is valid as well: nothing changes through
+  a `&` (Q5 is settled: not even `mut` fields), so no exception is needed. Getting this wrong is a miscompile, so gate it
   behind the borrow checker having run and test it with a benchmark that
   would show the difference.
 - By-pointer aggregates passed to `static` functions are inlined away by the
   C compiler; Cranelift does no inlining, so small Copy structs (≤ 16 bytes)
   should be passed by value in Cranelift if (b)'s ABI does not already.
   `&self` on a small Copy struct may also be passed by value *in the ABI*
-  (the method cannot observe the difference, unless Q5 allows writing `mut`
-  fields through `&self`, or raw pointers compare addresses).
+  (the method cannot observe the difference, unless raw pointers compare addresses).
 - Labels and gotos do not hurt (2.9); reducible CFGs are guaranteed.
 
 ### 7.4 Cranelift
@@ -3160,26 +3175,24 @@ generated function is huge, switch region values to sparse interval sets.
 
 ---
 
-## Appendix A: LOOK FIRST checklist
+## Appendix A: LOOK FIRST checklist (answered against commit `2f26fb3`)
 
-Fill in before starting; each answer changes a named part of this spec.
-
-| # | Question | Affects |
-|---|---|---|
-| A1 | How is `Type` extended for strings and structs? Still `Copy`? Interned? | 2.4, WP0a |
-| A2 | Where are struct definitions stored (fields, `mut` flags, visibility, methods)? | 2.3 `StructInfo`, 3.7, 3.8 |
-| A3 | Is there a layout function (size/align/offsets)? In which backend? By-pointer threshold? sret for large returns? | 2.7, 2.9, WP4 |
-| A4 | How are string values represented in each backend (stack slot of 24 bytes? pointer?), and literals (`cap == 0` view, or copied)? | R10, 2.9 |
-| A5 | Which HIR nodes are step 2's inserted deep copies and drops, and where are they inserted? Is user `copy x` the same node? | 2.2, WP6 |
-| A6 | Where do string temporaries get dropped today (end of statement?) | B4 |
-| A7 | How is `self` passed and typed; how is a method call represented; how are operator methods called? | 2.5, 3.7 |
-| A8 | Does typeck already reject writes to non-`mut` fields, or to `self` fields? | 3.8, WP5 |
-| A9 | HIR nodes for `for`, `for … of`, `break N`, `continue N`, `skip`, `skip to next`, `match`; how each backend lowers them; their error codes. | 2.5, WP1 |
-| A10 | Runtime functions for string iteration (`for (string c of s)`), string `match` and globs. | 2.5 |
-| A11 | Did (c) change typeck's `Flow` for `break` (reachability after `while (true)`)? | WP2 (Flow removal) |
-| A12 | New diagnostic codes added by (a)/(b)/(c), to avoid clashes. | section 4 |
-| A13 | Does `lib::check` still return `hir::Program`, and do the backends still take `&hir::Program`? | 2.1 |
-| A14 | Is the `drachm_str_live`/`DRACHM_CHECK_LEAKS` report already used by the test harness? | WP6 |
+| # | Question | Answer | Affects |
+|---|---|---|---|
+| A1 | How is `Type` extended? Still `Copy`? Interned? | `Type` is `Copy + Hash` (types.rs:9-22). Structs are `Struct { id, name: &'static str }`, the name leaked once by `types::intern` (types.rs:25). No `Ref`/`Ptr`. Add them with the same trick: `to: &'static Type`, interned in a static set (2.4). Exhaustive matches to extend: `hir::scalar_size` (hir.rs:96), `codegen::cl_type` (codegen.rs:40), `cgen::c_type` (cgen.rs:133). | 2.4, WP0a |
+| A2 | Where are struct definitions stored? | typeck-private `StructInfo` / `FieldInfo` (`mutable`, `public`) / `MethodInfo` (typeck.rs:29-57); backends see `hir::StructDef { name, fields, size, align, owns }` and `FieldDef { name, ty, offset }` (hir.rs:44-58), which lacks `mutable`. Add `mutable`, `copy`, `stays`, `has_drop`, `lives` (2.2 item 4). Methods are ordinary `hir::Func`s. | 2.3, 3.7, 3.8 |
+| A3 | Layout function? ABI? | Shared and already in HIR: `hir::layout` (hir.rs:102), filled in at typeck.rs:541; `Program::size_align` (hir.rs:61). Size includes tail padding. There is no by-pointer threshold: Cranelift passes every string/struct as a pointer to a fresh copy the callee takes over, results through a hidden first pointer (codegen.rs:51-63, 974-994); C passes by value, `self` by pointer (cgen.rs:123). | 2.7, 2.9, WP4 |
+| A4 | String representation; literals? | 24-byte `drachm_str {ptr, len, cap}`: a stack slot in Cranelift (codegen.rs:249), a by-value struct in C. A literal is a view with `cap == 0` (codegen.rs `into`, `ExprKind::Str` arm), so R10 holds. | R10, 2.9 |
+| A5 | Which HIR nodes are step 2's copies and drops? Is user `copy x` the same node? | `ExprKind::{Copy, Move, Temp, Scoped}` and `Stmt::Drop` (hir.rs:154-169, 281-292), inserted by `copy()`/`scoped()` (typeck.rs:916-927) and `Checker::owned/temps` (typeck.rs:885-1030, control.rs). User `copy x` does not exist yet; WP0a adds a separate `DeepCopy` node. | 2.2a, WP6 |
+| A6 | Where are string temporaries dropped? | End of the statement: `Checker::take_temps` (typeck.rs:1009) collects `Temp`s into a `Scoped` wrapper. | B4 |
+| A7 | How is `self` passed; method calls; operator calls? | `self` is parameter 0 (`has_self`), refers to the caller's storage when the argument `is_place()` (hir.rs:115-130, 205). A method call and an operator-method call are both `ExprKind::Call(FuncId, args)` with the receiver as `args[0]`; `static` methods have none. `self_local` returns local 0 (typeck.rs:1448). | 2.5, 3.7 |
+| A8 | Does typeck reject writes to non-`mut` fields or to `self` fields? | Yes: `check_field_change` (typeck.rs:1367) reports E0205 for bindings, and for `self` records `SelfUse.changes` instead; `report_fixed_receivers` (typeck.rs:586) is the existing "changes self" fixpoint. Both honour `mut` fields (`mut_field`), which Q5 now removes for borrows. | 3.7, 3.8, WP3, WP5 |
+| A9 | HIR for `for`, `break N`, `skip`, `match`; error codes? | There is none: control.rs lowers them to `Stmt::If { label, branches }`, `Stmt::Loop { label, cond, body, step }` and `Jump::{Break, Continue, Leave, Next}` (hir.rs:154-190). Codes used there: E0011, E0012, E0101, E0104, E0109, E0901. | 2.5, WP1 |
+| A10 | Runtime for string iteration, string `match`, globs? | None: `for (string c of s)` is E0901 (control.rs:481) and `match` on text is E0901 (control.rs:613). Nothing to lower. | 2.5 |
+| A11 | Did (c) change `Flow`? | `Flow` (typeck.rs:852) is also threaded through `Target::{Loop, Level}` in control.rs:36-51 and the `chain` / `looped` / `for_each` / `match_stmt` functions; removing it touches control.rs (2.2 item 5, WP2). | WP2 |
+| A12 | New codes added by (a)/(b)/(c)? | E0009, E0108, E0112-E0114, W0208, E0209-E0213 (plus E0011/E0012 in control). All `03xx` codes are free. | section 4 |
+| A13 | Does `lib::check` still return `hir::Program`? | Yes: `check(src) -> (Option<hir::Program>, Vec<Diagnostic>)` returns `None` if any error (lib.rs:19-30); `build(&hir::Program, out, optimise)` (lib.rs:36); `main.rs` `front_end` (main.rs:69). | 2.1 |
+| A14 | Is the leak report used by the harness? | Yes: `run_program` sets `DRACHM_CHECK_LEAKS=1` and `leak_report` fails on `drachm: leaked` (tests/run.rs:59-66), in `run`, `examples` and `optimised_output_matches`. Runtime side: a live counter only (runtime/strings/src/lib.rs:53-61); no double-free detection. | WP6 |
 
 ## Appendix B: MIR text format
 
