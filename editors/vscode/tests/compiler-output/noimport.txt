@@ -1,0 +1,17 @@
+error[E0206]: module `io` is used but not imported
+  --> noimport.drh:2:5
+   |
+ 2 |     io::outln("hello");
+   |     ^^ not imported
+   |
+ help: add `in io;` at the top of the file
+
+error[E0201]: unknown name `io`
+  --> noimport.drh:4:16
+   |
+ 4 |     uint32 x = io;
+   |                ^^
+   |
+ help: `io` is a module; call its functions like `io::outln(...)`
+
+noimport.drh: 2 errors

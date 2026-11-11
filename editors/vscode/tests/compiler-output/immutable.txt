@@ -1,0 +1,63 @@
+error[E0205]: cannot change parameter `n`: it is not `mut`
+  --> immutable.drh:2:5
+   |
+ 1 | uint32 bump(uint32 n) {
+   |             -------- declared here without `mut`
+ 2 |     n = n + 1;
+   |     ^ changed here
+   |
+ help: declare it as `mut uint32 n` to allow changes
+
+error[E0205]: cannot change `x`: it is not `mut`
+  --> immutable.drh:8:5
+   |
+ 7 |     uint32 x = 1;
+   |            - declared here without `mut`
+ 8 |     x = 2;
+   |     ^ assigned a second time here
+   |
+ help: declare it as `mut uint32 x` to allow changes
+
+error[E0205]: cannot change `y`: it is not `mut`
+   --> immutable.drh:10:5
+    |
+  9 |     uint32 y = 1;
+    |            - declared here without `mut`
+ 10 |     y++;
+    |     ^ changed here
+    |
+ help: declare it as `mut uint32 y` to allow changes
+
+error[E0205]: cannot change `z`: it is not `mut`
+   --> immutable.drh:12:5
+    |
+ 11 |     uint32 z = 5;
+    |            - declared here without `mut`
+ 12 |     z += 1;
+    |     ^ changed here
+    |
+ help: declare it as `mut uint32 z` to allow changes
+
+error[E0205]: cannot change `once`: it is not `mut`
+   --> immutable.drh:16:5
+    |
+ 14 |     uint32 once;
+    |            ---- declared here without `mut`
+ 15 |     once = 1;
+ 16 |     once = 2;
+    |     ^^^^ assigned a second time here
+    |
+ help: declare it as `mut uint32 once` to allow changes
+
+error[E0205]: cannot assign `looped` inside a loop: it is not `mut`
+   --> immutable.drh:21:9
+    |
+ 18 |     uint32 looped;
+    |            ------ declared here, outside the loop, without `mut`
+   ...
+ 21 |         looped = i;
+    |         ^^^^^^ the loop would assign it again each time round
+    |
+ help: declare it as `mut uint32 looped`, or move the declaration into the loop
+
+immutable.drh: 6 errors

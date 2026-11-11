@@ -1,0 +1,119 @@
+error[E0202]: struct `Point` is defined twice
+  --> structdecl.drh:2:8
+   |
+ 1 | struct Point { sint32 x; sint32 y; }
+   |        ----- first defined here
+ 2 | struct Point { sint32 z; }
+   |        ^^^^^ defined again here
+
+error[E0202]: `uint32` is the name of a built-in type
+  --> structdecl.drh:3:8
+   |
+ 3 | struct uint32 { bool b; }
+   |        ^^^^^^ already a type
+   |
+ help: give the struct another name
+
+error[E0202]: `Twice` has two fields named `a`
+  --> structdecl.drh:7:11
+   |
+ 6 |     uint8 a;
+   |           - first defined here
+ 7 |     uint8 a;
+   |           ^ defined again here
+
+error[E0202]: `Twice` has a field and a method both named `len`
+  --> structdecl.drh:9:11
+   |
+ 8 |     uint8 len;
+   |           --- the field
+ 9 |     uint8 len() { return 1; }
+   |           ^^^ defined again here
+
+warning[W0208]: method `go` never uses `self`
+   --> structdecl.drh:10:10
+    |
+ 10 |     none go() { }
+    |          ^^ does not use `self`
+    |
+ help: mark it `static` and call it on the struct, `Twice::go()`: write `static none go()`
+
+error[E0202]: `Twice` has two methods named `go`
+   --> structdecl.drh:11:10
+    |
+ 10 |     none go() { }
+    |     --------- first defined here
+ 11 |     none go() { }
+    |          ^^ defined again here
+
+error[E0201]: unknown type `Pointt`
+   --> structdecl.drh:12:5
+    |
+ 12 |     Pointt p;
+    |     ^^^^^^
+    |
+ help: did you mean `Point`?
+
+error[E0210]: struct `Node` contains itself
+   --> structdecl.drh:17:10
+    |
+ 17 |     Node next;
+    |          ^^^^ `next` has type `Node`
+    |
+ note: `Node` holds `Node`: its size would never end
+ help: a struct cannot hold a value of its own type, directly or through other structs
+
+error[E0210]: struct `A` contains itself
+   --> structdecl.drh:20:14
+    |
+ 20 | struct A { B b; }
+    |              ^ `b` has type `B`
+ 21 | struct B { C c; }
+    |              - `c` has type `C`
+ 22 | struct C { A a; }
+    |              - `a` has type `A`
+    |
+ note: `A` holds `B`, `B` holds `C`, `C` holds `A`: its size would never end
+ help: a struct cannot hold a value of its own type, directly or through other structs
+
+error[E0113]: operator `+` cannot be `static`
+   --> structdecl.drh:26:5
+    |
+ 26 |     static Ops +(Ops o) { return o; }
+    |     ^^^^^^
+    |
+ help: `a + b` calls it on `a`, so it needs a `self`: remove `static`
+
+error[E0113]: operator `-` takes 1 parameter, but has 2
+   --> structdecl.drh:27:5
+    |
+ 27 |     Ops -(Ops a, Ops b) { return a; }
+    |     ^^^^^^^^^^^^^^^^^^^
+    |
+ help: it takes the right-hand side: `Ops -(Ops o)`
+
+error[E0113]: operator `<` must return `bool`
+   --> structdecl.drh:28:5
+    |
+ 28 |     sint32 <(Ops o) { return 1; }
+    |     ^^^^^^
+    |
+ help: write `bool <(Ops o)`
+
+error[E0113]: operator `==` must take an argument of type `Ops`
+   --> structdecl.drh:29:13
+    |
+ 29 |     bool ==(sint32 o) { return true; }
+    |             ^^^^^^
+    |
+ help: write `bool ==(Ops o)`
+
+error[E0113]: `<<` cannot be an operator method
+   --> structdecl.drh:30:9
+    |
+ 30 |     Ops <<(uint32 n) { return self; }
+    |         ^^
+    |
+ help: operator methods are `+ - * / % **` and `== != < <= > >=`
+
+structdecl.drh: 13 errors, 1 warning
