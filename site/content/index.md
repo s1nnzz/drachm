@@ -20,10 +20,10 @@ Drachm is early. A program can already use numbers of every size up to 128 bits,
 `bool` and `none`, strings with interpolation and `io::outf` formatting, and structs
 with methods, static methods and operator methods. Control flow has `if`, `while`,
 `for`, ranges, `break` and `continue` with counts, `skip`, and `match` on numbers
-and bools. The compiler also tracks ownership, so it rejects use after a move and
-offers `copy` as the fix.
+and bools. The compiler also tracks ownership and borrows, so it rejects use after a move, a change to a value that is borrowed, and a borrow that outlives its value, and
+offers `copy` as a fix for moves.
 
-Other parts of the design, such as borrows, enums, modules and error handling, are
+Other parts of the design, such as enums, modules and error handling, are
 not built yet. [Coming later](coming-later.md) lists them with the step of the
 plan each belongs to. Every page here describes only what the compiler accepts.
 

@@ -49,8 +49,8 @@ main.drh: 1 error
 
 The error offers two fixes. The first is to pass a copy. `copy name` makes a
 separate string and leaves `name` as it was, at the cost of copying the text.
-The other fix, a `&string` parameter that only borrows, belongs to a later
-step of the compiler, so for now `copy` is the tool.
+The other fix, a `&string` parameter that only borrows, is the subject of
+[lesson 9](lesson-9-borrowing.md).
 
 <!-- focus: 13-14 -->
 Both calls to `greet` get their own copy, so `name` is still valid.
@@ -227,5 +227,6 @@ struct can run its own code at that moment with a `drop()` method. The
 [Moves and copies](reference-ownership.md) reference has the rules for when a
 value dies.
 
-That is the end of the lessons. The Reference pages cover every rule in full,
+The next lesson shows how to let a function use a value without taking it:
+[Lesson 9: Borrowing](lesson-9-borrowing.md). The Reference pages cover every rule in full,
 starting with [Types and numbers](reference-types.md).

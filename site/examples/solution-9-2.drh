@@ -1,0 +1,11 @@
+in io;
+
+none shout(&mut string s) {
+    s = s::upper();
+}
+
+none main() {
+    mut string word = "quiet";
+    shout(&mut word);
+    io::outln(word);
+}
