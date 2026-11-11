@@ -10,7 +10,7 @@ Drachm compiler
 usage:
   drachm build <file.drh> [-o <output>] [-O]   compile to a native executable
   drachm run   <file.drh> [-O]                 compile and run
-  drachm check <file.drh>                      check for errors only
+  drachm check <file.drh> [--dump-mir]         check for errors only (--dump-mir also prints the MIR)
   drachm explain <code>                        describe an error code, e.g. E0101
 
   -O   optimised build: slower to compile, much faster to run";
@@ -31,11 +31,13 @@ fn main() {
     let mut input = None;
     let mut output = None;
     let mut opt = false;
+    let mut dump_mir = false;
     let mut rest = args[1..].iter();
     while let Some(a) = rest.next() {
         match a.as_str() {
             "-o" => output = Some(PathBuf::from(rest.next().unwrap_or_else(|| die("-o needs a path")))),
             "-O" => opt = true,
+            "--dump-mir" => dump_mir = true,
             _ if input.is_none() => input = Some(PathBuf::from(a)),
             _ => die(&format!("unexpected argument '{a}'\n\n{USAGE}")),
         }
@@ -44,7 +46,13 @@ fn main() {
 
     match cmd.as_str() {
         "check" => {
-            front_end(&input);
+            let hir = front_end(&input);
+            if dump_mir {
+                // Phase A builds no diagnostics; phase B must render them here.
+                let mut diags = Vec::new();
+                let mir = drachm::mir::build_program(&hir, &mut diags);
+                print!("{}", drachm::mir::print_program(&mir, &hir));
+            }
         }
         "build" => {
             let out = output.unwrap_or_else(|| input.with_extension(""));

@@ -264,3 +264,53 @@ fn optimised_output_matches() {
         }
     });
 }
+
+/// Every program builds to valid MIR (the builder also validates itself in
+/// debug builds; this lists all the failures at once).
+#[test]
+fn mir_builds() {
+    let mut files = sources("tests/run");
+    files.extend(sources("examples"));
+    files.extend(sources("tests/mir"));
+    run_all(files, |src| {
+        let text = fs::read_to_string(src).map_err(|e| e.to_string())?;
+        let (checked, diags) = drachm::check(&text);
+        let hir = checked.ok_or_else(|| format!("does not type-check ({} diagnostics)", diags.len()))?;
+        let mut mir_diags = Vec::new();
+        let mir = drachm::mir::build_program(&hir, &mut mir_diags);
+        drachm::mir::validate(&mir, &hir).map_err(|errors| errors.join("\n"))
+    });
+}
+
+/// `tests/mir/NAME.mir`: each non-blank line must occur in the output of
+/// `check --dump-mir`. A line `!FN: TEXT` instead says that no line of
+/// function FN's dump is TEXT.
+#[test]
+fn mir() {
+    run_all(sources("tests/mir"), |src| {
+        let want = read(&src.with_extension("mir")).ok_or("no .mir file with the expected lines")?;
+        let out = drachm(&["check", "--dump-mir"], src);
+        if !out.status.success() {
+            return Err(format!("did not check:\n{}", text(&out.stderr)));
+        }
+        let dump = text(&out.stdout);
+        let mut problems = Vec::new();
+        for line in want.lines().map(str::trim).filter(|l| !l.is_empty()) {
+            if let Some(rest) = line.strip_prefix('!') {
+                let (func, banned) = rest.split_once(':').ok_or("`!` lines are `!FN: TEXT`")?;
+                let (func, banned) = (func.trim(), banned.trim());
+                let header = format!("fn {func}(");
+                let section = dump
+                    .split("\n\n")
+                    .find(|s| s.starts_with(&header))
+                    .ok_or_else(|| format!("no function {func} in the dump:\n{dump}"))?;
+                if section.lines().any(|l| l.trim() == banned) {
+                    problems.push(format!("{func} must not contain `{banned}`"));
+                }
+            } else if !dump.contains(line) {
+                problems.push(format!("missing `{line}`"));
+            }
+        }
+        if problems.is_empty() { Ok(()) } else { Err(format!("{}\nactual dump:\n{dump}", problems.join("\n"))) }
+    });
+}

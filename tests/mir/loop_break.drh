@@ -1,0 +1,7 @@
+none main() {
+    mut uint32 i = 0;
+    while (true) {
+        if (i == 3) { break; }
+        i++;
+    }
+}

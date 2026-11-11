@@ -10,6 +10,7 @@ pub mod flags;
 pub mod hir;
 pub mod lexer;
 pub mod link;
+pub mod mir;
 pub mod parser;
 pub mod typeck;
 pub mod types;

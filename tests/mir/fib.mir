@@ -1,0 +1,5 @@
+fn fib(_1: uint32) -> uint32
+Lt(copy _1, const 2u32)
+call fib(
+Add(
+return
