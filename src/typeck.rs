@@ -1381,7 +1381,7 @@ impl Checker<'_> {
         let text = self.text(at);
         self.diags.push(
             Diagnostic::at(&codes::E0333, at, format!("cannot write through `{text}`: it is a `*fixed` pointer, which can only be read"))
-                .label(at, "written through a `*fixed` pointer here")
+                .note("written through a `*fixed` pointer here")
                 .help("only a pointer made from a `mut` or `open` binding (`*T`) can be written through"),
         );
     }
@@ -1818,8 +1818,8 @@ impl Checker<'_> {
             Val::Expr(e) if e.ty.is_ptr() && to.is_ptr() && e.ty != to => {
                 self.diags.push(
                     Diagnostic::at(&codes::E0334, from.span, format!("expected `{to}`, found `{}`", e.ty))
-                        .label(from.span, format!("this is `{}`", e.ty))
-                        .note("`*T` and `*fixed T` do not convert to each other")
+                        .note(format!("this is `{}`", e.ty))
+                        .note_line("`*T` and `*fixed T` do not convert to each other")
                         .help("inside `unsafe { }`, `p::freeze()` gives a `*fixed T` from a `*T`, and `p::thaw()` gives a `*T` from a `*fixed T`"),
                 );
                 None

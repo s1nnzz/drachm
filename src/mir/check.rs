@@ -21,6 +21,7 @@ pub fn run(hir: &hir::Program, mir: &Program, diags: &mut Vec<Diagnostic>) {
         }
         let mut ds = Vec::new();
         check_body(hir, body, &mir.self_modes, &mut ds);
+        super::unsafety::run(hir, body, &mut ds);
         ds.sort_by_key(|d| d.labels.first().map_or(0, |l| l.0.start));
         diags.extend(ds);
     }

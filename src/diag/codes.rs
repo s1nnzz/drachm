@@ -406,6 +406,14 @@ codes! {
          \x20   unsafe { *fixed uint32 r = w::freeze(); }   // `*T` to `*fixed T`\n\
          \x20   unsafe { *uint32 w2 = r::thaw(); }          // `*fixed T` to `*T`";
 
+    E0316: "an operation on a raw pointer needs `unsafe`",
+        "Making, reading, writing, copying, comparing, converting, moving, passing\n\
+         or returning a raw pointer, and calling an `unsafe` function, must be\n\
+         inside an `unsafe { }` block. The body of an `unsafe` function is one\n\
+         such block:\n\n\
+         \x20   none read(*uint32 p) { unsafe { uint32 v = *p; } }\n\
+         \x20   unsafe none bump(*uint32 p) { *p = *p + 1; }";
+
     E0901: "not supported yet",
         "This is part of Drachm's design, but this version of the compiler does\n\
          not implement it yet.";

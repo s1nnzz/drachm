@@ -1,0 +1,4 @@
+//--!$unsafe: true
+none main() {
+    *uint32 p = none;
+}

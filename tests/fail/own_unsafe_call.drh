@@ -1,0 +1,3 @@
+//--!$unsafe: true
+unsafe uint32 one() { return 1; }
+none main() { uint32 x = one(); }

@@ -18,6 +18,7 @@ pub mod check;
 pub mod dataflow;
 pub mod moves;
 pub mod mutability;
+pub mod unsafety;
 
 use crate::diag::{Diagnostic, Span};
 use crate::hir::{self, FuncId, StructId};

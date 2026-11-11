@@ -1,0 +1,1 @@
+error[E0316]: making a raw pointer with `address of` needs an `unsafe { }` block
