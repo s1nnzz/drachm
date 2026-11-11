@@ -116,7 +116,7 @@ export default function Home() {
                 <ul className="space-y-2 text-[15px]">
                   {s.docs.map((d) => (
                     <li key={d.slug}>
-                      <Link href={docUrl(d)} className="hover:text-bronze">{d.title}</Link>
+                      <Link href={docUrl(d)} className="hover:text-drh">{d.title}</Link>
                     </li>
                   ))}
                 </ul>

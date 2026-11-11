@@ -7,11 +7,11 @@
 @theme {
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, monospace;
-  --color-bronze: var(--bronze);
+  --color-drh: var(--drh);
 }
 
 :root {
-  --bronze: #a9712b;
+  --drh: #e5484d;
   --coin-bg: #ffffff;
   --color-fd-background: #ffffff;
   --color-fd-foreground: #0a0a0a;
@@ -24,7 +24,7 @@
   --radius: 0.5rem;
 }
 .dark {
-  --bronze: #cf9a52;
+  --drh: #ff6369;
   --coin-bg: #0a0a0a;
   --color-fd-background: #0a0a0a;
   --color-fd-foreground: #ededed;
@@ -41,8 +41,8 @@
 }
 
 html { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
-::selection { background: color-mix(in srgb, var(--bronze) 28%, transparent); }
-.drh-coin { color: var(--bronze); }
+::selection { background: color-mix(in srgb, var(--drh) 28%, transparent); }
+
 
 .prose h1, .prose h2, .prose h3 { letter-spacing: -0.02em; }
 

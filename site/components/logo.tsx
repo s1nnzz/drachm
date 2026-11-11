@@ -1,14 +1,15 @@
-// A drachm coin: a struck rim, an inner ring and a stamped "D".
+// The Drachm mark: a Greek key (meander) folded into a D, with a red centre.
 export function Coin({ size = 22 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" aria-hidden="true" className="drh-coin">
-      <circle cx="16" cy="16" r="14.5" stroke="currentColor" strokeWidth="1.5" />
-      <circle cx="16" cy="16" r="11" stroke="currentColor" strokeWidth="0.9" strokeDasharray="1.2 2.1" opacity="0.7" />
+    <svg width={size} height={size} viewBox="0 0 64 64" fill="none" aria-hidden="true" className="drh-mark">
       <path
-        d="M11.5 9.5h4.2c4.1 0 6.3 2.5 6.3 6.5s-2.2 6.5-6.3 6.5h-4.2z"
-        fill="currentColor"
+        d="M12 54 V10 H42 L54 22 V42 L42 54 H22 V20 H40 V44 H31 V31"
+        stroke="currentColor"
+        strokeWidth="5"
+        strokeLinejoin="miter"
+        strokeLinecap="square"
       />
-      <path d="M14 12.3v7.4" stroke="var(--coin-bg, #fff)" strokeWidth="1.4" strokeLinecap="round" />
+      <rect x="28.5" y="28.5" width="5" height="5" fill="var(--drh)" />
     </svg>
   );
 }
