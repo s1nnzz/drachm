@@ -17,6 +17,7 @@ pub mod ownership;
 pub mod parser;
 pub mod typeck;
 pub mod types;
+pub mod units;
 
 use diag::Diagnostic;
 
