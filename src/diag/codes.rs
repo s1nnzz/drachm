@@ -298,6 +298,16 @@ codes! {
         "`drop` runs by itself when a value is destroyed. To end a value now,\n\
          write `destroy x;`.";
 
+    E0324: "field moved without `take`",
+        "Moving a field out of a struct you own leaves the struct without that\n\
+         field, so it must be said: `take p.name` moves it out and leaves `p.name`\n\
+         without a value until you give it one. To keep both, write `copy p.name`.";
+    E0325: "`take` on a struct with `drop()`",
+        "A struct with a `drop()` method must stay whole, because `drop` runs when\n\
+         it is destroyed. Take a field only with a replacement in the same\n\
+         statement:\n\n\
+         \x20   string s = take f.path leaving \"\";";
+
     E0901: "not supported yet",
         "This is part of Drachm's design, but this version of the compiler does\n\
          not implement it yet.";

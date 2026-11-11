@@ -4,7 +4,7 @@
 //! have nothing to check before cleanup and elaboration exist.
 
 use super::traversal::{predecessors, reverse_postorder, successors};
-use super::ty::{local_ty, operand_ty, place_ty, rvalue_ty, Ty};
+use super::ty::{local_ty, operand_ty, place_ty, rvalue_ty};
 use super::*;
 
 pub fn validate(p: &Program, hir: &hir::Program) -> Result<(), Vec<String>> {
@@ -74,7 +74,7 @@ impl Validator<'_> {
         }
         // V6
         for (l, d) in body.locals.iter_enumerated() {
-            if matches!(d.kind, LocalKind::DropFlag) && (d.ty != Type::Bool || d.borrow.is_some()) {
+            if matches!(d.kind, LocalKind::DropFlag) && d.ty != Type::Bool {
                 self.err(l, "a drop flag must be bool");
             }
         }
@@ -86,7 +86,7 @@ impl Validator<'_> {
         format!("{} statement {}", loc.block, loc.index)
     }
 
-    fn place(&mut self, at: &str, pl: &Place) -> Option<Ty> {
+    fn place(&mut self, at: &str, pl: &Place) -> Option<Type> {
         match place_ty(self.body, self.hir, pl) {
             Ok(t) => Some(t),
             Err(e) => {
@@ -96,7 +96,7 @@ impl Validator<'_> {
         }
     }
 
-    fn operand(&mut self, at: &str, op: &Operand) -> Option<Ty> {
+    fn operand(&mut self, at: &str, op: &Operand) -> Option<Type> {
         match op {
             Operand::Copy(pl) | Operand::Move(pl) => self.place(at, pl),
             Operand::Const(_) => operand_ty(self.body, self.hir, op).ok(),
@@ -119,7 +119,7 @@ impl Validator<'_> {
                         self.place(&at, pl);
                     }
                 }
-                let tys: Vec<Option<Ty>> = operands.iter().map(|o| self.operand(&at, o)).collect();
+                let tys: Vec<Option<Type>> = operands.iter().map(|o| self.operand(&at, o)).collect();
                 match rv {
                     Rvalue::Binary(_, ..) => {
                         if tys[0].is_some() && tys[0] != tys[1] {
@@ -132,7 +132,7 @@ impl Validator<'_> {
                             self.err(&at, format!("Aggregate of {} gives {} fields, expected {}", self.hir.structs[*sid].name, ops.len(), fields.len()));
                         } else {
                             for (i, (f, t)) in fields.iter().zip(&tys).enumerate() {
-                                if t.is_some() && *t != Some(Ty::plain(f.ty)) {
+                                if t.is_some() && *t != Some(f.ty) {
                                     self.err(&at, format!("field {i} of Aggregate has the wrong type"));
                                 }
                             }
@@ -155,7 +155,7 @@ impl Validator<'_> {
             StatementKind::Drop { place, flag, .. } => {
                 self.place(&at, place);
                 if let Some(f) = flag {
-                    if local_ty(self.body, *f).ok() != Some(Ty::plain(Type::Bool)) {
+                    if local_ty(self.body, *f).ok() != Some(Type::Bool) {
                         self.err(&at, "a drop flag must be a bool local");
                     }
                 }
@@ -173,7 +173,7 @@ impl Validator<'_> {
             TerminatorKind::Goto(_) | TerminatorKind::Return | TerminatorKind::Panic(_) | TerminatorKind::Unreachable => {}
             TerminatorKind::If { cond, .. } => {
                 if let Some(t) = self.operand(&at, cond) {
-                    if t != Ty::plain(Type::Bool) {
+                    if t != Type::Bool {
                         self.err(&at, format!("If on a `{t}`, not a bool"));
                     }
                 }
@@ -182,18 +182,27 @@ impl Validator<'_> {
                 self.operand(&at, discr);
             }
             TerminatorKind::Call { callee, args, dest, .. } => {
-                let tys: Vec<Option<Ty>> = args.iter().map(|a| self.operand(&at, &a.op)).collect();
+                let tys: Vec<Option<Type>> = args.iter().map(|a| self.operand(&at, &a.op)).collect();
                 let dt = dest.as_ref().and_then(|d| self.place(&at, d));
                 let (want_args, want_ret) = self.signature(*callee);
                 match want_args {
+                    Some(_) if matches!(callee, Callee::Join) => {
+                        for (i, t) in tys.iter().enumerate() {
+                            if let Some(t) = t {
+                                if *t != Type::borrow(false, Type::Str) {
+                                    self.err(&at, format!("part {i} of Join is a `{t}`, expected `&string`"));
+                                }
+                            }
+                        }
+                    }
                     Some(want) if want.len() != tys.len() => {
                         self.err(&at, format!("{callee:?} takes {} arguments, given {}", want.len(), tys.len()));
                     }
                     Some(want) => {
                         for (i, (w, t)) in want.iter().zip(&tys).enumerate() {
                             if let Some(t) = t {
-                                if t != w {
-                                    self.err(&at, format!("argument {i} of {callee:?} is a `{t}`, expected `{w}`"));
+                                if !w.accepts(*t) {
+                                    self.err(&at, format!("argument {i} of {callee:?} is a `{t}`, expected {w}"));
                                 }
                             }
                         }
@@ -201,7 +210,7 @@ impl Validator<'_> {
                     None => {}
                 }
                 match (dest, dt) {
-                    (Some(_), Some(d)) if d != Ty::plain(want_ret) => {
+                    (Some(_), Some(d)) if d != want_ret => {
                         self.err(&at, format!("the result of {callee:?} is a `{want_ret}`, stored in a `{d}`"));
                     }
                     (None, _) if want_ret != Type::None => {
@@ -213,30 +222,34 @@ impl Validator<'_> {
         }
     }
 
-    /// Argument types (None: not checked, because a reference's referent is
-    /// all the phase A `Ty` can tell apart) and result type of a callee.
-    fn signature(&self, callee: Callee) -> (Option<Vec<Ty>>, Type) {
-        let refd = |t: Type, mutable: bool| Ty { ty: t, borrow: Some(mutable) };
+    /// What each argument of a callee must be, and its result type.
+    fn signature(&self, callee: Callee) -> (Option<Vec<Want>>, Type) {
+        let shared = |t: Type| Want::Exact(Type::borrow(false, t));
         match callee {
             Callee::Func(f) => {
                 let func = &self.hir.funcs[f];
                 let args = (0..func.params)
                     .map(|i| {
                         let t = func.locals[i].ty;
-                        // The receiver is a reference (mutable until WP3).
-                        if i == 0 && func.has_self { refd(t, true) } else { Ty::plain(t) }
+                        // The receiver is a borrow of the struct.
+                        if i == 0 && func.has_self { Want::RefTo(t) } else { Want::Exact(t) }
                     })
                     .collect();
                 (Some(args), func.ret)
             }
             Callee::Str(f) => {
                 let args = f.params().iter().enumerate().map(|(i, &t)| {
-                    if t == Type::Str { refd(t, f == hir::StrFn::Append && i == 0) } else { Ty::plain(t) }
+                    if t == Type::Str {
+                        if f == hir::StrFn::Append && i == 0 { Want::Exact(Type::borrow(true, t)) } else { shared(t) }
+                    } else {
+                        Want::Exact(t)
+                    }
                 });
                 (Some(args.collect()), f.ret())
             }
-            Callee::Out { .. } => (Some(vec![refd(Type::Str, false)]), Type::None),
-            Callee::Text | Callee::Radix { .. } | Callee::Join => (None, Type::Str),
+            Callee::Out { .. } => (Some(vec![shared(Type::Str)]), Type::None),
+            Callee::Text | Callee::Radix { .. } => (None, Type::Str),
+            Callee::Join => (Some(Vec::new()), Type::Str),
         }
     }
 
@@ -463,6 +476,31 @@ fn dominates(idom: &[Option<BlockId>], a: BlockId, mut b: BlockId) -> bool {
         match idom[b.index()] {
             Some(next) if next != b => b = next,
             _ => return false,
+        }
+    }
+}
+
+/// What an argument's type must be.
+enum Want {
+    Exact(Type),
+    /// A `&` or `&mut` of this type.
+    RefTo(Type),
+}
+
+impl Want {
+    fn accepts(&self, t: Type) -> bool {
+        match *self {
+            Want::Exact(w) => w == t,
+            Want::RefTo(w) => matches!(t, Type::Ref { to, .. } if *to == w),
+        }
+    }
+}
+
+impl std::fmt::Display for Want {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Want::Exact(t) => write!(f, "`{t}`"),
+            Want::RefTo(t) => write!(f, "`&{t}` or `&mut {t}`"),
         }
     }
 }
