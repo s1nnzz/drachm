@@ -69,7 +69,7 @@ pub fn analyse_body(hir: &hir::Program, sigs: &[LivesSig], body: &Body, report: 
     BodyResult { diags, solution }
 }
 
-/// WP7's driver: every body in `FuncId` order, with `sigs::provisional`.
+/// Checks every body in `FuncId` order against the signatures in `mir.lives`.
 /// The compiler's own functions (span 0, 0) are not checked.
 pub fn check_program(hir: &hir::Program, mir: &Program, diags: &mut Vec<Diagnostic>) {
     for body in mir.bodies.iter().flatten() {
