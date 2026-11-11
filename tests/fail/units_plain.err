@@ -1,0 +1,4 @@
+error[E0408]: a plain number cannot stand for a measure
+help: a plain number can scale a measure with `*` and `/`; to make one a measure write `n * 1<m>`
+help: give it a unit: `5<m>`
+help: a plain zero is not a point; write `0<degC>`

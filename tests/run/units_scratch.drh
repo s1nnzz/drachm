@@ -1,0 +1,6 @@
+in io;
+in si;
+none main() {
+    uint8 s = 3<m>;
+    io::outln(s::text());
+}

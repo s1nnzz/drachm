@@ -1,0 +1,18 @@
+in io;
+in si;
+
+none main() {
+    float64<kg> mass = 2.0<kg>;
+    float64<m/s^2> accel = 9.8<m/s^2>;
+    float64<N> force = mass * accel;
+    io::outln(force::text() + " " + force::unitText());
+
+    float64<km/h> speed = 36.0<km/h>;
+    io::outln(speed::in<m/s>()->text() + " " + speed::in<m/s>()->unitText());
+
+    float64<min> trip = 2.0<min>;
+    io::outln(trip::in<s>()->text() + " " + trip::in<s>()->unitText());
+
+    float64<degC> room = 20.0<degC>;
+    io::outln(room::in<K>()->text() + " " + room::in<K>()->unitText());
+}
