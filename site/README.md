@@ -33,6 +33,25 @@ generated from the same file.
 A line `<!-- example: NAME -->` becomes `examples/NAME.drh` as a `drachm` code
 block, followed by `examples/NAME.out` as a `text` block titled "output".
 
+### Status markers
+
+The site shows the language as designed, so pages and sections about things the
+compiler does not accept yet are marked:
+
+- `status: not-implemented` (decided in `docs/SPEC.md`, not built) or
+  `status: tentative` (still open, may change) in a page's front matter marks
+  the whole page: a badge after the title and a small badge in the sidebar.
+- A line `<!-- status: not-implemented -->` or `<!-- status: tentative -->`
+  directly under a `##`/`###` heading marks that section with a badge after the
+  heading. On a page that is already marked as a whole, use section markers only
+  for exceptions (a tentative section on a not-implemented page).
+
+A marker that is not directly under a heading, or has an unknown status, is
+ignored with a build warning. Unbuilt features use untested inline `drachm`
+blocks (no "run this" wording; output blocks are titled `intended output`).
+Built features have tested examples in `examples/`. When a feature lands,
+remove its marker in the same commit. Implemented in `lib/remark-status.ts`.
+
 ### Code in lessons
 
 Each `##`/`###` section with code is prose (left) plus one code panel (right).
