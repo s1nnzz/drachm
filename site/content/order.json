@@ -35,7 +35,26 @@
       ]
     },
     {
-      "title": "Later",
+      "title": "Language design",
+      "pages": [
+        "design-constructors",
+        "design-enums",
+        "design-errors",
+        "design-generics",
+        "design-collections",
+        "design-lifetimes",
+        "design-unsafe",
+        "design-modules",
+        "design-config",
+        "design-scripts",
+        "design-concurrency",
+        "design-maths",
+        "design-tooling",
+        "design-more"
+      ]
+    },
+    {
+      "title": "Roadmap",
       "pages": [
         "coming-later"
       ]

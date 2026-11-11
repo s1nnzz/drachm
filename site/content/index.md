@@ -24,8 +24,10 @@ and bools. The compiler also tracks ownership, so it rejects use after a move an
 offers `copy` as the fix.
 
 Other parts of the design, such as borrows, enums, modules and error handling, are
-not built yet. [Coming later](coming-later.md) lists them with the step of the
-plan each belongs to. Every page here describes only what the compiler accepts.
+not built yet. The "Language design" pages show them as designed, each with a
+badge saying "Not implemented yet" or "Tentative". The [Roadmap](coming-later.md)
+lists them with the step of the plan each belongs to. The lessons and the other
+Reference pages describe only what the compiler accepts.
 
 ## How to learn it
 

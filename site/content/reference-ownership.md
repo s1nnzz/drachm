@@ -17,7 +17,7 @@ Using a name after its value moved is error E0301.
 
 Numbers, bools and small plain structs copy by themselves, so they never need
 `copy`. Borrow parameters such as `&string` are designed but this compiler cannot
-build them yet (see [Coming later](coming-later.md)).
+build them yet (see [Roadmap](coming-later.md)).
 
 ```drachm
 none greet(string s) { }
@@ -74,7 +74,7 @@ other method that changes `self` needs a `mut` or `open` binding.
 Through a `&` borrow nothing changes, not even a `mut` field: changing it,
 lending it `&mut`, or calling a method that changes `self` is error E0311. A
 `&mut` borrow needs a `mut` or `open` binding, or it is error E0312. Borrows
-cannot be built yet (see [Coming later](coming-later.md)), so these examples
+cannot be built yet (see [Roadmap](coming-later.md)), so these examples
 are only checked:
 
 ```drachm
