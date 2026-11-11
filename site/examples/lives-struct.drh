@@ -1,0 +1,19 @@
+in io;
+
+// Each borrow field is named, and each may borrow from a different place.
+struct Pair lives a, b {
+public:
+    &string a;
+    &string b;
+}
+
+none main() {
+    string x = "x";
+    if (true) {
+        string y = "y";
+        Pair p = &x, &y;
+        io::outln(p.a);
+        io::outln(p.b);
+    }
+    io::outln(x);
+}

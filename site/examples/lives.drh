@@ -1,0 +1,34 @@
+in io;
+
+// One borrowed parameter can be the source, so the compiler works it out.
+&string first_word(&string text, uint32 n) {
+    return text;
+}
+
+// Two can be: say which with `lives`.
+&string longest(&string a, &string b) lives a, b {
+    if (a::len() > b::len()) { return a; }
+    return b;
+}
+
+struct Table {
+public:
+    string name;
+
+    // A method names `self` after `from`, with the sources joined by `or`.
+    &string pick(&string key) lives from self or key {
+        if (key::len() > 3) { return key; }
+        return &self.name;
+    }
+}
+
+none main() {
+    string x = "long one";
+    string y = "short";
+    io::outln(first_word(&y, 3));
+    io::outln(longest(&x, &y));
+
+    Table t = "table";
+    io::outln(t::pick(&x));
+    io::outln(t::pick(&y));
+}

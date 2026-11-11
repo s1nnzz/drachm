@@ -268,7 +268,10 @@ codes! {
         "A function's `lives` clause names whole parameters that hold a borrow,\n\
          and the result may borrow from those. Naming something that is not a\n\
          parameter holding a borrow is an error:\n\n\
-         \x20   &string pick(&string a, uint32 n) lives n { ... }   // `n` holds no borrow";
+         \x20   &string pick(&string a, uint32 n) lives n { ... }   // `n` holds no borrow\n\n\
+         It is also an error when the body returns a borrow of a parameter the\n\
+         clause does not name:\n\n\
+         \x20   &string pick(&string a, &string b) lives a { return b; }   // add `b`";
     E0320: "a borrow stored where the caller cannot promise it",
         "A parameter that holds a borrow, such as `&mut &string a`, can only be given\n\
          borrows that last as long as what the caller put there. Storing a borrow of\n\
