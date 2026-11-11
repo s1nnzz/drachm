@@ -57,3 +57,9 @@ Q9 SI units come with `in si;` (built into the compiler until modules exist).
 Q10 `*` and `/` take plain numbers (they're scales); zero is unit-free; any other plain constant in `+ - %` or a comparison needs its unit (`d + 5<m>`).
 Q11 `::in<m>()` changes the unit and keeps the number type; `::to<T>()` changes the number type.
 Prefixes: NOT automatic. Scaled units are ordinary declarations (`unit g; unit kg = 1000 g; unit l; unit ml = 0.001 l; unit ft; unit mi = 5280 ft;`); `in si;` ships the common ones declared that way. Arithmetic on scaled units goes through the base and back: `2<mi> + 2<mi>` = (5280*2 + 5280*2) ft / 5280. Unit names are ASCII only (no `µ`).
+
+# 2026-11-11, later
+Q-MF (wp5.md): a method that writes only `mut` fields is inferred as a third kind ("changes only mut fields"): callable on an owned immutable value (`Counter k; k::hit();` is fine), not through a `&` borrow (E0311), fine through `&mut`.
+Units Q12: a plain variable beside a unit value follows the same rule as plain constants: `*` and `/` are fine, `+ - %` and comparisons need a unit; `d++` adds one of `d`'s own unit.
+Units Q15: `kg` is the base mass unit (SI): `unit kg; unit g = 0.001 kg;` so `uint32 x = 2<kg>` is 2 and `uint32 y = 500<g>` is 0.
+Still open: units Q13 (declared dimensionless units like `unit pct = 0.01 1;`), Q14 (is `delta degC` the same type as `K`; `::unitText()` of a delta; zero beside a point). Conservative defaults in the spec stand meanwhile.
