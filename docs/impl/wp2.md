@@ -390,7 +390,7 @@ expectations spelled out:
         p.hp = 5;
     }
     ```
-    → ``error[E0332]: cannot give `p.hp` a value: `p` has no value yet``,
+    → ``error[E0332]: cannot give `p.hp` a value: `p` has no value yet`` with help ``a struct with no value is filled with `fill p { ... }` (not supported yet)`` (owner 2026-11-11: only `fill` blocks may touch an incomplete struct),
     `` `p` is declared here without a value ``, ``help: give `p` a whole value first: `p = ...;` ``.
     (Whether a struct may be filled in field by field is the owner's call; this
     is the spec's reading, 3.1.3. Mention the test in your report.)

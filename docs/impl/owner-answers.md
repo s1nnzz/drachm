@@ -36,3 +36,10 @@ Range loops: `by` step word: `for (float64 x of 0.0..1.0 by 0.25)`, `for (uint32
 #6 calling drop yourself: `x::drop()` is an error. New statement `destroy x;` runs `drop()` now and ends `x` (like a move; nothing runs at scope end). `destroy` becomes a keyword.
 #9 `address of` an immutable binding: allowed, gives a read-only pointer of a second pointer kind `*fixed T` (cannot be written through). `address of` a `mut`/`open` binding gives `*T`.
 Still open: #2 `lend` on a `&T`, #5 more `take` forms, #7 multi-slot borrow fields, #8 pointers outside `unsafe` / inside unsafe fn bodies, #10 `none` as a non-pointer value (likely step 5 `maybe`).
+
+# Field-by-field filling and defaults, 2026-11-11
+- A struct declared without a value can only be filled through a `fill` block: `fill p { p.name = "a"; p.hp = 5; }` must give every field a value by its `}` (error there if one is missed). `fill partial p { ... }` sets some fields and leaves `p` incomplete. Until `p` is complete, `fill` / `fill partial` are the only ways to touch `p` (no reads, borrows or plain field assignments).
+- Defaults: a `def` is a named template of field values, decoupled from the struct, and a struct may have several: `def PlayerStart of Player { hp = 100; title = "none"; }`. A struct names its default def in its head: `struct Player defaults PlayerStart { ... }`. Shorthand: `def Player { ... }` (a def with the struct's own name, no `of`) and then `struct default Player { ... }`. `fill p with defaults { }` starts from the struct's default def and the block sets the rest.
+- My reading, not yet confirmed: `fill p with Veteran { }` picks a named def other than the default.
+- Writing through a raw pointer field (`unsafe { *self.counter += 1; }`) does not change `self`: the method stays `&self` ("counter is a reference and not the value itself").
+- Scheduled: `fill`/`def`/`defaults` with step 5 (constructors). In step 3, assigning a field of a struct that has no value is E0332 with help "fill it with `fill p { ... }` (coming in step 5)", and `fill` itself is E0901.

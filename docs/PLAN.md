@@ -566,6 +566,12 @@ patterns `case uint32 a` / `case none`, `because` chains (SPEC section 7).
 Also: `fails with (any e)` and the `otherwise (any e)` arm; `${e}` prints a
 failure's message.
 
+Decided (2026-11-11): `fill p { }` / `fill partial p { }` blocks for structs
+declared without a value, and `def` templates of default values (`def X of
+Player { }`, `struct Player defaults X { }`, shorthand `def Player { }` +
+`struct default Player { }`, `fill p with defaults { }`). Details in
+`docs/impl/owner-answers.md`.
+
 **Open (ask owner):** none.
 
 ---
