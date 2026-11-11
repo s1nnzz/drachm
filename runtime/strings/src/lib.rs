@@ -504,6 +504,126 @@ pub unsafe extern "C-unwind" fn drachm_str_radix(out: *mut DrachmStr, lo: u64, h
 }
 
 
+// ---- input and number text ----------------------------------------------------
+//
+// Lines of standard input are read by the C runtime (runtime.c), so that both
+// backends share one buffer; these turn the bytes into strings and parse them.
+
+/// Bytes of input as a new string. Each invalid UTF-8 sequence becomes U+FFFD.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn drachm_str_from_bytes(out: *mut DrachmStr, p: *const u8, n: u64) {
+    let data: &[u8] = if n == 0 { &[] } else { unsafe { std::slice::from_raw_parts(p, n as usize) } };
+    match std::str::from_utf8(data) {
+        Ok(_) => unsafe { emit(out, data) },
+        Err(_) => unsafe { emit(out, String::from_utf8_lossy(data).as_bytes()) },
+    }
+}
+
+/// The interim number grammar for integers: optional `-` (only for signed
+/// types), then decimal digits. Anything else, and any value out of range for
+/// the type, is `None`.
+fn parse_int(t: &str, signed: bool, bits: u32) -> Option<(u64, u64)> {
+    let (negative, digits) = match t.strip_prefix('-') {
+        Some(rest) => (true, rest),
+        None => (false, t),
+    };
+    if (negative && !signed) || digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let magnitude: u128 = digits.parse().ok()?;
+    let v = if !signed {
+        let max = if bits == 128 { u128::MAX } else { (1u128 << bits) - 1 };
+        if magnitude > max {
+            return None;
+        }
+        magnitude
+    } else {
+        let half = 1u128 << (bits - 1);
+        let ok = if negative { magnitude <= half } else { magnitude < half };
+        if !ok {
+            return None;
+        }
+        if negative { magnitude.wrapping_neg() } else { magnitude }
+    };
+    Some((v as u64, (v >> 64) as u64))
+}
+
+/// The interim grammar for floats: optional `-`, digits, optional `.` with
+/// digits after it, optional exponent `e`/`E` with an optional sign and
+/// digits. `.5` and `5.` are not numbers. Overflow to infinity is not one either.
+fn is_float_text(t: &str) -> bool {
+    let b = t.as_bytes();
+    let digits = |i: &mut usize| {
+        let start = *i;
+        while *i < b.len() && b[*i].is_ascii_digit() {
+            *i += 1;
+        }
+        *i > start
+    };
+    let mut i = 0;
+    if b.first() == Some(&b'-') {
+        i += 1;
+    }
+    if !digits(&mut i) {
+        return false;
+    }
+    if b.get(i) == Some(&b'.') {
+        i += 1;
+        if !digits(&mut i) {
+            return false;
+        }
+    }
+    if matches!(b.get(i), Some(b'e' | b'E')) {
+        i += 1;
+        if matches!(b.get(i), Some(b'+' | b'-')) {
+            i += 1;
+        }
+        if !digits(&mut i) {
+            return false;
+        }
+    }
+    i == b.len()
+}
+
+/// Parses the whole of `s` as an integer of the given kind: 1 and the value
+/// (`lo`, and `hi` for 128 bits; sign-extended for signed kinds), or 0 for bad text.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn drachm_str_parse_int(s: *const DrachmStr, is_signed: u8, bits: u32, lo: *mut u64, hi: *mut u64) -> u8 {
+    match parse_int(unsafe { text(s) }, is_signed != 0, bits) {
+        Some((l, h)) => {
+            unsafe { *lo = l; *hi = h };
+            1
+        }
+        None => 0,
+    }
+}
+
+/// Parses the whole of `s` as a float64 (1 and the value, or 0 for bad text).
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn drachm_str_parse_f64(s: *const DrachmStr, out: *mut f64) -> u8 {
+    let t = unsafe { text(s) };
+    match t.parse::<f64>() {
+        Ok(v) if is_float_text(t) && v.is_finite() => {
+            unsafe { *out = v };
+            1
+        }
+        _ => 0,
+    }
+}
+
+/// As `drachm_str_parse_f64`, for float32.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn drachm_str_parse_f32(s: *const DrachmStr, out: *mut f32) -> u8 {
+    let t = unsafe { text(s) };
+    match t.parse::<f32>() {
+        Ok(v) if is_float_text(t) && v.is_finite() => {
+            unsafe { *out = v };
+            1
+        }
+        _ => 0,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -917,5 +1037,78 @@ const ACUTE: &str = "\u{301}"; // a bare combining mark
     #[should_panic(expected = "invalid number base")]
     fn radix_bad_base() {
         radix(1, false, 1, false);
+    }
+}
+
+#[cfg(test)]
+mod input_tests {
+    use super::*;
+
+    #[test]
+    fn integer_boundaries() {
+        let ok = |t: &str, signed, bits| parse_int(t, signed, bits);
+        assert_eq!(ok("255", false, 8), Some((255, 0)));
+        assert_eq!(ok("256", false, 8), None);
+        assert_eq!(ok("127", true, 8), Some((127, 0)));
+        assert_eq!(ok("128", true, 8), None);
+        assert_eq!(ok("-128", true, 8), Some((0xffff_ffff_ffff_ff80, u64::MAX)));
+        assert_eq!(ok("-129", true, 8), None);
+        assert_eq!(ok("18446744073709551615", false, 64), Some((u64::MAX, 0)));
+        assert_eq!(ok("18446744073709551616", false, 64), None);
+        assert_eq!(ok("-9223372036854775808", true, 64), Some((1 << 63, u64::MAX)));
+        assert_eq!(ok("-9223372036854775809", true, 64), None);
+        assert_eq!(ok("340282366920938463463374607431768211455", false, 128), Some((u64::MAX, u64::MAX)));
+        assert_eq!(ok("340282366920938463463374607431768211456", false, 128), None);
+        assert_eq!(ok("-170141183460469231731687303715884105728", true, 128), Some((0, 1 << 63)));
+        assert_eq!(ok("170141183460469231731687303715884105728", true, 128), None);
+        assert_eq!(ok("-0", false, 32), None);
+        assert_eq!(ok("-0", true, 32), Some((0, 0)));
+    }
+
+    #[test]
+    fn integer_grammar() {
+        for bad in ["", "-", " 1", "1 ", "+1", "1e3", "0x10", "1_000", "3.0", "--1", "١"] {
+            assert_eq!(parse_int(bad, true, 64), None, "{bad:?} as an integer");
+        }
+        assert_eq!(parse_int("007", false, 8), Some((7, 0)));
+        assert_eq!(parse_int("-1", false, 64), None);
+    }
+
+    #[test]
+    fn float_grammar() {
+        for good in ["0", "-0", "3.25", "1e3", "1E-3", "1e+3", "-2.5e10"] {
+            assert!(is_float_text(good), "{good:?}");
+        }
+        for bad in ["", "-", ".5", "5.", "+1", "1e", "1e+", "inf", "nan", "infinity", "0x1p3", " 1", "1 ", "1_0"] {
+            assert!(!is_float_text(bad), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn float_overflow_is_bad_text() {
+        let f = |t: &str| {
+            let s = DrachmStr { ptr: t.as_ptr() as *mut u8, len: t.len() as u64, cap: 0 };
+            let mut v = 0f64;
+            let ok64 = unsafe { drachm_str_parse_f64(&s, &mut v) };
+            let mut w = 0f32;
+            let ok32 = unsafe { drachm_str_parse_f32(&s, &mut w) };
+            (ok64, ok32)
+        };
+        assert_eq!(f("1e308"), (1, 0));
+        assert_eq!(f("1e39"), (1, 0));
+        assert_eq!(f("1e400"), (0, 0));
+        assert_eq!(f("1e-400"), (1, 1));
+    }
+
+    #[test]
+    fn from_bytes_replaces_bad_utf8() {
+        let raw = b"ok \xff\xfe \xc3\xa9";
+        let mut out = DrachmStr { ptr: ptr::null_mut(), len: 0, cap: 0 };
+        unsafe { drachm_str_from_bytes(&mut out, raw.as_ptr(), raw.len() as u64) };
+        assert_eq!(unsafe { text(&out) }, "ok \u{fffd}\u{fffd} \u{e9}");
+        unsafe { drachm_str_drop(&mut out) };
+        let mut empty = DrachmStr { ptr: ptr::null_mut(), len: 1, cap: 1 };
+        unsafe { drachm_str_from_bytes(&mut empty, ptr::null(), 0) };
+        assert_eq!((empty.len, empty.cap), (0, 0));
     }
 }

@@ -24,10 +24,17 @@
 
 // The C library on Windows turns "\n" into "\r\n" on text streams. Drachm
 // programs write exactly the bytes they print, as they do everywhere else.
+// Input is binary too: a line's "\r\n" arrives as it is, and drachm_in_line
+// removes the "\r" itself, the same on every system.
 __attribute__((constructor, unused)) static void drachm_binary_stdio(void) {
+    _setmode(_fileno(stdin), _O_BINARY);
     _setmode(_fileno(stdout), _O_BINARY);
     _setmode(_fileno(stderr), _O_BINARY);
 }
+#define drachm_isatty(fd) _isatty(fd)
+#else
+#include <unistd.h>
+#define drachm_isatty(fd) isatty(fd)
 #endif
 
 #ifdef DRACHM_INLINE
@@ -218,6 +225,111 @@ DRACHM_FN void drachm_text_zero_pad(drachm_str *out, const drachm_str *s, uint64
     out->ptr = p;
     out->len = width;
     out->cap = width;
+}
+
+// ---- input ----------------------------------------------------------------
+//
+// Standard input is read here, with C stdio, for both backends.
+
+// When standard input is a terminal, a prompt written with io::out must show
+// before the program waits for a line. Pipes and files are not flushed, so a
+// program that reads a lot stays fast.
+static void drachm_flush_for_read(void) {
+    static int terminal = -1;
+    if (terminal < 0) terminal = drachm_isatty(0) ? 1 : 0;
+    if (terminal) fflush(stdout);
+}
+
+// Reads one line into `out` (owned, or the empty not-owned string at the end
+// of input). The line ends at "\n", which is not kept; a "\r" just before it
+// is not kept either. A last line without a newline is a line.
+DRACHM_FN void drachm_in_line(drachm_str *out) {
+    drachm_flush_for_read();
+    char *buf = NULL;
+    size_t len = 0, cap = 0;
+    int c, newline = 0;
+    while ((c = getc(stdin)) != EOF) {
+        if (c == '\n') {
+            newline = 1;
+            break;
+        }
+        if (len == cap) {
+            size_t grown_cap = cap ? cap * 2 : 128;
+            char *grown = realloc(buf, grown_cap);
+            if (!grown) {
+                free(buf);
+                drachm_panic("out of memory");
+            }
+            buf = grown;
+            cap = grown_cap;
+        }
+        buf[len++] = (char)c;
+    }
+    if (newline && len && buf[len - 1] == '\r') len--;
+    if (len == 0) {
+        out->ptr = NULL;
+        out->len = 0;
+        out->cap = 0;
+    } else {
+        drachm_str_from_bytes(out, (const uint8_t *)buf, len);
+    }
+    free(buf);
+}
+
+// 1 when no input is left. Peeks one byte, which stays for the next read.
+DRACHM_FN uint8_t drachm_in_ended(void) {
+    drachm_flush_for_read();
+    int c = getc(stdin);
+    if (c == EOF) return 1;
+    ungetc(c, stdin);
+    return 0;
+}
+
+// ---- text to number ---------------------------------------------------------
+
+// The panic for text that is not a number of the type named. The text is
+// shown up to 40 bytes (cut at a character boundary), control bytes as '?'.
+_Noreturn static void drachm_parse_failed(const drachm_str *s, const char *type_name) {
+    char msg[160];
+    size_t n = (size_t)snprintf(msg, sizeof msg, "cannot read \"");
+    size_t shown = s->len;
+    if (shown > 40) {
+        shown = 40;
+        while (shown > 0 && (s->ptr[shown] & 0xC0) == 0x80) shown--;
+    }
+    for (size_t i = 0; i < shown; i++) {
+        uint8_t c = s->ptr[i];
+        msg[n++] = (c < 0x20 || c == 0x7f) ? '?' : (char)c;
+    }
+    if (shown < s->len) {
+        memcpy(msg + n, "...", 3);
+        n += 3;
+    }
+    snprintf(msg + n, sizeof msg - n, "\" as %s", type_name);
+    drachm_panic(msg);
+}
+
+// `s` as an integer of `bits` bits (sint or uint); panics on bad text.
+DRACHM_FN drachm_pair drachm_parse_int(const drachm_str *s, uint8_t is_signed, uint32_t bits) {
+    drachm_pair p;
+    if (!drachm_str_parse_int(s, is_signed, bits, &p.lo, &p.hi)) {
+        char name[16];
+        snprintf(name, sizeof name, "%s%u", is_signed ? "sint" : "uint", (unsigned)bits);
+        drachm_parse_failed(s, name);
+    }
+    return p;
+}
+
+// `s` as a float of `bits` bits; panics on bad text.
+DRACHM_FN double drachm_parse_float(const drachm_str *s, uint32_t bits) {
+    if (bits == 32) {
+        float f;
+        if (!drachm_str_parse_f32(s, &f)) drachm_parse_failed(s, "float32");
+        return f;
+    }
+    double d;
+    if (!drachm_str_parse_f64(s, &d)) drachm_parse_failed(s, "float64");
+    return d;
 }
 
 // ---- conversions ----------------------------------------------------------

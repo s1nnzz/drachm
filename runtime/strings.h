@@ -72,6 +72,15 @@ void drachm_str_repeat(drachm_str *out, const drachm_str *s, uint64_t n);
 void drachm_str_pad_left(drachm_str *out, const drachm_str *s, uint64_t width, const drachm_str *fill);
 void drachm_str_pad_right(drachm_str *out, const drachm_str *s, uint64_t width, const drachm_str *fill);
 
+// ---- input and text to number (the interim rules of the language) ----
+// Input lines arrive as bytes: any invalid UTF-8 becomes U+FFFD.
+void drachm_str_from_bytes(drachm_str *out, const uint8_t *p, uint64_t n);
+// Parse the whole text. Each returns 1 and the value, or 0 for bad text.
+// Integers: the 64-bit halves of the value, sign-extended for signed kinds.
+uint8_t drachm_str_parse_int(const drachm_str *s, uint8_t is_signed, uint32_t bits, uint64_t *lo, uint64_t *hi);
+uint8_t drachm_str_parse_f64(const drachm_str *s, double *out);
+uint8_t drachm_str_parse_f32(const drachm_str *s, float *out);
+
 // ---- number to text in a base (for io::outf %x %X %b %o) ----
 // The value arrives as two 64-bit halves, already sign- or zero-extended to
 // 128 bits. A negative value prints as '-' followed by its magnitude.
