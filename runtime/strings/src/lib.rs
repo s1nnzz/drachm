@@ -519,14 +519,21 @@ pub unsafe extern "C-unwind" fn drachm_str_from_bytes(out: *mut DrachmStr, p: *c
     }
 }
 
-/// The interim number grammar for integers: optional `-` (only for signed
-/// types), then decimal digits. Anything else, and any value out of range for
-/// the type, is `None`.
+/// Splits an optional leading `-` or `+` off the text. Returns whether it is
+/// negative, and the rest.
+fn split_sign(t: &str) -> (bool, &str) {
+    match t.as_bytes().first() {
+        Some(b'-') => (true, &t[1..]),
+        Some(b'+') => (false, &t[1..]),
+        _ => (false, t),
+    }
+}
+
+/// The grammar for integers: surrounding whitespace is ignored, then an optional
+/// sign (`-` only for signed types, `+` for any), then decimal digits. Anything
+/// else, and any value out of range for the type, is `None`.
 fn parse_int(t: &str, signed: bool, bits: u32) -> Option<(u64, u64)> {
-    let (negative, digits) = match t.strip_prefix('-') {
-        Some(rest) => (true, rest),
-        None => (false, t),
-    };
+    let (negative, digits) = split_sign(t.trim());
     if (negative && !signed) || digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
         return None;
     }
@@ -548,11 +555,13 @@ fn parse_int(t: &str, signed: bool, bits: u32) -> Option<(u64, u64)> {
     Some((v as u64, (v >> 64) as u64))
 }
 
-/// The interim grammar for floats: optional `-`, digits, optional `.` with
-/// digits after it, optional exponent `e`/`E` with an optional sign and
-/// digits. `.5` and `5.` are not numbers. Overflow to infinity is not one either.
+/// The grammar for floats: surrounding whitespace is ignored, then an optional
+/// sign (`-` or `+`), digits with an optional `.` and digits after it (`.5` and
+/// `5.` are fine, a lone `.` is not), and an optional exponent `e`/`E` with an
+/// optional sign and digits. `inf`, `nan` and hex are not numbers, and neither
+/// is a value that overflows to infinity.
 fn is_float_text(t: &str) -> bool {
-    let b = t.as_bytes();
+    let b = t.trim().as_bytes();
     let digits = |i: &mut usize| {
         let start = *i;
         while *i < b.len() && b[*i].is_ascii_digit() {
@@ -561,17 +570,17 @@ fn is_float_text(t: &str) -> bool {
         *i > start
     };
     let mut i = 0;
-    if b.first() == Some(&b'-') {
+    if matches!(b.first(), Some(b'-' | b'+')) {
         i += 1;
     }
-    if !digits(&mut i) {
-        return false;
-    }
+    let before = digits(&mut i);
+    let mut after = false;
     if b.get(i) == Some(&b'.') {
         i += 1;
-        if !digits(&mut i) {
-            return false;
-        }
+        after = digits(&mut i);
+    }
+    if !before && !after {
+        return false;
     }
     if matches!(b.get(i), Some(b'e' | b'E')) {
         i += 1;
@@ -601,7 +610,7 @@ pub unsafe extern "C-unwind" fn drachm_str_parse_int(s: *const DrachmStr, is_sig
 /// Parses the whole of `s` as a float64 (1 and the value, or 0 for bad text).
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn drachm_str_parse_f64(s: *const DrachmStr, out: *mut f64) -> u8 {
-    let t = unsafe { text(s) };
+    let t = unsafe { text(s) }.trim();
     match t.parse::<f64>() {
         Ok(v) if is_float_text(t) && v.is_finite() => {
             unsafe { *out = v };
@@ -614,7 +623,7 @@ pub unsafe extern "C-unwind" fn drachm_str_parse_f64(s: *const DrachmStr, out: *
 /// As `drachm_str_parse_f64`, for float32.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn drachm_str_parse_f32(s: *const DrachmStr, out: *mut f32) -> u8 {
-    let t = unsafe { text(s) };
+    let t = unsafe { text(s) }.trim();
     match t.parse::<f32>() {
         Ok(v) if is_float_text(t) && v.is_finite() => {
             unsafe { *out = v };
@@ -1067,19 +1076,32 @@ mod input_tests {
 
     #[test]
     fn integer_grammar() {
-        for bad in ["", "-", " 1", "1 ", "+1", "1e3", "0x10", "1_000", "3.0", "--1", "١"] {
+        for bad in ["", " ", "-", "+", "+-1", "-+1", "- 1", "1 2", "1e3", "0x10", "1_000", "3.0", "--1", "١", "1,000"] {
             assert_eq!(parse_int(bad, true, 64), None, "{bad:?} as an integer");
         }
         assert_eq!(parse_int("007", false, 8), Some((7, 0)));
         assert_eq!(parse_int("-1", false, 64), None);
+        assert_eq!(parse_int("-0", false, 8), None);
+    }
+
+    #[test]
+    fn integer_whitespace_and_plus() {
+        assert_eq!(parse_int(" 42 ", false, 8), Some((42, 0)));
+        assert_eq!(parse_int("\t42\n", false, 8), Some((42, 0)));
+        assert_eq!(parse_int("+42", false, 8), Some((42, 0)));
+        assert_eq!(parse_int(" +42 ", true, 8), Some((42, 0)));
+        assert_eq!(parse_int(" -128 ", true, 8), Some((0xffff_ffff_ffff_ff80, u64::MAX)));
+        assert_eq!(parse_int("+256", false, 8), None);
+        assert_eq!(parse_int(" 256 ", false, 8), None);
+        assert_eq!(parse_int(" 0 ", false, 8), Some((0, 0)));
     }
 
     #[test]
     fn float_grammar() {
-        for good in ["0", "-0", "3.25", "1e3", "1E-3", "1e+3", "-2.5e10"] {
+        for good in ["0", "-0", "3.25", "1e3", "1E-3", "1e+3", "-2.5e10", "+1", " 1 ", "\n-2.5\t", ".5", "5.", "-.5", "+5.", ".5e2", "5.e2"] {
             assert!(is_float_text(good), "{good:?}");
         }
-        for bad in ["", "-", ".5", "5.", "+1", "1e", "1e+", "inf", "nan", "infinity", "0x1p3", " 1", "1 ", "1_0"] {
+        for bad in ["", " ", "-", "+", ".", "-.", "+.", "1e", "1e+", ".e3", "inf", "nan", "infinity", "0x1p3", "1 2", "1_0", "+-1", "1.2.3"] {
             assert!(!is_float_text(bad), "{bad:?}");
         }
     }

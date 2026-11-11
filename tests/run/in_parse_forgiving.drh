@@ -1,0 +1,16 @@
+in io;
+
+none main() {
+    uint32 a = io::inln()->to<uint32>();
+    sint8 b = io::inln()->to<sint8>();
+    float64 c = io::inln()->to<float64>();
+    float64 d = io::inln()->to<float64>();
+    float32 e = io::inln()->to<float32>();
+    float64 f = io::inln()->to<float64>();
+    io::outln(a::text());
+    io::outln(b::text());
+    io::outln(c::text());
+    io::outln(d::text());
+    io::outln(e::text());
+    io::outln(f::text());
+}
