@@ -144,7 +144,10 @@ impl Checker<'_> {
                         self.temps.pop();
                         *inner
                     }
-                    kind => self.owned(hir::Expr::new(kind, Type::Str)),
+                    kind @ hir::ExprKind::Str(_) => self.owned(hir::Expr::new(kind, Type::Str)),
+                    // A place is copied by joining it on its own: that makes a new
+                    // string without using the place up.
+                    kind => hir::Expr::new(hir::ExprKind::Join(vec![hir::Expr::new(kind, Type::Str)]), Type::Str),
                 }
             }
             _ => hir::Expr::new(hir::ExprKind::Join(pieces), Type::Str),
@@ -161,7 +164,9 @@ impl Checker<'_> {
                 if let Some(a) = args.first() {
                     self.diags.push(Diagnostic::at(&codes::E0103, a.span, "`text` takes no arguments"));
                 }
-                return Some(Val::Expr(self.owned(recv)));
+                // A new string made from `recv`, which stays where it is.
+                let recv = self.place(recv);
+                return Some(Val::Expr(self.join(vec![recv])));
             }
             "len" => StrFn::Len,
             "isEmpty" => StrFn::IsEmpty,

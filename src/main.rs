@@ -46,7 +46,9 @@ fn main() {
 
     match cmd.as_str() {
         "check" => {
-            let hir = front_end(&input);
+            // The MIR dump is for looking at programs the ownership checks
+            // reject too, so it stops after type checking.
+            let hir = front_end(&input, !dump_mir);
             if dump_mir {
                 let mut diags = Vec::new();
                 let mir = drachm::mir::build_program(&hir, &mut diags);
@@ -88,9 +90,10 @@ fn die(msg: &str) -> ! {
 }
 
 /// Check the file, print its diagnostics, and exit if there were errors.
-fn front_end(input: &Path) -> drachm::hir::Program {
+/// `ownership` is false to stop after type checking.
+fn front_end(input: &Path, ownership: bool) -> drachm::hir::Program {
     let text = std::fs::read_to_string(input).unwrap_or_else(|e| die(&format!("{}: {e}", input.display())));
-    let (checked, diags) = drachm::check(&text);
+    let (checked, diags) = if ownership { drachm::check(&text) } else { drachm::front(&text) };
     if !diags.is_empty() {
         let color = std::io::stderr().is_terminal() && std::env::var_os("NO_COLOR").is_none();
         let src = Source::new(input.display().to_string(), text);
@@ -100,6 +103,6 @@ fn front_end(input: &Path) -> drachm::hir::Program {
 }
 
 fn build(input: &Path, out: &Path, opt: bool) {
-    let program = front_end(input);
+    let program = front_end(input, true);
     drachm::build(&program, out, opt).unwrap_or_else(|e| die(&format!("drachm: {e}")));
 }

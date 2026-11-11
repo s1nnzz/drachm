@@ -21,19 +21,18 @@ use std::collections::HashMap;
 
 use num_rational::BigRational;
 
-use super::{int_lit, origin, scoped, Checker, Flow, Val};
+use super::{int_lit, origin, scoped, Checker, Val};
 use crate::ast::{self, ExprKind, Pattern, SkipTarget};
 use crate::consts::Const;
 use crate::diag::{codes, Diagnostic, Span};
 use crate::hir;
 use crate::types::Type;
 
-/// Something a jump can go to. Each keeps the flow states of the jumps to
-/// it, cut down to the locals that exist outside it (`base`), and the depth
-/// of `Checker::owned` outside it (`owned`): a jump to it drops the strings
-/// of every scope from there in.
+/// Something a jump can go to. Each keeps the depth of `Checker::owned`
+/// outside it (`owned`): a jump to it drops the strings of every scope from
+/// there in.
 pub(super) enum Target {
-    Loop { label: hir::Label, span: Span, base: usize, owned: usize, breaks: Vec<Flow>, continues: Vec<Flow> },
+    Loop { label: hir::Label, span: Span, owned: usize },
     /// One `skip` level: an `if` chain or a `match`, now in branch number `branch`.
     Level {
         label: hir::Label,
@@ -41,21 +40,12 @@ pub(super) enum Target {
         is_match: bool,
         /// An `if` chain that ends in `else`.
         has_else: bool,
-        base: usize,
         owned: usize,
         branch: usize,
         branches: usize,
-        leaves: Vec<Flow>,
-        nexts: Vec<Flow>,
+        /// Some `skip to next` goes to the last branch's test.
+        next_to_last: bool,
     },
-}
-
-#[derive(Clone, Copy, PartialEq)]
-enum Edge {
-    Break,
-    Continue,
-    Leave,
-    Next,
 }
 
 /// How a branch of a chain is chosen.
@@ -74,11 +64,6 @@ enum Lit {
     Int(u128),
     Float(f64),
     Bool(bool),
-}
-
-/// The state after any of several paths: `first` or one of `rest`.
-fn join_all(first: Flow, rest: Vec<Flow>) -> Flow {
-    rest.into_iter().fold(first, Flow::join)
 }
 
 fn local(id: hir::LocalId, ty: Type) -> hir::Expr {
@@ -255,28 +240,18 @@ impl Checker<'_> {
         }
     }
 
-    /// Record the flow state at a jump to `targets[idx]` and end the path
-    /// here. Returns the target's label and its `owned` depth.
-    fn record(&mut self, idx: usize, edge: Edge) -> (hir::Label, usize) {
-        let mut f = self.flow.clone();
-        self.flow.reachable = false;
-        match &mut self.targets[idx] {
-            Target::Loop { label, base, owned, breaks, continues, .. } => {
-                f.truncate(*base);
-                if edge == Edge::Continue { continues } else { breaks }.push(f);
-                (*label, *owned)
-            }
-            Target::Level { label, base, owned, leaves, nexts, .. } => {
-                f.truncate(*base);
-                if edge == Edge::Next { nexts } else { leaves }.push(f);
-                (*label, *owned)
-            }
+    /// A jump to `targets[idx]`: its label and its `owned` depth.
+    fn record(&mut self, idx: usize) -> (hir::Label, usize) {
+        match &self.targets[idx] {
+            Target::Loop { label, owned, .. } | Target::Level { label, owned, .. } => (*label, *owned),
         }
     }
 
     /// Check a chain of branches (an `if` chain or a `match`) as one `skip`
-    /// level. `exhaustive` says that some branch always runs even though
-    /// none is `Test::Always`. Returns `None` if a test had an error.
+    /// level. `exhaustive` says that some branch always runs even though none
+    /// is `Test::Always`: the last test is then left out, so the control-flow
+    /// graph (which decides whether a function can fall off its end) has no
+    /// path past the chain. Returns `None` if a test had an error.
     pub(super) fn chain(
         &mut self,
         label: hir::Label,
@@ -285,27 +260,12 @@ impl Checker<'_> {
         parts: Vec<(Test, &ast::Block)>,
         exhaustive: bool,
     ) -> Option<Vec<hir::Branch>> {
-        let base = self.flow.definite.len();
         let branches = parts.len();
         let has_else = !is_match && matches!(parts.last(), Some((Test::Always, _)));
-        self.targets.push(Target::Level {
-            label,
-            span,
-            is_match,
-            has_else,
-            base,
-            owned: self.owned.len(),
-            branch: 0,
-            branches,
-            leaves: Vec::new(),
-            nexts: Vec::new(),
-        });
-        let mut entry = self.flow.clone();
-        let mut ends = Vec::new();
+        self.targets.push(Target::Level { label, span, is_match, has_else, owned: self.owned.len(), branch: 0, branches, next_to_last: false });
         let mut out = Vec::new();
         let mut ok = true;
         for (i, (test, body)) in parts.into_iter().enumerate() {
-            self.flow = entry;
             let (test, always) = match test {
                 Test::Cond(c) => (self.cond(c), false),
                 Test::Always => (None, true),
@@ -315,66 +275,31 @@ impl Checker<'_> {
             if let Some(Target::Level { branch, .. }) = self.targets.last_mut() {
                 *branch = i;
             }
-            let tested = self.flow.clone();
             let block_end = body.end;
-            let (body, end) = self.branch(body, tested.clone());
-            ends.push(end);
-            let Some(Target::Level { nexts, .. }) = self.targets.last_mut() else { unreachable!() };
-            let nexts = std::mem::take(nexts);
-            // The next test is reached when this one fails, or by `skip to next`.
-            entry = join_all(Flow { reachable: tested.reachable && !always, ..tested }, nexts);
+            let body = self.block(body);
             out.push(hir::Branch { test, body, end: block_end });
         }
-        let Some(Target::Level { leaves, .. }) = self.targets.pop() else { unreachable!() };
-        // `entry` is now the path on which no branch ran.
-        if exhaustive {
-            entry.reachable = false;
+        let Some(Target::Level { next_to_last, .. }) = self.targets.pop() else { unreachable!() };
+        // A `skip to next` into the last test still needs it.
+        if exhaustive && ok && !next_to_last {
+            if let Some(last) = out.last_mut() {
+                last.test = None;
+            }
         }
-        self.flow = join_all(join_all(entry, ends), leaves);
         ok.then_some(out)
     }
 
-    /// Check a loop body and step, given the flow state where the loop
-    /// starts (after its condition, if it has one). `forever` means the
-    /// condition never ends the loop. Returns the body and the step.
-    pub(super) fn looped(
-        &mut self,
-        label: hir::Label,
-        span: Span,
-        forever: bool,
-        body: &ast::Block,
-        step: Option<&ast::Stmt>,
-    ) -> (hir::Block, hir::Block) {
-        let entry = self.flow.clone();
-        let base = entry.definite.len();
-        self.targets.push(Target::Loop { label, span, base, owned: self.owned.len(), breaks: Vec::new(), continues: Vec::new() });
-        self.loop_depth += 1;
-        let (body, body_end) = self.branch(body, entry.clone());
-        let Some(Target::Loop { continues, .. }) = self.targets.last_mut() else { unreachable!() };
-        let continues = std::mem::take(continues);
-        // The step runs after the body and after every `continue`.
-        self.flow = join_all(body_end, continues);
-        let before_step = self.flow.clone();
+    /// Check a loop body and step. Returns the body and the step.
+    pub(super) fn looped(&mut self, label: hir::Label, span: Span, body: &ast::Block, step: Option<&ast::Stmt>) -> (hir::Block, hir::Block) {
+        self.targets.push(Target::Loop { label, span, owned: self.owned.len() });
+        let body = self.block(body);
         let mut step_b = Vec::new();
         if let Some(s) = step {
             self.scopes.push(HashMap::new());
             self.stmt(s, &mut step_b);
             self.scopes.pop();
         }
-        self.flow.truncate(base);
-        self.loop_depth -= 1;
-        let Some(Target::Loop { breaks, .. }) = self.targets.pop() else { unreachable!() };
-        // The loop ends when its condition is false, the first time or any
-        // later one, or at a `break`. What is certainly assigned is what was
-        // at the start (assignments only add up), but anything assigned in
-        // the loop may have been.
-        let mut exit = Flow { reachable: entry.reachable && !forever, ..entry };
-        for later in [&before_step, &self.flow] {
-            for (a, b) in exit.maybe.iter_mut().zip(&later.maybe) {
-                *a |= *b;
-            }
-        }
-        self.flow = join_all(exit, breaks);
+        self.targets.pop();
         (body, step_b)
     }
 
@@ -425,7 +350,6 @@ impl Checker<'_> {
             }
         };
 
-        let len = self.flow.definite.len();
         self.scopes.push(HashMap::new());
         self.owned.push(Vec::new());
         let hidden = bounds.map(|(a, b)| {
@@ -433,20 +357,15 @@ impl Checker<'_> {
             (self.hidden_named("range start", t), self.hidden_named("range end", t), self.hidden_named("range counter", t), a, b, t)
         });
         // The variable belongs to the loop: it gets a new value each time round.
-        self.loop_depth += 1;
         let var = self.declare(name, ty, *mutable, *name_span, false);
-        self.loop_depth -= 1;
-        self.flow.definite[var] = true;
-        self.flow.maybe[var] = true;
         let label = self.new_label();
         let body_end = body.end;
-        let (body, _) = self.looped(label, *span, false, body, None);
+        let (body, _) = self.looped(label, *span, body, None);
         self.scopes.pop();
         // Range loop variables are numbers, so nothing here needs dropping
         // yet; a loop over strings would hold its variable here.
         let owned = self.owned.pop().unwrap();
         debug_assert!(owned.is_empty());
-        self.flow.truncate(len);
 
         let Some((start, end, counter, a, b, t)) = hidden else { return };
         let mut inner = vec![hir::Stmt::Decl(var), hir::Stmt::Assign(hir::Place::local(var), local(counter, t))];
@@ -525,10 +444,10 @@ impl Checker<'_> {
         } else {
             let idx = loops[n as usize - 1];
             return Some(if cont {
-                let (l, depth) = self.record(idx, Edge::Continue);
+                let (l, depth) = self.record(idx);
                 (hir::Jump::Continue(l), depth)
             } else {
-                let (l, depth) = self.record(idx, Edge::Break);
+                let (l, depth) = self.record(idx);
                 (hir::Jump::Break(l), depth)
             });
         };
@@ -561,7 +480,12 @@ impl Checker<'_> {
             let idx = levels[0];
             let Target::Level { branch, branches, is_match, has_else, span: level_span, .. } = self.targets[idx] else { unreachable!() };
             if branch + 1 < branches {
-                let (l, depth) = self.record(idx, Edge::Next);
+                if branch + 2 == branches
+                    && let Target::Level { next_to_last, .. } = &mut self.targets[idx]
+                {
+                    *next_to_last = true;
+                }
+                let (l, depth) = self.record(idx);
                 return Some((hir::Jump::Next(l, branch + 1), depth));
             }
             let (label, help) = if is_match {
@@ -598,7 +522,7 @@ impl Checker<'_> {
                 }
                 d.help(format!("`skip {k};` (or `skip;`) leaves the outermost level"))
             } else {
-                let (l, depth) = self.record(levels[n as usize - 1], Edge::Leave);
+                let (l, depth) = self.record(levels[n as usize - 1]);
                 return Some((hir::Jump::Leave(l), depth));
             }
         };

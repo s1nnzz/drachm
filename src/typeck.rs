@@ -903,8 +903,6 @@ fn check_body(g: &mut Globals, src: &str, diags: &mut Vec<Diagnostic>, f: &ast::
         owned: vec![Vec::new()],
         temps: Vec::new(),
         locals: Vec::new(),
-        flow: Flow { definite: Vec::new(), maybe: Vec::new(), reachable: true },
-        loop_depth: 0,
         targets: Vec::new(),
         labels: 0,
     };
@@ -915,8 +913,6 @@ fn check_body(g: &mut Globals, src: &str, diags: &mut Vec<Diagnostic>, f: &ast::
         cx.locals[id].is_self = true;
         // `self` is the caller's value: borrowed, never dropped here.
         cx.owned[0].retain(|&o| o != id);
-        cx.flow.definite[id] = true;
-        cx.flow.maybe[id] = true;
     }
     for p in &f.params {
         let ty = cx.g.resolve_quiet(&p.ty).filter(|t| *t != Type::None);
@@ -930,22 +926,10 @@ fn check_body(g: &mut Globals, src: &str, diags: &mut Vec<Diagnostic>, f: &ast::
                     .help(format!("write `mut {} {}`", short(src, p.ty.span), p.name)),
             );
         }
-        cx.flow.definite[id] = true;
-        cx.flow.maybe[id] = true;
     }
     let mut body = cx.block(&f.body);
     // Parameters belong to the function and are dropped at its end.
-    if cx.flow.reachable {
-        body.extend(cx.owned[0].iter().rev().map(|&id| hir::Stmt::Drop(hir::Place::local(id))));
-    }
-    if cx.flow.reachable && ret.is_some_and(|t| t != Type::None) {
-        let what = if method.is_some() { "method" } else { "function" };
-        cx.diags.push(
-            Diagnostic::at(&codes::E0105, f.span, format!("{what} `{}` can finish without returning a value", f.name))
-                .note(format!("promises to return `{}`", ret.unwrap()))
-                .help("add a `return` at the end, or to every branch"),
-        );
-    }
+    body.extend(cx.owned[0].iter().rev().map(|&id| hir::Stmt::Drop(hir::Place::local(id))));
     let locals = cx
         .locals
         .into_iter()
@@ -1075,7 +1059,6 @@ struct LocalInfo {
     /// Declared `open` (stored; checked like `mut` until WP5).
     open: bool,
     span: Span,
-    loop_depth: u32,
 }
 
 impl PlaceInfo {
@@ -1106,40 +1089,6 @@ enum Receiver {
     Temporary,
 }
 
-#[derive(Clone)]
-struct Flow {
-    /// Certainly assigned on every path to here.
-    definite: Vec<bool>,
-    /// Assigned on at least one path to here.
-    maybe: Vec<bool>,
-    reachable: bool,
-}
-
-impl Flow {
-    /// The state after two branches rejoin.
-    fn join(mut self, other: Flow) -> Flow {
-        if !other.reachable {
-            return self;
-        }
-        if !self.reachable {
-            return other;
-        }
-        for (a, b) in self.definite.iter_mut().zip(&other.definite) {
-            *a &= *b;
-        }
-        for (a, b) in self.maybe.iter_mut().zip(&other.maybe) {
-            *a |= *b;
-        }
-        self
-    }
-
-    /// Forget locals declared inside a block that has ended.
-    fn truncate(&mut self, len: usize) {
-        self.definite.resize(len, false);
-        self.maybe.resize(len, false);
-    }
-}
-
 struct Checker<'a> {
     src: &'a str,
     g: &'a mut Globals,
@@ -1154,8 +1103,6 @@ struct Checker<'a> {
     /// Hidden locals holding the current statement's temporaries.
     temps: Vec<LocalId>,
     locals: Vec<LocalInfo>,
-    flow: Flow,
-    loop_depth: u32,
     /// The loops and `if`/`match` levels around the current statement, innermost last.
     targets: Vec<Target>,
     /// Labels handed out so far in this function.
@@ -1183,6 +1130,15 @@ fn scoped(e: hir::Expr, drops: Vec<LocalId>) -> hir::Expr {
     }
     let ty = e.ty;
     hir::Expr::new(hir::ExprKind::Scoped(Box::new(e), drops), ty)
+}
+
+/// Does the place expression go through a `Deref`?
+fn has_deref(e: &hir::Expr) -> bool {
+    match &e.kind {
+        hir::ExprKind::Deref(_) => true,
+        hir::ExprKind::Field(inner, _) => has_deref(inner),
+        _ => false,
+    }
 }
 
 /// Is the written expression a place: a variable, `self`, a field of a
@@ -1213,14 +1169,12 @@ impl Checker<'_> {
 
     fn declare(&mut self, name: &str, ty: Option<Type>, mutable: bool, span: Span, is_param: bool) -> LocalId {
         let id = self.locals.len();
-        let info = LocalInfo { name: name.to_string(), ty, mutable, is_param, is_self: false, open: false, span, loop_depth: self.loop_depth };
+        let info = LocalInfo { name: name.to_string(), ty, mutable, is_param, is_self: false, open: false, span };
         self.locals.push(info);
         self.scopes.last_mut().unwrap().insert(name.to_string(), id);
         if ty.is_some_and(|t| self.g.owns(t)) {
             self.owned.last_mut().unwrap().push(id);
         }
-        self.flow.definite.resize(id + 1, false);
-        self.flow.maybe.resize(id + 1, false);
         id
     }
 
@@ -1234,10 +1188,8 @@ impl Checker<'_> {
     fn hidden_named(&mut self, name: &str, ty: Type) -> LocalId {
         let id = self.locals.len();
         let span = Span::new(0, 0);
-        let info = LocalInfo { name: name.to_string(), ty: Some(ty), mutable: true, is_param: false, is_self: false, open: false, span, loop_depth: self.loop_depth };
+        let info = LocalInfo { name: name.to_string(), ty: Some(ty), mutable: true, is_param: false, is_self: false, open: false, span };
         self.locals.push(info);
-        self.flow.definite.resize(id + 1, false);
-        self.flow.maybe.resize(id + 1, false);
         id
     }
 
@@ -1267,6 +1219,25 @@ impl Checker<'_> {
     // step 2 rule); SPEC section 6 says it moves, which needs step 3.
     fn owned(&self, e: hir::Expr) -> hir::Expr {
         if e.is_place() && self.g.owns(e.ty) { copy(e) } else { e }
+    }
+
+    /// The by-value operand of an operator (`==`, an operator method): the
+    /// callee gets a copy and the operand stays where it is, so the MIR must
+    /// see a written copy (`Scoped` around `Copy`, see `copy_expr`).
+    fn copied(&self, e: hir::Expr) -> hir::Expr {
+        if e.is_place() && matches!(e.ty, Type::Str | Type::Struct { .. }) && !self.copies_anyway(e.ty) {
+            return self.written_copy(e);
+        }
+        e
+    }
+
+    /// The copy of the place `e` that the program wrote: a legacy `Copy` for
+    /// the backends if it owns what it copies (a plain struct is copied by
+    /// using it), inside an empty `Scoped` that tells the MIR builder.
+    fn written_copy(&self, e: hir::Expr) -> hir::Expr {
+        let ty = e.ty;
+        let inner = if self.g.owns(ty) { copy(e) } else { e };
+        hir::Expr::new(hir::ExprKind::Scoped(Box::new(inner), Vec::new()), ty)
     }
 
     /// The receiver of a method: for a struct that owns strings, a place.
@@ -1317,19 +1288,8 @@ impl Checker<'_> {
         }
         self.scopes.pop();
         let owned = self.owned.pop().unwrap();
-        if self.flow.reachable {
-            out.extend(Self::drop_all(owned.into_iter().rev().collect()));
-        }
+        out.extend(Self::drop_all(owned.into_iter().rev().collect()));
         out
-    }
-
-    /// Check a branch starting from flow state `from`; returns the state at its end.
-    fn branch(&mut self, b: &ast::Block, from: Flow) -> (hir::Block, Flow) {
-        let len = from.definite.len();
-        self.flow = from;
-        let block = self.block(b);
-        self.flow.truncate(len);
-        (block, self.flow.clone())
     }
 
     fn stmt(&mut self, s: &Stmt, out: &mut hir::Block) {
@@ -1352,8 +1312,6 @@ impl Checker<'_> {
                 self.locals[id].open = *open;
                 out.push(hir::Stmt::Decl(id));
                 if let Some(init) = init {
-                    self.flow.definite[id] = true;
-                    self.flow.maybe[id] = true;
                     if let Some(e) = init {
                         out.push(hir::Stmt::Assign(hir::Place::local(id), scoped(e, temps)));
                     }
@@ -1388,36 +1346,30 @@ impl Checker<'_> {
             Stmt::While { cond, body, span } => {
                 let c = self.cond(cond);
                 let label = self.new_label();
-                let forever = matches!(cond.kind, ExprKind::Bool(true));
                 let end = body.end;
-                let (body, step) = self.looped(label, *span, forever, body, None);
+                let (body, step) = self.looped(label, *span, body, None);
                 if let Some(c) = c {
                     out.push(hir::Stmt::Loop { label, cond: Some(c), body, step, end });
                 }
             }
             Stmt::For { init, cond, step, body, span } => {
                 // The init binding belongs to the loop: it is dropped after it.
-                let len = self.flow.definite.len();
                 self.scopes.push(HashMap::new());
                 self.owned.push(Vec::new());
                 if let Some(init) = init {
                     self.stmt(init, out);
                 }
                 let c = cond.as_ref().map(|c| self.cond(c));
-                let forever = cond.as_ref().is_none_or(|c| matches!(c.kind, ExprKind::Bool(true)));
                 let label = self.new_label();
                 let end = body.end;
-                let (body, step) = self.looped(label, *span, forever, body, step.as_deref());
+                let (body, step) = self.looped(label, *span, body, step.as_deref());
                 self.scopes.pop();
                 let owned = self.owned.pop().unwrap();
-                self.flow.truncate(len);
                 match c {
                     Some(None) => {}
                     c => out.push(hir::Stmt::Loop { label, cond: c.flatten(), body, step, end }),
                 }
-                if self.flow.reachable {
-                    out.extend(Self::drop_all(owned.into_iter().rev().collect()));
-                }
+                out.extend(Self::drop_all(owned.into_iter().rev().collect()));
             }
             Stmt::ForEach { .. } => self.for_each(s, out),
             Stmt::Match { value, cases, span } => self.match_stmt(value, cases, *span, out),
@@ -1427,14 +1379,12 @@ impl Checker<'_> {
                     out.extend(Self::drop_all(self.owned_from(depth)));
                     out.push(hir::Stmt::Jump(j));
                 }
-                self.flow.reachable = false;
             }
             Stmt::Skip { target, span } => {
                 if let Some((j, depth)) = self.skip_target(*target, *span) {
                     out.extend(Self::drop_all(self.owned_from(depth)));
                     out.push(hir::Stmt::Jump(j));
                 }
-                self.flow.reachable = false;
             }
             Stmt::Return { value, span } => {
                 let v = match (value, self.ret) {
@@ -1460,7 +1410,6 @@ impl Checker<'_> {
                     }
                     (None, _) => Some(None),
                 };
-                self.flow.reachable = false;
                 // The value is made first: it may read what is dropped.
                 let mut drops = self.take_temps();
                 drops.extend(self.all_owned());
@@ -1601,8 +1550,6 @@ impl Checker<'_> {
                 self.compound(op, current, name_span, value, span)
             }
         };
-        self.flow.definite[id] = true;
-        self.flow.maybe[id] = true;
         match rhs {
             Some(e) => self.store(place, e, op.is_some(), out),
             None => {
@@ -1620,19 +1567,6 @@ impl Checker<'_> {
         };
         let rhs = match op {
             None => {
-                if !self.flow.definite[place.local] {
-                    let l = &self.locals[place.local];
-                    let name = &l.name;
-                    self.diags.push(
-                        Diagnostic::at(&codes::E0211, target.span, format!("cannot set `{}`: `{name}` may not have a value yet", self.text(target.span)))
-                            .note("a single field is set here")
-                            .label(l.span, "declared here without a value")
-                            .help(format!("give `{name}` a whole value first, on every path to here")),
-                    );
-                    self.expr(value);
-                    self.take_temps();
-                    return;
-                }
                 self.check_field_change(&place, target.span, "assigns");
                 self.coerce(value, place.ty).map(|e| self.owned(e))
             }
@@ -1803,37 +1737,19 @@ impl Checker<'_> {
                 .note("changed here")
                 .label(l.span, "declared here without `mut`")
                 .help(format!("declare it as `mut {ty}{name}` to allow changes"))
-        } else if changes || self.flow.maybe[id] {
+        } else if changes {
             Diagnostic::at(&codes::E0205, at, format!("cannot change `{name}`: it is not `mut`"))
-                .note(if changes { "changed here" } else { "assigned a second time here" })
+                .note("changed here")
                 .label(l.span, "declared here without `mut`")
                 .help(format!("declare it as `mut {ty}{name}` to allow changes"))
-        } else if l.loop_depth != self.loop_depth {
-            // Its first assignment, but a loop would repeat it.
-            Diagnostic::at(&codes::E0205, at, format!("cannot assign `{name}` inside a loop: it is not `mut`"))
-                .note("the loop would assign it again each time round")
-                .label(l.span, "declared here, outside the loop, without `mut`")
-                .help(format!("declare it as `mut {ty}{name}`, or move the declaration into the loop"))
         } else {
             return;
         };
         self.diags.push(d);
     }
 
-    /// A read of local `id`; reports if it may not have a value yet.
-    fn read_local(&mut self, id: LocalId, at: Span) -> Option<hir::Expr> {
-        let l = &self.locals[id];
-        if !self.flow.definite[id] {
-            let name = &l.name;
-            let label = if self.flow.maybe[id] { "only some paths to here give it one" } else { "nothing has been assigned to it yet" };
-            let d = Diagnostic::at(&codes::E0207, at, format!("`{name}` is read before it certainly has a value"))
-                .note(label)
-                .label(l.span, "declared here without a value")
-                .help(format!("give `{name}` a value on every path before this point"));
-            self.diags.push(d);
-            // One report per binding is enough.
-            self.flow.definite[id] = true;
-        }
+    /// A read of local `id`. Whether it has a value is checked on the MIR.
+    fn read_local(&mut self, id: LocalId, _at: Span) -> Option<hir::Expr> {
         let ty = self.locals[id].ty?;
         Some(hir::Expr::new(hir::ExprKind::Local(id), ty))
     }
@@ -2520,8 +2436,8 @@ impl Checker<'_> {
 
     /// `copy e`.
     fn copy_expr(&mut self, e: &ast::Expr, inner: &ast::Expr) -> Option<Val> {
-        self.g.uses_borrows.set(true);
         if !ast_place(inner) {
+            self.g.uses_borrows.set(true);
             let text = self.quote(inner.span, "this value");
             self.diags.push(
                 Diagnostic::at(&codes::E0327, e.span, "`copy` needs a variable or a field, like `copy name`")
@@ -2533,10 +2449,21 @@ impl Checker<'_> {
         }
         let v = self.expr_raw(inner)?;
         let x = self.materialise(v, inner.span)?;
+        let x_ty = x.ty;
         let (value, ty) = match x.ty {
             Type::Ref { to, .. } => (hir::Expr::new(hir::ExprKind::Deref(Box::new(x)), *to), *to),
             t => (x, t),
         };
+        // The workaround copy of step 2 is a deep copy too, and the backends
+        // still build it: a `copy` of a place that owns what it copies (no
+        // borrow in the way) is that node inside an empty `Scoped`, which
+        // tells the MIR builder it was written (`mir::build`, WP6 removes
+        // this with the workaround). Anything else is a step 3 node.
+        let plain = !matches!(x_ty, Type::Ref { .. }) && !has_deref(&value);
+        if plain && !self.copies_anyway(ty) {
+            return Some(Val::Expr(self.written_copy(value)));
+        }
+        self.g.uses_borrows.set(true);
         if self.copies_anyway(ty) {
             let at = Span::new(e.span.start, e.span.start + 4);
             self.diags.push(
@@ -3004,7 +2931,7 @@ impl Checker<'_> {
             }
             BinOp::Eq | BinOp::Ne => {
                 let rhs = self.into(rv, t, ro)?;
-                let rhs = self.owned(rhs);
+                let rhs = self.copied(rhs);
                 let lhs = self.receiver_value(lhs);
                 let eq = self.g.struct_eq(s, lhs, rhs);
                 Some(Val::Expr(if op == BinOp::Eq { eq } else { not(eq) }))
@@ -3030,7 +2957,7 @@ impl Checker<'_> {
         let sig = &self.g.sigs[m.func];
         let (param, ty) = (sig.params[0]?, sig.ret?);
         let rhs = self.into(rv, param, ro)?;
-        let rhs = self.owned(rhs);
+        let rhs = self.copied(rhs);
         self.note_receiver(&lhs, lo.span, m.func, span);
         let lhs = self.receiver_value(lhs);
         Some(hir::Expr::new(hir::ExprKind::Call(m.func, vec![lhs, rhs]), ty))

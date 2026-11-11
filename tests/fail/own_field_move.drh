@@ -1,0 +1,5 @@
+struct Player { public: string name; }
+none main() {
+    Player p = "Illy";
+    string m = p.name;
+}

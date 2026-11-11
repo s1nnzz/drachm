@@ -32,7 +32,7 @@ none main() {
         bool gone = ptr == none;
     }
     Holder h = &s;
-    string both = pick(&s, &t);
+    &string both = pick(&s, &t);
     mut &string cur = &s;
     cur = &t;
 }

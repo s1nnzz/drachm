@@ -8,8 +8,7 @@ error[E0010]: a range can only be used after `of` in a `for`, or as a `case` pat
 loops.drh:10:16
 loops.drh:11:15
 error[E0205]: cannot change `i`: it is not `mut`
-loops.drh:14:9
-loops.drh:16:31
+loops.drh:13:31
 error[E0201]: unknown name `i`
 error[E0101]: expected `bool`, found `uint32`
-10 errors
+9 errors

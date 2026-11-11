@@ -261,7 +261,7 @@ mod tests {
     }
 
     fn body_of(src: &str, name: &str) -> Body {
-        let (hir, diags) = crate::check(src);
+        let (hir, diags) = crate::front(src);
         let hir = hir.unwrap_or_else(|| panic!("does not check: {diags:?}"));
         let mut d = Vec::new();
         let mir = crate::mir::build_program(&hir, &mut d);

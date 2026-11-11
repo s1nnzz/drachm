@@ -308,6 +308,37 @@ codes! {
          statement:\n\n\
          \x20   string s = take f.path leaving \"\";";
 
+    E0301: "used after it moved",
+        "A value of a type that does not copy automatically (`string`, a big\n\
+         struct, a `&mut` borrow) moves when it is assigned, passed or returned.\n\
+         The old name cannot be used again until it is given a new value:\n\n\
+         \x20   string a = \"x\";\n\
+         \x20   string b = a;            // `a` moved\n\
+         \x20   io::outln(a);            // error\n\n\
+         To keep both, copy: `string b = copy a;`. Moving one field out with\n\
+         `take p.name` leaves `p.name` without a value until it is assigned\n\
+         again; `p` as a whole cannot be used meanwhile.";
+    E0310: "cannot move out of a borrow",
+        "A function that only borrows a value does not own it, so it cannot\n\
+         move anything out of it, `self` and raw pointers included. Return or\n\
+         pass a copy instead:\n\n\
+         \x20   string nameOf(&Player p) { return copy p.name; }";
+    E0313: "assigning part of a moved value",
+        "A field cannot be given a value while the struct holding it has moved\n\
+         as a whole. Give the whole struct a new value first:\n\n\
+         \x20   consume(p);\n\
+         \x20   p = ...;\n\
+         \x20   p.hp = 5;";
+    E0315: "cannot copy a value holding `&mut`",
+        "A copy of a struct with a `&mut` field would be a second `&mut` to the\n\
+         same value. Borrow the struct instead: `&Writer v = &w;`.";
+    E0332: "assigning part of a value that has none yet",
+        "A field cannot be given a value while the struct holding it has no\n\
+         value at all yet. Give the whole struct a value first:\n\n\
+         \x20   mut Player p;\n\
+         \x20   p = ...;\n\
+         \x20   p.hp = 5;";
+
     E0901: "not supported yet",
         "This is part of Drachm's design, but this version of the compiler does\n\
          not implement it yet.";
