@@ -15,8 +15,9 @@
 //!   output, and must print exactly `NAME.out`. The documentation site
 //!   includes these files, so they must stay real programs.
 //!
-//! Programs run with `DRACHM_CHECK_LEAKS=1`, and a string they leak fails
-//! the case.
+//! Programs run with `DRACHM_CHECK_LEAKS=1`, and a string they leak, or free
+//! twice, fails the case. A program that panics (exit code 101) is exempt: a
+//! panic does not drop what is alive.
 //!
 //! `DRACHM_BLESS=1 cargo test` writes `.out`/`.code` for run cases from what
 //! the program actually printed. Read the diff before committing it.
@@ -63,9 +64,13 @@ fn run_program(exe: &Path) -> Result<Output, String> {
     Command::new(exe).env("DRACHM_CHECK_LEAKS", "1").output().map_err(|e| format!("could not run: {e}"))
 }
 
-/// The runtime's leak report, if the program printed one.
-fn leak_report(stderr: &str) -> Option<&str> {
-    stderr.lines().find(|l| l.starts_with("drachm: leaked"))
+/// The runtime's leak or double-free report, if the program printed one and
+/// did not end in a panic (a panic does not drop).
+fn leak_report<'a>(run: &Output, stderr: &'a str) -> Option<&'a str> {
+    if run.status.code() == Some(101) {
+        return None;
+    }
+    stderr.lines().find(|l| l.starts_with("drachm: leaked") || l.starts_with("drachm: double free"))
 }
 
 /// Lines of `expected` (ignoring blank ones) that do not occur in `actual`.
@@ -113,7 +118,7 @@ fn run_case(src: &Path, expect_dir: &Path) -> Result<(), String> {
     let _ = fs::remove_file(&exe);
     let (stdout, stderr) = (text(&run.stdout), text(&run.stderr));
     let code = run.status.code().ok_or("killed by a signal")?;
-    if let Some(leak) = leak_report(&stderr) {
+    if let Some(leak) = leak_report(&run, &stderr) {
         return Err(leak.to_string());
     }
 
@@ -212,7 +217,7 @@ fn site_example(src: &Path) -> Result<(), String> {
         let run = run_program(&exe)?;
         let _ = fs::remove_file(&exe);
         let stderr = text(&run.stderr);
-        if let Some(leak) = leak_report(&stderr) {
+        if let Some(leak) = leak_report(&run, &stderr) {
             return Err(format!("{leak} (with {flags:?})"));
         }
         if run.status.code() != Some(0) {
@@ -252,7 +257,7 @@ fn optimised_output_matches() {
             }
             let run = run_program(&exe)?;
             let _ = fs::remove_file(&exe);
-            if let Some(leak) = leak_report(&text(&run.stderr)) {
+            if let Some(leak) = leak_report(&run, &text(&run.stderr)) {
                 return Err(format!("{leak} (with {flags:?})"));
             }
             outputs.push((text(&run.stdout), run.status.code()));

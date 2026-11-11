@@ -1,0 +1,7 @@
+in io;
+none main() {
+    string a = "hi"::upper();
+    string b = copy a;
+    string c = a;           // move, no allocation
+    io::outln(b + c);
+}

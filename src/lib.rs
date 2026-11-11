@@ -2,9 +2,9 @@
 //! (later) the language server all drive it through here.
 
 pub mod ast;
-pub mod cgen;
+pub mod cgen_common;
 pub mod cgen_mir;
-pub mod codegen;
+pub mod codegen_common;
 pub mod codegen_mir;
 pub mod consts;
 pub mod diag;
@@ -68,40 +68,39 @@ pub fn build(program: &hir::Program, out: &std::path::Path, optimise: bool) -> R
 }
 
 /// `build` without the gate on user-written borrows and pointers (which have
-/// no borrow checker yet). Tests only. Such programs can only be built from
-/// MIR, so one the MIR backends do not accept yet is an error.
+/// no borrow checker yet). Tests only.
 ///
-/// Programs `mir::cleanup::eligible` accepts are built from MIR; the others
-/// still go through the HIR backends (WP6 removes them). The environment
-/// variable `DRACHM_BACKEND` overrides the choice: `hir` always uses the HIR
-/// backends, `mir` makes a program the MIR backends cannot build an error
-/// instead of falling back.
+/// Both code generators read the same MIR: built, marked (which locals live in
+/// memory), cleaned, drop-elaborated, cleaned again. A program that takes the
+/// address of something cannot be built until WP9.
 pub fn build_unchecked(program: &hir::Program, out: &std::path::Path, optimise: bool) -> Result<(), String> {
-    let backend = std::env::var("DRACHM_BACKEND").unwrap_or_default();
-    if backend != "hir" {
-        // The errors, if any, were reported by `check`.
-        let mut mir = mir::build_program(program, &mut Vec::new());
-        mir::cleanup::cleanup_program(program, &mut mir);
-        for body in mir.bodies.iter_mut().flatten() {
-            mir::analysis::mark_in_memory(program, body);
+    // The errors, if any, were reported by `check`.
+    let mut mir = mir::build_program(program, &mut Vec::new());
+    for body in mir.bodies.iter_mut().flatten() {
+        if let Some(why) = unsupported(body) {
+            return Err(format!("not supported by the backends yet: {why}"));
         }
-        match mir::cleanup::ineligible_reason(program, &mir) {
-            None => {
-                return if optimise {
-                    link::compile_c(&cgen_mir::generate(program, &mir), out)
-                } else {
-                    link::link_object(&codegen_mir::compile(program, &mir)?, out)
-                };
-            }
-            Some(why) if backend == "mir" || program.uses_borrows => {
-                return Err(format!("not supported by the MIR backend yet: {why}"));
-            }
-            Some(_) => {}
-        }
+        mir::analysis::mark_in_memory(program, body);
     }
+    mir::cleanup::cleanup_program(program, &mut mir);
+    mir::drops::elaborate_program(program, &mut mir);
+    mir::cleanup::cleanup_program(program, &mut mir);
     if optimise {
-        link::compile_c(&cgen::generate(program), out)
+        link::compile_c(&cgen_mir::generate(program, &mir), out)
     } else {
-        link::link_object(&codegen::compile(program)?, out)
+        link::link_object(&codegen_mir::compile(program, &mir)?, out)
     }
+}
+
+/// What the code generators cannot do yet.
+fn unsupported(body: &mir::Body) -> Option<String> {
+    if body.locals.iter().any(|d| d.ty.is_ptr()) {
+        return Some(format!("raw pointers in `{}` (step 3, WP9)", body.name));
+    }
+    let takes_address = body
+        .blocks
+        .iter()
+        .flat_map(|b| &b.statements)
+        .any(|s| matches!(s.kind, mir::StatementKind::Assign(_, mir::Rvalue::RawRef(_))));
+    takes_address.then(|| format!("`address of` in `{}` (step 3, WP9)", body.name))
 }

@@ -11,7 +11,6 @@ fn c_text(src: &str) -> String {
     for body in mir.bodies.iter_mut().flatten() {
         drachm::mir::analysis::mark_in_memory(&hir, body);
     }
-    assert!(drachm::mir::cleanup::ineligible_reason(&hir, &mir).is_none(), "the MIR backends do not take this program");
     drachm::cgen_mir::generate(&hir, &mir)
 }
 

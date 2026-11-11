@@ -127,15 +127,11 @@ value. The rest of the struct stays usable, and reading the empty field is an
 error. Add `leaving "nobody"` and the new value is put back in the same
 statement, so the field is never empty.
 
-`drachm check` understands `take` today, but this compiler cannot build a program
-that moves a field out yet, so `drachm run` stops with a message. Treat
-these as checks for now.
+Here are both forms in a program that runs. The first `take` puts a new value
+back, and the second one leaves the field empty until `p.name = "Sam"` gives it
+a new one.
 
-```drachm
-mut Player p = "Illy", 10;
-string n = take p.name leaving "nobody";
-io::outln(n + " " + p.name);
-```
+<!-- example: take -->
 
 ```text title="drachm check, when the field is read after a plain take"
 error[E0301]: `p.name` is used after it moved
@@ -225,6 +221,11 @@ none main() {
     io::outln(twice(word));
 }
 ```
+
+A value that still has an owner when its scope ends is destroyed there, and a
+struct can run its own code at that moment with a `drop()` method. The
+[Moves and copies](reference-ownership.md) reference has the rules for when a
+value dies.
 
 That is the end of the lessons. The Reference pages cover every rule in full,
 starting with [Types and numbers](reference-types.md).

@@ -157,6 +157,8 @@ impl Validator<'_> {
                 if let Some(f) = flag {
                     if local_ty(self.body, *f).ok() != Some(Type::Bool) {
                         self.err(&at, "a drop flag must be a bool local");
+                    } else if !matches!(self.body.locals[*f].kind, LocalKind::DropFlag) {
+                        self.err(&at, format!("{f} is named as a drop flag but is not a DropFlag local"));
                     }
                 }
             }
@@ -394,9 +396,11 @@ fn flow_statement(assigned: &mut [bool], k: &StatementKind, used: &mut dyn FnMut
             }
         }
         StatementKind::Drop { place, flag, .. } => {
-            place_use(place, used);
-            if let Some(f) = flag {
-                used(*f);
+            // A drop with a flag runs only if the value exists: it is not a
+            // read of a possibly unassigned temp.
+            match flag {
+                Some(f) => used(*f),
+                None => place_use(place, used),
             }
         }
         StatementKind::FakeRead(pl) => place_use(pl, used),

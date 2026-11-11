@@ -227,7 +227,7 @@ impl Cx<'_> {
             Stmt::Unsafe(b) => self.block(b, out),
             // Moving a value out through a borrow is an error later (E0310),
             // so `destroy` of a part of `self` is not evidence.
-            Stmt::Destroy(_) | Stmt::Drop(_) => {}
+            Stmt::Destroy(_) => {}
         }
     }
 
@@ -238,7 +238,6 @@ impl Cx<'_> {
             | ExprKind::Bool(_)
             | ExprKind::Str(_)
             | ExprKind::Local(_)
-            | ExprKind::Move(_)
             | ExprKind::NullPtr => {}
             ExprKind::Field(inner, _)
             | ExprKind::Neg(inner)
@@ -246,14 +245,11 @@ impl Cx<'_> {
             | ExprKind::BitNot(inner)
             | ExprKind::Convert(inner)
             | ExprKind::Text(inner)
-            | ExprKind::Copy(inner)
             | ExprKind::DeepCopy(inner)
             | ExprKind::AddressOf(inner)
             | ExprKind::Deref(inner)
             | ExprKind::Out { arg: inner, .. }
-            | ExprKind::Radix { value: inner, .. }
-            | ExprKind::Temp(_, inner)
-            | ExprKind::Scoped(inner, _) => self.expr(inner, out),
+            | ExprKind::Radix { value: inner, .. } => self.expr(inner, out),
             ExprKind::Struct(fields) => {
                 for (_, v) in fields {
                     self.expr(v, out);

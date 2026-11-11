@@ -11,12 +11,11 @@ Names and syntax can still change before then.
 
 ## Step 3: ownership and borrowing
 
-Moves, `copy`, `take` and the checks for them already work in `drachm check`,
-and programs that use `copy` and moves build and run. What is still to come:
+Moves, `copy`, `take`, `drop()`, `destroy` and the checks for them work, and
+programs that use them build and run. What is still to come:
 
 - Borrows, with `&string` and `&mut` parameters and `lend`. Until then the
   compiler cannot build a program that uses one.
-- Building programs that move a field out with `take`.
 - Struct `open` fields, lifetimes, and `unsafe` with raw pointers.
 
 ## Step 4: the rest of control flow

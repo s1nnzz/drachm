@@ -185,14 +185,7 @@ fn find_target(block: &hir::Block, at: Span, dest: &Place) -> Option<Span> {
                 _ => false,
             })
     }
-    // A value with temporaries is wrapped in `Scoped`: look inside it.
-    let holds = |e: &hir::Expr| {
-        let v = match &e.kind {
-            hir::ExprKind::Scoped(inner, _) => inner.span,
-            _ => e.span,
-        };
-        v.start <= at.start && at.end <= v.end
-    };
+    let holds = |e: &hir::Expr| e.span.start <= at.start && at.end <= e.span.end;
     block.iter().find_map(|s| match s {
         hir::Stmt::Assign(hp, e) if holds(e) && same_place(hp, dest) => Some(hp.span),
         // `take p.f leaving v` writes `p.f` with the value `v`.

@@ -1,0 +1,12 @@
+in io;
+
+struct Player { public: string name; string title; mut uint32 hp; }
+
+none consume(string s) { io::outln(s); }
+
+none main() {
+    Player p = "Illy", "Dr", 10;
+    if (p.hp > 5) {
+        consume(take p.name);
+    }
+}

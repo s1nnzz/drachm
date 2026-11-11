@@ -102,7 +102,7 @@ impl Checker<'_> {
         let v = self.expr(e)?;
         let v = self.materialise(v, e.span)?;
         match v.ty {
-            Type::Str => Some(self.place(v)),
+            Type::Str => Some(v),
             Type::None => {
                 self.diags.push(
                     Diagnostic::at(&codes::E0104, e.span, "this produces no value to turn into text").note("returns `none`"),
@@ -113,7 +113,7 @@ impl Checker<'_> {
                 self.struct_not_text(v.ty, e.span);
                 None
             }
-            _ => Some(self.place(text_of(v))),
+            _ => Some(text_of(v)),
         }
     }
 
@@ -138,17 +138,10 @@ impl Checker<'_> {
             0 => str_lit(String::new()),
             1 => {
                 let p = pieces.pop().unwrap();
-                match p.kind {
-                    // A temporary made only to be joined on its own is already the result.
-                    hir::ExprKind::Temp(id, inner) if self.temps.last() == Some(&id) => {
-                        self.temps.pop();
-                        *inner
-                    }
-                    kind @ hir::ExprKind::Str(_) => self.owned(hir::Expr::new(kind, Type::Str)),
-                    // A place is copied by joining it on its own: that makes a new
-                    // string without using the place up.
-                    kind => hir::Expr::new(hir::ExprKind::Join(vec![hir::Expr::new(kind, Type::Str)]), Type::Str),
-                }
+                // A place is copied by joining it on its own: that makes a new
+                // string without using the place up. A value made only to be
+                // joined on its own is already the result.
+                if p.is_place() { hir::Expr::new(hir::ExprKind::Join(vec![p]), Type::Str) } else { p }
             }
             _ => hir::Expr::new(hir::ExprKind::Join(pieces), Type::Str),
         }
@@ -165,7 +158,6 @@ impl Checker<'_> {
                     self.diags.push(Diagnostic::at(&codes::E0103, a.span, "`text` takes no arguments"));
                 }
                 // A new string made from `recv`, which stays where it is.
-                let recv = self.place(recv);
                 return Some(Val::Expr(self.join(vec![recv])));
             }
             "len" => StrFn::Len,
@@ -225,11 +217,11 @@ impl Checker<'_> {
             }
             return None;
         }
-        let mut out = vec![self.place(recv)];
+        let mut out = vec![recv];
         let mut ok = true;
         for (a, &p) in args.iter().zip(params) {
             match self.coerce(a, p) {
-                Some(e) if p == Type::Str => out.push(self.place(e)),
+                Some(e) if p == Type::Str => out.push(e),
                 Some(e) => out.push(e),
                 None => ok = false,
             }
@@ -282,7 +274,7 @@ impl Checker<'_> {
                 return None;
             }
         };
-        let args = vec![self.place(lhs), self.place(rhs)];
+        let args = vec![lhs, rhs];
         let e = match op {
             BinOp::Add => str_call(StrFn::Concat, args),
             BinOp::Eq => str_call(StrFn::Eq, args),
@@ -372,7 +364,7 @@ impl Checker<'_> {
             return None;
         }
         let text = self.join(pieces);
-        let arg = self.place(text);
+        let arg = text;
         Some(Val::Expr(hir::Expr::new(hir::ExprKind::Out { newline: false, arg: Box::new(arg) }, Type::None)))
     }
 
@@ -564,7 +556,7 @@ impl Checker<'_> {
         } else {
             text_of(v)
         };
-        let Some(width) = hole.width else { return Some(self.place(text)) };
+        let Some(width) = hole.width else { return Some(text) };
         let width = int_lit(width as u128, Type::Int { bits: 64, signed: false });
         let padded = if hole.zero {
             if !ty.is_numeric() {
@@ -572,13 +564,13 @@ impl Checker<'_> {
                 mismatch(self, "a number", format!("only numbers pad with zeros; `%{w}` pads with spaces"));
                 return None;
             }
-            let t = self.place(text);
+            let t = text;
             str_call(StrFn::ZeroPad, vec![t, width])
         } else {
-            let t = self.place(text);
+            let t = text;
             let f = if hole.left { StrFn::PadRight } else { StrFn::PadLeft };
             str_call(f, vec![t, width, str_lit(" ".into())])
         };
-        Some(self.place(padded))
+        Some(padded)
     }
 }

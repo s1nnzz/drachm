@@ -1,0 +1,24 @@
+// `destroy` runs `drop()` now and ends the variable: nothing runs at scope
+// end for it. In a branch it leaves the variable maybe destroyed, so the
+// scope end needs a drop flag.
+in io;
+
+struct Guard {
+    string name;
+    none drop() { io::outln("drop " + self.name); }
+}
+
+none visit(uint32 n) {
+    Guard h = "h" + n::text();
+    if (n > 0) { destroy h; }
+    Guard k = "k" + n::text();
+    io::outln("visited");
+}
+
+none main() {
+    Guard g = "g";
+    destroy g;
+    io::outln("after");
+    visit(1);
+    visit(0);
+}

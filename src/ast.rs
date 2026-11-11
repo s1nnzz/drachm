@@ -367,7 +367,7 @@ pub enum ExprKind {
     /// `*e`
     Deref(Box<Expr>),
     /// `copy e`
-    Copy(Box<Expr>),
+    CopyOf(Box<Expr>),
     /// `take e` or `take e leaving v`.
     Take { place: Box<Expr>, leaving: Option<Box<Expr>> },
     /// `lend e`

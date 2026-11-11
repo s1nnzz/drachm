@@ -1,0 +1,16 @@
+in io;
+struct Player { public: string name; string title; }
+none consume(string s) { io::outln(s); }
+bool odd(uint32 i) { return i % 2 == 1; }
+none main() {
+    mut uint32 i = 0;
+    while (i < 4) {
+        Player p = "n" + i::text(), "t" + i::text();
+        if (odd(i)) { consume(take p.name); }  // partial move on some iterations
+        string s = "x" + i::text();
+        if (i == 2) { consume(s); }            // conditional move
+        i++;
+    }
+    string last = "end";
+    consume(last);
+}

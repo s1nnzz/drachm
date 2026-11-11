@@ -13,8 +13,9 @@
 use std::cmp::Ordering;
 use std::ffi::c_char;
 use std::ptr;
-use std::sync::Once;
-use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
+use std::collections::HashSet;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering as AtomicOrdering};
+use std::sync::{Mutex, Once};
 
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -55,6 +56,31 @@ fn index_panic() -> ! {
 static LIVE: AtomicU64 = AtomicU64::new(0);
 static EXIT_HOOK: Once = Once::new();
 
+/// `DRACHM_CHECK_LEAKS` is set: also keep the set of live owned buffers, to
+/// catch a buffer freed or reallocated twice. Read once, at the first
+/// allocation; without the variable nothing but this flag is ever looked at.
+static CHECKING: AtomicBool = AtomicBool::new(false);
+static OWNED: Mutex<Option<HashSet<usize>>> = Mutex::new(None);
+
+#[inline]
+fn checking() -> bool {
+    CHECKING.load(AtomicOrdering::Relaxed)
+}
+
+fn track(p: *mut u8) {
+    OWNED.lock().unwrap().get_or_insert_with(HashSet::new).insert(p as usize);
+}
+
+/// Forget a buffer that is about to be freed or moved; abort if it is not one
+/// that is live.
+fn untrack(p: *mut u8) {
+    let known = OWNED.lock().unwrap().as_mut().is_some_and(|set| set.remove(&(p as usize)));
+    if !known {
+        eprintln!("drachm: double free of a string");
+        unsafe { libc::abort() };
+    }
+}
+
 extern "C" fn report_leaks() {
     let live = LIVE.load(AtomicOrdering::Relaxed);
     if live != 0 && std::env::var_os("DRACHM_CHECK_LEAKS").is_some() {
@@ -68,12 +94,16 @@ pub extern "C-unwind" fn drachm_str_alloc(cap: u64) -> *mut u8 {
     if cap == 0 {
         return ptr::null_mut();
     }
-    EXIT_HOOK.call_once(|| unsafe {
-        libc::atexit(report_leaks);
+    EXIT_HOOK.call_once(|| {
+        CHECKING.store(std::env::var_os("DRACHM_CHECK_LEAKS").is_some(), AtomicOrdering::Relaxed);
+        unsafe { libc::atexit(report_leaks) };
     });
     let p = unsafe { libc::malloc(cap as usize) } as *mut u8;
     if p.is_null() {
         panic_with(c"out of memory");
+    }
+    if checking() {
+        track(p);
     }
     LIVE.fetch_add(1, AtomicOrdering::Relaxed);
     p
@@ -112,6 +142,9 @@ unsafe fn emit(out: *mut DrachmStr, data: &[u8]) {
 pub unsafe extern "C-unwind" fn drachm_str_drop(s: *mut DrachmStr) {
     let s = unsafe { &mut *s };
     if s.cap > 0 {
+        if checking() {
+            untrack(s.ptr);
+        }
         unsafe { libc::free(s.ptr as *mut _) };
         LIVE.fetch_sub(1, AtomicOrdering::Relaxed);
     }
@@ -176,9 +209,15 @@ pub unsafe extern "C-unwind" fn drachm_str_append(s: *mut DrachmStr, t: *const D
         (p, cap)
     } else {
         let cap = len.max(scap.saturating_mul(2)).min(isize::MAX as u64);
+        if checking() {
+            untrack(sp);
+        }
         let p = unsafe { libc::realloc(sp as *mut _, cap as usize) } as *mut u8;
         if p.is_null() {
             panic_with(c"out of memory");
+        }
+        if checking() {
+            track(p);
         }
         (p, cap)
     };

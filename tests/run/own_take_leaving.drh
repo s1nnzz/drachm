@@ -1,0 +1,10 @@
+in io;
+struct Player { public: string name; string title; }
+none main() {
+    mut Player p = "Illy", "Dr";
+    string t = take p.title leaving "none";
+    io::outln(t + " " + p.title);
+    string n = take p.name;
+    p.name = "Sam";
+    io::outln(n + " " + p.name);
+}

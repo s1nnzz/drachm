@@ -1235,7 +1235,7 @@ fn visit_stmt(s: &mut hir::Stmt, f: &mut dyn FnMut(&mut Type)) {
             }
         }
         hir::Stmt::Unsafe(body) => visit_block(body, f),
-        hir::Stmt::Jump(_) | hir::Stmt::Decl(_) | hir::Stmt::Destroy(_) | hir::Stmt::Drop(_) => {}
+        hir::Stmt::Jump(_) | hir::Stmt::Decl(_) | hir::Stmt::Destroy(_) => {}
     }
 }
 
@@ -1251,7 +1251,7 @@ fn visit_expr(e: &mut hir::Expr, f: &mut dyn FnMut(&mut Type)) {
 fn children_mut(e: &mut hir::Expr) -> Vec<&mut hir::Expr> {
     use hir::ExprKind as K;
     match &mut e.kind {
-        K::Int(_) | K::Float(_) | K::Bool(_) | K::Str(_) | K::Local(_) | K::Move(_) | K::NullPtr => Vec::new(),
+        K::Int(_) | K::Float(_) | K::Bool(_) | K::Str(_) | K::Local(_) | K::NullPtr => Vec::new(),
         K::IncDec { .. } => Vec::new(),
         K::Field(x, _)
         | K::Neg(x)
@@ -1259,13 +1259,10 @@ fn children_mut(e: &mut hir::Expr) -> Vec<&mut hir::Expr> {
         | K::BitNot(x)
         | K::Convert(x)
         | K::Text(x)
-        | K::Copy(x)
         | K::DeepCopy(x)
         | K::Deref(x)
         | K::Lend(x)
-        | K::AddressOf(x)
-        | K::Temp(_, x)
-        | K::Scoped(x, _) => vec![&mut **x],
+        | K::AddressOf(x) => vec![&mut **x],
         K::Radix { value, .. } => vec![&mut **value],
         K::Out { arg, .. } => vec![&mut **arg],
         K::Borrow { place, .. } => vec![&mut **place],

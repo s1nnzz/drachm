@@ -1,0 +1,17 @@
+in io;
+
+struct Player {
+public:
+    string name;
+    uint32 hp;
+}
+
+none main() {
+    mut Player p = "Illy", 10;
+    string n = take p.name leaving "nobody";
+    io::outln(n + " " + p.name);
+
+    string last = take p.name;
+    p.name = "Sam";
+    io::outln(last + " then " + p.name);
+}

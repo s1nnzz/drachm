@@ -1,0 +1,3 @@
+Drop(_1)
+!main: Drop(_2)
+!main: Drop(_1) if _4

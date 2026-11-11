@@ -1,0 +1,28 @@
+// A struct with strings passed by value, returned, assigned over (the old
+// value is dropped once), copied and partly taken.
+in io;
+
+struct Player {
+public:
+    string name;
+    string title;
+    uint32 hp;
+}
+
+Player heal(mut Player p) {
+    p.hp = p.hp + 10;
+    return p;
+}
+
+none main() {
+    Player a = "Illy", "Dr", 10;
+    mut Player b = heal(a);
+    io::outln(b.name + " " + b.hp::text());
+    b = heal(copy b);
+    io::outln(b.name + " " + b.hp::text());
+    Player c = copy b;
+    io::outln(c.title + b.title);
+    mut Player d = "Ann", "Ms", 1;
+    string t = take d.title;
+    io::outln(t + d.name);
+}

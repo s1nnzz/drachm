@@ -1,0 +1,8 @@
+in io;
+
+string make(uint32 n) { return "x" + n::text(); }
+
+none main() {
+    string s = make(1);
+    io::outln(s);
+}

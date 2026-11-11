@@ -169,16 +169,6 @@ impl Globals {
         }
     }
 
-    /// Does a value of type `t` own heap memory: a `string`, or a struct
-    /// holding one?
-    fn owns(&self, t: Type) -> bool {
-        match t {
-            Type::Str => true,
-            Type::Struct { id, .. } => self.structs[id].owns,
-            _ => false,
-        }
-    }
-
     /// Does a value of type `t` hold a borrow (so `lives` may name it)?
     fn holds_borrow(&self, t: Type) -> bool {
         match t {
@@ -790,7 +780,7 @@ fn lay_out(g: &Globals, cyclic: &[bool]) -> Vec<hir::StructDef> {
 /// (and dropped).
 fn auto_eq(g: &mut Globals, s: StructId) -> hir::Func {
     let info = &g.structs[s];
-    let (ty, name, owns) = (info.ty, info.name.clone(), info.owns);
+    let (ty, name) = (info.ty, info.name.clone());
     let fields: Vec<Type> = info.fields.iter().map(|f| f.ty.unwrap_or(Type::Bool)).collect();
     let side = |local, i, fty| {
         hir::Expr::new(hir::ExprKind::Field(Box::new(hir::Expr::new(hir::ExprKind::Local(local), ty)), i), fty)
@@ -799,10 +789,7 @@ fn auto_eq(g: &mut Globals, s: StructId) -> hir::Func {
     for (i, fty) in fields.into_iter().enumerate() {
         let (a, b) = (side(0, i, fty), side(1, i, fty));
         let same = match fty.struct_id() {
-            Some(inner) => {
-                let b = if g.owns(fty) { copy(b) } else { b };
-                g.struct_eq(inner, a, b)
-            }
+            Some(inner) => g.struct_eq(inner, a, b),
             None if fty == Type::Str => hir::Expr::new(hir::ExprKind::StrCall(hir::StrFn::Eq, vec![a, b]), Type::Bool),
             None => hir::Expr::new(hir::ExprKind::Binary(hir::BinOp::Eq, Box::new(a), Box::new(b)), Type::Bool),
         };
@@ -812,7 +799,6 @@ fn auto_eq(g: &mut Globals, s: StructId) -> hir::Func {
         });
     }
     let result = all.unwrap_or(hir::Expr::new(hir::ExprKind::Bool(true), Type::Bool));
-    let result = if owns { scoped(result, vec![1]) } else { result };
     let none = Span::new(0, 0);
     let param = |n: &str| hir::Local { name: n.into(), ty, span: none, mutability: hir::Mutability::Fixed, is_param: true };
     hir::Func {
@@ -848,8 +834,6 @@ fn check_body(g: &mut Globals, src: &str, diags: &mut Vec<Diagnostic>, f: &ast::
         ret,
         method,
         scopes: vec![HashMap::new()],
-        owned: vec![Vec::new()],
-        temps: Vec::new(),
         locals: Vec::new(),
         targets: Vec::new(),
         labels: 0,
@@ -859,8 +843,6 @@ fn check_body(g: &mut Globals, src: &str, diags: &mut Vec<Diagnostic>, f: &ast::
         let ty = cx.g.structs[m.struct_id].ty;
         let id = cx.declare("self", Some(ty), false, f.name_span, true);
         cx.locals[id].is_self = true;
-        // `self` is the caller's value: borrowed, never dropped here.
-        cx.owned[0].retain(|&o| o != id);
     }
     for p in &f.params {
         let ty = cx.g.resolve_quiet(&p.ty).filter(|t| *t != Type::None);
@@ -875,9 +857,7 @@ fn check_body(g: &mut Globals, src: &str, diags: &mut Vec<Diagnostic>, f: &ast::
             );
         }
     }
-    let mut body = cx.block(&f.body);
-    // Parameters belong to the function and are dropped at its end.
-    body.extend(cx.owned[0].iter().rev().map(|&id| hir::Stmt::Drop(hir::Place::local(id))));
+    let body = cx.block(&f.body);
     let locals = cx
         .locals
         .into_iter()
@@ -1037,11 +1017,6 @@ struct Checker<'a> {
     ret: Option<Type>,
     method: Option<MethodCtx>,
     scopes: Vec<HashMap<String, LocalId>>,
-    /// The bindings of an owning type in each scope, in declaration order,
-    /// to drop when it ends.
-    owned: Vec<Vec<LocalId>>,
-    /// Hidden locals holding the current statement's temporaries.
-    temps: Vec<LocalId>,
     locals: Vec<LocalInfo>,
     /// The loops and `if`/`match` levels around the current statement, innermost last.
     targets: Vec<Target>,
@@ -1055,21 +1030,6 @@ fn int_lit(bits: u128, ty: Type) -> hir::Expr {
 
 fn str_lit(text: String) -> hir::Expr {
     hir::Expr::new(hir::ExprKind::Str(text), Type::Str)
-}
-
-/// A deep copy of the place `e`.
-fn copy(e: hir::Expr) -> hir::Expr {
-    let ty = e.ty;
-    hir::Expr::new(hir::ExprKind::Copy(Box::new(e)), ty)
-}
-
-/// `e`, followed by dropping `drops`.
-fn scoped(e: hir::Expr, drops: Vec<LocalId>) -> hir::Expr {
-    if drops.is_empty() {
-        return e;
-    }
-    let ty = e.ty;
-    hir::Expr::new(hir::ExprKind::Scoped(Box::new(e), drops), ty)
 }
 
 /// Does the place expression go through a `Deref`?
@@ -1112,19 +1072,11 @@ impl Checker<'_> {
         let info = LocalInfo { name: name.to_string(), ty, mutable, is_param, is_self: false, open: false, span };
         self.locals.push(info);
         self.scopes.last_mut().unwrap().insert(name.to_string(), id);
-        if ty.is_some_and(|t| self.g.owns(t)) {
-            self.owned.last_mut().unwrap().push(id);
-        }
         id
     }
 
-    /// A local the program cannot name, for a value the lowering needs to keep.
-    fn hidden(&mut self, ty: Type) -> LocalId {
-        let name = format!("${}", self.locals.len());
-        self.hidden_named(&name, ty)
-    }
-
-    /// `hidden`, with a name that says what it holds (for reading the HIR).
+    /// A local the program cannot name, for a value the lowering needs to keep;
+    /// the name says what it holds (for reading the HIR).
     fn hidden_named(&mut self, name: &str, ty: Type) -> LocalId {
         let id = self.locals.len();
         let span = Span::new(0, 0);
@@ -1133,80 +1085,20 @@ impl Checker<'_> {
         id
     }
 
-    /// A condition (`if`, `while`, `for`): a `bool` whose temporaries die
-    /// as soon as it has been tested.
+    /// A condition (`if`, `while`, `for`): a `bool`. Its temporaries die as
+    /// soon as it has been tested (the MIR builder sees to that).
     fn cond(&mut self, e: &ast::Expr) -> Option<hir::Expr> {
-        let c = self.coerce(e, Type::Bool);
-        let temps = self.take_temps();
-        c.map(|c| scoped(c, temps))
-    }
-
-    /// `e`, of an owning type, as a place: an owned value goes into a
-    /// temporary that dies at the end of the statement.
-    fn place(&mut self, e: hir::Expr) -> hir::Expr {
-        if e.is_place() || matches!(e.kind, hir::ExprKind::Str(_)) {
-            return e;
-        }
-        let id = self.hidden(e.ty);
-        self.temps.push(id);
-        let ty = e.ty;
-        hir::Expr::new(hir::ExprKind::Temp(id, Box::new(e)), ty)
-    }
-
-    /// `e` as a value something else will own. Owning values are deep-copied
-    /// on every assignment, pass and return (moves arrive with step 3).
-    // OPEN: a struct holding a string is deep-copied like a string (the
-    // step 2 rule); SPEC section 6 says it moves, which needs step 3.
-    fn owned(&self, e: hir::Expr) -> hir::Expr {
-        if e.is_place() && self.g.owns(e.ty) { copy(e) } else { e }
+        self.coerce(e, Type::Bool)
     }
 
     /// The by-value operand of an operator (`==`, an operator method): the
-    /// callee gets a copy and the operand stays where it is, so the MIR must
-    /// see a written copy (`Scoped` around `Copy`, see `copy_expr`).
+    /// callee gets a copy and the operand stays where it is.
     fn copied(&self, e: hir::Expr) -> hir::Expr {
         if e.is_place() && matches!(e.ty, Type::Str | Type::Struct { .. }) && !self.copies_anyway(e.ty) {
-            return self.written_copy(e);
+            let ty = e.ty;
+            return hir::Expr::new(hir::ExprKind::DeepCopy(Box::new(e)), ty);
         }
         e
-    }
-
-    /// The copy of the place `e` that the program wrote: a legacy `Copy` for
-    /// the backends if it owns what it copies (a plain struct is copied by
-    /// using it), inside an empty `Scoped` that tells the MIR builder.
-    fn written_copy(&self, e: hir::Expr) -> hir::Expr {
-        let ty = e.ty;
-        let inner = if self.g.owns(ty) { copy(e) } else { e };
-        hir::Expr::new(hir::ExprKind::Scoped(Box::new(inner), Vec::new()), ty)
-    }
-
-    /// The receiver of a method: for a struct that owns strings, a place.
-    fn receiver_value(&mut self, e: hir::Expr) -> hir::Expr {
-        if self.g.owns(e.ty) { self.place(e) } else { e }
-    }
-
-    /// The temporaries made since the last call, in the order to drop them.
-    fn take_temps(&mut self) -> Vec<LocalId> {
-        let mut t = std::mem::take(&mut self.temps);
-        t.reverse();
-        t
-    }
-
-    /// Every owning binding in scope, innermost and latest first: what a
-    /// `return` drops.
-    fn all_owned(&self) -> Vec<LocalId> {
-        self.owned_from(0)
-    }
-
-    /// The owning bindings of scope `depth` and every scope inside it,
-    /// innermost and latest first: what a jump out of them drops.
-    fn owned_from(&self, depth: usize) -> Vec<LocalId> {
-        self.owned[depth..].iter().rev().flat_map(|s| s.iter().rev().copied()).collect()
-    }
-
-    /// Statements dropping `locals`.
-    fn drop_all(locals: Vec<LocalId>) -> impl Iterator<Item = hir::Stmt> {
-        locals.into_iter().map(|id| hir::Stmt::Drop(hir::Place::local(id)))
     }
 
     fn text(&self, span: Span) -> &str {
@@ -1221,14 +1113,11 @@ impl Checker<'_> {
 
     fn block(&mut self, b: &ast::Block) -> hir::Block {
         self.scopes.push(HashMap::new());
-        self.owned.push(Vec::new());
         let mut out = Vec::new();
         for s in b {
             self.stmt(s, &mut out);
         }
         self.scopes.pop();
-        let owned = self.owned.pop().unwrap();
-        out.extend(Self::drop_all(owned.into_iter().rev().collect()));
         out
     }
 
@@ -1246,14 +1135,13 @@ impl Checker<'_> {
                 let ty = self.g.resolve_binding_type(ty, self.diags);
                 // The value is checked before the name exists, so `uint32 x = x;`
                 // refers to an outer `x`.
-                let init = value.as_ref().map(|v| self.init(v, ty).map(|e| self.owned(e)));
-                let temps = self.take_temps();
+                let init = value.as_ref().map(|v| self.init(v, ty));
                 let id = self.declare(name, ty, *mutable, *name_span, false);
                 self.locals[id].open = *open;
                 out.push(hir::Stmt::Decl(id));
                 if let Some(init) = init {
                     if let Some(e) = init {
-                        out.push(hir::Stmt::Assign(hir::Place::local(id), scoped(e, temps)));
+                        out.push(hir::Stmt::Assign(hir::Place::local(id), e));
                     }
                 }
             }
@@ -1269,7 +1157,6 @@ impl Checker<'_> {
                         );
                     }
                     self.expr(value);
-                    self.take_temps();
                 }
                 _ => self.assign_field(target, *op, value, *span, out),
             },
@@ -1295,7 +1182,6 @@ impl Checker<'_> {
             Stmt::For { init, cond, step, body, span } => {
                 // The init binding belongs to the loop: it is dropped after it.
                 self.scopes.push(HashMap::new());
-                self.owned.push(Vec::new());
                 if let Some(init) = init {
                     self.stmt(init, out);
                 }
@@ -1304,25 +1190,20 @@ impl Checker<'_> {
                 let end = body.end;
                 let (body, step) = self.looped(label, *span, body, step.as_deref());
                 self.scopes.pop();
-                let owned = self.owned.pop().unwrap();
                 match c {
                     Some(None) => {}
                     c => out.push(hir::Stmt::Loop { label, cond: c.flatten(), body, step, end }),
                 }
-                out.extend(Self::drop_all(owned.into_iter().rev().collect()));
             }
             Stmt::ForEach { .. } => self.for_each(s, out),
             Stmt::Match { value, cases, span } => self.match_stmt(value, cases, *span, out),
-            // A jump drops what is in scope between it and its target.
             Stmt::Break { cont, count, span } => {
-                if let Some((j, depth)) = self.break_target(*cont, *count, *span) {
-                    out.extend(Self::drop_all(self.owned_from(depth)));
+                if let Some(j) = self.break_target(*cont, *count, *span) {
                     out.push(hir::Stmt::Jump(j));
                 }
             }
             Stmt::Skip { target, span } => {
-                if let Some((j, depth)) = self.skip_target(*target, *span) {
-                    out.extend(Self::drop_all(self.owned_from(depth)));
+                if let Some(j) = self.skip_target(*target, *span) {
                     out.push(hir::Stmt::Jump(j));
                 }
             }
@@ -1337,7 +1218,7 @@ impl Checker<'_> {
                         );
                         None
                     }
-                    (Some(v), Some(t)) => self.coerce(v, t).map(|e| Some(self.owned(e))),
+                    (Some(v), Some(t)) => self.coerce(v, t).map(Some),
                     (Some(v), None) => {
                         self.expr(v);
                         None
@@ -1350,15 +1231,8 @@ impl Checker<'_> {
                     }
                     (None, _) => Some(None),
                 };
-                // The value is made first: it may read what is dropped.
-                let mut drops = self.take_temps();
-                drops.extend(self.all_owned());
                 match v {
-                    Some(Some(e)) => out.push(hir::Stmt::Return(Some(scoped(e, drops)))),
-                    Some(None) => {
-                        out.extend(Self::drop_all(drops));
-                        out.push(hir::Stmt::Return(None));
-                    }
+                    Some(v) => out.push(hir::Stmt::Return(v)),
                     None => {}
                 }
             }
@@ -1370,7 +1244,6 @@ impl Checker<'_> {
                 out.push(hir::Stmt::Unsafe(block));
             }
             Stmt::Destroy { target, span } => {
-                self.g.uses_borrows.set(true);
                 let local = match &target.kind {
                     ExprKind::Var(n) => self.lookup(n),
                     _ => None,
@@ -1394,45 +1267,24 @@ impl Checker<'_> {
                     }
                 }
             }
-            Stmt::Expr(e) => {
-                let v = self.expr(e);
-                let temps = self.take_temps();
-                match v {
-                    // A place has no effects; there is nothing to do.
-                    Some(Val::Expr(e)) if plain_place(&e) => {}
-                    // An unused new owning value is made and dropped.
-                    Some(Val::Expr(e)) if self.g.owns(e.ty) => {
-                        let unused = self.hidden(e.ty);
-                        out.push(hir::Stmt::Assign(hir::Place::local(unused), scoped(e, temps)));
-                        out.push(hir::Stmt::Drop(hir::Place::local(unused)));
-                    }
-                    Some(Val::Expr(e)) => out.push(hir::Stmt::Expr(scoped(e, temps))),
-                    _ => {}
-                }
-            }
+            Stmt::Expr(e) => match self.expr(e) {
+                // A place has no effects; there is nothing to do.
+                Some(Val::Expr(e)) if plain_place(&e) => {}
+                Some(Val::Expr(e)) => out.push(hir::Stmt::Expr(e)),
+                _ => {}
+            },
         }
     }
 
-    /// Store `e`, a new value for `place`, with the statement's temporaries.
-    /// `compound` says it came from `x op= v`.
+    /// Store `e`, a new value for `place`. `compound` says it came from `x op= v`.
     fn store(&mut self, place: hir::Place, e: hir::Expr, compound: bool, out: &mut hir::Block) {
-        let temps = self.take_temps();
         match e.kind {
             // `s += t` appends in place.
             hir::ExprKind::StrCall(hir::StrFn::Concat, args) if compound => {
                 let append = hir::Expr::new(hir::ExprKind::StrCall(hir::StrFn::Append, args), Type::None);
-                out.push(hir::Stmt::Expr(scoped(append, temps)));
+                out.push(hir::Stmt::Expr(append));
             }
-            // The new value is made before the old one is dropped, since
-            // making it may read the old one.
-            _ if self.g.owns(e.ty) => {
-                let ty = e.ty;
-                let new = self.hidden(ty);
-                out.push(hir::Stmt::Assign(hir::Place::local(new), scoped(e, temps)));
-                out.push(hir::Stmt::Drop(place.clone()));
-                out.push(hir::Stmt::Assign(place, hir::Expr::new(hir::ExprKind::Move(new), ty)));
-            }
-            _ => out.push(hir::Stmt::Assign(place, scoped(e, temps))),
+            _ => out.push(hir::Stmt::Assign(place, e)),
         }
     }
 
@@ -1441,7 +1293,6 @@ impl Checker<'_> {
         let Some(id) = self.lookup(name) else {
             self.diags.push(Diagnostic::at(&codes::E0201, name_span, format!("unknown binding `{name}`")));
             self.expr(value);
-            self.take_temps();
             return;
         };
         let ty = self.locals[id].ty;
@@ -1458,13 +1309,13 @@ impl Checker<'_> {
                         Some(v) => {
                             place.proj.push(hir::HirProj::Deref);
                             let to = *to;
-                            self.into(v, to, origin(value)).map(|e| self.owned(e))
+                            self.into(v, to, origin(value))
                         }
                         None => None,
                     }
                 }
                 Some(t) => {
-                    self.coerce(value, t).map(|e| self.owned(e))
+                    self.coerce(value, t)
                 }
                 None => {
                     self.expr(value);
@@ -1488,9 +1339,7 @@ impl Checker<'_> {
         };
         match rhs {
             Some(e) => self.store(place, e, op.is_some(), out),
-            None => {
-                self.take_temps();
-            }
+            None => {}
         }
     }
 
@@ -1498,12 +1347,11 @@ impl Checker<'_> {
     fn assign_field(&mut self, target: &ast::Expr, op: Option<BinOp>, value: &ast::Expr, span: Span, out: &mut hir::Block) {
         let Some(place) = self.lvalue(target) else {
             self.expr(value);
-            self.take_temps();
             return;
         };
         let rhs = match op {
             None => {
-                self.coerce(value, place.ty).map(|e| self.owned(e))
+                self.coerce(value, place.ty)
             }
             Some(op) => {
                 self.read_local(place.local, target.span);
@@ -1513,9 +1361,7 @@ impl Checker<'_> {
         };
         match rhs {
             Some(e) => self.store(place.hir_place(target.span), e, op.is_some(), out),
-            None => {
-                self.take_temps();
-            }
+            None => {}
         }
     }
 
@@ -1895,7 +1741,7 @@ impl Checker<'_> {
         let mut ok = true;
         for ((_, v, o), i) in values.into_iter().zip(order) {
             let converted = match (v, i.and_then(|i| fields[i].1)) {
-                (Some(v), Some(fty)) => self.into(v, fty, o).map(|e| self.owned(e)),
+                (Some(v), Some(fty)) => self.into(v, fty, o),
                 _ => None,
             };
             match (converted, i) {
@@ -2121,8 +1967,6 @@ impl Checker<'_> {
                     Val::Expr(v) => v,
                 };
                 let (i, ty) = self.field_of(v.ty, name, *name_span, recv.span)?;
-                // A field of a struct that owns strings is read in place.
-                let v = self.receiver_value(v);
                 typed(hir::ExprKind::Field(Box::new(v), i), ty)
             }
             ExprKind::Unary(op, inner) => self.unary(*op, inner, e.span),
@@ -2202,7 +2046,7 @@ impl Checker<'_> {
                     }
                 }
             }
-            ExprKind::Copy(inner) => self.copy_expr(e, inner),
+            ExprKind::CopyOf(inner) => self.copy_expr(e, inner),
             ExprKind::Take { place, leaving } => self.take_expr(e, place, leaving.as_deref()),
             ExprKind::Lend(inner) => self.lend_expr(e, inner),
             ExprKind::AddressOf(inner) => self.address_expr(e, inner),
@@ -2278,16 +2122,12 @@ impl Checker<'_> {
             Type::Ref { to, .. } => (hir::Expr::new(hir::ExprKind::Deref(Box::new(x)), *to), *to),
             t => (x, t),
         };
-        // The workaround copy of step 2 is a deep copy too, and the backends
-        // still build it: a `copy` of a place that owns what it copies (no
-        // borrow in the way) is that node inside an empty `Scoped`, which
-        // tells the MIR builder it was written (`mir::build`, WP6 removes
-        // this with the workaround). Anything else is a step 3 node.
+        // A `copy` of a place with no borrow in the way builds without the
+        // borrow checker; any other needs it.
         let plain = !matches!(x_ty, Type::Ref { .. }) && !has_deref(&value);
-        if plain && !self.copies_anyway(ty) {
-            return Some(Val::Expr(self.written_copy(value)));
+        if !(plain && !self.copies_anyway(ty)) {
+            self.g.uses_borrows.set(true);
         }
-        self.g.uses_borrows.set(true);
         if self.copies_anyway(ty) {
             let at = Span::new(e.span.start, e.span.start + 4);
             self.diags.push(
@@ -2310,7 +2150,6 @@ impl Checker<'_> {
 
     /// `take p.f` / `take p.f leaving v`.
     fn take_expr(&mut self, e: &ast::Expr, place: &ast::Expr, leaving: Option<&ast::Expr>) -> Option<Val> {
-        self.g.uses_borrows.set(true);
         let unsupported = |cx: &mut Self| {
             cx.diags.push(Diagnostic::at(&codes::E0901, place.span, "this form of `take` is not supported yet"));
         };
@@ -2335,7 +2174,7 @@ impl Checker<'_> {
         }
         self.read_local(p.local, place.span)?;
         let leaving = match leaving {
-            Some(v) => Some(Box::new(self.coerce(v, p.ty).map(|e| self.owned(e))?)),
+            Some(v) => Some(Box::new(self.coerce(v, p.ty)?)),
             None => None,
         };
         let ty = p.ty;
@@ -2452,7 +2291,7 @@ impl Checker<'_> {
             let v = match p {
                 // The callee owns its parameters.
                 Some(p) if p.is_borrow() => self.coerce_borrow(a, *p, Some(id)),
-                Some(p) => self.coerce(a, *p).map(|e| self.owned(e)),
+                Some(p) => self.coerce(a, *p),
                 None => {
                     self.expr(a);
                     None
@@ -2591,7 +2430,6 @@ impl Checker<'_> {
                 return None;
             }
         };
-        let arg = self.place(arg);
         Some(Val::Expr(hir::Expr::new(hir::ExprKind::Out { newline, arg: Box::new(arg) }, Type::None)))
     }
 
@@ -2741,7 +2579,7 @@ impl Checker<'_> {
         if !visible {
             return None;
         }
-        let mut all = vec![self.receiver_value(recv)];
+        let mut all = vec![recv];
         all.extend(args?);
         Some(Val::Expr(hir::Expr::new(hir::ExprKind::Call(m.func, all), ty)))
     }
@@ -2763,7 +2601,6 @@ impl Checker<'_> {
             BinOp::Eq | BinOp::Ne => {
                 let rhs = self.into(rv, t, ro)?;
                 let rhs = self.copied(rhs);
-                let lhs = self.receiver_value(lhs);
                 let eq = self.g.struct_eq(s, lhs, rhs);
                 Some(Val::Expr(if op == BinOp::Eq { eq } else { not(eq) }))
             }
@@ -2789,7 +2626,6 @@ impl Checker<'_> {
         let (param, ty) = (sig.params[0]?, sig.ret?);
         let rhs = self.into(rv, param, ro)?;
         let rhs = self.copied(rhs);
-        let lhs = self.receiver_value(lhs);
         Some(hir::Expr::new(hir::ExprKind::Call(m.func, vec![lhs, rhs]), ty))
     }
 

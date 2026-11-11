@@ -1,28 +1,21 @@
 //! The checked program: every expression has a concrete type, every
 //! conversion is explicit, and names are resolved to ids. Both backends
-//! (Cranelift and C) are generated from this.
+//! (Cranelift and C) are generated from the MIR built from this
+//! (`mir::build`), which makes the moves, copies, temporaries and drops.
 //!
 //! Ownership. A type is *owning* if its values own heap memory: `string`,
 //! and every struct with a `string` field (directly or in a struct field;
-//! `Program::owns`). Every local of an owning type, named or hidden, is
-//! empty (strings `{ NULL, 0, 0 }`, structs with all their strings so) when
-//! its function starts, and `Drop` leaves it empty again, so dropping a local
-//! that holds nothing is harmless. An expression of an owning type is one of
-//! two kinds:
-//! - a *place*, borrowed where it is used: `Local`, `Temp`, `Field` of a
-//!   place, and for strings `Str`;
+//! `Program::owns`). An expression of an owning type is one of two kinds:
+//! - a *place*: `Local`, `Field` of a place, `Deref`, and for strings `Str`;
+//!   the MIR builder borrows it where it is used, or moves it where a value
+//!   is wanted;
 //! - an *owned value*, freshly made: every other one (a string literal is
-//!   both: its bytes are not owned, so it never needs dropping).
+//!   both: its bytes are not owned, so it never needs dropping). When one is
+//!   used as a place (the receiver of `::len()`, a `&string` argument) the
+//!   builder puts it in a temporary that dies at the end of the statement.
 //!
-//! Places are the operands of `StrCall`, `Join` and `Out`, the inside of a
-//! `Field` and a method's receiver. Owned values go where something takes
-//! ownership: the value of an `Assign`, of a `Return`, the fields of a
-//! `Struct`, and the arguments of a `Call` (the callee owns its parameters
-//! and drops them). The checker inserts every `Copy`, `Move`, `Temp`,
-//! `Scoped` and `Drop`; the backends only carry them out and add no
-//! ownership logic of their own. That includes jumps: a `Jump` comes right
-//! after the `Drop`s of every owning local in scope between it and its
-//! target.
+//! The HIR itself says nothing about copies or drops: `DeepCopy` is the
+//! program's own `copy x`, and `Destroy` its own `destroy x;`.
 //!
 //! Structs that own no strings are plain values: any expression of such a
 //! type may be used anywhere, and using it copies its bits.
@@ -202,8 +195,8 @@ impl Place {
 pub type Block = Vec<Stmt>;
 
 pub enum Stmt {
-    /// Store a value in a place. For an owning type the value is owned and
-    /// the place is empty beforehand.
+    /// Store a value in a place; the value the place held, if any, is dropped
+    /// by the MIR builder.
     Assign(Place, Expr),
     /// Tests the branches in order and runs the body of the first whose
     /// test holds (a branch with no test always does), then carries on
@@ -222,8 +215,6 @@ pub enum Stmt {
     Unsafe(Block),
     /// `destroy x;`: runs `drop()` now and ends the local.
     Destroy(Place),
-    /// Free what a place of an owning type owns, if anything, and leave it empty.
-    Drop(Place),
 }
 
 pub struct Branch {
@@ -262,13 +253,12 @@ impl Expr {
         self
     }
 
-    /// A local, a temporary, or a field of one: the backends can refer to
-    /// its storage directly (for `self` arguments and fields) instead of
-    /// copying the value. A `Temp` is evaluated where its storage is first
-    /// needed.
+    /// A local, a dereference, or a field of one: it can be referred to
+    /// where it is (for `self` arguments and fields) instead of copying the
+    /// value.
     pub fn is_place(&self) -> bool {
         match &self.kind {
-            ExprKind::Local(_) | ExprKind::Temp(..) | ExprKind::Deref(_) => true,
+            ExprKind::Local(_) | ExprKind::Deref(_) => true,
             ExprKind::Field(inner, _) => inner.is_place(),
             _ => false,
         }
@@ -333,11 +323,9 @@ pub enum ExprKind {
     Logic { and: bool, lhs: Box<Expr>, rhs: Box<Expr> },
     /// Numeric conversion from the inner expression's type to `ty`.
     Convert(Box<Expr>),
-    /// Arguments in order; for an owning type they are owned values, handed
-    /// to the callee. For a function with `has_self`, the first argument is
-    /// the receiver: it `is_place` (a `Temp` if need be) and the callee works
-    /// on that storage, unless it is a struct that owns no strings, which
-    /// may be any value.
+    /// Arguments in order; an owning one is handed to the callee. For a
+    /// function with `has_self`, the first argument is the receiver, which the
+    /// callee works on in place.
     Call(FuncId, Vec<Expr>),
     /// `++`/`--` on a number. The value is the old one for postfix, the new
     /// one for prefix.
@@ -347,19 +335,6 @@ pub enum ExprKind {
     /// An integer as text in base 2, 8 or 16 (`io::outf`'s `%x` and friends):
     /// an owned `string`.
     Radix { value: Box<Expr>, base: u32, upper: bool },
-    /// A deep copy of a place of an owning type: an owned value.
-    Copy(Box<Expr>),
-    /// The value of a hidden local of an owning type, taken out of it (it is
-    /// left empty): an owned value.
-    Move(LocalId),
-    /// Evaluate an owned value into the hidden local, which is empty
-    /// beforehand, and use it as a place. The checker drops the local at the
-    /// end of the statement (through `Scoped`).
-    Temp(LocalId, Box<Expr>),
-    /// Evaluate the inner expression, then drop the locals, in order. The
-    /// value is the inner one's. This is how temporaries die at the end of
-    /// their statement, and how `return` drops what is in scope.
-    Scoped(Box<Expr>, Vec<LocalId>),
     /// A string runtime function. Arguments have the types `StrFn::params`
     /// gives; `string` ones are places.
     StrCall(StrFn, Vec<Expr>),
