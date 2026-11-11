@@ -11,7 +11,7 @@
 
 use std::fmt::Write;
 
-use crate::cgen::{bits, c_str_value, c_type, halves, main_fn, prelude, signed, struct_defs, work_type};
+use crate::cgen_common::{bits, c_str_value, c_type, halves, main_fn, prelude, signed, struct_defs, work_type};
 use crate::hir::{self, BinOp};
 use crate::mir::drops::{copy_glue_structs, drop_glue_structs, holds_string};
 use crate::mir::traversal::reverse_postorder;
@@ -47,7 +47,7 @@ fn glue(hir: &hir::Program) -> String {
     let mut defs = String::new();
     for &s in &drops {
         let def = &hir.structs[s];
-        let t = crate::cgen::struct_name(&def.name);
+        let t = crate::cgen_common::struct_name(&def.name);
         let _ = writeln!(protos, "static void drachm_drop_{}({t} *p);", def.name);
         let _ = writeln!(defs, "\nstatic void drachm_drop_{}({t} *p) {{", def.name);
         if let Some(f) = def.has_drop {
@@ -68,7 +68,7 @@ fn glue(hir: &hir::Program) -> String {
     }
     for &s in &copies {
         let def = &hir.structs[s];
-        let t = crate::cgen::struct_name(&def.name);
+        let t = crate::cgen_common::struct_name(&def.name);
         let _ = writeln!(protos, "static void drachm_copy_{}({t} *dst, const {t} *src);", def.name);
         let _ = writeln!(defs, "\nstatic void drachm_copy_{}({t} *dst, const {t} *src) {{\n    *dst = *src;", def.name);
         for f in &def.fields {
@@ -446,7 +446,7 @@ impl Gen<'_> {
             Rvalue::Aggregate(sid, ops) => {
                 let def = &self.hir.structs[*sid];
                 let parts: Vec<String> = ops.iter().enumerate().map(|(i, op)| format!(".f_{} = {}", def.fields[i].name, self.operand(op))).collect();
-                format!("({}){{ {} }}", crate::cgen::struct_name(&def.name), parts.join(", "))
+                format!("({}){{ {} }}", crate::cgen_common::struct_name(&def.name), parts.join(", "))
             }
             Rvalue::DeepCopy(p) => {
                 let src = self.lvalue(p);

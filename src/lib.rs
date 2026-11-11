@@ -2,9 +2,9 @@
 //! (later) the language server all drive it through here.
 
 pub mod ast;
-pub mod cgen;
+pub mod cgen_common;
 pub mod cgen_mir;
-pub mod codegen;
+pub mod codegen_common;
 pub mod codegen_mir;
 pub mod consts;
 pub mod diag;

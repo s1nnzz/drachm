@@ -22,7 +22,7 @@ use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use cranelift_module::{DataDescription, DataId, FuncId, Linkage, Module};
 use cranelift_object::{ObjectBuilder, ObjectModule};
 
-use crate::codegen::{cl_type, emit_c_main, err, in_memory, is_signed, signature, MEM, STR_CAP, STR_LEN};
+use crate::codegen_common::{cl_type, emit_c_main, err, in_memory, is_signed, signature, MEM, STR_CAP, STR_LEN};
 use crate::hir::{self, BinOp, STR_SIZE};
 use crate::mir::drops::{copy_glue_structs, drop_glue_structs, holds_string};
 use crate::mir::traversal::reverse_postorder;
@@ -893,7 +893,7 @@ impl Cg<'_, '_> {
         }
     }
 
-    // ---- arithmetic (copies of the helpers in `codegen`) -------------------
+    // ---- arithmetic ---------------------------------------------------------
 
     fn zero(&mut self, ty: ClType) -> Value {
         match ty {
