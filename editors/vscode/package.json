@@ -1,21 +1,27 @@
 {
   "name": "drachm",
   "displayName": "Drachm",
-  "description": "Syntax highlighting and basic editing support for the Drachm programming language (.drh).",
+  "description": "Drachm language support: highlighting, snippets, run and build commands, and compiler diagnostics for .drh files.",
   "version": "0.1.0",
   "publisher": "drachm",
   "license": "UNLICENSED",
   "private": true,
+  "main": "./out/extension.js",
   "engines": {
-    "vscode": "^1.60.0"
+    "vscode": "^1.75.0"
   },
   "categories": [
     "Programming Languages",
-    "Snippets"
+    "Snippets",
+    "Linters"
   ],
   "keywords": [
     "drachm",
     "drh"
+  ],
+  "activationEvents": [
+    "onLanguage:drachm",
+    "onTaskType:drachm"
   ],
   "contributes": {
     "languages": [
@@ -44,12 +50,136 @@
         "language": "drachm",
         "path": "./snippets/drachm.json"
       }
+    ],
+    "commands": [
+      {
+        "command": "drachm.run",
+        "title": "Run",
+        "category": "Drachm",
+        "icon": "$(play)"
+      },
+      {
+        "command": "drachm.runOptimised",
+        "title": "Run Optimised (-O)",
+        "category": "Drachm",
+        "icon": "$(play)"
+      },
+      {
+        "command": "drachm.build",
+        "title": "Build",
+        "category": "Drachm"
+      },
+      {
+        "command": "drachm.check",
+        "title": "Check",
+        "category": "Drachm"
+      },
+      {
+        "command": "drachm.explain",
+        "title": "Explain Error Code",
+        "category": "Drachm"
+      }
+    ],
+    "menus": {
+      "editor/title/run": [
+        {
+          "command": "drachm.run",
+          "when": "resourceLangId == drachm",
+          "group": "navigation@1"
+        },
+        {
+          "command": "drachm.runOptimised",
+          "when": "resourceLangId == drachm",
+          "group": "navigation@2"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "drachm.run",
+        "key": "ctrl+shift+enter",
+        "mac": "cmd+shift+enter",
+        "when": "editorLangId == drachm"
+      }
+    ],
+    "configuration": {
+      "title": "Drachm",
+      "properties": {
+        "drachm.path": {
+          "type": "string",
+          "default": "drachm",
+          "description": "The drachm compiler to run. A name on PATH, or a full path such as /usr/local/bin/drachm."
+        },
+        "drachm.checkOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Run `drachm check` on each save of a .drh file and show its errors in the Problems panel."
+        }
+      }
+    },
+    "taskDefinitions": [
+      {
+        "type": "drachm",
+        "required": [
+          "command"
+        ],
+        "properties": {
+          "command": {
+            "type": "string",
+            "enum": [
+              "build",
+              "run",
+              "check"
+            ],
+            "description": "The drachm subcommand to run."
+          },
+          "file": {
+            "type": "string",
+            "description": "The .drh file. Defaults to the active editor's file."
+          },
+          "optimised": {
+            "type": "boolean",
+            "description": "Build or run with -O (ignored by check)."
+          }
+        }
+      }
+    ],
+    "problemMatchers": [
+      {
+        "name": "drachm",
+        "owner": "drachm",
+        "source": "drachm",
+        "fileLocation": [
+          "autoDetect",
+          "${workspaceFolder}"
+        ],
+        "pattern": [
+          {
+            "regexp": "^(error|warning)\\[([EW]\\d+)\\]: (.*)$",
+            "severity": 1,
+            "code": 2,
+            "message": 3
+          },
+          {
+            "regexp": "^\\s*--> (.+?):(\\d+):(\\d+)$",
+            "file": 1,
+            "line": 2,
+            "column": 3
+          }
+        ]
+      }
     ]
   },
   "scripts": {
-    "test": "vscode-tmgrammar-test -g syntaxes/drachm.tmLanguage.json \"tests/*.drh\""
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "test": "npm run compile && vscode-tmgrammar-test -g syntaxes/drachm.tmLanguage.json \"tests/*.drh\" && node --test out/test/parse.test.js"
   },
   "devDependencies": {
+    "@types/node": "^20.19.43",
+    "@types/vscode": "1.75.0",
+    "typescript": "^5.9.3",
     "vscode-tmgrammar-test": "^0.1.3"
   }
 }

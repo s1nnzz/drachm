@@ -1,0 +1,67 @@
+error[E0201]: unknown module `maths`
+  --> nomain.drh:1:1
+   |
+ 1 | in maths;
+   | ^^^^^^^^^
+   |
+ help: `io` is the only module so far
+
+error[E0204]: this program has no `main` function
+  --> nomain.drh
+ help: add `none main() { }`; it is where the program starts
+
+error[E0202]: function `helper` is defined twice
+  --> nomain.drh:4:8
+   |
+ 3 | uint32 helper() { return 1; }
+   | --------------- first defined here
+ 4 | uint32 helper() { return 2; }
+   |        ^^^^^^ defined again here
+
+error[E0201]: unknown type `int`
+  --> nomain.drh:5:1
+   |
+ 5 | int oldName(i64 a, float b, String s, uint7 c, float16 d) { return 1; }
+   | ^^^
+   |
+ help: Drachm calls this `sint32`
+
+error[E0201]: unknown type `i64`
+  --> nomain.drh:5:13
+   |
+ 5 | int oldName(i64 a, float b, String s, uint7 c, float16 d) { return 1; }
+   |             ^^^
+   |
+ help: Drachm calls this `sint64`
+
+error[E0201]: unknown type `float`
+  --> nomain.drh:5:20
+   |
+ 5 | int oldName(i64 a, float b, String s, uint7 c, float16 d) { return 1; }
+   |                    ^^^^^
+   |
+ help: Drachm calls this `float64`
+
+error[E0201]: unknown type `String`
+  --> nomain.drh:5:29
+   |
+ 5 | int oldName(i64 a, float b, String s, uint7 c, float16 d) { return 1; }
+   |                             ^^^^^^
+   |
+ help: Drachm calls this `string`
+
+error[E0201]: unknown type `uint7`
+  --> nomain.drh:5:39
+   |
+ 5 | int oldName(i64 a, float b, String s, uint7 c, float16 d) { return 1; }
+   |                                       ^^^^^
+   |
+ help: integer types come in 8, 16, 32, 64 and 128 bits
+
+error[E0901]: the type `float16` is not supported yet
+  --> nomain.drh:5:48
+   |
+ 5 | int oldName(i64 a, float b, String s, uint7 c, float16 d) { return 1; }
+   |                                                ^^^^^^^
+
+nomain.drh: 9 errors
