@@ -72,3 +72,9 @@ Units Q13 (my choice): declared dimensionless units are allowed: `unit pct = 0.0
 - Text to number reuses `::to<T>()`: `line::to<uint32>()`. It can fail on bad text, so it becomes a failing call with step 5 (`line::to<uint32>() maybe 0`). Until step 5 (my interim choice, not asked): bad text stops the program with a runtime error (exit 101) naming the text and the type.
 - Scheduled after WP6 (it touches typeck builtins, the runtime and the backends WP6 is rewriting).
 Units Q12b (2026-11-11): assigning or declaring a unit variable with a plain value attaches the unit: `float64<m> d = 5;` is 5 m, `d = 0;` is 0 m. Only operators are strict (`d + 5` is an error).
+
+# WP8 / WP9 questions, 2026-11-11
+- WP8 Q1 `lives p` on a holder parameter: owner picked "whole parameter" and said "just do what u think is best and is in line with the rest of the lang". Kept: `lives p` keeps the whole parameter `p` borrowed while the result lives (matches Q10ii: function `lives` names whole parameters only, no paths).
+- WP8 Q2 naming `self` in `lives`: a `from` clause, `&string pick(&string key) lives from self or key { ... }`. My reading: sources are joined with `or`; `lives from ...` is the form that can name `self`, and plain `lives a, b` stays for parameters (both spellings may name parameters).
+- WP9 Q1 (#8): everything that touches a pointer value needs `unsafe`, moving/passing/returning/storing included; the body of an `unsafe` function counts as one unsafe block (no inner block needed).
+- WP9 Q2: converting between `*T` and `*fixed T` is explicit both ways, inside `unsafe`: `p::freeze()` (`*T` -> `*fixed T`) and `p::thaw()` (`*fixed T` -> `*T`).
