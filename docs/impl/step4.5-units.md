@@ -1,10 +1,10 @@
 # Step 4.5: units of measure (implementation spec and work-package briefs)
 
-Status: **the owner answered Q1-Q11 on 2026-11-11** (`owner-answers.md`, "Units
-of measure"). Three small follow-up questions are open (section 3); each has a
-conservative behaviour marked `// OPEN(unitsQ12)` and so on, and none blocks
-U1-U4. Units work may start now: WP2, WP3 and WP4 are merged, and WP5/WP6 run
-in parallel (section 4.1 says how to avoid conflicts).
+Status: **done (2026-11-11).** The owner answered Q1-Q15 (`owner-answers.md`,
+"Units of measure" and the two follow-ups "Units Q12" to "Units Q12b"). Every
+answer is implemented and tested; no `OPEN(units` marker is left. The decisions
+table (2.1) is the reference. Section 3 lists how each answer landed; section 4
+is the work-package history.
 
 Read first: `docs/SPEC.md` section 4 (Numbers) and 4b (Units of measure),
 `docs/PLAN.md` "Step 4.5", `CLAUDE.md` ("Working with the owner", "Keeping the
@@ -16,8 +16,8 @@ loop), `docs/impl/wp2.md` (brief format).
 
 Rules for the implementer:
 - **The owner makes the language decisions.** Section 2 is decided; section 3
-  lists what is not. For an open item implement exactly the conservative
-  behaviour named there (an error, never a guess) and mark it `// OPEN(unitsQn)`.
+  lists what is not. Items the owner has not answered get the conservative
+  behaviour named there (an error, never a guess) and an `// OPEN(unitsQn)` marker.
   Do not choose among options yourself.
 - Units are compile-time only: zero runtime cost, nothing unit-shaped reaches
   the HIR consumers (MIR, ownership, backends). Both backends must behave
@@ -80,14 +80,19 @@ item). U5 adds the corrected program as a golden test.
 
 | Q | Decision (owner, 2026-11-11) | Consequence in the compiler |
 |---|---|---|
-| 1 | Unit value into a plain number slot is allowed and **strips to the base unit amount**: `uint8 s = 3<m>;` is 3, `uint32 t = 3<km>;` is 3000. "Units need syntax; they don't just work magically." | Plain slot = `T` with no unit. Value is multiplied by the unit's scale (and offset corrected for points, 2.8). Silent when exact; W0102 when it truncates or can overflow, like any lossy conversion. Constants fold. The reverse (plain into unit) is **not** decided: Q12. |
+| 1 | Unit value into a plain number slot is allowed and **strips to the base unit amount**: `uint8 s = 3<m>;` is 3, `uint32 t = 3<km>;` is 3000. "Units need syntax; they don't just work magically." | Plain slot = `T` with no unit. Value is multiplied by the unit's scale (and offset corrected for points, 2.8). Silent when exact; W0102 when it truncates or can overflow, like any lossy conversion. Constants fold. The reverse (plain into a unit slot) attaches the unit: Q12b. |
 | 2 | `::text()` prints the number only. `::unitText()` gives the unit's text (`"km"`); the program lays them out. | `text` ignores the unit. New method `unitText` on a value with a unit: a `string` constant, the display name (2.2). On a plain number: E0101. |
-| 3 | Dimensionless results are always a plain number with the scale folded in: `4.0<km> / 2.0<m>` is `2000.0`. | No dimensionless `Type::Unit` ever exists (`with_unit` returns the bare type). `*`, `/`, `**` that cancel every dimension multiply by the exact scale. A **declared** dimensionless unit (`unit pct = 0.01 1;`) is not decided: Q13. |
+| 3 | Dimensionless results are always a plain number with the scale folded in: `4.0<km> / 2.0<m>` is `2000.0`. | No dimensionless `Type::Unit` ever exists (`with_unit` returns the bare type). `*`, `/`, `**` that cancel every dimension multiply by the exact scale. A **declared** dimensionless unit is allowed (`unit pct = 0.01;`, Q13): it strips to its scale, and its products collapse like any other. |
 | 4 | Units on every number type; integers cannot hold fractions: `uint8<km> s = n;` with `n` = 300 m gives 0. | No restriction at declaration. |
-| 5 | Integer scaled conversion truncates toward zero (my reading: with W0102 like any lossy conversion). | `x * p / q` in the target number type, `/` truncating; W0102 when `q != 1` for integers. |
+| 5 | Integer scaled conversion truncates toward zero, with W0102 like any lossy conversion. | `x * p / q` in the target number type, `/` truncating; W0102 when `q != 1` for integers. |
 | 6 | No unit-generic functions until step 6 generics (`float64<U> twice<unit U>(float64<U> x)`). | A unit in a signature is a fixed unit. Nothing else in this step; do not reserve syntax. |
 | 7 | `unit` is a **context word**: it declares only at the start of a top-level item; elsewhere an ordinary name (`static Circle unit()` is fine). | Remove `"unit"` from `lexer::KEYWORDS`. The parser treats `Ident("unit")` as a declaration only at item start when followed by `NAME` and then `;` or `=`. |
 | 8 | Offset units are **points** and **deltas**: `float64<degC>` is a point, `b - a` is `float64<delta degC>`, point + delta is a point, point + point is an error. Declared `unit degC = K offset -273.15;`. | 2.8. |
+| 12 | A plain variable beside a unit follows the rule for constants: `*` and `/` are fine, `+ - %` and comparisons need a unit, zero excepted. `d++` adds one of `d`'s own unit. | 2.5; `d++` through the place's own type. |
+| 12b | Declaring or assigning a unit variable with a plain value attaches the unit: `float64<m> d = 5;` is 5 m, `d = 0;` is 0 m. Only operators are strict (`d + 5` is an error). | `unit_into`, the plain branch: `Val::Const` is fitted to the bare type and retagged; `Val::Expr` is converted to the bare type and retagged. The number is the reading, unscaled. Arguments, returns and fields take the same path. |
+| 13 | Declared dimensionless units are allowed: `unit pct = 0.01;`. `85<pct>` stripped is 0.85; `pct * pct` is a plain number. | Declaration without a right-hand unit; the strip and collapse rules already cover it. |
+| 14 | `delta degC` has the same dimension and scale as `K` and converts freely. `::unitText()` of a delta prints `delta degC`. A bare `0` is not unit-free beside a point (`0<degC>`). | Delta and `K` are one type by content; the display name is kept per `Unit`; point zero is E0408 with that help. |
+| 15 | `kg` is the base mass unit: `unit kg; unit g = 0.001 kg;`. `uint32 x = 2<kg>` is 2 and `uint32 y = 500<g>` is 0. | `src/prelude/si.drh` (no OPEN marker). |
 | 9 | SI units come with `in si;` (built into the compiler until modules exist). | `in si;` loads an embedded prelude of ordinary `unit` declarations (2.9). Without it nothing is predeclared. |
 | 10 | `*` and `/` take plain numbers (they are scales); **zero is unit-free**; any other plain constant in `+ - %` or a comparison needs its unit (`d + 5<m>`). | 2.5. |
 | 11 | `::in<m>()` changes the unit and keeps the number type; `::to<T>()` changes the number type. | 2.6. |
@@ -170,7 +175,7 @@ SIGNED     := ["-"] NUMBER
   function signatures): collect all unit items into a map, evaluate lazily with a
   visiting set (`unit N = kg*m/s^2;` may come before `unit kg;`). A cycle,
   a redeclaration, a zero or negative factor, `unit u = 5;` (no unit on the
-  right) and a **dimensionless declaration** (Q13: conservative) are E0403.
+  right) are E0403. A dimensionless declaration (`unit pct = 0.01;`) is allowed (Q13).
 - A unit name lives in **its own namespace**: `uint8 s = 3<m>;` has a variable
   `s` and a unit `s`. Unit names are looked up only inside `<...>` after a
   number type or literal, after `unit`, and after `::in`.
@@ -209,7 +214,7 @@ scanned text that is not a valid unit-expr (`3<->`, `3<>`, `3<m*>`) falls back t
 less-than and the parser reports its normal expression error; an unknown unit
 name is E0402 in typeck, not a lexical problem. Only a **literal** takes a unit
 tag; a runtime number gets a unit by `n * 1<m>` (the plain operand of `*` is a
-scale) or, once Q12 is answered, otherwise.
+scale) or, by Q12b, a plain value assigned or declared into a unit slot.
 
 `Tok::Num(NumLit)` carries `unit: Option<(String, Span)>` (the text and its
 span); the parser builds the `UnitExpr` with the shared unit-expr parser (fed
@@ -268,7 +273,7 @@ Notation: `a: T<ua>`, `b: U<ub>`, `k` a plain number (constant or not).
 | `-a`, `+a` | unchanged | `T<ua>` |
 | `a += b`, `a -= b` | as `+`/`-`, evaluated in `a`'s unit | unchanged |
 | `a *= k`, `a /= k` | `k` plain only; a unit `b` would change `a`'s type: E0401 | unchanged |
-| `a++`, `a--` on a unit value | **Q12 (open): conservative E0408** ("write `a += 1<m>`") | |
+| `a++`, `a--` on a unit value | adds or subtracts one of `a`'s own unit (Q12) | `a` |
 | `& \| ^ ~ << >>` with a unit on either side | E0406 (shift counts with a unit too) | |
 | `&&`, `\|\|`, `!` | bool only, unchanged | |
 
@@ -278,8 +283,8 @@ For `+ - %` and the comparisons: **zero is unit-free** (`speed > 0`, `d + 0`,
 constant needs its unit (`d + 5` is E0408 with help "write `d + 5<m>`"). For a
 **point** (2.8) zero is not unit-free (0 degC is not 0 K): `t > 0` is E0408 with
 help `0<degC>`. A **non-constant** plain number beside a unit in `+ - %` or a
-comparison (`n + d`, `d + n`, `n < d`): Q12 (open), conservative E0408 in both
-orders.
+comparison (`n + d`, `d + n`, `n < d`): E0408 in both orders (Q12: a variable is
+no different from a constant, and only zero is unit-free).
 
 **Common-base evaluation (the owner's prefix note).** For `+ - %` and
 comparisons between two unit values of one dimension, let `g` = the gcd of the
@@ -322,7 +327,7 @@ exact integer constant when it fits 2^53, else `r` rounded once (note in help);
 integers: `/ q` truncates toward zero, W0102 when `q != 1`, and W0102 "can
 overflow" when `max(T) * p` exceeds the target range (reuse W0102, new wording
 only). Different dimension: E0401 with the message adapted to the context.
-Plain into unit: Q12. Unit into plain: Q1 strip (below).
+Plain into unit: Q12b, attaches (below). Unit into plain: Q1 strip (below).
 
 **Unit into a plain slot (Q1).** Same machinery with `to` = the dimensionless
 unit of scale 1: the value is multiplied by `from.scale` (a point also subtracts
@@ -346,7 +351,7 @@ applies where a plain parameter, return or field receives a unit value.
   interpolation follow it; `%.N` rounds the number.
 - `x::unitText()` is a `string` constant of the display name (2.2): `"km"`,
   `"m/s"`, `"kg*m/s^2"`, `"degC"`, `"delta degC"`. The program decides the layout:
-  `io::outln(d::text() + " " + d::unitText());`. Q14 asks about deltas.
+  `io::outln(d::text() + " " + d::unitText());`. For a delta it prints `delta degC` (Q14).
 
 ### 2.7 Types in the compiler
 
@@ -433,8 +438,8 @@ unit degC = K offset -273.15;
 
 (`us` is microseconds since `µ` is not ASCII; `rad` stays a base unit so angles
 do not silently mix with plain numbers; the file is the list to extend.
-Whether `kg` or `g` is the base: Q15. `degC` is in the set because the owner's
-example uses it; confirm in the same question.)
+Whether `kg` or `g` is the base: Q15, answered: `kg`. `degC` is in the set because
+the owner's example uses it.)
 
 ### 2.10 Hooks into `typeck.rs` (keep this list short and exact)
 
@@ -489,8 +494,7 @@ in terms of itself (a -> b -> a) ``, `` `m` is declared twice ``, `a unit's
 factor must be a number greater than zero`, `` `u` has no unit on the right;
 write `unit u;` for a new base unit ``, `` `offset` goes only after a single unit
 (`unit degC = K offset -273.15;`) ``, `unit names are plain ASCII letters, digits
-and _`, and the Q13 case `` `pct` measures nothing: for a ratio use a plain
-number ``.
+and _`. (A dimensionless declaration such as `unit pct = 0.01;` is allowed, Q13.)
 
 E0404 a unit can only be raised to a constant whole power (`side ** n`; note:
 the unit of the result depends on the exponent; help: `side * side` or a
@@ -519,44 +523,41 @@ integers; only the text is new.)
 
 ---
 
-## 3. Open items (small; each has a conservative behaviour)
+## 3. How the follow-up answers landed
 
-These came out of the owner's answers; ask them with the next interview round.
-Nothing here blocks U1-U4.
-
-**Q12. Plain numbers and units without a constant.** Q1 allows unit to plain.
-Not decided: (a) plain into unit, `float64<m> d = n;` and `= 5.0;`; (b) a
-non-constant plain beside a unit in `+ - %` or a comparison, `n + d`; (c)
-`d++` / `d--` on a unit value. Conservative: all three are E0408, with the help
-"write `n * 1<m>`" (a plain operand of `*` is a scale, so that already attaches
-a unit), "write `d + 5<m>`", "write `d += 1<m>`". Zero constants are accepted
-(`float64<m> d = 0;`) by the zero rule. Options for (a)/(b): A. keep the wall,
-attach only with `* 1<m>`; B. the plain side takes the unit when it leads the
-conversion's other side (as constants do today); C. a worded attach, e.g.
-`n in m` / `n::as<m>()`. Note Q1's strip already makes `n + d` legal if "the
-right converts to the left's type" is followed literally (the unit side strips)
-while `d + n` stays an error; A makes both errors.
-
-**Q13. Declared dimensionless units.** Q3 collapses dimensionless results to
-plain. Is `unit pct = 0.01 1;` (a named ratio) allowed? Conservative: E0403
-("measures nothing"). Options: A. never (use plain numbers); B. allowed, a
-`float64<pct>` is a tagged value that strips to its scale (0.85 for `85.0<pct>`)
-and whose results still collapse.
-
-**Q14. Deltas.** (a) Is `delta degC` the same type as `K` (my reading: same
-dimension and scale, so interchangeable) or a separate type that needs
-`::in<K>()`? (b) What does `::unitText()` print for a delta: `delta degC`
-(conservative) or `degC`? (c) Is zero unit-free beside a point (`t > 0` for a
-`float64<degC>`)? Conservative: E0408, write `0<degC>`.
-
-**Q15. The shipped set.** Is `kg` the base mass unit with `g = 0.001 kg` (SI,
-as written in 2.9), or `g` the base with `kg = 1000 g` (as in your example)?
-Does `in si;` include `degC`? Which other units (`l`, `ml`, `mi`, `ft`, `lb`)
-belong in `si` versus a later `imperial` module?
+- **Q12 (plain variable beside a unit).** Same rule as constants: `*` and `/`
+  take it as a scale; `+ - %` and comparisons need a unit, and only a zero
+  constant is unit-free. `n + d` and `d + n` are E0408. `d++` and `d--` add or
+  subtract one of `d`'s own unit (the place's type is kept through the
+  increment).
+- **Q12b (plain value into a unit slot).** Declaring or assigning
+  `float64<m> d = 5;` attaches the unit, and so do arguments, returns and
+  fields (`unit_into`). The number is the reading, not scaled. `5::in<m>()` is
+  still E0408: it converts a measure and is not a slot.
+- **Q13 (declared dimensionless unit).** `unit pct = 0.01;` is allowed; `85<pct>`
+  strips to 0.85; `pct * pct` is plain (0.5 pct times 0.5 pct is 0.000025).
+- **Q14 (deltas).** `delta degC` is the same type as `K`; `::unitText()` of a
+  delta prints `delta degC`; `t > 0` for a point is E0408 with help `0<degC>`.
+- **Q15 (the shipped set).** `kg` is the base mass unit and `g` is `0.001 kg`
+  in `src/prelude/si.drh`.
+- **Integer scaling and `[behaviour] overflow`.** The config is not read by the
+  compiler at all, so no conversion follows it. Scaled integer conversion
+  wraps on overflow exactly as `::to<T>()` does (the cast is the same, and the
+  64-bit intermediate wraps as ordinary arithmetic does). Tests:
+  `tests/run/units_wrap.drh`, `units_wrap_narrow.drh`. The W0102 help text now
+  parenthesises a chained value (`(d::in<m>())::to<uint8>()`), since a later
+  call in a chain is written with `->`.
+- **Known gap.** The mutability fix-it for a unit variable says `mut float64 d`
+  without the unit: the MIR sees erased types. Fixing it needs the declared type
+  kept through erasure; not done.
+- **Not in this step.** Unit-generic functions (Q6) wait for generics (step 6).
 
 ---
 
 ## 4. Work packages
+
+Status: U1 to U6 are all merged. The Build, Tests and Done-when lines below are
+the briefs as written; where the answers changed one, section 3 says how.
 
 ### 4.1 Sequencing, and how this avoids conflicts with WP5 and WP6
 
@@ -719,9 +720,9 @@ Tests (all `tests/run` cases run on both backends):
 - `tests/fail/units_ops.drh`: E0404 (`side ** n`), E0406 (`len << 2`, `len & 1`),
   E0407 (`d::in<s>()`, `d::to<float64<km>>()`), E0408 (`d + 5`), E0409
   (`degC + degC`, `2.0 * t`).
-- `tests/fail/units_open.drh`: the conservative E0408s for Q12 (`float64<m> d =
-  n;`, `n + d`, `d++`), the Q13 E0403, the Q14 `t > 0` E0408, so answering each
-  is a visible test change.
+- `tests/fail/units_open.drh` (later `units_plain.drh`): the E0408s that stay
+  (`n + d`, `d + 5`, `5::in<m>()`, the point `t > 0`). Q12b changed the plain
+  declaration cases, so they are run cases now (`tests/run/units_attach.drh`).
 
 Site (same commit): new `site/content/reference-units.md` (declaring units,
 `T<unit>` types, `9.6<s>` literals and the `<` rule, the arithmetic table, scaled

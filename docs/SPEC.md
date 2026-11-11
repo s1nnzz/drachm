@@ -23,9 +23,11 @@ Items marked **OPEN** are undecided. Do not invent answers for them: ask the own
 - Conditions are always parenthesised: `if (x)`, `while (x)`, `match (x)`, `for (...)`.
 - Keywords so far: `otherwise any failure because exit extends Self none mut if else while for of match case return skip to
   struct interface with static public private new in out from as fails fail maybe
-  copy lives open break continue unsafe async await move test unit true false lend take leaving address
+  copy lives open break continue unsafe async await move test true false lend take leaving address
   stays changes by asm`. Always reserved: `lend`, `take`. Context-only (ordinary names elsewhere):
   `to` directly after `skip`; `by` directly after a range in `for (... of a..b by n)`;
+  `unit` at the start of a top-level item, followed by a name and `;` or `=` (a unit
+  declaration; elsewhere an ordinary name, so `static Circle unit()` is fine);
   `leaving` directly after `take <place>`; `address` directly before `of`; `stays` directly after a
   struct's name (and `lives` list); `changes` directly before `self` after an interface method's
   parameters; `asm` directly after an `unsafe` function's signature. `drop` is a reserved method name,
@@ -326,21 +328,61 @@ Bare variants require the language server to complete them.
 - Standard library also has `Vector2/3/4`, `Matrix3/4` and quaternions, plus
   exact numbers: big integers, fractions (1/3 stays exact) and decimal /
   fixed-point for money. **OPEN:** their exact type names and module.
-- Units of measure (optional, user-definable):
+- Units of measure (optional, user-definable; step 4.5, done):
 
 ```cpp
 unit m;  unit s;  unit kg;            // base units
 unit N = kg * m / s^2;                // derived (^ is power inside unit expressions)
 unit km = 1000 m;                     // scaled
+unit pct = 0.01;                      // a named ratio, no base unit
+unit degC = K offset -273.15;         // a point on a scale
 
 float64<m> dist = 100.0<m>;
 float64<s> time = 9.6<s>;
 float64<m/s> speed = dist / time;     // dist + time is a compile error
 ```
 
-- Scaled units of the same kind convert automatically, to the unit of the
-  first operand: `10<km> + 100<m>` = `10.1<km>`, `10<m> + 1<km>` = `1010<m>`.
-- The stdlib ships SI units (m, s, kg, N, J, W, …) ready to use.
+  - `unit` is a context word (section 1). Declarations may come in any order;
+    a cycle, a redeclaration or a zero or negative factor is E0403.
+  - Units go on every number type: `float64<m/s>`, `uint8<km>`, `9.6<s>`,
+    `2.5f32<m/s>`. A literal's unit needs no space before `<`: `9.6 < s` is a
+    comparison. Unit names are ASCII; prefixes are not automatic (`km` is its
+    own declaration).
+  - `in si;` loads the SI set as ordinary declarations: base `m s kg A K mol cd`,
+    `rad`; derived `N Pa J W C V F ohm S Wb T H Hz`; `g = 0.001 kg` (kg is the
+    base mass unit), `mm cm km mg ms us ns min h kHz MHz GHz kJ kW kN`, and the
+    point `degC`. Without it nothing is predeclared (E0402). A file that declares
+    a name the SI set has is E0403.
+  - Unit into a plain slot strips to the base amount: `uint8 s = 3<m>;` is 3,
+    `uint32 t = 3<km>;` is 3000. Whole numbers truncate toward zero when a unit
+    shrinks (W0102).
+  - Plain into a slot with a unit attaches it: declaring or assigning
+    (`float64<m> d = 5;` is 5 m, `d = 0;` is 0 m), passing an argument, returning
+    and fields. `d++` adds one of `d`'s own unit. Only operators are strict.
+  - Operators: `*` and `/` take plain numbers (scales). `+ - %` and the
+    comparisons need a unit on a plain number, the same for a variable as for a
+    constant (`d + 5<m>`, E0408). Zero is the exception, so `d + 0` and
+    `speed > 0` are fine; a point's zero is not (`t > 0<degC>`).
+  - Results that have no unit left are plain numbers with the scale folded in:
+    `4.0<km> / 2.0<m>` is `2000.0`, and `pct * pct` is plain.
+  - Different scales of one kind: both sides go through a common base, and the
+    result is in the left operand's unit. `10<km> + 100<m>` is `10.1<km>`,
+    `10<m> + 1<km>` is `1010<m>`. The left side leads the number type. `a ** n`
+    needs a constant whole `n`. Bit operators and shifts are E0406.
+  - `x::in<U>()` changes the unit and keeps the number type; `x::to<T>()` changes
+    the number type and keeps the unit (`T` is a bare number, E0407).
+    `x::text()` is the number only and `x::unitText()` the display name as a
+    `string`; `::to<string>()` is an error that points at `::text()`.
+  - Integer scaling wraps on overflow exactly as `::to<T>()` does. The
+    `[behaviour] overflow` setting is not read by the compiler yet, so no
+    conversion path follows it.
+  - Points and deltas: point `-` point is a delta (`delta degC`), point `+`
+    delta is a point. Point `+` point, a point times anything and unary `-` on a
+    point are E0409. `delta degC` is the same type as `K` (same size, converts
+    freely), and `::unitText()` of a delta prints `delta degC`.
+  - No unit-generic functions until generics (step 6); a unit in a signature is
+    a fixed unit.
+  - Diagnostics: E0401 to E0409 (section 10), and W0102 for lossy scaling.
 
 ## 5. Structs, interfaces, constructors
 
@@ -669,7 +711,7 @@ Diagnostics: detailed Rust/Elm style (labelled source lines, explanation,
 `help:` fix). `E` codes for errors, `W` for warnings, `drachm explain E0301`.
 Red errors, yellow warnings, colour auto-off when piped. Report all errors.
 `E` and `W` share one number space: `00xx` syntax, `01xx` types and
-conversions, `02xx` names and bindings, `03xx` ownership, `09xx` not supported
+conversions, `02xx` names and bindings, `03xx` ownership, `04xx` units, `09xx` not supported
 yet. The table is `src/diag/codes.rs`. W0102 looks like this:
 
 ```text
