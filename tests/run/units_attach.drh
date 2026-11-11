@@ -1,0 +1,31 @@
+// A plain value in a slot with a unit takes that unit (Q12b). Units can be
+// declared without a dimension (Q13) and strip to their scale.
+in io;
+in si;
+unit pct = 0.01;
+
+float64<m> twice(float64<m> x) {
+    return x * 2.0;
+}
+
+none main() {
+    float64 n = 4.5;
+    float64<m> d = n;
+    float64<m> z = twice(n);
+    float64 plain = 85.0<pct>;
+    io::outln(d::text() + " " + z::text() + " " + plain::text());
+
+    float64<pct> p = 0.5;
+    io::outln((p * p)::text());
+
+    mut float64<m> w = 5;
+    w = 0;
+    w++;
+    io::outln(w::text() + " " + w::unitText());
+
+    float64<K> k = 20.0<delta degC>;
+    io::outln(k::text() + " " + k::unitText());
+
+    float64<degC> t = 20.0<degC>;
+    io::outln((t > 0<degC>)::text() + " " + t::unitText());
+}

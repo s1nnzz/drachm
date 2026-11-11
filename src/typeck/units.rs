@@ -687,11 +687,16 @@ impl Checker<'_> {
         let fu = val_unit(&v);
         let plain_value = fu.is_none();
         if plain_value && tu.is_some() {
-            // OPEN(unitsQ12): a plain number into a variable, argument or
-            // field that has a unit. Not decided; an error until it is.
-            let is_const = matches!(v, Val::Const(_));
-            self.plain_for_measure(from, is_const, tu);
-            return None;
+            // Q12b: a plain value into a slot with a unit attaches that unit:
+            // `float64<m> d = 5;` is 5 m. The number is the reading, unscaled.
+            return match v {
+                Val::Const(c) => {
+                    let e = self.fit_const(&c, to.bare(), from.span, false);
+                    Some(retag(e, to))
+                }
+                Val::Expr(e) => Some(retag(self.convert_value(e, to.bare(), false, from), to)),
+                Val::UConst(..) => unreachable!("a unit constant has a unit"),
+            };
         }
         // A plain target takes the base amount of any unit (Q1).
         if tu.is_some() && dim_of(fu) != dim_of(tu) {
@@ -1096,7 +1101,8 @@ impl Checker<'_> {
                     );
                 }
                 _ => {
-                    // OPEN(unitsQ12): giving a unit to a plain number is not decided.
+                    // `5::in<m>()` is a conversion of a measure, not a slot (Q12b covers
+                    // declaring and assigning only), so a plain number still needs its unit.
                     self.plain_for_measure(o, matches!(v, Val::Const(_)), Some(target));
                 }
             }

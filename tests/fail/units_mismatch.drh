@@ -20,5 +20,5 @@ none main() {
     accept(dist);
     float64<m> e = dist - 3<s>;
     uint32 plain = 5;
-    float64<m> f = plain;
+    float64<m> f = plain + dist;
 }
