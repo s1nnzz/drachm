@@ -8,6 +8,8 @@ use crate::types::Type;
 #[derive(Debug)]
 pub struct Program {
     pub imports: Vec<Import>,
+    /// `unit` declarations, in the order written (order does not matter to the checker).
+    pub units: Vec<UnitDecl>,
     pub funcs: Vec<Func>,
     pub structs: Vec<Struct>,
     /// The file flag `//--!$unsafe: true` is present (set by `lib::check`).
@@ -63,6 +65,48 @@ pub struct TypeName {
     /// Borrow and pointer marks written before the name, outermost first:
     /// `&mut string` is `[Ref { mutable: true }]`, `*uint32` is `[Ptr]`.
     pub mods: Vec<(TypeMod, Span)>,
+    /// The unit in angle brackets: `float64<m/s>`, `float64<delta degC>`.
+    pub unit: Option<UnitSpec>,
+}
+
+/// A unit written in angle brackets after a number type or a number literal,
+/// or after `::in`. `delta` marks a difference of points (`delta degC`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct UnitSpec {
+    pub delta: bool,
+    pub expr: UnitExpr,
+}
+
+/// A unit expression as written. `Pow` is only ever written after a name.
+#[derive(Debug, Clone, PartialEq)]
+pub enum UnitExpr {
+    Name(String, Span),
+    /// The dimensionless `1`.
+    One(Span),
+    Mul(Box<UnitExpr>, Box<UnitExpr>),
+    Div(Box<UnitExpr>, Box<UnitExpr>),
+    Pow(Box<UnitExpr>, i32, Span),
+}
+
+/// `unit NAME;`, `unit NAME = def;`, optionally followed by `offset SIGNED`.
+#[derive(Debug)]
+pub struct UnitDecl {
+    pub name: String,
+    pub name_span: Span,
+    /// `None` for a base unit (`unit m;`).
+    pub def: Option<UnitDef>,
+    /// `offset -273.15`: the value with its sign.
+    pub offset: Option<(Const, Span)>,
+    pub span: Span,
+}
+
+/// The right side of `unit NAME = ...`: a factor, a unit expression, or both.
+/// `unit km = 1000 m;` has both; `unit Hz = 1 / s;` is the factor `1` with
+/// `1 / s` (written as `Div(One, s)`); `unit pct = 0.01;` has only a factor.
+#[derive(Debug)]
+pub struct UnitDef {
+    pub factor: Option<(Const, Span)>,
+    pub expr: Option<UnitExpr>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -281,6 +325,8 @@ pub struct Expr {
 pub struct NumLit {
     pub value: Const,
     pub suffix: Option<Type>,
+    /// The unit written directly after the number: `9.6<s>`.
+    pub unit: Option<UnitSpec>,
 }
 
 /// A piece of a string literal (see `lexer::StrPiece`).
@@ -312,7 +358,8 @@ pub enum ExprKind {
     Call { name: String, args: Vec<Expr> },
     /// `recv::name<targs>(args)` or `recv->name(args)`. `recv` may turn out
     /// to be a module (`io::outln`) or a struct name (`Point::origin()`).
-    Method { recv: Box<Expr>, name: String, name_span: Span, targs: Vec<TypeName>, args: Vec<Expr> },
+    /// `unit` is set only by `recv::in<unit>()`, where `targs` is empty.
+    Method { recv: Box<Expr>, name: String, name_span: Span, targs: Vec<TypeName>, unit: Option<UnitSpec>, args: Vec<Expr> },
     /// `a..b`, inclusive. Only allowed after `of` in a `for` and as a `case` pattern.
     Range(Box<Expr>, Box<Expr>),
     /// `&e` or `&mut e`.

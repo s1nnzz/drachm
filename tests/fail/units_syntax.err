@@ -1,0 +1,2 @@
+error[E0001]: unexpected character `µ`
+error[E0003]: expected an expression, found `>`
