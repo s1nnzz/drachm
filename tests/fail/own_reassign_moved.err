@@ -1,0 +1,2 @@
+error[E0205]: cannot change `b`: it is not `mut`
+assigned a second time here

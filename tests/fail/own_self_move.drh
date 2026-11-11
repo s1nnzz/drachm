@@ -1,0 +1,6 @@
+struct Player {
+    public:
+    string name;
+    string nameOf() { return self.name; }
+}
+none main() { }

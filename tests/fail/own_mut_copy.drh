@@ -1,0 +1,6 @@
+struct Writer lives sink { &mut string sink; }
+none main() {
+    mut string s = "";
+    Writer w = &mut s;
+    Writer v = copy w;
+}

@@ -1,0 +1,4 @@
+error[E0301]: `name` is used after it moved
+`name` moved here
+used here, after the move
+help: if `greet` should not take ownership, give it a `&string` parameter; or pass a copy: `greet(copy name)`

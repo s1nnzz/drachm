@@ -23,6 +23,7 @@
         "reference-types",
         "reference-strings",
         "reference-structs",
+        "reference-ownership",
         "reference-control-flow",
         "reference-diagnostics",
         "reference-cli",

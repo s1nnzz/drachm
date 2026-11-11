@@ -1,0 +1,4 @@
+error[E0301]: `p` is used after `p.name` moved
+`p.name` moved here
+help: give `p.name` a new value first, or move a copy: `copy p.name`
+1 error

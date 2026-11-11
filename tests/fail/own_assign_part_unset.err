@@ -1,0 +1,4 @@
+error[E0332]: cannot give `p.hp` a value: `p` has no value yet
+a struct with no value is filled with `fill p { ... }` (not supported yet)
+`p` is declared here without a value
+help: give `p` a whole value first: `p = ...;`

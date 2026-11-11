@@ -1,0 +1,9 @@
+in io;
+struct Player { public: string name; string title; }
+none consume(string s) { }
+none main() {
+    Player p = "Illy", "Dr";
+    consume(take p.name);
+    io::outln(p.title);
+    Player q = p;
+}

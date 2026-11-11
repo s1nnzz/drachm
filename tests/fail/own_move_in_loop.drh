@@ -1,0 +1,7 @@
+in io;
+none consume(string s) { }
+none main() {
+    string s = "x";
+    mut uint32 i = 0;
+    while (i < 2) { consume(s); i++; }
+}

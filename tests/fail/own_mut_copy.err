@@ -1,0 +1,3 @@
+error[E0315]: cannot copy `w`: it holds a `&mut` borrow
+`Writer.sink` is `&mut string`; a copy would be a second `&mut` to the same string
+help: borrow `w` instead: `&Writer v = &w;`
