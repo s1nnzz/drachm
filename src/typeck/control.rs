@@ -82,16 +82,16 @@ fn join_all(first: Flow, rest: Vec<Flow>) -> Flow {
 }
 
 fn local(id: hir::LocalId, ty: Type) -> hir::Expr {
-    hir::Expr { kind: hir::ExprKind::Local(id), ty }
+    hir::Expr::new(hir::ExprKind::Local(id), ty)
 }
 
 fn binary(op: hir::BinOp, l: hir::Expr, r: hir::Expr) -> hir::Expr {
     let ty = if op.is_comparison() { Type::Bool } else { l.ty };
-    hir::Expr { kind: hir::ExprKind::Binary(op, Box::new(l), Box::new(r)), ty }
+    hir::Expr::new(hir::ExprKind::Binary(op, Box::new(l), Box::new(r)), ty)
 }
 
 fn logic(and: bool, lhs: hir::Expr, rhs: hir::Expr) -> hir::Expr {
-    hir::Expr { kind: hir::ExprKind::Logic { and, lhs: Box::new(lhs), rhs: Box::new(rhs) }, ty: Type::Bool }
+    hir::Expr::new(hir::ExprKind::Logic { and, lhs: Box::new(lhs), rhs: Box::new(rhs) }, Type::Bool)
 }
 
 fn mask(ty: Type) -> u128 {
@@ -109,7 +109,7 @@ impl Lit {
             Lit::Float(f) => hir::ExprKind::Float(f),
             Lit::Bool(b) => hir::ExprKind::Bool(b),
         };
-        hir::Expr { kind, ty }
+        hir::Expr::new(kind, ty)
     }
 
     /// The value's place in an unsigned order that agrees with the type's
@@ -316,13 +316,14 @@ impl Checker<'_> {
                 *branch = i;
             }
             let tested = self.flow.clone();
+            let block_end = body.end;
             let (body, end) = self.branch(body, tested.clone());
             ends.push(end);
             let Some(Target::Level { nexts, .. }) = self.targets.last_mut() else { unreachable!() };
             let nexts = std::mem::take(nexts);
             // The next test is reached when this one fails, or by `skip to next`.
             entry = join_all(Flow { reachable: tested.reachable && !always, ..tested }, nexts);
-            out.push(hir::Branch { test, body });
+            out.push(hir::Branch { test, body, end: block_end });
         }
         let Some(Target::Level { leaves, .. }) = self.targets.pop() else { unreachable!() };
         // `entry` is now the path on which no branch ran.
@@ -438,6 +439,7 @@ impl Checker<'_> {
         self.flow.definite[var] = true;
         self.flow.maybe[var] = true;
         let label = self.new_label();
+        let body_end = body.end;
         let (body, _) = self.looped(label, *span, false, body, None);
         self.scopes.pop();
         // Range loop variables are numbers, so nothing here needs dropping
@@ -447,7 +449,7 @@ impl Checker<'_> {
         self.flow.truncate(len);
 
         let Some((start, end, counter, a, b, t)) = hidden else { return };
-        let mut inner = vec![hir::Stmt::Assign(hir::Place::local(var), local(counter, t))];
+        let mut inner = vec![hir::Stmt::Decl(var), hir::Stmt::Assign(hir::Place::local(var), local(counter, t))];
         inner.extend(body);
         let step = vec![
             hir::Stmt::If {
@@ -455,6 +457,7 @@ impl Checker<'_> {
                 branches: vec![hir::Branch {
                     test: Some(binary(hir::BinOp::Eq, local(counter, t), local(end, t))),
                     body: vec![hir::Stmt::Jump(hir::Jump::Break(label))],
+                    end: Span::new(0, 0),
                 }],
             },
             hir::Stmt::Assign(hir::Place::local(counter), binary(hir::BinOp::Add, local(counter, t), int_lit(1, t))),
@@ -467,8 +470,9 @@ impl Checker<'_> {
                 test: Some(binary(hir::BinOp::Le, local(start, t), local(end, t))),
                 body: vec![
                     hir::Stmt::Assign(hir::Place::local(counter), local(start, t)),
-                    hir::Stmt::Loop { label, cond: None, body: inner, step },
+                    hir::Stmt::Loop { label, cond: None, body: inner, step, end: body_end },
                 ],
+                end: Span::new(0, 0),
             }],
         });
     }

@@ -352,7 +352,7 @@ impl Gen<'_, '_> {
     fn place_addr(&self, place: &Place) -> (Value, u32, Type) {
         let mut ty = self.func.locals[place.local].ty;
         let mut off = 0;
-        for &i in &place.fields {
+        for i in place.fields() {
             let f = &self.prog.struct_def(ty).fields[i];
             off += f.offset;
             ty = f.ty;
@@ -497,6 +497,9 @@ impl Gen<'_, '_> {
                     }
                 }
             },
+            Stmt::Decl(_) => {}
+            Stmt::Unsafe(b) => self.block(b),
+            Stmt::Destroy(_) => unreachable!("destroy cannot be built yet"),
             Stmt::Drop(place) => {
                 let (base, off, ty) = self.place_addr(place);
                 let a = self.offset(base, off);
@@ -533,7 +536,7 @@ impl Gen<'_, '_> {
                 self.b.seal_block(end);
                 self.b.switch_to_block(end);
             }
-            Stmt::Loop { label, cond, body, step } => {
+            Stmt::Loop { label, cond, body, step, .. } => {
                 let header = self.b.create_block();
                 let body_b = self.b.create_block();
                 let cont = self.b.create_block();
@@ -758,6 +761,13 @@ impl Gen<'_, '_> {
                 }
                 if *prefix { new } else { old }
             }
+            ExprKind::Borrow { .. }
+            | ExprKind::Deref(_)
+            | ExprKind::DeepCopy(_)
+            | ExprKind::Take { .. }
+            | ExprKind::Lend(_)
+            | ExprKind::AddressOf(_)
+            | ExprKind::NullPtr => unreachable!("borrows and pointers cannot be built yet"),
             ExprKind::Out { newline, arg } => {
                 self.out(*newline, arg);
                 return None;

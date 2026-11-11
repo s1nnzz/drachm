@@ -34,6 +34,12 @@ struct StructInfo {
     methods: Vec<MethodInfo>,
     /// Holds a `string` somewhere inside (see `hir`'s module comment).
     owns: bool,
+    /// Declared `stays`.
+    stays: bool,
+    /// Indexes of the borrow fields named by `lives`.
+    lives: Vec<usize>,
+    /// The `drop()` method.
+    has_drop: Option<FuncId>,
 }
 
 struct FieldInfo {
@@ -200,7 +206,7 @@ impl Globals {
             Some(m) => m.func,
             None => self.eq_func(s),
         };
-        hir::Expr { kind: hir::ExprKind::Call(f, vec![a, b]), ty: Type::Bool }
+        hir::Expr::new(hir::ExprKind::Call(f, vec![a, b]), Type::Bool)
     }
 }
 
@@ -319,13 +325,26 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
     }
 
     let main = g.funcs_by_name.get("main").copied().unwrap_or(0);
-    hir::Program { funcs: funcs.into_iter().map(|f| f.unwrap_or_else(placeholder)).collect(), structs, main }
+    hir::Program { funcs: funcs.into_iter().map(|f| f.unwrap_or_else(placeholder)).collect(), structs, main, uses_borrows: false }
 }
 
 /// Stands in for functions whose definition was never emitted (only ever
 /// when errors were reported, so it never reaches a backend).
 fn placeholder() -> hir::Func {
-    hir::Func { symbol: String::new(), params: 0, has_self: false, locals: Vec::new(), ret: Type::None, body: Vec::new() }
+    let none = Span::new(0, 0);
+    hir::Func {
+        symbol: String::new(),
+        params: 0,
+        has_self: false,
+        locals: Vec::new(),
+        ret: Type::None,
+        body: Vec::new(),
+        name_span: none,
+        span: none,
+        body_end: none,
+        is_unsafe: false,
+        lives: None,
+    }
 }
 
 /// The source text of `span`, for quoting a declaration in a fix-it.
@@ -372,7 +391,7 @@ fn declare_struct(g: &mut Globals, s: &ast::Struct, diags: &mut Vec<Diagnostic>)
     }
     let id = g.structs.len();
     let ty = Type::Struct { id, name: types::intern(&s.name) };
-    g.structs.push(StructInfo { name: s.name.clone(), name_span: s.name_span, ty, fields: Vec::new(), methods: Vec::new(), owns: false });
+    g.structs.push(StructInfo { name: s.name.clone(), name_span: s.name_span, ty, fields: Vec::new(), methods: Vec::new(), owns: false, stays: s.stays.is_some(), lives: Vec::new(), has_drop: None });
     g.structs_by_name.insert(s.name.clone(), id);
     Some(id)
 }
@@ -541,6 +560,34 @@ fn mark_owning(g: &mut Globals, cyclic: &[bool]) {
     }
 }
 
+/// Which structs copy automatically, ignoring the size limit (`lay_out`
+/// adds it): not `stays`, no `drop()`, and every field Copy. Found by
+/// starting from "all" and removing, so a struct only needs its fields' answers.
+fn copy_structs(g: &Globals, cyclic: &[bool], defs: &[hir::StructDef]) -> Vec<bool> {
+    let mut copy: Vec<bool> = g.structs.iter().enumerate().map(|(i, s)| !s.stays && s.has_drop.is_none() && !cyclic[i]).collect();
+    loop {
+        let mut changed = false;
+        for (i, s) in g.structs.iter().enumerate() {
+            if !copy[i] {
+                continue;
+            }
+            let ok = defs[i].size <= 32
+                && s.fields.iter().all(|f| match f.ty {
+                    Some(Type::Int { .. } | Type::Float(_) | Type::Bool | Type::Ref { mutable: false, .. }) => true,
+                    Some(Type::Struct { id, .. }) => copy[id],
+                    _ => false,
+                });
+            if !ok {
+                copy[i] = false;
+                changed = true;
+            }
+        }
+        if !changed {
+            return copy;
+        }
+    }
+}
+
 /// Layouts for every struct. Structs in a cycle (already reported) get an empty one.
 fn lay_out(g: &Globals, cyclic: &[bool]) -> Vec<hir::StructDef> {
     fn size_of(g: &Globals, cyclic: &[bool], memo: &mut [Option<(u32, u32)>], t: Option<Type>) -> (u32, u32) {
@@ -564,7 +611,8 @@ fn lay_out(g: &Globals, cyclic: &[bool]) -> Vec<hir::StructDef> {
         (size, align)
     }
     let mut memo = vec![None; g.structs.len()];
-    g.structs
+    let mut defs: Vec<hir::StructDef> = g
+        .structs
         .iter()
         .enumerate()
         .map(|(id, s)| {
@@ -578,11 +626,26 @@ fn lay_out(g: &Globals, cyclic: &[bool]) -> Vec<hir::StructDef> {
                 .fields
                 .iter()
                 .zip(offsets.into_iter().chain(std::iter::repeat(0)))
-                .map(|(f, offset)| hir::FieldDef { name: f.name.clone(), ty: f.ty.unwrap_or(Type::None), offset })
+                .map(|(f, offset)| hir::FieldDef { name: f.name.clone(), ty: f.ty.unwrap_or(Type::None), offset, mutable: f.mutable })
                 .collect();
-            hir::StructDef { name: s.name.clone(), fields, size, align, owns: s.owns }
+            hir::StructDef {
+                name: s.name.clone(),
+                fields,
+                size,
+                align,
+                owns: s.owns,
+                copy: false,
+                stays: s.stays,
+                has_drop: s.has_drop,
+                lives: s.lives.clone(),
+            }
         })
-        .collect()
+        .collect();
+    let copy = copy_structs(g, cyclic, &defs);
+    for (d, c) in defs.iter_mut().zip(copy) {
+        d.copy = c;
+    }
+    defs
 }
 
 /// After every body is checked: which methods change `self`, and the calls
@@ -636,9 +699,8 @@ fn auto_eq(g: &mut Globals, s: StructId) -> hir::Func {
     let info = &g.structs[s];
     let (ty, name, owns) = (info.ty, info.name.clone(), info.owns);
     let fields: Vec<Type> = info.fields.iter().map(|f| f.ty.unwrap_or(Type::Bool)).collect();
-    let side = |local, i, fty| hir::Expr {
-        kind: hir::ExprKind::Field(Box::new(hir::Expr { kind: hir::ExprKind::Local(local), ty }), i),
-        ty: fty,
+    let side = |local, i, fty| {
+        hir::Expr::new(hir::ExprKind::Field(Box::new(hir::Expr::new(hir::ExprKind::Local(local), ty)), i), fty)
     };
     let mut all: Option<hir::Expr> = None;
     for (i, fty) in fields.into_iter().enumerate() {
@@ -648,23 +710,30 @@ fn auto_eq(g: &mut Globals, s: StructId) -> hir::Func {
                 let b = if g.owns(fty) { copy(b) } else { b };
                 g.struct_eq(inner, a, b)
             }
-            None if fty == Type::Str => hir::Expr { kind: hir::ExprKind::StrCall(hir::StrFn::Eq, vec![a, b]), ty: Type::Bool },
-            None => hir::Expr { kind: hir::ExprKind::Binary(hir::BinOp::Eq, Box::new(a), Box::new(b)), ty: Type::Bool },
+            None if fty == Type::Str => hir::Expr::new(hir::ExprKind::StrCall(hir::StrFn::Eq, vec![a, b]), Type::Bool),
+            None => hir::Expr::new(hir::ExprKind::Binary(hir::BinOp::Eq, Box::new(a), Box::new(b)), Type::Bool),
         };
         all = Some(match all {
             None => same,
-            Some(prev) => hir::Expr { kind: hir::ExprKind::Logic { and: true, lhs: Box::new(prev), rhs: Box::new(same) }, ty: Type::Bool },
+            Some(prev) => hir::Expr::new(hir::ExprKind::Logic { and: true, lhs: Box::new(prev), rhs: Box::new(same) }, Type::Bool),
         });
     }
-    let result = all.unwrap_or(hir::Expr { kind: hir::ExprKind::Bool(true), ty: Type::Bool });
+    let result = all.unwrap_or(hir::Expr::new(hir::ExprKind::Bool(true), Type::Bool));
     let result = if owns { scoped(result, vec![1]) } else { result };
+    let none = Span::new(0, 0);
+    let param = |n: &str| hir::Local { name: n.into(), ty, span: none, mutability: hir::Mutability::Fixed, is_param: true };
     hir::Func {
         symbol: format!("drachm_eq_{name}"),
         params: 2,
         has_self: true,
-        locals: vec![hir::Local { name: "a".into(), ty }, hir::Local { name: "b".into(), ty }],
+        locals: vec![param("a"), param("b")],
         ret: Type::Bool,
         body: vec![hir::Stmt::Return(Some(result))],
+        name_span: none,
+        span: none,
+        body_end: none,
+        is_unsafe: false,
+        lives: None,
     }
 }
 
@@ -707,6 +776,15 @@ fn check_body(g: &mut Globals, src: &str, diags: &mut Vec<Diagnostic>, f: &ast::
     for p in &f.params {
         let ty = cx.g.resolve_quiet(&p.ty).filter(|t| *t != Type::None);
         let id = cx.declare(&p.name, ty, p.mutable, p.span, true);
+        cx.locals[id].open = p.open;
+        if p.mutable && p.open {
+            let at = short(src, p.span).find("open").map_or(p.span, |i| Span::new(p.span.start + i, p.span.start + i + 4));
+            cx.diags.push(
+                Diagnostic::at(&codes::W0323, at, "`mut open` says the same as `mut`")
+                    .note("`mut` already allows everything `open` does")
+                    .help(format!("write `mut {} {}`", short(src, p.ty.span), p.name)),
+            );
+        }
         cx.flow.definite[id] = true;
         cx.flow.maybe[id] = true;
     }
@@ -723,8 +801,29 @@ fn check_body(g: &mut Globals, src: &str, diags: &mut Vec<Diagnostic>, f: &ast::
                 .help("add a `return` at the end, or to every branch"),
         );
     }
-    let locals = cx.locals.into_iter().map(|l| hir::Local { name: l.name, ty: l.ty.unwrap_or(Type::None) }).collect();
+    let locals = cx
+        .locals
+        .into_iter()
+        .map(|l| hir::Local {
+            name: l.name,
+            ty: l.ty.unwrap_or(Type::None),
+            span: l.span,
+            mutability: if l.open {
+                hir::Mutability::Open
+            } else if l.mutable {
+                hir::Mutability::Mut
+            } else {
+                hir::Mutability::Fixed
+            },
+            is_param: l.is_param,
+        })
+        .collect();
     hir::Func {
+        name_span: f.name_span,
+        span: f.span,
+        body_end: f.body.end,
+        is_unsafe: f.is_unsafe.is_some(),
+        lives: None,
         symbol,
         params: f.params.len() + has_self as usize,
         has_self,
@@ -828,8 +927,16 @@ struct LocalInfo {
     is_param: bool,
     /// A method's `self`.
     is_self: bool,
+    /// Declared `open` (stored; checked like `mut` until WP5).
+    open: bool,
     span: Span,
     loop_depth: u32,
+}
+
+impl PlaceInfo {
+    fn hir_place(&self, span: Span) -> hir::Place {
+        hir::Place { local: self.local, proj: self.fields.iter().map(|&i| hir::HirProj::Field(i)).collect(), span }
+    }
 }
 
 /// A local or a field inside one, resolved but not read.
@@ -909,17 +1016,17 @@ struct Checker<'a> {
 }
 
 fn int_lit(bits: u128, ty: Type) -> hir::Expr {
-    hir::Expr { kind: hir::ExprKind::Int(bits), ty }
+    hir::Expr::new(hir::ExprKind::Int(bits), ty)
 }
 
 fn str_lit(text: String) -> hir::Expr {
-    hir::Expr { kind: hir::ExprKind::Str(text), ty: Type::Str }
+    hir::Expr::new(hir::ExprKind::Str(text), Type::Str)
 }
 
 /// A deep copy of the place `e`.
 fn copy(e: hir::Expr) -> hir::Expr {
     let ty = e.ty;
-    hir::Expr { kind: hir::ExprKind::Copy(Box::new(e)), ty }
+    hir::Expr::new(hir::ExprKind::Copy(Box::new(e)), ty)
 }
 
 /// `e`, followed by dropping `drops`.
@@ -928,7 +1035,7 @@ fn scoped(e: hir::Expr, drops: Vec<LocalId>) -> hir::Expr {
         return e;
     }
     let ty = e.ty;
-    hir::Expr { kind: hir::ExprKind::Scoped(Box::new(e), drops), ty }
+    hir::Expr::new(hir::ExprKind::Scoped(Box::new(e), drops), ty)
 }
 
 /// A place with no effects to evaluate (no `Temp` in it): a statement that
@@ -948,7 +1055,7 @@ impl Checker<'_> {
 
     fn declare(&mut self, name: &str, ty: Option<Type>, mutable: bool, span: Span, is_param: bool) -> LocalId {
         let id = self.locals.len();
-        let info = LocalInfo { name: name.to_string(), ty, mutable, is_param, is_self: false, span, loop_depth: self.loop_depth };
+        let info = LocalInfo { name: name.to_string(), ty, mutable, is_param, is_self: false, open: false, span, loop_depth: self.loop_depth };
         self.locals.push(info);
         self.scopes.last_mut().unwrap().insert(name.to_string(), id);
         if ty.is_some_and(|t| self.g.owns(t)) {
@@ -969,7 +1076,7 @@ impl Checker<'_> {
     fn hidden_named(&mut self, name: &str, ty: Type) -> LocalId {
         let id = self.locals.len();
         let span = Span::new(0, 0);
-        let info = LocalInfo { name: name.to_string(), ty: Some(ty), mutable: true, is_param: false, is_self: false, span, loop_depth: self.loop_depth };
+        let info = LocalInfo { name: name.to_string(), ty: Some(ty), mutable: true, is_param: false, is_self: false, open: false, span, loop_depth: self.loop_depth };
         self.locals.push(info);
         self.flow.definite.resize(id + 1, false);
         self.flow.maybe.resize(id + 1, false);
@@ -993,7 +1100,7 @@ impl Checker<'_> {
         let id = self.hidden(e.ty);
         self.temps.push(id);
         let ty = e.ty;
-        hir::Expr { kind: hir::ExprKind::Temp(id, Box::new(e)), ty }
+        hir::Expr::new(hir::ExprKind::Temp(id, Box::new(e)), ty)
     }
 
     /// `e` as a value something else will own. Owning values are deep-copied
@@ -1069,13 +1176,23 @@ impl Checker<'_> {
 
     fn stmt(&mut self, s: &Stmt, out: &mut hir::Block) {
         match s {
-            Stmt::Let { mutable, open: _, ty, name, name_span, value, span: _ } => {
+            Stmt::Let { mutable, open, ty, name, name_span, value, span } => {
+                if *mutable && *open {
+                    let at = short(self.src, *span).find("open").map_or(*span, |i| Span::new(span.start + i, span.start + i + 4));
+                    self.diags.push(
+                        Diagnostic::at(&codes::W0323, at, "`mut open` says the same as `mut`")
+                            .note("`mut` already allows everything `open` does")
+                            .help(format!("write `mut {} {}`", short(self.src, ty.span), name)),
+                    );
+                }
                 let ty = self.g.resolve_binding_type(ty, self.diags);
                 // The value is checked before the name exists, so `uint32 x = x;`
                 // refers to an outer `x`.
                 let init = value.as_ref().map(|v| self.init(v, ty).map(|e| self.owned(e)));
                 let temps = self.take_temps();
                 let id = self.declare(name, ty, *mutable, *name_span, false);
+                self.locals[id].open = *open;
+                out.push(hir::Stmt::Decl(id));
                 if let Some(init) = init {
                     self.flow.definite[id] = true;
                     self.flow.maybe[id] = true;
@@ -1114,9 +1231,10 @@ impl Checker<'_> {
                 let c = self.cond(cond);
                 let label = self.new_label();
                 let forever = matches!(cond.kind, ExprKind::Bool(true));
+                let end = body.end;
                 let (body, step) = self.looped(label, *span, forever, body, None);
                 if let Some(c) = c {
-                    out.push(hir::Stmt::Loop { label, cond: Some(c), body, step });
+                    out.push(hir::Stmt::Loop { label, cond: Some(c), body, step, end });
                 }
             }
             Stmt::For { init, cond, step, body, span } => {
@@ -1130,13 +1248,14 @@ impl Checker<'_> {
                 let c = cond.as_ref().map(|c| self.cond(c));
                 let forever = cond.as_ref().is_none_or(|c| matches!(c.kind, ExprKind::Bool(true)));
                 let label = self.new_label();
+                let end = body.end;
                 let (body, step) = self.looped(label, *span, forever, body, step.as_deref());
                 self.scopes.pop();
                 let owned = self.owned.pop().unwrap();
                 self.flow.truncate(len);
                 match c {
                     Some(None) => {}
-                    c => out.push(hir::Stmt::Loop { label, cond: c.flatten(), body, step }),
+                    c => out.push(hir::Stmt::Loop { label, cond: c.flatten(), body, step, end }),
                 }
                 if self.flow.reachable {
                     out.extend(Self::drop_all(owned.into_iter().rev().collect()));
@@ -1225,7 +1344,7 @@ impl Checker<'_> {
         match e.kind {
             // `s += t` appends in place.
             hir::ExprKind::StrCall(hir::StrFn::Concat, args) if compound => {
-                let append = hir::Expr { kind: hir::ExprKind::StrCall(hir::StrFn::Append, args), ty: Type::None };
+                let append = hir::Expr::new(hir::ExprKind::StrCall(hir::StrFn::Append, args), Type::None);
                 out.push(hir::Stmt::Expr(scoped(append, temps)));
             }
             // The new value is made before the old one is dropped, since
@@ -1235,7 +1354,7 @@ impl Checker<'_> {
                 let new = self.hidden(ty);
                 out.push(hir::Stmt::Assign(hir::Place::local(new), scoped(e, temps)));
                 out.push(hir::Stmt::Drop(place.clone()));
-                out.push(hir::Stmt::Assign(place, hir::Expr { kind: hir::ExprKind::Move(new), ty }));
+                out.push(hir::Stmt::Assign(place, hir::Expr::new(hir::ExprKind::Move(new), ty)));
             }
             _ => out.push(hir::Stmt::Assign(place, scoped(e, temps))),
         }
@@ -1311,7 +1430,7 @@ impl Checker<'_> {
             }
         };
         match rhs {
-            Some(e) => self.store(hir::Place { local: place.local, fields: place.fields }, e, op.is_some(), out),
+            Some(e) => self.store(place.hir_place(target.span), e, op.is_some(), out),
             None => {
                 self.take_temps();
             }
@@ -1360,10 +1479,10 @@ impl Checker<'_> {
     /// The current value of a place (its local must certainly be assigned).
     fn place_expr(&self, p: &PlaceInfo) -> hir::Expr {
         let mut ty = self.locals[p.local].ty.unwrap();
-        let mut e = hir::Expr { kind: hir::ExprKind::Local(p.local), ty };
+        let mut e = hir::Expr::new(hir::ExprKind::Local(p.local), ty);
         for &i in &p.fields {
             ty = self.g.structs[ty.struct_id().unwrap()].fields[i].ty.unwrap();
-            e = hir::Expr { kind: hir::ExprKind::Field(Box::new(e), i), ty };
+            e = hir::Expr::new(hir::ExprKind::Field(Box::new(e), i), ty);
         }
         e
     }
@@ -1448,7 +1567,7 @@ impl Checker<'_> {
             self.flow.definite[id] = true;
         }
         let ty = self.locals[id].ty?;
-        Some(hir::Expr { kind: hir::ExprKind::Local(id), ty })
+        Some(hir::Expr::new(hir::ExprKind::Local(id), ty))
     }
 
     /// The `self` local, or an error if there is none here.
@@ -1701,7 +1820,7 @@ impl Checker<'_> {
                 _ => ok = false,
             }
         }
-        ok.then_some(hir::Expr { kind: hir::ExprKind::Struct(out), ty: t })
+        ok.then_some(hir::Expr::new(hir::ExprKind::Struct(out), t))
     }
 
     fn materialise(&mut self, v: Val, span: Span) -> Option<hir::Expr> {
@@ -1743,7 +1862,7 @@ impl Checker<'_> {
                 if !e.ty.converts_losslessly_to(to) {
                     self.warn_lossy(e.ty, to, from);
                 }
-                Some(hir::Expr { kind: hir::ExprKind::Convert(Box::new(e)), ty: to })
+                Some(hir::Expr::new(hir::ExprKind::Convert(Box::new(e)), to))
             }
             Val::Expr(e) => {
                 let mut d = Diagnostic::at(&codes::E0101, from.span, format!("expected `{to}`, found `{}`", e.ty))
@@ -1810,7 +1929,7 @@ impl Checker<'_> {
     fn fit_const(&mut self, c: &Const, to: Type, span: Span, explicit: bool) -> hir::Expr {
         let e = match to {
             Type::Int { .. } => int_lit(c.wrap_to_int(to), to),
-            _ => hir::Expr { kind: hir::ExprKind::Float(c.to_float(to)), ty: to },
+            _ => hir::Expr::new(hir::ExprKind::Float(c.to_float(to)), to),
         };
         if !explicit && !c.fits(to) {
             let what = self.quote(span, "this constant");
@@ -1844,8 +1963,21 @@ impl Checker<'_> {
     }
 
     /// The value of `e`, or `None` if an error was already reported inside it.
+    /// Every expression made from `e` carries its span.
     fn expr(&mut self, e: &ast::Expr) -> Option<Val> {
-        let typed = |kind, ty| Some(Val::Expr(hir::Expr { kind, ty }));
+        match self.expr_inner(e)? {
+            Val::Expr(mut x) => {
+                if x.span == Span::new(0, 0) {
+                    x.span = e.span;
+                }
+                Some(Val::Expr(x))
+            }
+            c => Some(c),
+        }
+    }
+
+    fn expr_inner(&mut self, e: &ast::Expr) -> Option<Val> {
+        let typed = |kind, ty| Some(Val::Expr(hir::Expr::new(kind, ty)));
         match &e.kind {
             ExprKind::Num(n) => match n.suffix {
                 Some(ty) => Some(Val::Expr(self.fit_const(&n.value, ty, e.span, false))),
@@ -1918,7 +2050,7 @@ impl Checker<'_> {
                 }
                 self.read_local(p.local, target.span)?;
                 let ty = p.ty;
-                typed(hir::ExprKind::IncDec { place: hir::Place { local: p.local, fields: p.fields }, inc: *inc, prefix: *prefix }, ty)
+                typed(hir::ExprKind::IncDec { place: p.hir_place(e.span), inc: *inc, prefix: *prefix }, ty)
             }
             ExprKind::Call { name, args } => {
                 let Some(&id) = self.g.funcs_by_name.get(name) else {
@@ -2036,7 +2168,7 @@ impl Checker<'_> {
         if !visible {
             return None;
         }
-        Some(Val::Expr(hir::Expr { kind: hir::ExprKind::Call(func, args?), ty }))
+        Some(Val::Expr(hir::Expr::new(hir::ExprKind::Call(func, args?), ty)))
     }
 
     fn unknown_method(&mut self, s: StructId, name: &str, at: Span, shown: &str) {
@@ -2126,7 +2258,7 @@ impl Checker<'_> {
             }
         };
         let arg = self.place(arg);
-        Some(Val::Expr(hir::Expr { kind: hir::ExprKind::Out { newline, arg: Box::new(arg) }, ty: Type::None }))
+        Some(Val::Expr(hir::Expr::new(hir::ExprKind::Out { newline, arg: Box::new(arg) }, Type::None)))
     }
 
     fn method(&mut self, recv: &ast::Expr, name: &str, name_span: Span, targs: &[ast::TypeName], args: &[ast::Expr], span: Span) -> Option<Val> {
@@ -2167,7 +2299,7 @@ impl Checker<'_> {
                     );
                     return None;
                 }
-                Some(Val::Expr(hir::Expr { kind: hir::ExprKind::Text(Box::new(v)), ty: Type::Str }))
+                Some(Val::Expr(hir::Expr::new(hir::ExprKind::Text(Box::new(v)), Type::Str)))
             }
             "to" => {
                 no_args(self);
@@ -2189,7 +2321,7 @@ impl Checker<'_> {
                     Val::Const(c) => Some(Val::Expr(self.fit_const(&c, to, recv.span, true))),
                     Val::Expr(v) if v.ty == to => Some(Val::Expr(v)),
                     Val::Expr(v) if v.ty.is_numeric() => {
-                        Some(Val::Expr(hir::Expr { kind: hir::ExprKind::Convert(Box::new(v)), ty: to }))
+                        Some(Val::Expr(hir::Expr::new(hir::ExprKind::Convert(Box::new(v)), to)))
                     }
                     Val::Expr(v) => {
                         self.diags.push(
@@ -2258,7 +2390,7 @@ impl Checker<'_> {
         self.note_receiver(&recv, recv_span, m.func, name_span);
         let mut all = vec![self.receiver_value(recv)];
         all.extend(args?);
-        Some(Val::Expr(hir::Expr { kind: hir::ExprKind::Call(m.func, all), ty }))
+        Some(Val::Expr(hir::Expr::new(hir::ExprKind::Call(m.func, all), ty)))
     }
 
     /// `lhs op rhs` where `lhs` is a struct value: the left side leads, so
@@ -2266,7 +2398,7 @@ impl Checker<'_> {
     fn struct_operator(&mut self, op: BinOp, lhs: hir::Expr, lo: Origin, rv: Val, ro: Origin, span: Span) -> Option<Val> {
         let s = lhs.ty.struct_id().unwrap();
         let t = lhs.ty;
-        let not = |e: hir::Expr| hir::Expr { kind: hir::ExprKind::Not(Box::new(e)), ty: Type::Bool };
+        let not = |e: hir::Expr| hir::Expr::new(hir::ExprKind::Not(Box::new(e)), Type::Bool);
         if let Some(m) = self.g.operator(s, op).cloned() {
             return self.operator_call(s, &m, lhs, lo, rv, ro, span).map(Val::Expr);
         }
@@ -2306,13 +2438,13 @@ impl Checker<'_> {
         let rhs = self.owned(rhs);
         self.note_receiver(&lhs, lo.span, m.func, span);
         let lhs = self.receiver_value(lhs);
-        Some(hir::Expr { kind: hir::ExprKind::Call(m.func, vec![lhs, rhs]), ty })
+        Some(hir::Expr::new(hir::ExprKind::Call(m.func, vec![lhs, rhs]), ty))
     }
 
     fn unary(&mut self, op: UnOp, inner: &ast::Expr, span: Span) -> Option<Val> {
         if op == UnOp::Not {
             let v = self.coerce(inner, Type::Bool)?;
-            return Some(Val::Expr(hir::Expr { kind: hir::ExprKind::Not(Box::new(v)), ty: Type::Bool }));
+            return Some(Val::Expr(hir::Expr::new(hir::ExprKind::Not(Box::new(v)), Type::Bool)));
         }
         let (sym, wants) = if op == UnOp::Neg { ("-", "a number") } else { ("~", "a whole number") };
         match self.expr(inner)? {
@@ -2329,7 +2461,7 @@ impl Checker<'_> {
             Val::Expr(v) if (op == UnOp::Neg && v.ty.is_numeric()) || (op == UnOp::BitNot && v.ty.is_int()) => {
                 let ty = v.ty;
                 let kind = if op == UnOp::Neg { hir::ExprKind::Neg(Box::new(v)) } else { hir::ExprKind::BitNot(Box::new(v)) };
-                Some(Val::Expr(hir::Expr { kind, ty }))
+                Some(Val::Expr(hir::Expr::new(kind, ty)))
             }
             Val::Expr(v) => {
                 let mut d = Diagnostic::at(&codes::E0101, inner.span, format!("`{sym}` needs {wants}, found `{}`", v.ty)).note(format!("this is `{}`", v.ty));
@@ -2365,7 +2497,7 @@ impl Checker<'_> {
         if let (Val::Const(a), Val::Const(b)) = (&lv, &rv) {
             return match Const::binary(op, a, b) {
                 Ok(Folded::Value(c)) => Some(Val::Const(c)),
-                Ok(Folded::Bool(b)) => Some(Val::Expr(hir::Expr { kind: hir::ExprKind::Bool(b), ty: Type::Bool })),
+                Ok(Folded::Bool(b)) => Some(Val::Expr(hir::Expr::new(hir::ExprKind::Bool(b), Type::Bool))),
                 Err(err) => {
                     self.fold_error(err, op, span, ro);
                     None
@@ -2451,7 +2583,7 @@ impl Checker<'_> {
             } else {
                 hir::ExprKind::IntPow(Box::new(lhs), Box::new(count))
             };
-            return Some(Val::Expr(hir::Expr { kind, ty: lead }));
+            return Some(Val::Expr(hir::Expr::new(kind, lead)));
         }
 
         // Everything else: the left side leads and the right side converts to it.
@@ -2503,7 +2635,7 @@ impl Checker<'_> {
             BinOp::Shl | BinOp::Shr | BinOp::And | BinOp::Or => unreachable!(),
         };
         let ty = if hop.is_comparison() { Type::Bool } else { lead };
-        Some(Val::Expr(hir::Expr { kind: hir::ExprKind::Binary(hop, Box::new(lhs), Box::new(rhs)), ty }))
+        Some(Val::Expr(hir::Expr::new(hir::ExprKind::Binary(hop, Box::new(lhs), Box::new(rhs)), ty)))
     }
 
     /// A constant shift amount outside `0..width` wraps around the width (W0106).

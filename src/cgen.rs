@@ -220,7 +220,7 @@ impl Gen<'_> {
     fn place_lvalue(&self, place: &Place) -> String {
         let mut s = self.local(place.local);
         let mut ty = self.func.locals[place.local].ty;
-        for &i in &place.fields {
+        for i in place.fields() {
             let f = &self.prog.struct_def(ty).fields[i];
             let _ = write!(s, ".f_{}", f.name);
             ty = f.ty;
@@ -231,7 +231,7 @@ impl Gen<'_> {
     /// The type of a place.
     fn place_type(&self, place: &Place) -> Type {
         let mut ty = self.func.locals[place.local].ty;
-        for &i in &place.fields {
+        for i in place.fields() {
             ty = self.prog.struct_def(ty).fields[i].ty;
         }
         ty
@@ -295,6 +295,9 @@ impl Gen<'_> {
                 let target = self.place_lvalue(place);
                 self.line(format!("{target} = {v};"));
             }
+            Stmt::Decl(_) => {}
+            Stmt::Unsafe(b) => self.block(b),
+            Stmt::Destroy(_) => unreachable!("destroy cannot be built yet"),
             Stmt::Drop(place) => {
                 let target = self.place_lvalue(place);
                 let f = drop_fn(self.place_type(place));
@@ -324,7 +327,7 @@ impl Gen<'_> {
                 self.label(format!("if{label}_end"));
             }
             // `loopL_next` is the step (where `continue` goes), `loopL_end` the way out.
-            Stmt::Loop { label, cond, body, step } => {
+            Stmt::Loop { label, cond, body, step, .. } => {
                 // The condition's temporaries must be recomputed each time round.
                 self.line("for (;;) {");
                 self.depth += 1;
@@ -530,6 +533,13 @@ impl Gen<'_> {
                 }
                 if *prefix { self.temp(ty, &target) } else { old }
             }
+            ExprKind::Borrow { .. }
+            | ExprKind::Deref(_)
+            | ExprKind::DeepCopy(_)
+            | ExprKind::Take { .. }
+            | ExprKind::Lend(_)
+            | ExprKind::AddressOf(_)
+            | ExprKind::NullPtr => unreachable!("borrows and pointers cannot be built yet"),
             ExprKind::Out { newline, arg } => {
                 let p = self.place(arg);
                 self.line(format!("drachm_out_str((const char *){p}.ptr, {p}.len, {});", *newline as u8));
