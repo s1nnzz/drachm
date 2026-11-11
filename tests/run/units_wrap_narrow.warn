@@ -1,0 +1,2 @@
+warning[W0102]: converting `uint32` to `uint8` can lose information
+warning[W0102]: converting `sint32` to `sint8` can lose information

@@ -529,7 +529,7 @@ impl Checker<'_> {
             "use a wider number type".to_string()
         } else if text.len() > 40 || text.contains('\n') {
             format!("add `::in<{tu}>()` to say the conversion is intended")
-        } else if at.compound {
+        } else if at.compound || text.contains("::") || text.contains("->") {
             format!("write `({text})::in<{tu}>()` to say the conversion is intended")
         } else {
             format!("write `{text}::in<{tu}>()` to say the conversion is intended")

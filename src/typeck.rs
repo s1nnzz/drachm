@@ -1863,7 +1863,7 @@ impl Checker<'_> {
         let text = self.text(at.span);
         let fix = if text.len() > 40 || text.contains('\n') {
             format!("add `::to<{to}>()` to say the conversion is intended")
-        } else if at.compound {
+        } else if at.compound || text.contains("::") || text.contains("->") {
             format!("write `({text})::to<{to}>()` to say the conversion is intended")
         } else {
             format!("write `{text}::to<{to}>()` to say the conversion is intended")

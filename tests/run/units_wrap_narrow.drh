@@ -1,0 +1,17 @@
+in io;
+in si;
+
+none main() {
+    uint32 n = 3;
+    uint32<km> d = n * 1<km>;
+    uint8<m> t = d::in<m>();
+    io::outln(t::text());
+    uint8 w = n::to<uint8>();
+    io::outln(w::text());
+    sint32 k = -1;
+    sint32<km> e = k * 1<km>;
+    sint8<m> u = e::in<m>();
+    io::outln(u::text());
+    uint8<m> z = (d::to<uint8>())::in<m>();
+    io::outln(z::text());
+}
