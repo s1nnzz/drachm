@@ -732,8 +732,9 @@ impl Cg<'_, '_> {
                 let v = self.operand(op);
                 self.convert(v, from, *to)
             }
-            Rvalue::Ref(_, p) => self.addr_of(p),
-            Rvalue::RawRef(_) => unreachable!("raw pointers are not supported by the backends yet (WP9)"),
+            Rvalue::Ref(_, p) | Rvalue::RawRef(p) => self.addr_of(p),
+            // `copy p` of a raw pointer: the bits.
+            Rvalue::DeepCopy(p) if self.op_ty(&Operand::Copy(p.clone())).is_ptr() => self.operand(&Operand::Copy(p.clone())),
             Rvalue::DeepCopy(_) | Rvalue::Aggregate(..) => unreachable!("not a scalar rvalue: {rv:?}"),
         }
     }
@@ -795,7 +796,10 @@ impl Cg<'_, '_> {
                     } else {
                         match &a.op {
                             // The source is dead afterwards: the callee may use it as its own.
-                            Operand::Move(p) => self.addr_of(p),
+                            Operand::Move(p) => {
+                                assert!(!p.proj.contains(&Proj::Deref), "the callee would free memory a borrow owns (E0310 comes first)");
+                                self.addr_of(p)
+                            }
                             Operand::Copy(_) | Operand::Const(_) => {
                                 let src = self.operand_addr(&a.op);
                                 let tmp = self.mem(ty);

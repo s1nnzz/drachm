@@ -98,7 +98,20 @@ impl Validator<'_> {
 
     fn operand(&mut self, at: &str, op: &Operand) -> Option<Type> {
         match op {
-            Operand::Copy(pl) | Operand::Move(pl) => self.place(at, pl),
+            Operand::Copy(pl) | Operand::Move(pl) => {
+                let t = self.place(at, pl)?;
+                // A `&` is Copy and a `&mut` is move-only; the builder picks the operand by `is_copy`.
+                match (op, t) {
+                    (Operand::Copy(_), Type::Ref { mutable: true, .. }) => {
+                        self.err(at, format!("Copy of a `{t}`: a `&mut` borrow is moved, never copied"));
+                    }
+                    (Operand::Move(_), Type::Ref { mutable: false, .. }) => {
+                        self.err(at, format!("Move of a `{t}`: a `&` borrow is copied, never moved"));
+                    }
+                    _ => {}
+                }
+                Some(t)
+            }
             Operand::Const(_) => operand_ty(self.body, self.hir, op).ok(),
         }
     }
@@ -507,5 +520,73 @@ impl std::fmt::Display for Want {
             Want::Exact(t) => write!(f, "`{t}`"),
             Want::RefTo(t) => write!(f, "`&{t}` or `&mut {t}`"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A program with `f(&mut uint32 n, &uint32 k)`, as MIR, to break by hand.
+    fn base() -> (hir::Program, Program) {
+        let src = "none f(&mut uint32 n, &uint32 k) { n = 5; }\nnone main() { mut uint32 a = 1; f(&mut a, &a); }\n";
+        let (hir, diags) = crate::front(src);
+        let hir = hir.unwrap_or_else(|| panic!("does not check: {diags:?}"));
+        let mir = build_program(&hir, &mut Vec::new());
+        assert!(validate(&mir, &hir).is_ok());
+        (hir, mir)
+    }
+
+    fn f_body(mir: &mut Program) -> &mut Body {
+        mir.bodies.iter_mut().flatten().find(|b| b.name.ends_with("f")).unwrap()
+    }
+
+    fn push_stmt(body: &mut Body, dest: Type, rv: Rvalue) {
+        let l = body.locals.push(LocalDecl { ty: dest, kind: LocalKind::Temp, span: Span::new(0, 0), scope: ScopeId(0), in_memory: false });
+        body.blocks[BlockId(0)].statements.insert(
+            0,
+            Statement { kind: StatementKind::Assign(Place::local(l), rv), span: Span::new(0, 0), unsafe_ctx: false },
+        );
+    }
+
+    fn errors(hir: &hir::Program, mir: &Program) -> String {
+        validate(mir, hir).expect_err("must be invalid").join("\n")
+    }
+
+    #[test]
+    fn a_mut_borrow_is_never_copied() {
+        let (hir, mut mir) = base();
+        push_stmt(f_body(&mut mir), Type::borrow(true, Type::U32), Rvalue::Use(Operand::Copy(Place::local(Local(1)))));
+        assert!(errors(&hir, &mir).contains("a `&mut` borrow is moved, never copied"));
+    }
+
+    #[test]
+    fn a_shared_borrow_is_never_moved() {
+        let (hir, mut mir) = base();
+        push_stmt(f_body(&mut mir), Type::borrow(false, Type::U32), Rvalue::Use(Operand::Move(Place::local(Local(2)))));
+        assert!(errors(&hir, &mir).contains("a `&` borrow is copied, never moved"));
+    }
+
+    #[test]
+    fn a_borrow_of_a_borrow_is_ill_typed() {
+        let (hir, mut mir) = base();
+        push_stmt(f_body(&mut mir), Type::borrow(false, Type::borrow(false, Type::U32)), Rvalue::Ref(BorrowKind::Shared, Place::local(Local(2))));
+        assert!(errors(&hir, &mir).contains("a reference to a reference"));
+    }
+
+    #[test]
+    fn a_borrow_assigned_to_the_wrong_kind_is_ill_typed() {
+        let (hir, mut mir) = base();
+        // `&mut` stored into a `&` slot.
+        push_stmt(f_body(&mut mir), Type::borrow(false, Type::U32), Rvalue::Ref(BorrowKind::Mut { two_phase: false }, Place { local: Local(1), proj: vec![Proj::Deref] }));
+        assert!(errors(&hir, &mir).contains("assigns a `&mut uint32` to a `&uint32`"));
+    }
+
+    #[test]
+    fn a_deref_of_a_number_is_ill_typed() {
+        let (hir, mut mir) = base();
+        let place = Place { local: Local(1), proj: vec![Proj::Deref, Proj::Deref] };
+        push_stmt(f_body(&mut mir), Type::U32, Rvalue::Use(Operand::Copy(place)));
+        assert!(errors(&hir, &mir).contains("Deref of `uint32`"));
     }
 }
