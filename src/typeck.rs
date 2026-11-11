@@ -117,6 +117,10 @@ impl Globals {
     }
 
     fn resolve(&self, t: &ast::TypeName, diags: &mut Vec<Diagnostic>) -> Option<Type> {
+        if let Some((_, span)) = t.mods.first() {
+            diags.push(Diagnostic::at(&codes::E0901, *span, "borrows and pointers are not supported yet"));
+            return None;
+        }
         if let Some(ty) = self.resolve_quiet(t) {
             return Some(ty);
         }
@@ -1065,7 +1069,7 @@ impl Checker<'_> {
 
     fn stmt(&mut self, s: &Stmt, out: &mut hir::Block) {
         match s {
-            Stmt::Let { mutable, ty, name, name_span, value, span: _ } => {
+            Stmt::Let { mutable, open: _, ty, name, name_span, value, span: _ } => {
                 let ty = self.g.resolve_binding_type(ty, self.diags);
                 // The value is checked before the name exists, so `uint32 x = x;`
                 // refers to an outer `x`.
@@ -1191,6 +1195,9 @@ impl Checker<'_> {
                     }
                     None => {}
                 }
+            }
+            Stmt::Unsafe { span, .. } => {
+                self.diags.push(Diagnostic::at(&codes::E0901, *span, "`unsafe` is not supported yet"));
             }
             Stmt::Expr(e) => {
                 let v = self.expr(e);
@@ -1937,6 +1944,16 @@ impl Checker<'_> {
                     }
                 }
                 self.method(recv, name, *name_span, targs, args, e.span)
+            }
+            ExprKind::Borrow { .. }
+            | ExprKind::Deref(_)
+            | ExprKind::Copy(_)
+            | ExprKind::Take { .. }
+            | ExprKind::Lend(_)
+            | ExprKind::AddressOf(_)
+            | ExprKind::NoneValue => {
+                self.diags.push(Diagnostic::at(&codes::E0901, e.span, "borrows and pointers are not supported yet"));
+                None
             }
             ExprKind::Range(..) => {
                 self.diags.push(

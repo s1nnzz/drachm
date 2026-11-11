@@ -10,6 +10,8 @@ pub struct Program {
     pub imports: Vec<Import>,
     pub funcs: Vec<Func>,
     pub structs: Vec<Struct>,
+    /// The file flag `//--!$unsafe: true` is present (set by `lib::check`).
+    pub unsafe_allowed: bool,
 }
 
 /// `struct Name { fields and methods }`
@@ -17,6 +19,10 @@ pub struct Program {
 pub struct Struct {
     pub name: String,
     pub name_span: Span,
+    /// `lives a, b`: the borrow fields it names.
+    pub lives: Vec<(String, Span)>,
+    /// The `stays` clause: never copied automatically.
+    pub stays: Option<Span>,
     pub fields: Vec<Field>,
     pub methods: Vec<Method>,
 }
@@ -54,11 +60,21 @@ pub struct Import {
 pub struct TypeName {
     pub name: String,
     pub span: Span,
+    /// Borrow and pointer marks written before the name, outermost first:
+    /// `&mut string` is `[Ref { mutable: true }]`, `*uint32` is `[Ptr]`.
+    pub mods: Vec<(TypeMod, Span)>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TypeMod {
+    Ref { mutable: bool },
+    Ptr,
 }
 
 #[derive(Debug)]
 pub struct Param {
     pub mutable: bool,
+    pub open: bool,
     pub ty: TypeName,
     pub name: String,
     pub span: Span,
@@ -71,15 +87,41 @@ pub struct Func {
     pub name_span: Span,
     pub params: Vec<Param>,
     pub body: Block,
+    /// The word `unsafe` before the return type.
+    pub is_unsafe: Option<Span>,
+    /// `lives a, b`: parameters whose borrows the result may hold.
+    pub lives: Vec<(String, Span)>,
+    /// From `lives` to the end of its list, if written.
+    pub lives_span: Option<Span>,
     /// From the return type to the closing `)`.
     pub span: Span,
 }
 
-pub type Block = Vec<Stmt>;
+/// `{ statements }`. `end` is the closing `}`.
+#[derive(Debug)]
+pub struct Block {
+    pub stmts: Vec<Stmt>,
+    pub end: Span,
+}
+
+impl std::ops::Deref for Block {
+    type Target = Vec<Stmt>;
+    fn deref(&self) -> &Vec<Stmt> {
+        &self.stmts
+    }
+}
+
+impl<'a> IntoIterator for &'a Block {
+    type Item = &'a Stmt;
+    type IntoIter = std::slice::Iter<'a, Stmt>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.stmts.iter()
+    }
+}
 
 #[derive(Debug)]
 pub enum Stmt {
-    Let { mutable: bool, ty: TypeName, name: String, name_span: Span, value: Option<Init>, span: Span },
+    Let { mutable: bool, open: bool, ty: TypeName, name: String, name_span: Span, value: Option<Init>, span: Span },
     /// `x = v;`, or `x += v;` when `op` is set. The parser only lets a name,
     /// `self` or a field access (`p.x`, `self.a.b`) be the target.
     Assign { target: Expr, op: Option<BinOp>, value: Expr, span: Span },
@@ -98,6 +140,8 @@ pub enum Stmt {
     Break { cont: bool, count: Option<(u64, Span)>, span: Span },
     Skip { target: SkipTarget, span: Span },
     Return { value: Option<Expr>, span: Span },
+    /// `unsafe { }`
+    Unsafe { body: Block, span: Span },
     Expr(Expr),
 }
 
@@ -269,4 +313,18 @@ pub enum ExprKind {
     Method { recv: Box<Expr>, name: String, name_span: Span, targs: Vec<TypeName>, args: Vec<Expr> },
     /// `a..b`, inclusive. Only allowed after `of` in a `for` and as a `case` pattern.
     Range(Box<Expr>, Box<Expr>),
+    /// `&e` or `&mut e`.
+    Borrow { mutable: bool, operand: Box<Expr> },
+    /// `*e`
+    Deref(Box<Expr>),
+    /// `copy e`
+    Copy(Box<Expr>),
+    /// `take e` or `take e leaving v`.
+    Take { place: Box<Expr>, leaving: Option<Box<Expr>> },
+    /// `lend e`
+    Lend(Box<Expr>),
+    /// `address of e`
+    AddressOf(Box<Expr>),
+    /// `none` as a value.
+    NoneValue,
 }
