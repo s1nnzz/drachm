@@ -11,6 +11,10 @@ pub mod print;
 pub mod traversal;
 pub mod ty;
 pub mod validate;
+pub mod check;
+pub mod dataflow;
+pub mod lateinit;
+pub mod moves;
 
 use crate::diag::{Diagnostic, Span};
 use crate::hir::{self, FuncId, StructId};
