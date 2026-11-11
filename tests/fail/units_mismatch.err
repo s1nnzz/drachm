@@ -1,0 +1,13 @@
+error[E0401]: units do not match: expected `float64<m>`, found `float64<s>`
+error[E0401]: units do not match: `float64<m>` and `float64<s>`
+units_mismatch.drh:5:12
+units_mismatch.drh:12:16
+units_mismatch.drh:18:29
+units_mismatch.drh:19:20
+units_mismatch.drh:20:12
+units_mismatch.drh:21:27
+error[E0401]: units do not match: expected `float64<s>`, found `float64<m>`
+error[E0408]: a plain number cannot stand for a measure
+units_mismatch.drh:23:20
+note: values can only be compared when they are the same kind of unit
+help: to relate different kinds, multiply or divide them: `distance / time`

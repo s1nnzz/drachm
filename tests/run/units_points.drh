@@ -1,0 +1,55 @@
+in io;
+
+unit K;
+unit degC = K offset -273.15;
+unit half = 0.5 K offset -100;
+
+none main() {
+    float64<degC> a = 20.0<degC>;
+    float64<degC> b = 25.5<degC>;
+
+    // Point minus point is a delta; point plus delta is a point.
+    float64<delta degC> rise = b - a;
+    io::outln(rise::text() + " " + rise::unitText());
+    float64<degC> c = a + rise;
+    io::outln(c::text() + " " + c::unitText());
+    float64<degC> d = rise + a;
+    io::outln(d::text());
+    float64<degC> e = b - rise;
+    io::outln(e::text());
+
+    // A delta degC is the size of a kelvin.
+    float64<K> kelvins = rise::in<K>();
+    io::outln(kelvins::text() + " " + kelvins::unitText());
+    float64<delta degC> back = kelvins;
+    io::outln(back::text());
+    float64<degC> warmer = a + 2.0<K>;
+    io::outln(warmer::text());
+
+    // Conversion between points applies the offset.
+    io::outln(a::in<K>()->text());
+    io::outln(100.0<degC>::in<half>()->text());
+    io::outln(273.15<K>::in<degC>()->text());
+
+    // Points compare with points.
+    io::outln((a < b)::text());
+    io::outln((a == 20.0<degC>)::text());
+    io::outln((a >= b)::text());
+    io::outln((a::in<K>() < 300.0<K>)::text());
+
+    // Strip to a plain number gives the base reading.
+    float64 base = a;
+    io::outln(base::text());
+    float64 plain = 0.0<degC>;
+    io::outln(plain::text());
+
+    // Constants fold exactly.
+    io::outln((25.5<degC> - 20.0<degC>)::text());
+    io::outln((20.0<degC> + 0.5<delta degC>)::text());
+
+    // Deltas are ordinary amounts.
+    float64<delta degC> half = rise / 2.0;
+    io::outln(half::text());
+    io::outln((rise + half)::text());
+    io::outln((rise > 0)::text());
+}

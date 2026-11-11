@@ -1,0 +1,99 @@
+in io;
+
+unit m;
+unit s;
+unit kg;
+unit g = 0.001 kg;
+unit km = 1000 m;
+unit ft;
+unit mi = 5280 ft;
+unit min = 60 s;
+unit pct = 0.01;
+
+float64<m> to_metres(float64<km> d) {
+    return d;
+}
+
+float64<km> from_metres(float64<m> d) {
+    return d;
+}
+
+float64<km> back(float64<m> d) {
+    return d::in<km>();
+}
+
+none main() {
+    // Constants fold exactly and keep the left unit.
+    io::outln((10<km> + 100<m>)::text());
+    io::outln((10<m> + 1<km>)::text());
+    io::outln((2<mi> + 2<mi>)::text());
+    float64<km> far = 10.0<km> + 100.0<m>;
+    io::outln(far::text());
+    float64<m> near = 10.0<m> + 1.0<km>;
+    io::outln(near::text());
+
+    // Typed values go through the common base.
+    float64<km> k = 2.5<km>;
+    float64<m> small = 300.0<m>;
+    io::outln((k + small)::text());
+    io::outln((small + k)::text());
+    io::outln((k > small)::text());
+    io::outln((small < k)::text());
+    io::outln((k - small)::unitText());
+    uint32<mi> miles = 2<mi>;
+    uint32<mi> four = miles + miles;
+    io::outln(four::text());
+    uint32<m> metres = 1500<m>;
+    uint32<km> kms = 2<km>;
+    io::outln((metres + kms)::text());
+    io::outln((metres + kms)::unitText());
+    io::outln((metres < kms)::text());
+
+    // Scaling in a typed slot: float and whole.
+    io::outln(to_metres(2.5<km>)::text());
+    io::outln(from_metres(1500.0<m>)::text());
+    io::outln(back(250.0<m>)::text());
+    uint32<km> trunc = metres::in<km>();
+    io::outln(trunc::text());
+    uint32<m> up = kms::in<m>();
+    io::outln(up::text());
+
+    // ::in changes the unit, ::to changes the number type.
+    float64<m> exact = 2500.0<m>;
+    io::outln(exact::in<km>()->text());
+    io::outln(exact::in<km>()->unitText());
+    io::outln(exact::to<float32>()->unitText());
+    float32<m> narrow = exact::to<float32>();
+    io::outln(narrow::text());
+    io::outln(7<km>::in<m>()->text());
+
+    // A unit into a plain number strips to the base amount (Q1).
+    uint8 a = 3<m>;
+    uint32 b = 3<km>;
+    float64 c = 5.0<g>;
+    float64 d = 2.0<kg>;
+    io::outln(a::text() + " " + b::text() + " " + c::text() + " " + d::text());
+    float64 pc = 85.0<pct>;
+    io::outln(pc::text());
+
+    // Dimensionless results are plain numbers.
+    io::outln((4.0<km> / 2.0<m>)::text());
+    uint32<km> long = 4<km>;
+    uint32<m> short = 3<m>;
+    uint32 ratio = long / short;
+    io::outln(ratio::text());
+    float64<m> m1 = 3.0<m>;
+    float64<s> t1 = 2.0<s>;
+    float64<m/s> v = m1 / t1;
+    float64 plain = v * t1 / m1;
+    io::outln(plain::text());
+    float64<min> mins = 2.0<min>;
+    float64<s> secs = 30.0<s>;
+    io::outln((mins / secs)::text());
+    io::outln((mins + secs)::text());
+    io::outln((pct_of(50.0<pct>, 80.0<m>))::text());
+}
+
+float64<m> pct_of(float64<pct> p, float64<m> whole) {
+    return p * whole;
+}

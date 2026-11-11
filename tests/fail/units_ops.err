@@ -1,0 +1,30 @@
+error[E0404]: a unit can only be raised to a constant whole power
+error[E0406]: `&` cannot be used on a value with a unit
+error[E0406]: `<<` cannot be used on a value with a unit
+error[E0406]: `~` cannot be used on a value with a unit
+error[E0407]: cannot convert `float64<degC>` to `delta degC`
+error[E0407]: cannot convert `float64<m>` to `s`
+error[E0407]: `to` changes the number type, but `float64<m>` has a unit
+error[E0408]: a plain number cannot stand for a measure
+error[E0409]: a point cannot be multiplied or divided
+error[E0409]: a point cannot be negated
+error[E0409]: a point cannot be subtracted from a delta
+error[E0409]: two points cannot be added
+units_ops.drh:9:28
+units_ops.drh:12:25
+units_ops.drh:13:24
+units_ops.drh:14:27
+units_ops.drh:16:26
+units_ops.drh:17:29
+units_ops.drh:18:27
+units_ops.drh:19:20
+units_ops.drh:20:21
+units_ops.drh:22:23
+units_ops.drh:23:29
+units_ops.drh:24:24
+units_ops.drh:25:29
+units_ops.drh:26:18
+units_ops.drh:27:32
+help: a plain zero is not a point; write `0<degC>`
+help: give it a unit: `5<m>`
+help: to change the unit write `x::in<km>()`

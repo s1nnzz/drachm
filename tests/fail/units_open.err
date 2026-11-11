@@ -1,0 +1,6 @@
+error[E0408]: a plain number cannot stand for a measure
+units_open.drh:6:20
+units_open.drh:7:20
+units_open.drh:8:20
+units_open.drh:9:20
+help: give it a unit: `5.0<m>`

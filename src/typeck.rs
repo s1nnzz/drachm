@@ -977,6 +977,9 @@ fn list(names: &[&str]) -> String {
 /// An expression is either still an untyped constant or already has a type.
 enum Val {
     Const(Const),
+    /// An untyped constant with a unit (`9.6<s>`): it gets its number type
+    /// when it meets one (`typeck::units`).
+    UConst(Const, &'static crate::units::Unit),
     Expr(hir::Expr),
 }
 
@@ -1475,7 +1478,7 @@ impl Checker<'_> {
                     place.proj.push(hir::HirProj::Deref);
                     self.read_local(id, name_span).and_then(|x| match self.read(Val::Expr(x)) {
                         Val::Expr(x) => Some(x),
-                        Val::Const(_) => None,
+                        Val::Const(_) | Val::UConst(..) => None,
                     })
                 } else {
                     self.read_local(id, name_span)
@@ -1520,9 +1523,13 @@ impl Checker<'_> {
     fn compound(&mut self, op: BinOp, current: Option<hir::Expr>, target: Span, value: &ast::Expr, span: Span) -> Option<hir::Expr> {
         let rv = self.expr(value);
         let lo = Origin { span: target, compound: false };
-        match self.binary_vals(op, Val::Expr(current?), lo, rv?, origin(value), span)? {
+        let current = current?;
+        let cur_ty = current.ty;
+        match self.binary_vals(op, Val::Expr(current), lo, rv?, origin(value), span)? {
+            // `d *= 2` stays in `d`'s unit; anything else is converted to it.
+            Val::Expr(e) if cur_ty.mentions_unit() && e.ty != cur_ty => self.unit_into(Val::Expr(e), cur_ty, origin(value)),
             Val::Expr(e) => Some(e),
-            Val::Const(_) => None,
+            Val::Const(_) | Val::UConst(..) => None,
         }
     }
 
@@ -1744,7 +1751,7 @@ impl Checker<'_> {
             }
             other => {
                 let plain = match &other {
-                    Val::Const(_) => true,
+                    Val::Const(_) | Val::UConst(..) => true,
                     Val::Expr(x) => Some(x.ty) == to_target,
                 };
                 match call {
@@ -1784,7 +1791,7 @@ impl Checker<'_> {
                     Val::Expr(x) if x.ty == t => Some(x),
                     Val::Expr(x) if x.ty.is_borrow() && x.ty.target() == Some(t) => match self.read(Val::Expr(x)) {
                         Val::Expr(x) => Some(x),
-                        Val::Const(_) => None,
+                        Val::Const(_) | Val::UConst(..) => None,
                     },
                     // One value of another type builds a one-field struct.
                     Val::Expr(x) if self.g.structs[s].fields.len() != 1 && (x.ty.struct_id().is_some() || x.ty == Type::None) => {
@@ -1902,6 +1909,7 @@ impl Checker<'_> {
     fn materialise(&mut self, v: Val, span: Span) -> Option<hir::Expr> {
         match v {
             Val::Expr(e) => Some(e),
+            Val::UConst(c, u) => self.unit_materialise(&c, u, span),
             Val::Const(c) => match c.default_type() {
                 Some(ty) => Some(self.fit_const(&c, ty, span, true)),
                 None => {
@@ -1920,6 +1928,7 @@ impl Checker<'_> {
         }
         match v {
             Val::Const(c) if to.is_numeric() => Some(self.fit_const(&c, to, from.span, false)),
+            Val::UConst(..) => unreachable!("units are handled first"),
             Val::Const(_) => {
                 let mut d = Diagnostic::at(&codes::E0101, from.span, format!("expected `{to}`, found a number"))
                     .note("this is a number");
@@ -2079,7 +2088,7 @@ impl Checker<'_> {
     fn expr_inner(&mut self, e: &ast::Expr) -> Option<Val> {
         let typed = |kind, ty| Some(Val::Expr(hir::Expr::new(kind, ty)));
         match &e.kind {
-            ExprKind::Num(n) if n.unit.is_some() => self.unit_literal(n.unit.as_ref()?, e.span),
+            ExprKind::Num(n) if n.unit.is_some() => self.unit_literal(n, e.span),
             ExprKind::Num(n) => match n.suffix {
                 Some(ty) => Some(Val::Expr(self.fit_const(&n.value, ty, e.span, false))),
                 None => Some(Val::Const(n.value.clone())),
@@ -2105,7 +2114,7 @@ impl Checker<'_> {
             }
             ExprKind::Field { recv, name, name_span } => {
                 let v = match self.expr(recv)? {
-                    Val::Const(_) => {
+                    Val::Const(_) | Val::UConst(..) => {
                         self.diags.push(Diagnostic::at(&codes::E0201, *name_span, "numbers have no fields").label(recv.span, "this is a number"));
                         return None;
                     }
@@ -2143,10 +2152,6 @@ impl Checker<'_> {
                 }
                 let mut p = self.lvalue(target)?;
                 Self::auto_deref(&mut p);
-                if p.ty.mentions_unit() {
-                    self.unit_arithmetic_not_yet(target.span);
-                    return None;
-                }
                 if !p.ty.is_numeric() {
                     self.diags.push(
                         Diagnostic::at(&codes::E0101, target.span, format!("`{sym}` needs a number, found `{}`", p.ty))
@@ -2170,11 +2175,7 @@ impl Checker<'_> {
                 let ty = self.g.sigs[id].ret?;
                 typed(hir::ExprKind::Call(id, args?), ty)
             }
-            ExprKind::Method { unit: Some(spec), name_span, .. } => {
-                self.g.resolve_unit_spec(spec, e.span, self.diags);
-                self.unit_method_not_yet(*name_span, "`::in<unit>()`");
-                None
-            }
+            ExprKind::Method { recv, unit: Some(spec), name_span, args, .. } => self.unit_in(recv, spec, args, *name_span, e.span),
             ExprKind::Method { recv, name, name_span, targs, args, .. } => {
                 if let ExprKind::Var(n) = &recv.kind
                     && self.lookup(n).is_none()
@@ -2357,7 +2358,7 @@ impl Checker<'_> {
             }
             other => {
                 let found = match &other {
-                    Val::Const(_) => "a number".to_string(),
+                    Val::Const(_) | Val::UConst(..) => "a number".to_string(),
                     Val::Expr(x) => format!("`{}`", x.ty),
                 };
                 let mut d = Diagnostic::at(&codes::E0326, e.span, format!("`lend` passes on a `&mut` borrow you hold, and `{name}` is not one"))
@@ -2568,7 +2569,7 @@ impl Checker<'_> {
             Val::Expr(a) if a.ty == Type::Str => a,
             other => {
                 let found = match &other {
-                    Val::Const(_) => "a number".to_string(),
+                    Val::Const(_) | Val::UConst(..) => "a number".to_string(),
                     Val::Expr(a) => format!("`{}`", a.ty),
                 };
                 let o = origin(&args[0]);
@@ -2577,7 +2578,7 @@ impl Checker<'_> {
                 let mut d = Diagnostic::at(&codes::E0101, o.span, format!("`io::{name}` prints text, found {found}"))
                     .note(format!("this is {found}"));
                 let has_text = match &other {
-                    Val::Const(_) => true,
+                    Val::Const(_) | Val::UConst(..) => true,
                     Val::Expr(a) => match a.ty.struct_id() {
                         Some(s) => self.g.method(s, "text").is_some(),
                         None => a.ty != Type::None,
@@ -2645,8 +2646,7 @@ impl Checker<'_> {
                 }
                 let to = self.g.resolve(&targs[0], self.diags)?;
                 if to.mentions_unit() || units::has_unit(&value) {
-                    self.unit_method_not_yet(name_span, "`to` with units");
-                    return None;
+                    return self.unit_to(value, to, recv.span, targs[0].span);
                 }
                 if !to.is_numeric() {
                     self.diags.push(
@@ -2656,6 +2656,7 @@ impl Checker<'_> {
                 }
                 match value {
                     Val::Const(c) => Some(Val::Expr(self.fit_const(&c, to, recv.span, true))),
+                    Val::UConst(..) => unreachable!("handled by unit_to"),
                     Val::Expr(v) if v.ty == to => Some(Val::Expr(v)),
                     Val::Expr(v) if v.ty.is_numeric() => {
                         Some(Val::Expr(hir::Expr::new(hir::ExprKind::Convert(Box::new(v)), to)))
@@ -2669,9 +2670,13 @@ impl Checker<'_> {
                     }
                 }
             }
+            "unitText" => {
+                no_args(self);
+                self.unit_text(Some(value), recv.span, name_span)
+            }
             _ => {
                 let on = match &value {
-                    Val::Const(_) => "numbers have".to_string(),
+                    Val::Const(_) | Val::UConst(..) => "numbers have".to_string(),
                     Val::Expr(v) => format!("`{}` has", v.ty),
                 };
                 self.diags.push(
@@ -2794,7 +2799,13 @@ impl Checker<'_> {
             return Some(Val::Expr(hir::Expr::new(hir::ExprKind::Not(Box::new(v)), Type::Bool)));
         }
         let (sym, wants) = if op == UnOp::Neg { ("-", "a number") } else { ("~", "a whole number") };
-        match self.expr(inner)? {
+        let value = self.expr(inner)?;
+        let value = match self.unit_unary(op, value, inner.span) {
+            Ok(v) => v,
+            Err(done) => return done,
+        };
+        match value {
+            Val::UConst(..) => unreachable!(),
             Val::Const(c) if op == UnOp::Neg => Some(Val::Const(c.neg())),
             Val::Const(c) => match c.bit_not() {
                 Ok(c) => Some(Val::Const(c)),
@@ -2852,9 +2863,8 @@ impl Checker<'_> {
             };
         }
 
-        if units::has_unit(&lv) || units::has_unit(&rv) {
-            self.unit_arithmetic_not_yet(span);
-            return None;
+        if units::involved(&lv, &rv) {
+            return self.unit_binary(op, lv, lo, rv, ro, span);
         }
 
         // An untyped constant on the left takes the right side's type if it
@@ -2920,7 +2930,7 @@ impl Checker<'_> {
                 other if op == BinOp::Pow && !matches!(&other, Val::Expr(r) if !r.ty.is_numeric()) => self.into(other, lead, ro)?,
                 other => {
                     let found = match &other {
-                        Val::Const(_) => "a decimal".to_string(),
+                        Val::Const(_) | Val::UConst(..) => "a decimal".to_string(),
                         Val::Expr(r) => format!("`{}`", r.ty),
                     };
                     self.diags.push(

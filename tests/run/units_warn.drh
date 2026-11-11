@@ -1,0 +1,20 @@
+in io;
+
+unit m;
+unit km = 1000 m;
+
+// Whole numbers cannot hold the fractions scaling makes (Q4, Q5).
+none main() {
+    uint32<m> metres = 300<m>;
+    uint32<km> kms = metres;
+    io::outln(kms::text());
+    uint8<km> small = 300<m>;
+    io::outln(small::text());
+    uint8<km> far = 2<km>;
+    uint8<m> up = far;
+    io::outln(up::text());
+    uint8 strip = far;
+    io::outln(strip::text());
+    uint32<km> sum = 2<km> + metres;
+    io::outln(sum::text());
+}

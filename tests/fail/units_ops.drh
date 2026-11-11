@@ -1,0 +1,28 @@
+unit m;
+unit s;
+unit K;
+unit degC = K offset -273.15;
+
+none main() {
+    float64<m> side = 3.0<m>;
+    uint32 n = 2;
+    float64<m> a = side ** n;
+    float64<m> len = 2.0<m>;
+    uint32<m> whole = 2<m>;
+    uint32<m> shifted = whole << 2;
+    uint32<m> masked = whole & 1;
+    uint32<m> inverted = ~whole;
+    float64<s> time = 1.0<s>;
+    float64<s> c = side::in<s>();
+    float64<m> d = side::to<float64<m>>();
+    float64<m> e = side + 5;
+    float64<m> g = 5 + side;
+    bool h = side < n;
+    float64<degC> t = 20.0<degC>;
+    float64<degC> u = t + t;
+    float64<degC> v = 2.0 * t;
+    float64<degC> w = -t;
+    float64<delta degC> x = 1.0<delta degC> - t;
+    bool y = t > 0;
+    float64<delta degC> z = t::in<delta degC>();
+}

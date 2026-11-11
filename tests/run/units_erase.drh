@@ -1,0 +1,32 @@
+// A loop over `float64<m>` and the same loop over plain numbers print the
+// same thing; units cost nothing at run time (tests/units.rs checks that the
+// generated code is identical).
+in io;
+
+unit m;
+unit s;
+
+float64<m> total(float64<m> step, uint32 n) {
+    mut float64<m> sum = 0.0<m>;
+    for (mut uint32 i = 0; i < n; i++) {
+        sum += step;
+    }
+    return sum;
+}
+
+float64 plain_total(float64 step, uint32 n) {
+    mut float64 sum = 0.0;
+    for (mut uint32 i = 0; i < n; i++) {
+        sum += step;
+    }
+    return sum;
+}
+
+none main() {
+    float64<m> a = total(0.25<m>, 1000);
+    float64 b = plain_total(0.25, 1000);
+    io::outln(a::text());
+    io::outln(b::text());
+    float64<m/s> v = a / 4.0<s>;
+    io::outln(v::text());
+}

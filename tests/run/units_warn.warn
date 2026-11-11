@@ -1,0 +1,8 @@
+warning[W0102]: converting `uint32<m>` to `uint32<km>` can lose information
+units_warn.drh:9:22
+note: a whole number of m is divided into km, and the remainder is dropped
+help: write `metres::in<km>()` to say the conversion is intended
+warning[W0102]: `300<m>` does not fit `uint8`
+warning[W0102]: converting `uint8<km>` to `uint8<m>` can overflow
+warning[W0102]: converting `uint8<km>` to `uint8` can overflow
+help: put the smaller unit on the left to keep the remainder, or convert one side first with `::in<km>()`

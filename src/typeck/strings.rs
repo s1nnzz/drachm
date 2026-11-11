@@ -259,7 +259,7 @@ impl Checker<'_> {
             Val::Expr(r) if r.ty == Type::Str => r,
             other => {
                 let found = match &other {
-                    Val::Const(_) => "a number".to_string(),
+                    Val::Const(_) | Val::UConst(..) => "a number".to_string(),
                     Val::Expr(r) => format!("`{}`", r.ty),
                 };
                 let message = if op == BinOp::Add {
@@ -269,7 +269,7 @@ impl Checker<'_> {
                 };
                 let mut d = Diagnostic::at(&codes::E0101, ro.span, message).note(format!("this is {found}")).label(lo.span, "this is `string`");
                 let has_text = match &other {
-                    Val::Const(_) => true,
+                    Val::Const(_) | Val::UConst(..) => true,
                     Val::Expr(r) => match r.ty.struct_id() {
                         Some(s) => self.g.method(s, "text").is_some(),
                         None => r.ty != Type::None,

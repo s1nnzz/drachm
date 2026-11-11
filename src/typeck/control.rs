@@ -405,7 +405,7 @@ impl Checker<'_> {
             }
             _ => {
                 let found = match &v {
-                    Val::Const(_) => "a number".to_string(),
+                    Val::Const(_) | Val::UConst(..) => "a number".to_string(),
                     Val::Expr(e) => format!("`{}`", e.ty),
                 };
                 Diagnostic::at(&codes::E0101, iter.span, format!("cannot loop over {found}"))
@@ -723,6 +723,7 @@ impl Checker<'_> {
         let ty = ty?;
         match v {
             Val::Const(c) => fold(self.into(Val::Const(c), ty, origin(e))?),
+            v @ Val::UConst(..) => fold(self.into(v, ty, origin(e))?),
             Val::Expr(h) => {
                 let from = h.ty;
                 let Some(lit) = fold(h) else {

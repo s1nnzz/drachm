@@ -352,6 +352,11 @@ codes! {
          \x20   mut Player p;\n\
          \x20   p = ...;\n\
          \x20   p.hp = 5;";
+    E0401: "units do not match",
+        "Two values were combined, compared or assigned, and their units measure\n\
+         different kinds of things: metres and seconds, say. Values add, subtract\n\
+         and compare only when they are the same kind of unit (`10<km> + 100<m>`\n\
+         is fine). To combine different kinds, multiply or divide: `dist / time`.";
     E0402: "unknown unit",
         "A unit was used that is not declared. Declare it with `unit NAME;` for a\n\
          new base unit, or `unit NAME = ...;` to give it a size in other units,\n\
@@ -361,9 +366,32 @@ codes! {
          in terms of itself, a factor that is not a number greater than zero, an\n\
          `offset` after anything but a single unit, or a name that is not plain\n\
          ASCII letters, digits and `_`.";
+    E0404: "a unit can only be raised to a constant whole power",
+        "The unit of `side ** n` is the unit of `side` raised to `n`, so `n` must\n\
+         be a whole number the compiler can see (`side ** 2`). Write `side * side`\n\
+         or use a constant exponent.";
     E0405: "a unit cannot go here",
         "A unit in angle brackets (`float64<m>`) goes only on a number type, and a\n\
          unit's power (`m^2`) must stay within the range of a 16-bit exponent.";
+    E0406: "bit operators cannot be used on a value with a unit",
+        "`<<`, `>>`, `&`, `|`, `^` and `~` change a pattern of bits, not a measure.\n\
+         For a value with a unit use arithmetic: `len * 2` instead of `len << 1`.";
+    E0407: "cannot convert to this unit",
+        "`x::in<unit>()` changes the unit of `x` to another unit of the same kind\n\
+         (`d::in<km>()`), and `x::to<T>()` changes only the number type, so `T` is\n\
+         a plain number type (`d::to<float32>()`). A point such as `degC` cannot\n\
+         be turned into a `delta`.";
+    E0408: "a plain number cannot stand for a measure",
+        "A number without a unit was used where a measure is needed: `d + 5`,\n\
+         `d < n`, or a plain number given to a variable with a unit. Write the\n\
+         unit (`d + 5<m>`). Multiplying and dividing by plain numbers is fine, and\n\
+         zero is unit-free in `+`, `-` and comparisons, except beside a point such\n\
+         as `degC`.";
+    E0409: "points and deltas cannot be mixed this way",
+        "A unit with an offset, such as `degC`, measures a point on a scale, not an\n\
+         amount. Subtract two points to get a `delta`, and add a `delta` to a point\n\
+         to get a point. Two points cannot be added, and a point cannot be scaled\n\
+         or negated.";
 
     E0901: "not supported yet",
         "This is part of Drachm's design, but this version of the compiler does\n\

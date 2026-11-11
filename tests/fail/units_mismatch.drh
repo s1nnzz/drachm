@@ -1,0 +1,24 @@
+unit m;
+unit s;
+
+float64<m> metres(float64<s> t) {
+    return t;
+}
+
+none accept(float64<s> t) {
+}
+
+bool shorter(float64<m> d, float64<s> t) {
+    return d < t;
+}
+
+none main() {
+    float64<m> dist = 100.0<m>;
+    float64<s> time = 9.6<s>;
+    float64<m> bad = dist + time;
+    float64<m> d = time;
+    accept(dist);
+    float64<m> e = dist - 3<s>;
+    uint32 plain = 5;
+    float64<m> f = plain;
+}

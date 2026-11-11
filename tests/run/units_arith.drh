@@ -1,0 +1,88 @@
+in io;
+
+unit m;
+unit s;
+unit kg;
+unit N = kg * m / s^2;
+unit Hz = 1 / s;
+
+float64<m/s> speed_of(float64<m> d, float64<s> t) {
+    return d / t;
+}
+
+none main() {
+    // The spec example.
+    float64<m> dist = 100.0<m>;
+    float64<s> time = 9.6<s>;
+    float64<m/s> speed = dist / time;
+    io::outln(speed::text() + " " + speed::unitText());
+    io::outln(speed_of(dist, time)::text());
+
+    // Newtons from kg * m / s^2.
+    float64<kg> mass = 2.0<kg>;
+    float64<m/s^2> accel = 3.5<m/s^2>;
+    float64<N> force = mass * accel;
+    io::outln(force::text() + " " + force::unitText());
+    float64<kg*m/s^2> same = force;
+    io::outln(same::unitText());
+
+    // Powers with a constant exponent.
+    float64<m> side = 3.0<m>;
+    float64<m^2> area = side ** 2;
+    io::outln(area::text() + " " + area::unitText());
+
+    // 1/s and Hz are one unit.
+    float64<s> period = 0.25<s>;
+    float64<Hz> freq = 1.0 / period;
+    io::outln(freq::text() + " " + freq::unitText());
+    float64<1/s> freq2 = freq;
+    io::outln(freq2::text());
+
+    // Compound assignment.
+    mut float64<m> d = 1.0<m>;
+    d += 2.5<m>;
+    d -= 0.5<m>;
+    d *= 4.0;
+    d /= 2.0;
+    io::outln(d::text());
+    d++;
+    io::outln(d::text());
+    d--;
+    d--;
+    io::outln(d::text());
+
+    // Comparisons.
+    io::outln((dist > 50.0<m>)::text());
+    io::outln((dist == 100.0<m>)::text());
+    io::outln((dist < d)::text());
+
+    // Left leads on number types.
+    float64<m> scaled = 2.5 * dist;
+    io::outln(scaled::text());
+    uint32<m> whole = 7<m>;
+    uint32<m> twice = whole * 2.0;
+    io::outln(twice::text());
+    uint32<m> lead = 3 * whole;
+    io::outln(lead::text());
+
+    // Zero beside a unit, plain scales that are not constants.
+    io::outln((speed > 0)::text());
+    float64<m> plus_zero = dist + 0;
+    io::outln(plus_zero::text());
+    uint32 n = 4;
+    float64<m> by_n = dist / 4.0;
+    uint32<m> n_m = n * 1<m>;
+    uint32<m> n_dist = n * whole;
+    io::outln(by_n::text());
+    io::outln(n_m::text());
+    io::outln(n_dist::text());
+    float64 f = 2.0;
+    float64<m> f_dist = f * dist;
+    float64<m> dist_f = dist * f;
+    io::outln(f_dist::text() + " " + dist_f::text());
+
+    // Negation and the unit of a literal.
+    float64<m> back = -dist;
+    io::outln(back::text());
+    io::outln((3<m> * 2<m>)::unitText());
+}

@@ -1,0 +1,10 @@
+unit m;
+
+// Not decided yet (units Q12): a plain number into a variable with a unit.
+none main() {
+    uint32 n = 4;
+    float64<m> d = n;
+    float64<m> e = 5.0;
+    float64<m> z = 0;
+    float64<m> f = n::in<m>();
+}
