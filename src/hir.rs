@@ -357,6 +357,9 @@ pub enum ExprKind {
     AddressOf(Box<Expr>),
     /// `none` as a pointer.
     NullPtr,
+    /// `p::freeze()` / `p::thaw()`: the same pointer bits under the other
+    /// pointer kind (`*T` to `*fixed T` or back). Needs `unsafe`.
+    PtrConv(Box<Expr>),
 }
 
 /// Runtime string functions with a fixed signature (`runtime/strings.h`, and

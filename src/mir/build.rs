@@ -618,6 +618,7 @@ impl<'a> Builder<'a> {
             | ExprKind::Shift { .. }
             | ExprKind::IntPow(..)
             | ExprKind::Convert(_)
+            | ExprKind::PtrConv(_)
             | ExprKind::Struct(_)
             | ExprKind::Borrow { .. }
             | ExprKind::AddressOf(_) => true,
@@ -795,6 +796,7 @@ impl<'a> Builder<'a> {
             | ExprKind::Shift { .. }
             | ExprKind::IntPow(..)
             | ExprKind::Convert(_)
+            | ExprKind::PtrConv(_)
             | ExprKind::Struct(_)
             | ExprKind::Borrow { .. }
             | ExprKind::AddressOf(_) => {
@@ -939,6 +941,7 @@ impl<'a> Builder<'a> {
                 Rvalue::IntPow(o.next().unwrap().op, o.next().unwrap().op)
             }
             ExprKind::Convert(a) => Rvalue::Convert(first(self.operands(&[&**a], &none)), e.ty),
+            ExprKind::PtrConv(a) => Rvalue::Use(first(self.operands(&[&**a], &none))),
             ExprKind::Struct(fields) => {
                 let sid = e.ty.struct_id().expect("a struct value has a struct type");
                 let es: Vec<&Expr> = fields.iter().map(|(_, v)| v).collect();
@@ -1022,6 +1025,7 @@ fn pure(e: &Expr) -> bool {
         | ExprKind::Not(a)
         | ExprKind::BitNot(a)
         | ExprKind::Convert(a)
+        | ExprKind::PtrConv(a)
         | ExprKind::Deref(a)
         | ExprKind::DeepCopy(a)
         | ExprKind::AddressOf(a) => pure(a),
@@ -1051,6 +1055,7 @@ fn kind_name(k: &ExprKind) -> &'static str {
         ExprKind::IntPow(..) => "IntPow",
         ExprKind::Logic { .. } => "Logic",
         ExprKind::Convert(_) => "Convert",
+        ExprKind::PtrConv(_) => "PtrConv",
         ExprKind::Call(..) => "Call",
         ExprKind::IncDec { .. } => "IncDec",
         ExprKind::Text(_) => "Text",

@@ -1,0 +1,1 @@
+error[E0334]: expected `*fixed uint32`, found `*uint32`
