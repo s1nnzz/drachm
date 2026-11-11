@@ -1,0 +1,4 @@
+Eq(copy _1, const 3u32)
+goto -> bb
+Add(copy _1, const 1u32)
+!main: unreachable
