@@ -1,0 +1,8 @@
+fn drachm_m_7Counter_peek(_1: &Counter) -> uint32
+fn drachm_m_7Counter_inc(_1: &mut Counter) -> none
+_3 = &_1
+call drachm_m_7Counter_peek(copy _3) -> bb1
+_5 = &mut two_phase _1
+call drachm_m_7Counter_inc(move _5) -> bb2
+!main: _3 = &mut _1
+!main: _5 = &_1

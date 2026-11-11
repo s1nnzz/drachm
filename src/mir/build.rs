@@ -38,25 +38,26 @@ fn expr_span(e: &Expr) -> Span {
     e.span
 }
 
-/// Does a method call borrow its receiver `&mut`? Until WP3 infers it: always.
-fn receiver_mutable(_f: FuncId) -> bool {
-    true
+/// Does a method call borrow its receiver `&mut`? Only if the method is `Mut`.
+fn receiver_mutable(modes: &[Option<SelfMode>], f: FuncId) -> bool {
+    matches!(modes[f], Some(SelfMode::Mut(_)))
 }
 
 pub fn program(hir: &hir::Program, diags: &mut Vec<Diagnostic>) -> Program {
+    let self_modes = crate::ownership::infer(hir);
     let mut strings = IndexVec::new();
     let mut str_ids = HashMap::new();
     let bodies = hir
         .funcs
         .iter()
         .enumerate()
-        .map(|(id, f)| Some(Builder::new(hir, id, f, &mut strings, &mut str_ids, diags).build()))
+        .map(|(id, f)| Some(Builder::new(hir, id, f, &self_modes, &mut strings, &mut str_ids, diags).build()))
         .collect();
     Program {
         bodies,
         main: hir.main,
         strings,
-        self_modes: hir.funcs.iter().map(|f| f.has_self.then_some(SelfMode::Mut)).collect(),
+        self_modes,
         lives: hir.funcs.iter().map(|_| LivesSig::Unknown).collect(),
     }
 }
@@ -119,6 +120,8 @@ struct Frame {
 struct Builder<'a> {
     hir: &'a hir::Program,
     id: FuncId,
+    /// By `FuncId`: how each method borrows `self`.
+    modes: &'a [Option<SelfMode>],
     func: &'a hir::Func,
     strings: &'a mut IndexVec<StrId, String>,
     str_ids: &'a mut HashMap<String, StrId>,
@@ -142,6 +145,7 @@ impl<'a> Builder<'a> {
         hir: &'a hir::Program,
         id: FuncId,
         func: &'a hir::Func,
+        modes: &'a [Option<SelfMode>],
         strings: &'a mut IndexVec<StrId, String>,
         str_ids: &'a mut HashMap<String, StrId>,
         diags: &'a mut Vec<Diagnostic>,
@@ -150,6 +154,7 @@ impl<'a> Builder<'a> {
             hir,
             id,
             func,
+            modes,
             strings,
             str_ids,
             diags,
@@ -185,7 +190,7 @@ impl<'a> Builder<'a> {
                 LocalKind::Temp
             };
             // A method's `self` is the caller's value: a borrow of it.
-            let ty = if i == 0 && func.has_self { Type::borrow(receiver_mutable(self.id), l.ty) } else { l.ty };
+            let ty = if i == 0 && func.has_self { Type::borrow(receiver_mutable(self.modes, self.id), l.ty) } else { l.ty };
             self.span = l.span;
             let local = self.decl(ty, kind);
             if i < func.params {
@@ -885,7 +890,7 @@ impl<'a> Builder<'a> {
             }
             ExprKind::Call(f, args) => {
                 let has_self = self.hir.funcs[*f].has_self;
-                let mutable = receiver_mutable(*f);
+                let mutable = receiver_mutable(self.modes, *f);
                 let es: Vec<&Expr> = args.iter().collect();
                 let ops = self.operands(&es, &|i| (i == 0 && has_self).then_some((mutable, mutable)));
                 self.call(Callee::Func(*f), ops, e.ty)

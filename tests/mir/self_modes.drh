@@ -1,0 +1,12 @@
+struct Counter {
+    public:
+    uint32 n;
+    uint32 peek() { return self.n; }
+    none inc() { self.n++; }
+}
+
+none main() {
+    mut Counter c = 1;
+    uint32 seen = c::peek();
+    c::inc();
+}

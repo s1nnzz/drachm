@@ -48,12 +48,7 @@ impl std::fmt::Display for BlockId {
     }
 }
 
-/// Placeholder until WP3 infers how a method borrows `self`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SelfMode {
-    Shared,
-    Mut,
-}
+pub use crate::ownership::{MutKind, MutReason, SelfMode};
 
 /// Placeholder until WP8 (lifetimes in signatures).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -420,7 +415,7 @@ none main() {
         assert!(all.iter().any(|s| matches!(s.kind, StatementKind::Drop { reason: DropReason::Destroy, .. })));
         let get = mir.bodies.iter().flatten().find(|b| b.name.ends_with("get")).unwrap();
         let self_ty = get.locals[Local(1)].ty;
-        assert!(matches!(self_ty, Type::Ref { mutable: true, .. }), "self is a borrow of the struct: {self_ty}");
+        assert!(matches!(self_ty, Type::Ref { mutable: false, .. }), "a method that only reads self borrows it shared: {self_ty}");
         assert!(validate(&mir, &hir).is_ok());
     }
 
