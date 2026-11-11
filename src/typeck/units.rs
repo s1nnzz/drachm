@@ -276,6 +276,7 @@ impl Globals {
         Some(t.mods.iter().rev().fold(ty, |ty, (m, _)| match m {
             ast::TypeMod::Ref { mutable } => Type::borrow(*mutable, ty),
             ast::TypeMod::Ptr => Type::ptr(ty),
+            ast::TypeMod::FixedPtr => Type::fixed_ptr(ty),
         }))
     }
 }

@@ -102,7 +102,7 @@ pub fn scalar_size(t: Type) -> Option<u32> {
     match t.bare() {
         Type::Int { bits, .. } | Type::Float(bits) => Some(bits as u32 / 8),
         Type::Bool => Some(1),
-        Type::Ref { .. } | Type::Ptr { .. } => Some(8),
+        Type::Ref { .. } | Type::Ptr { .. } | Type::FixedPtr { .. } => Some(8),
         _ => None,
     }
 }

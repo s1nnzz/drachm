@@ -25,6 +25,9 @@ pub enum Type {
     Ref { mutable: bool, to: &'static Type },
     /// `*T`: a raw pointer, which may be written through and may be `none`.
     Ptr { to: &'static Type },
+    /// `*fixed T`: a pointer that may be read but not written through
+    /// (`address of` an immutable binding). A different kind from `Ptr`.
+    FixedPtr { to: &'static Type },
     /// A number with a unit: `float64<m/s>`. `of` is always `Int` or `Float`.
     /// Units are checked by `typeck::units`; they are erased before the backends.
     Unit { of: &'static Type, unit: &'static Unit },
@@ -134,6 +137,11 @@ impl Type {
         Type::Ptr { to: intern_type(to) }
     }
 
+    /// `*fixed to`
+    pub fn fixed_ptr(to: Type) -> Type {
+        Type::FixedPtr { to: intern_type(to) }
+    }
+
     /// This number type with `unit`. A dimensionless unit of scale 1 is the
     /// plain number, since it changes nothing.
     pub fn with_unit(self, unit: &'static Unit) -> Type {
@@ -150,6 +158,7 @@ impl Type {
             Type::Unit { of, .. } => *of,
             Type::Ref { mutable, to } => Type::borrow(mutable, to.bare()),
             Type::Ptr { to } => Type::ptr(to.bare()),
+            Type::FixedPtr { to } => Type::fixed_ptr(to.bare()),
             t => t,
         }
     }
@@ -166,7 +175,7 @@ impl Type {
     pub fn mentions_unit(self) -> bool {
         match self {
             Type::Unit { .. } => true,
-            Type::Ref { to, .. } | Type::Ptr { to } => to.mentions_unit(),
+            Type::Ref { to, .. } | Type::Ptr { to } | Type::FixedPtr { to } => to.mentions_unit(),
             _ => false,
         }
     }
@@ -175,14 +184,19 @@ impl Type {
         matches!(self, Type::Ref { .. })
     }
 
+    /// A raw pointer of either kind (`*T` or `*fixed T`).
     pub fn is_ptr(self) -> bool {
-        matches!(self, Type::Ptr { .. })
+        matches!(self, Type::Ptr { .. } | Type::FixedPtr { .. })
+    }
+
+    pub fn is_fixed_ptr(self) -> bool {
+        matches!(self, Type::FixedPtr { .. })
     }
 
     /// What a borrow or pointer points at.
     pub fn target(self) -> Option<Type> {
         match self {
-            Type::Ref { to, .. } | Type::Ptr { to } => Some(*to),
+            Type::Ref { to, .. } | Type::Ptr { to } | Type::FixedPtr { to } => Some(*to),
             _ => None,
         }
     }
@@ -264,6 +278,7 @@ impl fmt::Display for Type {
             Type::Ref { mutable: false, to } => write!(f, "&{to}"),
             Type::Ref { mutable: true, to } => write!(f, "&mut {to}"),
             Type::Ptr { to } => write!(f, "*{to}"),
+            Type::FixedPtr { to } => write!(f, "*fixed {to}"),
             Type::Unit { of, unit } => write!(f, "{of}<{}>", unit_name(unit)),
         }
     }
@@ -281,6 +296,9 @@ mod tests {
         assert_eq!(a.to_string(), "&mut string");
         assert_eq!(Type::borrow(false, Type::U32).to_string(), "&uint32");
         assert_eq!(Type::ptr(Type::U32).to_string(), "*uint32");
+        assert_eq!(Type::fixed_ptr(Type::U32).to_string(), "*fixed uint32");
+        assert!(Type::fixed_ptr(Type::U32).is_ptr() && Type::fixed_ptr(Type::U32).is_fixed_ptr());
+        assert!(!Type::ptr(Type::U32).is_fixed_ptr());
         assert!(a.is_borrow() && !a.is_ptr());
         assert_eq!(Type::ptr(Type::Bool).target(), Some(Type::Bool));
     }

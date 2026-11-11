@@ -113,6 +113,8 @@ pub struct UnitDef {
 pub enum TypeMod {
     Ref { mutable: bool },
     Ptr,
+    /// `*fixed T`
+    FixedPtr,
 }
 
 #[derive(Debug)]

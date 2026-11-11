@@ -116,13 +116,14 @@ impl Globals {
         Some(t.mods.iter().rev().fold(base, |ty, (m, _)| match m {
             ast::TypeMod::Ref { mutable } => Type::borrow(*mutable, ty),
             ast::TypeMod::Ptr => Type::ptr(ty),
+            ast::TypeMod::FixedPtr => Type::fixed_ptr(ty),
         }))
     }
 
     fn resolve(&self, t: &ast::TypeName, diags: &mut Vec<Diagnostic>) -> Option<Type> {
         if let Some((_, span)) = t.mods.first() {
             self.uses_borrows.set(true);
-            if !self.unsafe_allowed && let Some((_, at)) = t.mods.iter().find(|(m, _)| *m == ast::TypeMod::Ptr) {
+            if !self.unsafe_allowed && let Some((_, at)) = t.mods.iter().find(|(m, _)| matches!(m, ast::TypeMod::Ptr | ast::TypeMod::FixedPtr)) {
                 diags.push(unsafe_disabled(*at, "raw pointer type here"));
             }
             if self.resolve_base_quiet(t) == Some(Type::None) {
@@ -1409,7 +1410,7 @@ impl Checker<'_> {
                 self.g.uses_borrows.set(true);
                 let mut p = self.lvalue(inner)?;
                 match p.ty {
-                    Type::Ptr { to } => {
+                    Type::Ptr { to } | Type::FixedPtr { to } => {
                         p.proj.push(hir::HirProj::Deref);
                         p.ty = *to;
                         p.through_deref = true;
@@ -2039,7 +2040,7 @@ impl Checker<'_> {
                 let v = self.expr_raw(inner)?;
                 let x = self.materialise(v, inner.span)?;
                 match x.ty {
-                    Type::Ptr { to } => typed(hir::ExprKind::Deref(Box::new(x)), *to),
+                    Type::Ptr { to } | Type::FixedPtr { to } => typed(hir::ExprKind::Deref(Box::new(x)), *to),
                     t => {
                         self.deref_error(t, inner.span, e.span);
                         None
