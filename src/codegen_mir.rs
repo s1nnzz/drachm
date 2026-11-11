@@ -1,6 +1,5 @@
 //! The fast backend, from MIR: `mir::Program` → Cranelift IR → object file.
-//! Replaces the HIR walker in `codegen` for the programs `mir::cleanup::eligible`
-//! accepts; must behave exactly like `cgen_mir`.
+//! Must behave exactly like `cgen_mir`.
 //!
 //! One Cranelift block per MIR block, emitted in reverse post-order. Locals
 //! with `in_memory == false` are SSA `Variable`s (so numeric code is the same
@@ -10,8 +9,9 @@
 //! A `Move` of such an argument passes the source's own address, a `Copy`
 //! first copies it, because the callee owns what it is given.
 //!
-//! The arithmetic helpers (`binary`, `divide`, `convert`, ...) are copies of
-//! the ones in `codegen`, which is deleted with the HIR path in WP6.
+//! A struct that needs it gets a drop function (`drachm_drop_S(ptr)`: its
+//! `drop()` first, then its fields in declaration order) and, if it holds
+//! strings, a copy function (`drachm_copy_S(dst, src)`), each defined once.
 
 use std::collections::HashMap;
 
@@ -24,7 +24,7 @@ use cranelift_object::{ObjectBuilder, ObjectModule};
 
 use crate::codegen::{cl_type, emit_c_main, err, in_memory, is_signed, signature, MEM, STR_CAP, STR_LEN};
 use crate::hir::{self, BinOp, STR_SIZE};
-use crate::mir::cleanup::moved_out_temps;
+use crate::mir::drops::{copy_glue_structs, drop_glue_structs, holds_string};
 use crate::mir::traversal::reverse_postorder;
 use crate::mir::ty::operand_ty;
 use crate::mir::*;
@@ -48,6 +48,20 @@ pub fn compile(hir: &hir::Program, mir: &Program) -> Result<Vec<u8>, String> {
     for f in &hir.funcs {
         let s = signature(&module, f);
         ids.push(module.declare_function(&f.symbol, Linkage::Local, &s).map_err(err)?);
+    }
+
+    // Glue functions: declared up front so any function can call them.
+    let mut drop_ids: Vec<Option<FuncId>> = vec![None; hir.structs.len()];
+    let mut copy_ids: Vec<Option<FuncId>> = vec![None; hir.structs.len()];
+    for s in drop_glue_structs(hir) {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(ptr));
+        drop_ids[s] = Some(module.declare_function(&format!("drachm_drop_{}", hir.structs[s].name), Linkage::Local, &sig).map_err(err)?);
+    }
+    for s in copy_glue_structs(hir) {
+        let mut sig = module.make_signature();
+        sig.params.extend([AbiParam::new(ptr), AbiParam::new(ptr)]);
+        copy_ids[s] = Some(module.declare_function(&format!("drachm_copy_{}", hir.structs[s].name), Linkage::Local, &sig).map_err(err)?);
     }
 
     let mut ctx = module.make_context();
@@ -81,7 +95,8 @@ pub fn compile(hir: &hir::Program, mir: &Program) -> Result<Vec<u8>, String> {
                 slots: Vec::new(),
                 blocks,
                 ret_ptr: None,
-                skip_drop: moved_out_temps(hir, body),
+                drop_ids: &drop_ids,
+                copy_ids: &copy_ids,
             };
             g.prologue(&params, hf.ret);
             let first = g.blocks[0];
@@ -101,8 +116,137 @@ pub fn compile(hir: &hir::Program, mir: &Program) -> Result<Vec<u8>, String> {
         module.clear_context(&mut ctx);
     }
 
+    for s in drop_glue_structs(hir) {
+        define_glue(&mut module, &mut ctx, &mut fctx, &mut runtime, hir, &ids, &drop_ids, &copy_ids, s, true)?;
+    }
+    for s in copy_glue_structs(hir) {
+        define_glue(&mut module, &mut ctx, &mut fctx, &mut runtime, hir, &ids, &drop_ids, &copy_ids, s, false)?;
+    }
+
     emit_c_main(&mut module, &mut ctx, &mut fctx, ids[hir.main], hir.funcs[hir.main].ret)?;
     module.finish().emit().map_err(err)
+}
+
+/// Call a runtime function, importing it on first use.
+fn import_rt(
+    module: &mut ObjectModule,
+    runtime: &mut HashMap<&'static str, FuncId>,
+    name: &'static str,
+    params: &[ClType],
+    returns: &[ClType],
+) -> FuncId {
+    if let Some(id) = runtime.get(name) {
+        return *id;
+    }
+    let mut sig = module.make_signature();
+    // C expects narrow arguments widened by the caller.
+    sig.params.extend(params.iter().map(|&t| if t.bits() < 32 { AbiParam::new(t).uext() } else { AbiParam::new(t) }));
+    sig.returns.extend(returns.iter().copied().map(AbiParam::new));
+    let id = module.declare_function(name, Linkage::Import, &sig).expect("runtime import");
+    runtime.insert(name, id);
+    id
+}
+
+/// Scalar leaves of a value of type `ty` that holds no strings, relative to `at`.
+fn plain_leaves(hir: &hir::Program, ty: Type, at: u32, out: &mut Vec<(u32, ClType)>) {
+    if let Some(cl) = cl_type(ty) {
+        out.push((at, cl));
+        return;
+    }
+    for f in &hir.struct_def(ty).fields {
+        plain_leaves(hir, f.ty, at + f.offset, out);
+    }
+}
+
+/// Define the drop (`drop == true`) or copy glue function of struct `s`.
+#[allow(clippy::too_many_arguments)]
+fn define_glue(
+    module: &mut ObjectModule,
+    ctx: &mut cranelift_codegen::Context,
+    fctx: &mut FunctionBuilderContext,
+    runtime: &mut HashMap<&'static str, FuncId>,
+    hir: &hir::Program,
+    ids: &[FuncId],
+    drop_ids: &[Option<FuncId>],
+    copy_ids: &[Option<FuncId>],
+    s: hir::StructId,
+    drop: bool,
+) -> Result<(), String> {
+    let ptr = module.target_config().pointer_type();
+    let id = if drop { drop_ids[s] } else { copy_ids[s] }.expect("declared glue");
+    ctx.func.signature = module.declarations().get_function_decl(id).signature.clone();
+    ctx.func.name = UserFuncName::user(0, id.as_u32());
+    let cfg = module.isa().frontend_config();
+    let def = &hir.structs[s];
+    {
+        let mut b = FunctionBuilder::new(&mut ctx.func, fctx);
+        let entry = b.create_block();
+        b.append_block_params_for_function_params(entry);
+        b.switch_to_block(entry);
+        let params = b.block_params(entry).to_vec();
+        let at = |b: &mut FunctionBuilder, base: Value, off: u32| if off == 0 { base } else { b.ins().iadd_imm_u(base, off as i64) };
+        if drop {
+            let p = params[0];
+            if let Some(f) = def.has_drop {
+                let callee = module.declare_func_in_func(ids[f], b.func);
+                b.ins().call(callee, &[p]);
+            }
+            for f in &def.fields {
+                match f.ty {
+                    Type::Str => {
+                        let a = at(&mut b, p, f.offset);
+                        let cap = b.ins().load(types::I64, MEM, a, STR_CAP);
+                        let drop_b = b.create_block();
+                        let after = b.create_block();
+                        b.ins().brif(cap, drop_b, &[], after, &[]);
+                        b.switch_to_block(drop_b);
+                        let rt = import_rt(module, runtime, "drachm_str_drop", &[ptr], &[]);
+                        let callee = module.declare_func_in_func(rt, b.func);
+                        b.ins().call(callee, &[a]);
+                        b.ins().jump(after, &[]);
+                        b.switch_to_block(after);
+                    }
+                    Type::Struct { id: inner, .. } if crate::mir::needs_drop(hir, f.ty) => {
+                        let a = at(&mut b, p, f.offset);
+                        let callee = module.declare_func_in_func(drop_ids[inner].expect("declared glue"), b.func);
+                        b.ins().call(callee, &[a]);
+                    }
+                    _ => {}
+                }
+            }
+        } else {
+            let (dst, src) = (params[0], params[1]);
+            for f in &def.fields {
+                match f.ty {
+                    Type::Str => {
+                        let (d, s) = (at(&mut b, dst, f.offset), at(&mut b, src, f.offset));
+                        let rt = import_rt(module, runtime, "drachm_str_copy", &[ptr, ptr], &[]);
+                        let callee = module.declare_func_in_func(rt, b.func);
+                        b.ins().call(callee, &[d, s]);
+                    }
+                    Type::Struct { id: inner, .. } if holds_string(hir, f.ty) => {
+                        let (d, s) = (at(&mut b, dst, f.offset), at(&mut b, src, f.offset));
+                        let callee = module.declare_func_in_func(copy_ids[inner].expect("declared glue"), b.func);
+                        b.ins().call(callee, &[d, s]);
+                    }
+                    t => {
+                        let mut leaves = Vec::new();
+                        plain_leaves(hir, t, f.offset, &mut leaves);
+                        for (off, cl) in leaves {
+                            let v = b.ins().load(cl, MEM, src, off as i32);
+                            b.ins().store(MEM, v, dst, off as i32);
+                        }
+                    }
+                }
+            }
+        }
+        b.ins().return_(&[]);
+        b.seal_all_blocks();
+        b.finalize(cfg);
+    }
+    module.define_function(id, ctx).map_err(|e| format!("in the glue of `{}`: {e:?}", def.name))?;
+    module.clear_context(ctx);
+    Ok(())
 }
 
 /// Where a local lives.
@@ -142,8 +286,9 @@ struct Cg<'a, 'b> {
     blocks: Vec<ClBlock>,
     /// Where a function that returns a string or struct writes it.
     ret_ptr: Option<Value>,
-    /// Locals whose `Drop` is skipped (see `moved_out_temps`).
-    skip_drop: Vec<bool>,
+    /// The drop and copy glue functions, by `StructId`.
+    drop_ids: &'a [Option<FuncId>],
+    copy_ids: &'a [Option<FuncId>],
 }
 
 impl Cg<'_, '_> {
@@ -387,28 +532,42 @@ impl Cg<'_, '_> {
     fn statement(&mut self, k: &StatementKind) {
         match k {
             StatementKind::Assign(dest, rv) => self.assign(dest, rv),
-            StatementKind::Drop { place, flag: None, .. } => {
-                if place.proj.is_empty() && self.skip_drop[place.local.index()] {
+            StatementKind::Drop { place, flag, .. } => {
+                let ty = crate::mir::ty::place_ty(self.body, self.hir, place).expect("validated MIR");
+                if !needs_drop(self.hir, ty) {
                     return;
                 }
-                let (loc, ty) = self.locate(place);
-                if ty != Type::Str {
-                    return;
-                }
-                let Loc::Mem(base, off) = loc else { unreachable!("a string is in memory") };
-                let a = self.offset(base, off);
-                // `drachm_str_drop` starts with this test; doing it here skips
-                // the call for literals and empty strings.
-                let cap = self.b.ins().load(types::I64, MEM, a, STR_CAP);
-                let drop_b = self.b.create_block();
+                // With a flag, only when it is set.
                 let after = self.b.create_block();
-                self.b.ins().brif(cap, drop_b, &[], after, &[]);
-                self.b.switch_to_block(drop_b);
-                self.rt("drachm_str_drop", &[self.ptr], &[], &[a]);
-                self.b.ins().jump(after, &[]);
+                if let Some(f) = flag {
+                    let c = self.operand(&Operand::Copy(Place::local(*f)));
+                    let then = self.b.create_block();
+                    self.b.ins().brif(c, then, &[], after, &[]);
+                    self.b.switch_to_block(then);
+                }
+                let (loc, _) = self.locate(place);
+                let Loc::Mem(base, off) = loc else { unreachable!("a string or struct is in memory") };
+                let a = self.offset(base, off);
+                match ty {
+                    Type::Str => {
+                        // `drachm_str_drop` starts with this test; doing it here skips
+                        // the call for literals and empty strings.
+                        let cap = self.b.ins().load(types::I64, MEM, a, STR_CAP);
+                        let drop_b = self.b.create_block();
+                        self.b.ins().brif(cap, drop_b, &[], after, &[]);
+                        self.b.switch_to_block(drop_b);
+                        self.rt("drachm_str_drop", &[self.ptr], &[], &[a]);
+                        self.b.ins().jump(after, &[]);
+                    }
+                    _ => {
+                        let id = self.drop_ids[ty.struct_id().expect("a struct")].expect("declared glue");
+                        let callee = self.module.declare_func_in_func(id, self.b.func);
+                        self.b.ins().call(callee, &[a]);
+                        self.b.ins().jump(after, &[]);
+                    }
+                }
                 self.b.switch_to_block(after);
             }
-            StatementKind::Drop { flag: Some(_), .. } => unreachable!("drop flags are not supported by the MIR backend yet"),
             StatementKind::StorageLive(_) | StatementKind::StorageDead(_) | StatementKind::FakeRead(_) | StatementKind::Nop => {}
         }
     }
@@ -437,7 +596,21 @@ impl Cg<'_, '_> {
                 self.copy_bits(ty, d, src);
             }
             Rvalue::Aggregate(sid, ops) => self.aggregate(dest, ty, *sid, ops),
-            _ => unreachable!("not supported by the MIR backend yet: {rv:?}"),
+            Rvalue::DeepCopy(src) => {
+                let s = self.addr_of(src);
+                let d = self.addr_of(dest);
+                match ty {
+                    Type::Str => {
+                        self.rt("drachm_str_copy", &[self.ptr, self.ptr], &[], &[d, s]);
+                    }
+                    Type::Struct { id, .. } if holds_string(self.hir, ty) => {
+                        let callee = self.module.declare_func_in_func(self.copy_ids[id].expect("declared glue"), self.b.func);
+                        self.b.ins().call(callee, &[d, s]);
+                    }
+                    _ => self.copy_bits(ty, d, s),
+                }
+            }
+            _ => unreachable!("not a string or struct rvalue: {rv:?}"),
         }
     }
 
@@ -559,9 +732,8 @@ impl Cg<'_, '_> {
                 self.convert(v, from, *to)
             }
             Rvalue::Ref(_, p) => self.addr_of(p),
-            Rvalue::RawRef(_) | Rvalue::DeepCopy(_) | Rvalue::Aggregate(..) => {
-                unreachable!("not supported by the MIR backend yet: {rv:?}")
-            }
+            Rvalue::RawRef(_) => unreachable!("raw pointers are not supported by the backends yet (WP9)"),
+            Rvalue::DeepCopy(_) | Rvalue::Aggregate(..) => unreachable!("not a scalar rvalue: {rv:?}"),
         }
     }
 
@@ -596,9 +768,8 @@ impl Cg<'_, '_> {
                 self.call(*callee, args, dest.as_ref());
                 self.b.ins().jump(self.blocks[target.index()], &[]);
             }
-            TerminatorKind::Switch { .. } | TerminatorKind::Panic(_) => {
-                unreachable!("not supported by the MIR backend yet: {k:?}")
-            }
+            // The builder never emits `Switch`, and `PanicKind` has no values.
+            TerminatorKind::Switch { .. } | TerminatorKind::Panic(_) => unreachable!("the builder never emits {k:?}"),
         }
     }
 
@@ -746,18 +917,7 @@ impl Cg<'_, '_> {
 
     /// Call a runtime function, importing it on first use.
     fn rt(&mut self, name: &'static str, params: &[ClType], returns: &[ClType], args: &[Value]) -> Vec<Value> {
-        let id = match self.runtime.get(name) {
-            Some(id) => *id,
-            None => {
-                let mut sig = self.module.make_signature();
-                // C expects narrow arguments widened by the caller.
-                sig.params.extend(params.iter().map(|&t| if t.bits() < 32 { AbiParam::new(t).uext() } else { AbiParam::new(t) }));
-                sig.returns.extend(returns.iter().copied().map(AbiParam::new));
-                let id = self.module.declare_function(name, Linkage::Import, &sig).expect("runtime import");
-                self.runtime.insert(name, id);
-                id
-            }
-        };
+        let id = import_rt(self.module, self.runtime, name, params, returns);
         let callee = self.module.declare_func_in_func(id, self.b.func);
         let call = self.b.ins().call(callee, args);
         self.b.inst_results(call).to_vec()

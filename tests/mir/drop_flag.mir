@@ -1,0 +1,2 @@
+Drop(_1) if _6
+!main: Drop(_1)

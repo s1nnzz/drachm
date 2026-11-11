@@ -1,0 +1,7 @@
+in io;
+none main() {
+    mut string s = "a";
+    mut uint32 i = 0;
+    while (i < 1000) { s = s + "b"; i++; }  // each old value dropped
+    io::outln(s::len()->text());
+}

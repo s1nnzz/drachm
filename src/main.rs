@@ -51,7 +51,10 @@ fn main() {
             let hir = front_end(&input, !dump_mir);
             if dump_mir {
                 let mut diags = Vec::new();
-                let mir = drachm::mir::build_program(&hir, &mut diags);
+                let mut mir = drachm::mir::build_program(&hir, &mut diags);
+                // The dump shows what the code generators get, minus the cleanup:
+                // drops decided, flags in place.
+                drachm::mir::drops::elaborate_program(&hir, &mut mir);
                 if !diags.is_empty() {
                     let color = std::io::stderr().is_terminal() && std::env::var_os("NO_COLOR").is_none();
                     let text = std::fs::read_to_string(&input).unwrap_or_default();

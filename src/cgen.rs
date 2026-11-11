@@ -76,18 +76,6 @@ pub(crate) fn struct_defs(prog: &Program, asserts: bool) -> String {
             }
             let _ = writeln!(out, "_Static_assert({checks}, \"layout\");\n");
         }
-        if def.owns {
-            // The bits first, then a new copy of each string inside.
-            let _ = writeln!(out, "static void drachm_copy_{}({name} *d, const {name} *s) {{\n    *d = *s;", def.name);
-            for f in def.fields.iter().filter(|f| prog.owns(f.ty)) {
-                let _ = writeln!(out, "    {}(&d->f_{n}, &s->f_{n});", copy_fn(f.ty), n = f.name);
-            }
-            let _ = writeln!(out, "}}\n\nstatic void drachm_drop_{}({name} *p) {{", def.name);
-            for f in def.fields.iter().filter(|f| prog.owns(f.ty)) {
-                let _ = writeln!(out, "    {}(&p->f_{});", drop_fn(f.ty), f.name);
-            }
-            let _ = writeln!(out, "}}\n");
-        }
     }
     out
 }

@@ -1430,7 +1430,6 @@ impl Checker<'_> {
                 out.push(hir::Stmt::Unsafe(block));
             }
             Stmt::Destroy { target, span } => {
-                self.g.uses_borrows.set(true);
                 let local = match &target.kind {
                     ExprKind::Var(n) => self.lookup(n),
                     _ => None,
@@ -1460,12 +1459,6 @@ impl Checker<'_> {
                 match v {
                     // A place has no effects; there is nothing to do.
                     Some(Val::Expr(e)) if plain_place(&e) => {}
-                    // An unused new owning value is made and dropped.
-                    Some(Val::Expr(e)) if self.g.owns(e.ty) => {
-                        let unused = self.hidden(e.ty);
-                        out.push(hir::Stmt::Assign(hir::Place::local(unused), scoped(e, temps)));
-                        out.push(hir::Stmt::Drop(hir::Place::local(unused)));
-                    }
                     Some(Val::Expr(e)) => out.push(hir::Stmt::Expr(scoped(e, temps))),
                     _ => {}
                 }
@@ -2486,7 +2479,6 @@ impl Checker<'_> {
 
     /// `take p.f` / `take p.f leaving v`.
     fn take_expr(&mut self, e: &ast::Expr, place: &ast::Expr, leaving: Option<&ast::Expr>) -> Option<Val> {
-        self.g.uses_borrows.set(true);
         let unsupported = |cx: &mut Self| {
             cx.diags.push(Diagnostic::at(&codes::E0901, place.span, "this form of `take` is not supported yet"));
         };

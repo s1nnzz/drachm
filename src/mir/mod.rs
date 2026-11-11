@@ -1,13 +1,14 @@
 //! The MIR: a control-flow graph of basic blocks per function, built from the
 //! HIR. See `docs/impl/step3-ownership.md` section 2 and `docs/impl/wp1.md`.
 //!
-//! Phase A of WP1: the builder translates the current HIR (including the
-//! legacy ownership nodes) faithfully. Nothing but tests and
-//! `drachm check --dump-mir` uses the MIR yet.
+//! The builder lowers the HIR, the analyses in `check` look for ownership
+//! errors, `drops` decides what each `Drop` really does, and the two code
+//! generators read the result.
 
 pub mod analysis;
 pub mod cleanup;
 pub mod build;
+pub mod drops;
 pub mod index;
 pub mod print;
 pub mod traversal;

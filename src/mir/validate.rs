@@ -394,9 +394,11 @@ fn flow_statement(assigned: &mut [bool], k: &StatementKind, used: &mut dyn FnMut
             }
         }
         StatementKind::Drop { place, flag, .. } => {
-            place_use(place, used);
-            if let Some(f) = flag {
-                used(*f);
+            // A drop with a flag runs only if the value exists: it is not a
+            // read of a possibly unassigned temp.
+            match flag {
+                Some(f) => used(*f),
+                None => place_use(place, used),
             }
         }
         StatementKind::FakeRead(pl) => place_use(pl, used),

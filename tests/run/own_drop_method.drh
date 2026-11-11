@@ -1,0 +1,14 @@
+in io;
+struct Guard {
+    string name;
+    none drop() { io::outln("drop " + self.name); }
+}
+none main() {
+    Guard a = "a";
+    if (true) {
+        Guard b = "b";
+        io::outln("inner");
+    }
+    Guard c = "c";
+    io::outln("end");
+}

@@ -1,6 +1,5 @@
 //! The optimising backend, from MIR: `mir::Program` → C, handed to the system
-//! C compiler. Replaces the HIR walker in `cgen` for the programs
-//! `mir::cleanup::eligible` accepts; must behave exactly like `codegen_mir`.
+//! C compiler. Must behave exactly like `codegen_mir`.
 //!
 //! The C is the control-flow graph itself: every MIR local is a C local
 //! declared at the top of its function (`lN`, as numbered in the MIR), blocks
@@ -14,7 +13,7 @@ use std::fmt::Write;
 
 use crate::cgen::{bits, c_str_value, c_type, halves, main_fn, prelude, signed, struct_defs, work_type};
 use crate::hir::{self, BinOp};
-use crate::mir::cleanup::moved_out_temps;
+use crate::mir::drops::{copy_glue_structs, drop_glue_structs, holds_string};
 use crate::mir::traversal::reverse_postorder;
 use crate::mir::ty::{operand_ty, place_ty};
 use crate::mir::*;
@@ -27,12 +26,65 @@ pub fn generate(hir: &hir::Program, mir: &Program) -> String {
     for &body in &bodies {
         let _ = writeln!(out, "{};", signature(hir, body));
     }
+    out += &glue(hir);
     for &body in &bodies {
-        let g = Gen { hir, mir, body, out: String::new(), skip_drop: moved_out_temps(hir, body), jumped: vec![false; body.blocks.len()], branch_over: None, consts: Vec::new() };
+        let g = Gen { hir, mir, body, out: String::new(), jumped: vec![false; body.blocks.len()], branch_over: None, consts: Vec::new() };
         let _ = writeln!(out, "\n{} {{\n{}}}", signature(hir, body), g.function());
     }
     out += &main_fn(hir);
     out
+}
+
+/// The drop and copy glue of the structs that need it: `drachm_drop_S(&value)`
+/// runs the struct's `drop()` (if it has one) and then drops its fields in
+/// declaration order; `drachm_copy_S(&dest, &src)` copies the plain fields
+/// by value and deep-copies the strings. Prototypes first, so the order of
+/// the definitions does not matter. Ordered by struct id.
+fn glue(hir: &hir::Program) -> String {
+    let drops = drop_glue_structs(hir);
+    let copies = copy_glue_structs(hir);
+    let mut protos = String::new();
+    let mut defs = String::new();
+    for &s in &drops {
+        let def = &hir.structs[s];
+        let t = crate::cgen::struct_name(&def.name);
+        let _ = writeln!(protos, "static void drachm_drop_{}({t} *p);", def.name);
+        let _ = writeln!(defs, "\nstatic void drachm_drop_{}({t} *p) {{", def.name);
+        if let Some(f) = def.has_drop {
+            let _ = writeln!(defs, "    {}(p);", hir.funcs[f].symbol);
+        }
+        for f in &def.fields {
+            match f.ty {
+                Type::Str => {
+                    let _ = writeln!(defs, "    if (p->f_{0}.cap != 0) drachm_str_drop(&p->f_{0});", f.name);
+                }
+                Type::Struct { name, .. } if crate::mir::needs_drop(hir, f.ty) => {
+                    let _ = writeln!(defs, "    drachm_drop_{name}(&p->f_{});", f.name);
+                }
+                _ => {}
+            }
+        }
+        defs += "}\n";
+    }
+    for &s in &copies {
+        let def = &hir.structs[s];
+        let t = crate::cgen::struct_name(&def.name);
+        let _ = writeln!(protos, "static void drachm_copy_{}({t} *dst, const {t} *src);", def.name);
+        let _ = writeln!(defs, "\nstatic void drachm_copy_{}({t} *dst, const {t} *src) {{\n    *dst = *src;", def.name);
+        for f in &def.fields {
+            match f.ty {
+                Type::Str => {
+                    let _ = writeln!(defs, "    drachm_str_copy(&dst->f_{0}, &src->f_{0});", f.name);
+                }
+                Type::Struct { name, .. } if holds_string(hir, f.ty) => {
+                    let _ = writeln!(defs, "    drachm_copy_{name}(&dst->f_{0}, &src->f_{0});", f.name);
+                }
+                _ => {}
+            }
+        }
+        defs += "}\n";
+    }
+    protos + &defs
 }
 
 /// `static T symbol(T l1, T l2)`. A method's `self` is an ordinary `&T`
@@ -49,7 +101,6 @@ struct Gen<'a> {
     body: &'a Body,
     /// The text of the block being emitted.
     out: String,
-    skip_drop: Vec<bool>,
     /// Blocks some emitted `goto` names.
     jumped: Vec<bool>,
     /// `if (!c) goto els;` for the block just emitted, left for `function` to
@@ -312,18 +363,20 @@ impl Gen<'_> {
                     self.assign(&lhs, ty, rv);
                 }
             }
-            StatementKind::Drop { place, flag: None, .. } => {
-                if place.proj.is_empty() && self.skip_drop[place.local.index()] {
-                    return;
-                }
+            StatementKind::Drop { place, flag, .. } => {
                 let ty = place_ty(self.body, self.hir, place).expect("validated MIR");
-                if ty == Type::Str {
+                let lv = self.lvalue(place);
+                let call = match ty {
                     // `drachm_str_drop` starts with this test; doing it here skips the call.
-                    let lv = self.lvalue(place);
-                    self.line(format!("if ({lv}.cap != 0) drachm_str_drop(&{lv});"));
+                    Type::Str => format!("if ({lv}.cap != 0) drachm_str_drop(&{lv});"),
+                    Type::Struct { name, .. } if crate::mir::needs_drop(self.hir, ty) => format!("drachm_drop_{name}(&{lv});"),
+                    _ => return,
+                };
+                match flag {
+                    Some(f) => self.line(format!("if (l{}) {call}", f.index())),
+                    None => self.line(call),
                 }
             }
-            StatementKind::Drop { flag: Some(_), .. } => unreachable!("drop flags are not supported by the MIR backend yet"),
             StatementKind::StorageLive(_) | StatementKind::StorageDead(_) | StatementKind::FakeRead(_) | StatementKind::Nop => {}
         }
     }
@@ -395,7 +448,16 @@ impl Gen<'_> {
                 let parts: Vec<String> = ops.iter().enumerate().map(|(i, op)| format!(".f_{} = {}", def.fields[i].name, self.operand(op))).collect();
                 format!("({}){{ {} }}", crate::cgen::struct_name(&def.name), parts.join(", "))
             }
-            Rvalue::RawRef(_) | Rvalue::DeepCopy(_) => unreachable!("not supported by the MIR backend yet: {rv:?}"),
+            Rvalue::DeepCopy(p) => {
+                let src = self.lvalue(p);
+                match ty {
+                    Type::Str => self.line(format!("drachm_str_copy(&{lv}, &{src});")),
+                    Type::Struct { name, .. } if holds_string(self.hir, ty) => self.line(format!("drachm_copy_{name}(&{lv}, &{src});")),
+                    _ => self.line(format!("{lv} = {src};")),
+                }
+                return;
+            }
+            Rvalue::RawRef(_) => unreachable!("raw pointers are not supported by the backends yet (WP9): {rv:?}"),
         };
         self.line(format!("{lv} = {value};"));
     }
@@ -488,7 +550,8 @@ impl Gen<'_> {
                 self.call(*callee, args, dest.as_ref());
                 self.goto(*target, next);
             }
-            TerminatorKind::Switch { .. } | TerminatorKind::Panic(_) => unreachable!("not supported by the MIR backend yet: {k:?}"),
+            // The builder never emits `Switch`, and `PanicKind` has no values.
+            TerminatorKind::Switch { .. } | TerminatorKind::Panic(_) => unreachable!("the builder never emits {k:?}"),
         }
     }
 
@@ -516,7 +579,10 @@ impl Gen<'_> {
                 let a = a.join(", ");
                 match (&dest_lv, f.ret()) {
                     (Some(d), Type::Str) => self.line(format!("{}(&{d}, {a});", f.name())),
-                    (Some(d), t) if t != Type::None => self.line(format!("{d} = {}({a});", f.name())),
+                    (Some(_), t) if t != Type::None => {
+                        let d = self.decl(dest.unwrap(), t);
+                        self.line(format!("{d} = {}({a});", f.name()))
+                    }
                     _ => self.line(format!("{}({a});", f.name())),
                 }
             }

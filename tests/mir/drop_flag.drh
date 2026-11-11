@@ -1,0 +1,11 @@
+in io;
+
+none consume(string s) { io::outln(s); }
+
+none main() {
+    string a = "hi";
+    if (a::isEmpty()) {
+        consume(a);
+    }
+    io::outln("done");
+}
