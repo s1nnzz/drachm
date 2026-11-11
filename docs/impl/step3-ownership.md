@@ -2342,6 +2342,11 @@ The code reports `E0901` for each of these, with the message given, so that
 the case is easy to relax when the owner answers. Not in the list: things this
 spec reads in the obvious way (R1-R18).
 
+Answered 2026-11-11 (see `owner-answers.md`): #1 error, fix-it `lend s`;
+#3 write `&m`, bare `m` is an error; #6 `x::drop()` is an error, new statement
+`destroy x;`; #9 allowed, yields read-only `*fixed T`. These are no longer
+E0901 once implemented (#1, #3 in WP0a; #6 in WP6; #9 in WP9).
+
 1. **A borrow of a borrow.** `&r` / `&mut r` where `r` is already a borrow
    binding, `&&x`, and `&&T` / `&mut &T` in a type: "borrowing a borrow is not
    supported yet; use `lend r` to pass on a `&mut`". (By Q1 `&mut r` could mean
