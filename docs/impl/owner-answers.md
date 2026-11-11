@@ -71,3 +71,4 @@ Units Q13 (my choice): declared dimensionless units are allowed: `unit pct = 0.0
 - At end of input it returns `""`; `io::ended()` (a `bool`) says whether input is finished: `while (!io::ended()) { string line = io::inln(); ... }`.
 - Text to number reuses `::to<T>()`: `line::to<uint32>()`. It can fail on bad text, so it becomes a failing call with step 5 (`line::to<uint32>() maybe 0`). Until step 5 (my interim choice, not asked): bad text stops the program with a runtime error (exit 101) naming the text and the type.
 - Scheduled after WP6 (it touches typeck builtins, the runtime and the backends WP6 is rewriting).
+Units Q12b (2026-11-11): assigning or declaring a unit variable with a plain value attaches the unit: `float64<m> d = 5;` is 5 m, `d = 0;` is 0 m. Only operators are strict (`d + 5` is an error).
