@@ -164,3 +164,23 @@ pre[data-focus-on] .line:not([data-hl])::before { opacity: 0.3; }
 @media (max-width: 1099px) {
   .drh-focus::before { left: -0.6rem; }
 }
+
+/* Status badges: quiet outline pills next to a title or heading. */
+.drh-status {
+  display: inline-block;
+  margin-left: 0.6rem;
+  padding: 0.12rem 0.5rem;
+  border: 1px solid var(--color-fd-border);
+  border-radius: 999px;
+  color: var(--color-fd-muted-foreground);
+  font: 500 0.6875rem/1.4 var(--font-sans);
+  letter-spacing: 0;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.drh-status-not-implemented {
+  color: var(--drh);
+  border-color: color-mix(in srgb, var(--drh) 40%, transparent);
+}
+.drh-status-tentative { border-style: dashed; }
+.drh-status-side { margin-left: 0.5rem; padding: 0 0.4rem; font-size: 0.625rem; }

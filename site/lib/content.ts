@@ -14,8 +14,21 @@ export const examplesDir = path.resolve(
     (process.env.DRACHM_CONTENT_DIR ? path.join(contentDir, 'examples') : 'examples'),
 );
 
+export type Status = 'not-implemented' | 'tentative';
+export const STATUS_LABEL: Record<Status, string> = {
+  'not-implemented': 'Not implemented yet',
+  tentative: 'Tentative: may change',
+};
+export const STATUS_SHORT: Record<Status, string> = {
+  'not-implemented': 'Not built',
+  tentative: 'Tentative',
+};
+export const parseStatus = (v: string | undefined): Status | undefined =>
+  v === 'not-implemented' || v === 'tentative' ? v : undefined;
+
 export interface Doc {
   slug: string;
+  status?: Status;
   title: string;
   description: string;
   body: string; // markdown, front matter removed
@@ -49,6 +62,7 @@ function readDocs(): Map<string, Doc> {
       slug,
       title: String(data.title ?? slug),
       description: String(data.description ?? ''),
+      status: parseStatus(data.status?.trim()),
       // The page title is rendered from front matter, so drop a duplicate H1.
       body: content.replace(/^\s*# .*\n/, ''),
       file,
@@ -91,6 +105,9 @@ if (sections.length === 0) {
 export { sections };
 export const flatDocs: Doc[] = sections.flatMap((s) => s.docs);
 export const docBySlug = new Map(flatDocs.map((d) => [d.slug, d]));
+
+/** Page URL to status, for the sidebar badges. */
+export const statusByUrl = new Map(flatDocs.flatMap((d) => (d.status ? [[docUrl(d), d.status] as const] : [])));
 
 export const source = loader({
   baseUrl: '/docs',
