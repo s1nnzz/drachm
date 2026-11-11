@@ -1,0 +1,5 @@
+struct S {
+    uint32 n;
+    string drop(uint32 how) { return "x"; }
+}
+none main() { }

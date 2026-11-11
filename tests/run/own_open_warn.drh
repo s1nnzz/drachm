@@ -1,0 +1,6 @@
+in io;
+none main() {
+    mut open uint32 a = 1;
+    open uint32 b = 2;
+    io::outln((a + b)::text());
+}

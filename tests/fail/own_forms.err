@@ -1,0 +1,3 @@
+error[E0327]: `take` needs a field of a variable
+error[E0327]: `copy` needs a variable or a field
+error[E0326]: `lend` passes on a `&mut` borrow you hold, and `n` is not one

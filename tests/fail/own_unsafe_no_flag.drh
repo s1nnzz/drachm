@@ -1,0 +1,2 @@
+none f(*uint32 p) { }
+none main() { unsafe { } }

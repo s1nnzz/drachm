@@ -36,11 +36,11 @@ fn count(n: usize, what: &str) -> String {
 }
 
 fn text_of(v: hir::Expr) -> hir::Expr {
-    hir::Expr { kind: hir::ExprKind::Text(Box::new(v)), ty: Type::Str }
+    hir::Expr::new(hir::ExprKind::Text(Box::new(v)), Type::Str)
 }
 
 fn str_call(f: StrFn, args: Vec<hir::Expr>) -> hir::Expr {
-    hir::Expr { kind: hir::ExprKind::StrCall(f, args), ty: f.ret() }
+    hir::Expr::new(hir::ExprKind::StrCall(f, args), f.ret())
 }
 
 /// A `%` placeholder in an `io::outf` format.
@@ -144,10 +144,10 @@ impl Checker<'_> {
                         self.temps.pop();
                         *inner
                     }
-                    kind => self.owned(hir::Expr { kind, ty: Type::Str }),
+                    kind => self.owned(hir::Expr::new(kind, Type::Str)),
                 }
             }
-            _ => hir::Expr { kind: hir::ExprKind::Join(pieces), ty: Type::Str },
+            _ => hir::Expr::new(hir::ExprKind::Join(pieces), Type::Str),
         }
     }
 
@@ -281,7 +281,7 @@ impl Checker<'_> {
         let e = match op {
             BinOp::Add => str_call(StrFn::Concat, args),
             BinOp::Eq => str_call(StrFn::Eq, args),
-            BinOp::Ne => hir::Expr { kind: hir::ExprKind::Not(Box::new(str_call(StrFn::Eq, args))), ty: Type::Bool },
+            BinOp::Ne => hir::Expr::new(hir::ExprKind::Not(Box::new(str_call(StrFn::Eq, args))), Type::Bool),
             _ => {
                 let hop = match op {
                     BinOp::Lt => hir::BinOp::Lt,
@@ -291,7 +291,7 @@ impl Checker<'_> {
                 };
                 let cmp = str_call(StrFn::Cmp, args);
                 let zero = int_lit(0, Type::S32);
-                hir::Expr { kind: hir::ExprKind::Binary(hop, Box::new(cmp), Box::new(zero)), ty: Type::Bool }
+                hir::Expr::new(hir::ExprKind::Binary(hop, Box::new(cmp), Box::new(zero)), Type::Bool)
             }
         };
         Some(Val::Expr(e))
@@ -368,7 +368,7 @@ impl Checker<'_> {
         }
         let text = self.join(pieces);
         let arg = self.place(text);
-        Some(Val::Expr(hir::Expr { kind: hir::ExprKind::Out { newline: false, arg: Box::new(arg) }, ty: Type::None }))
+        Some(Val::Expr(hir::Expr::new(hir::ExprKind::Out { newline: false, arg: Box::new(arg) }, Type::None)))
     }
 
     /// Split a format into text and placeholders. Only `%` written directly
@@ -540,7 +540,7 @@ impl Checker<'_> {
                 mismatch(self, "a whole number", String::new());
                 return None;
             }
-            hir::Expr { kind: hir::ExprKind::Radix { value: Box::new(v), base, upper }, ty: Type::Str }
+            hir::Expr::new(hir::ExprKind::Radix { value: Box::new(v), base, upper }, Type::Str)
         } else if let Some(n) = hole.places {
             if !ty.is_float() {
                 let help = if ty.is_int() {
@@ -552,7 +552,7 @@ impl Checker<'_> {
                 mismatch(self, "a float", help);
                 return None;
             }
-            let v = if ty == Type::F64 { v } else { hir::Expr { kind: hir::ExprKind::Convert(Box::new(v)), ty: Type::F64 } };
+            let v = if ty == Type::F64 { v } else { hir::Expr::new(hir::ExprKind::Convert(Box::new(v)), Type::F64) };
             str_call(StrFn::Fixed, vec![v, int_lit(n as u128, Type::U32)])
         } else if ty == Type::Str {
             v

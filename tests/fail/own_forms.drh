@@ -1,0 +1,7 @@
+string make() { return "a"; }
+none main() {
+    uint32 n = 1;
+    string s = take make();
+    string t = copy make();
+    uint32 m = lend n;
+}
