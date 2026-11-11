@@ -1,0 +1,11 @@
+in io;
+struct P {
+public:
+    mut string n;
+}
+none main() {
+    mut P p = "ab";
+    &string r = &p.n;
+    p.n += "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx";
+    io::outln(r);
+}

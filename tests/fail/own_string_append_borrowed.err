@@ -1,0 +1,5 @@
+error[E0302]: cannot change `y` while it is borrowed
+`y` is borrowed here
+change attempted here
+the borrow is still used here
+help: finish using `r` before changing `y`
