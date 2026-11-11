@@ -1,0 +1,7 @@
+none consume(string s) { }
+bool flip() { return true; }
+none main() {
+    string s = "x";
+    if (flip()) { consume(s); }
+    consume(s);
+}

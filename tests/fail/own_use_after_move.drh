@@ -1,0 +1,7 @@
+in io;
+none greet(string s) { io::outln(s); }
+none main() {
+    string name = "Illy";
+    greet(name);
+    io::outln(name);
+}

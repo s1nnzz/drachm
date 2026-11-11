@@ -28,6 +28,17 @@ compiler (the owner's choice, for benchmark speed).
   any that change what users see.
 - Commits: no AI attribution lines (no Co-Authored-By etc.), short plain messages like a human programmer. Ask before pushing.
 
+## Keeping the docs site current
+
+`site/` is the user docs (Next.js; content in `site/content/*.md`, runnable
+examples in `site/examples/`). Every change that makes a feature usable, or
+adds/changes a diagnostic, updates the site **in the same commit**:
+- add or edit the relevant tour/reference page, with a real example in
+  `site/examples/NAME.drh` + `.out` (checked by `cargo test`);
+- move the feature off `site/content/coming-later.md` once it builds;
+- rerun `site/gen-errors.sh` when `src/diag/codes.rs` changes.
+Only document what the compiler accepts today. Agent briefs must say this.
+
 ## Commands
 
 ```sh

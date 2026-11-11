@@ -26,8 +26,6 @@ error[E0205]: cannot change `l.a.x`: `l` is not `mut`, and neither is the field
 error[E0205]: cannot call `shift` on `l.a`: it changes the value, and `l` is not `mut`
     |                            ------ `shift` changes `self` here: it changes `self.x`
  help: declare it as `mut Line l`, or make the fields `shift` changes `mut`
-error[E0211]: cannot set `later.x`: `later` may not have a value yet
- help: give `later` a whole value first, on every path to here
 error[E0114]: `Point` has 3 fields, but 2 values are given
  help: give a value for each field, in order: `sint32 x`, `sint32 y` and `uint32 seen`
 error[E0114]: field `x` is given twice
@@ -39,4 +37,4 @@ error[E0201]: `Point` has no field `z`
  help: did you mean `x`?
 error[E0101]: expected `sint32`, found `bool`
  help: `bool` is not a number and never converts to or from one
-tests/fail/structmut.drh: 18 errors
+tests/fail/structmut.drh: 17 errors

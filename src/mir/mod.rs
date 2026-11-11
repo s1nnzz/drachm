@@ -13,6 +13,10 @@ pub mod print;
 pub mod traversal;
 pub mod ty;
 pub mod validate;
+pub mod check;
+pub mod dataflow;
+pub mod lateinit;
+pub mod moves;
 
 use crate::diag::{Diagnostic, Span};
 use crate::hir::{self, FuncId, StructId};
@@ -50,12 +54,7 @@ impl std::fmt::Display for BlockId {
     }
 }
 
-/// Placeholder until WP3 infers how a method borrows `self`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SelfMode {
-    Shared,
-    Mut,
-}
+pub use crate::ownership::{MutKind, MutReason, SelfMode};
 
 /// Placeholder until WP8 (lifetimes in signatures).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -368,7 +367,7 @@ struct Named { public: string s; }
 struct Edge { public: sint8 tag; uint128 big; }
 none main() { }
 ";
-        let (hir, diags) = crate::check(src);
+        let (hir, diags) = crate::front(src);
         let hir = hir.unwrap_or_else(|| panic!("does not check: {diags:?}"));
         let small = struct_ty(&hir, "Small");
         assert_eq!(hir.struct_def(small).size, 24);
@@ -388,7 +387,7 @@ none main() { }
     }
 
     fn built(src: &str) -> (hir::Program, Program, Vec<Diagnostic>) {
-        let (hir, diags) = crate::check(src);
+        let (hir, diags) = crate::front(src);
         let hir = hir.unwrap_or_else(|| panic!("does not check: {diags:?}"));
         let mut mir_diags = Vec::new();
         let mir = build_program(&hir, &mut mir_diags);
@@ -422,7 +421,7 @@ none main() {
         assert!(all.iter().any(|s| matches!(s.kind, StatementKind::Drop { reason: DropReason::Destroy, .. })));
         let get = mir.bodies.iter().flatten().find(|b| b.name.ends_with("get")).unwrap();
         let self_ty = get.locals[Local(1)].ty;
-        assert!(matches!(self_ty, Type::Ref { mutable: true, .. }), "self is a borrow of the struct: {self_ty}");
+        assert!(matches!(self_ty, Type::Ref { mutable: false, .. }), "a method that only reads self borrows it shared: {self_ty}");
         assert!(validate(&mir, &hir).is_ok());
     }
 

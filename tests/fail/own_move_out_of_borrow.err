@@ -1,0 +1,3 @@
+error[E0310]: cannot move `p.name` out of a borrow
+`p` is a `&` borrow
+help: return a copy: `return copy p.name;`

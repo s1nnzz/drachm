@@ -1,0 +1,9 @@
+error[E0205]: cannot change `x`: it is not `mut`
+assigned a second time here
+declared here without `mut`
+help: declare it as `mut uint32 x` to allow changes
+error[E0205]: cannot change `once`: it is not `mut`
+error[E0205]: cannot assign `looped` inside a loop: it is not `mut`
+the loop would assign it again each time round
+error[E0205]: cannot change `j`: it is not `mut`
+4 errors

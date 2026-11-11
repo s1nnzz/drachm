@@ -56,15 +56,15 @@ none early(string s) {
 
 none main() {
     string base = "drachm";
-    io::outln(shout(base));
+    io::outln(shout(copy base));
     io::outln(shout("lit"));
     io::outln(base);
-    io::outln(decorate(base, 3));
+    io::outln(decorate(copy base, 3));
     io::outln(classify(-5));
     io::outln(classify(0));
     io::outln(classify(7));
     io::outln(classify(500));
-    io::outln(same(same(base)));
+    io::outln(same(same(copy base)));
     io::outln(countVowels("education")::text());
     early("");
     early("why");
@@ -108,7 +108,7 @@ none main() {
 
     // A value used only for its effects, and results that are dropped unused.
     base::upper();
-    shout(base);
+    shout(copy base);
     base + "unused";
     base;
 

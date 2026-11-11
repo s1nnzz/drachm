@@ -1,0 +1,2 @@
+error[E0301]: `s` is used after it moved
+`s` moved here, on some paths

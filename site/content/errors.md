@@ -335,8 +335,156 @@ A `static` method is called on the struct (`Point::origin()`); every
 other method is called on a value (`p::length()`). This call used the
 wrong one.
 
+## E0309: `lives` does not match the body
+
+A function's `lives` clause names whole parameters that hold a borrow,
+and the result may borrow from those. Naming something that is not a
+parameter holding a borrow is an error:
+
+    &string pick(&string a, uint32 n) lives n { ... }   // `n` holds no borrow
+
+## E0314: struct borrows without `lives`
+
+A struct with a borrow field (`&string src;`) must say what it borrows
+from, and `lives` must name exactly the borrow fields:
+
+    struct Parser lives src { &string src; uint32 pos; }
+
+## E0317: `unsafe` without the file flag
+
+`unsafe { }`, `unsafe` functions, `*T` types and `address of` need the
+file flag `//--!$unsafe: true` at the very top of the file.
+
+## E0321: missing `&` or `&mut` at the call
+
+A parameter of type `&T` or `&mut T` is passed by writing the borrow at
+the call, so the call says what the callee may do:
+
+    none grow(&mut string s) { ... }
+    grow(&mut xs);          // not `grow(xs)`
+
+## W0322: `copy` of a value that copies anyway
+
+`copy` makes a deep copy, but numbers, bools, shared borrows and small
+plain structs always copy when used, so `copy` changes nothing.
+
+## W0323: `mut open` is redundant
+
+`mut` already allows everything `open` does, so `mut open` says the same
+as `mut`.
+
+## E0326: `lend` needs a `&mut` you hold
+
+`lend r` passes on a `&mut` borrow you hold and keeps it afterwards. The
+operand must be a place of type `&mut T`; to borrow a plain value, write
+`&mut x`.
+
+## E0327: not a variable or field
+
+`take`, `copy` and `address of` work on a place: a variable or a field
+of one. A call result or other temporary value has nothing to take out
+of; use it directly.
+
+## E0328: `drop` has the wrong shape
+
+A method named `drop` runs by itself when the value is destroyed, so it
+must be written `none drop()`: not `static`, no parameters, not `unsafe`.
+
+## E0329: borrow of a `&mut` you hold
+
+`&mut s` where `s` is already a `&mut` binding would borrow the borrow.
+To pass the borrow on and keep it, write `lend s`.
+
+## E0330: `&mut` where `&` is wanted
+
+A `&mut` binding passed bare where a `&T` is expected must be written
+`&m`: an explicit shared borrow through the `&mut` you hold.
+
+## E0331: calling `drop` yourself
+
+`drop` runs by itself when a value is destroyed. To end a value now,
+write `destroy x;`.
+
+## E0324: field moved without `take`
+
+Moving a field out of a struct you own leaves the struct without that
+field, so it must be said: `take p.name` moves it out and leaves `p.name`
+without a value until you give it one. To keep both, write `copy p.name`.
+
+## E0325: `take` on a struct with `drop()`
+
+A struct with a `drop()` method must stay whole, because `drop` runs when
+it is destroyed. Take a field only with a replacement in the same
+statement:
+
+    string s = take f.path leaving "";
+
+## E0301: used after it moved
+
+A value of a type that does not copy automatically (`string`, a big
+struct, a `&mut` borrow) moves when it is assigned, passed or returned.
+The old name cannot be used again until it is given a new value:
+
+    string a = "x";
+    string b = a;            // `a` moved
+    io::outln(a);            // error
+
+To keep both, copy: `string b = copy a;`. Moving one field out with
+`take p.name` leaves `p.name` without a value until it is assigned
+again; `p` as a whole cannot be used meanwhile.
+
+## E0310: cannot move out of a borrow
+
+A function that only borrows a value does not own it, so it cannot
+move anything out of it, `self` and raw pointers included. Return or
+pass a copy instead:
+
+    string nameOf(&Player p) { return copy p.name; }
+
+## E0313: assigning part of a moved value
+
+A field cannot be given a value while the struct holding it has moved
+as a whole. Give the whole struct a new value first:
+
+    consume(p);
+    p = ...;
+    p.hp = 5;
+
+## E0315: cannot copy a value holding `&mut`
+
+A copy of a struct with a `&mut` field would be a second `&mut` to the
+same value. Borrow the struct instead: `&Writer v = &w;`.
+
+## E0332: assigning part of a value that has none yet
+
+A field cannot be given a value while the struct holding it has no
+value at all yet. Give the whole struct a value first:
+
+    mut Player p;
+    p = ...;
+    p.hp = 5;
+
 ## E0901: not supported yet
 
 This is part of Drachm's design, but this version of the compiler does
 not implement it yet.
+
+## E0318: invalid file flag
+
+A `//--!$` line at the top of a file sets a file flag. Flags are read
+before the code, so they come first: above the first line of code,
+after an optional `#!` line, with no blank line in between.
+
+    //--!$unsafe: true
+
+A flag is `key: value`. `unsafe` takes `true` or `false`. A line that
+is not `key: value`, a value the key does not accept, or a flag below
+the top block is an error.
+
+## W0319: unknown file flag
+
+A `//--!$` line names a key this compiler does not know. The line is
+ignored, so the file still builds, but a misspelt key does nothing:
+`//--!$unsfe: true` is not `unsafe`. New keys come with later versions
+of the language, so older compilers warn instead of failing.
 

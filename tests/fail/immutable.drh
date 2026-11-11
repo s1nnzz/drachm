@@ -4,21 +4,8 @@ uint32 bump(uint32 n) {
 }
 
 none main() {
-    uint32 x = 1;
-    x = 2;
     uint32 y = 1;
     y++;
     uint32 z = 5;
     z += 1;
-
-    uint32 once;
-    once = 1;
-    once = 2;
-
-    uint32 looped;
-    mut uint32 i = 0;
-    while (i < 3) {
-        looped = i;
-        i++;
-    }
 }

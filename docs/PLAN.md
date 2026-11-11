@@ -21,6 +21,7 @@ answers into `docs/SPEC.md` and the design doc, and note leftovers under that st
 | 2 | Strings and structs | done (`\u{NAME}` escapes, user `copy`, `split`/`lines`/`chars` later) |
 | 3 | Ownership and borrow checking | not started |
 | 4 | `for`, `skip`, `match` | control flow done; string patterns, `*` globs and for-each over strings left (lists: step 6) |
+| 4.5 | Units of measure | spec being written |
 | 5 | Constructors, enums, `fails` / `maybe` | not started |
 | 6 | Generics, interfaces, collections | not started |
 | 7 | Modules, config, scripts, stdlib | not started |
@@ -528,6 +529,20 @@ loops,patterns,flow,forsyntax}.drh`. Notes for later steps:
   (`for` step), E0109 (invalid pattern), W0110 (missing case, the SPEC's
   `missing-case`), W0111 (unreachable case).
 - The conservative choices made here are in the Open list above.
+
+---
+
+## Step 4.5: Units of measure
+
+Owner (2026-11-11): bring units forward from "Later" as their own small step
+after step 3, numbers only (no generics needed): units are compile-time tags on
+number types, checked by typeck, erased before codegen (zero runtime cost).
+SPEC section 4 has the decided basics (`unit m;`, derived `unit N = kg * m /
+s^2;`, scaled `unit km = 1000 m;`, `float64<m/s>`, literals `9.6<s>`, scaled
+units convert to the first operand's unit, SI units in std). Implementation
+spec: `docs/impl/step4.5-units.md`.
+
+**Open (ask owner):** see the spec's open questions.
 
 ---
 

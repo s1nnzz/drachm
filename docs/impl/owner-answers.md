@@ -43,3 +43,17 @@ Still open: #2 `lend` on a `&T`, #5 more `take` forms, #7 multi-slot borrow fiel
 - My reading, not yet confirmed: `fill p with Veteran { }` picks a named def other than the default.
 - Writing through a raw pointer field (`unsafe { *self.counter += 1; }`) does not change `self`: the method stays `&self` ("counter is a reference and not the value itself").
 - Scheduled: `fill`/`def`/`defaults` with step 5 (constructors). In step 3, assigning a field of a struct that has no value is E0332 with help "fill it with `fill p { ... }` (coming in step 5)", and `fill` itself is E0901.
+
+# Units of measure (step 4.5), 2026-11-11 (spec docs/impl/step4.5-units.md Q1-Q11)
+Q1 unit -> plain: allowed, strips to the base unit amount: `uint8 s = 3<m>;` is 3, `uint32 t = 3<km>;` is 3000. (Owner: "i kinda forgot these units need syntax and they're not just magically working".)
+Q2 `::text()` prints the number only; `::unitText()` gives the unit text ("km"); the program lays them out.
+Q3 dimensionless results always become a plain number with the scale folded in: `4.0<km> / 2.0<m>` = 2000.0.
+Q4 units on every number type. Integers can't hold fractions: `uint8<km> s = n;` with n = 300 m gives 0.
+Q5 (from Q4's note) integer scaled conversion truncates toward zero (my reading: with W0102 like any lossy conversion).
+Q6 no unit-generic functions until step 6 generics (`float64<U> twice<unit U>(float64<U> x)`).
+Q7 `unit` is a context word: it declares only at the start of a top-level item; elsewhere an ordinary name (`static Circle unit()` is fine).
+Q8 offset units are points and deltas: `float64<degC>` points, `b - a` is `float64<delta degC>`, point + delta is a point, point + point is an error. Declared `unit degC = K offset -273.15;`.
+Q9 SI units come with `in si;` (built into the compiler until modules exist).
+Q10 `*` and `/` take plain numbers (they're scales); zero is unit-free; any other plain constant in `+ - %` or a comparison needs its unit (`d + 5<m>`).
+Q11 `::in<m>()` changes the unit and keeps the number type; `::to<T>()` changes the number type.
+Prefixes: NOT automatic. Scaled units are ordinary declarations (`unit g; unit kg = 1000 g; unit l; unit ml = 0.001 l; unit ft; unit mi = 5280 ft;`); `in si;` ships the common ones declared that way. Arithmetic on scaled units goes through the base and back: `2<mi> + 2<mi>` = (5280*2 + 5280*2) ft / 5280. Unit names are ASCII only (no `µ`).

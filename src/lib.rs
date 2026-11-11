@@ -13,15 +13,16 @@ pub mod hir;
 pub mod lexer;
 pub mod link;
 pub mod mir;
+pub mod ownership;
 pub mod parser;
 pub mod typeck;
 pub mod types;
 
 use diag::Diagnostic;
 
-/// Lex, parse and type-check `src`. Returns every diagnostic found (warnings
-/// included); the program is `None` if any of them is an error.
-pub fn check(src: &str) -> (Option<hir::Program>, Vec<Diagnostic>) {
+/// Lex, parse and type-check `src`, without the ownership checks on the MIR
+/// (tests of those checks need programs that have ownership errors).
+pub fn front(src: &str) -> (Option<hir::Program>, Vec<Diagnostic>) {
     let mut diags = Vec::new();
     let flags = flags::parse(src, &mut diags);
     let tokens = lexer::lex(src, &mut diags);
@@ -33,6 +34,23 @@ pub fn check(src: &str) -> (Option<hir::Program>, Vec<Diagnostic>) {
         return (None, diags);
     }
     let checked = typeck::check(&program, src, &mut diags);
+    if diag::has_errors(&diags) {
+        return (None, diags);
+    }
+    (Some(checked), diags)
+}
+
+/// Lex, parse, type-check and ownership-check `src`. Returns every diagnostic
+/// found (warnings included); the program is `None` if any of them is an error.
+pub fn check(src: &str) -> (Option<hir::Program>, Vec<Diagnostic>) {
+    let (checked, mut diags) = front(src);
+    let Some(checked) = checked else { return (None, diags) };
+    // The ownership checks run on the MIR.
+    let mir = mir::build_program(&checked, &mut diags);
+    if diag::has_errors(&diags) {
+        return (None, diags);
+    }
+    mir::check::run(&checked, &mir, &mut diags);
     if diag::has_errors(&diags) {
         return (None, diags);
     }

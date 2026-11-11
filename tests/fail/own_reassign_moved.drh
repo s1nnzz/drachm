@@ -1,0 +1,6 @@
+none consume(string s) { }
+none main() {
+    string b = "x";
+    consume(b);
+    b = "new";
+}
