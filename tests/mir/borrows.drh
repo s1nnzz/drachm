@@ -1,0 +1,43 @@
+//--!$unsafe: true
+in io;
+
+struct Person {
+    public:
+    string name;
+    uint32 age;
+    none birthday() { self.age++; }
+}
+
+struct Guard {
+    public:
+    string label;
+    none drop() { }
+}
+
+none show(&Person p) { io::outln(p.name); }
+none grow(&mut string s) { s = s + "!"; }
+none pass(&mut string s) { grow(lend s); grow(lend s); }
+
+unsafe uint32 peek(*uint32 p) { return *p; }
+
+none main() {
+    mut Person p = "Illy", 7;
+    show(&p);
+    p::birthday();
+    mut string s = copy p.name;
+    pass(&mut s);
+    string n = take p.name;
+    Guard g = "g";
+    string l = take g.label leaving "gone";
+    mut uint32 count = 3;
+    &uint32 view = &count;
+    uint32 seen = view + 1;
+    *uint32 raw = address of count;
+    unsafe {
+        uint32 v = peek(address of count);
+        *raw = v + seen;
+        if (raw == none) { count = 0; }
+    }
+    destroy g;
+    io::outln(n + l);
+}

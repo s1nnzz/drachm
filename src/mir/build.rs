@@ -927,7 +927,16 @@ impl<'a> Builder<'a> {
             ExprKind::BitNot(a) => Rvalue::BitNot(self.operand(a)),
             ExprKind::Binary(op, a, b) => {
                 let mut o = self.operands(&[&**a, &**b], &none).into_iter();
-                Rvalue::Binary(*op, o.next().unwrap().op, o.next().unwrap().op)
+                let (mut x, mut y) = (o.next().unwrap().op, o.next().unwrap().op);
+                // Comparing raw pointers does not use them up.
+                if a.ty.is_ptr() {
+                    for v in [&mut x, &mut y] {
+                        if let Operand::Move(p) = v {
+                            *v = Operand::Copy(p.clone());
+                        }
+                    }
+                }
+                Rvalue::Binary(*op, x, y)
             }
             ExprKind::Shift { left, value, amount } => {
                 let mut o = self.operands(&[&**value, &**amount], &none).into_iter();

@@ -1,0 +1,6 @@
+Drop(_3)
+Drop(_2)
+Drop(_1)
+StorageDead(_3)
+StorageDead(_2)
+StorageDead(_1)

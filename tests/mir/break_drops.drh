@@ -1,0 +1,11 @@
+in io;
+
+none main() {
+    mut uint32 i = 0;
+    while (i < 3) {
+        string s = "x";
+        if (i == 1) { break; }
+        io::outln(s);
+        i++;
+    }
+}
