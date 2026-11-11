@@ -1,0 +1,2 @@
+error[E0205]: cannot change parameter `n`: it is not `mut`
+error[E0205]: cannot change `p.x`: parameter `p` is not `mut`, and neither is the field

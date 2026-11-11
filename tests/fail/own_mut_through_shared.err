@@ -1,0 +1,1 @@
+error[E0311]: cannot call `retitle` through a `&` borrow: `retitle` changes `self`

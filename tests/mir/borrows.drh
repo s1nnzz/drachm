@@ -27,7 +27,7 @@ none main() {
     mut string s = copy p.name;
     pass(&mut s);
     string n = take p.name;
-    Guard g = "g";
+    mut Guard g = "g";
     string l = take g.label leaving "gone";
     mut uint32 count = 3;
     &uint32 view = &count;

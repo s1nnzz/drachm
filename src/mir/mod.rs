@@ -15,8 +15,8 @@ pub mod ty;
 pub mod validate;
 pub mod check;
 pub mod dataflow;
-pub mod lateinit;
 pub mod moves;
+pub mod mutability;
 
 use crate::diag::{Diagnostic, Span};
 use crate::hir::{self, FuncId, StructId};

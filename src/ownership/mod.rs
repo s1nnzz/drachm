@@ -3,4 +3,4 @@
 
 pub mod self_mode;
 
-pub use self_mode::{infer, reason_chain, MutKind, MutReason, SelfMode};
+pub use self_mode::{infer, reason_chain, writes_only_mut_fields, MutKind, MutReason, SelfMode};

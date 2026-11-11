@@ -450,6 +450,12 @@ private:
   a value you own, even through an immutable binding (like C++ `mutable`):
   `struct Player { string name; mut uint32 hp; }`. Through `&` everything is
   read-only, `mut` fields too; changing needs `&mut`.
+- A method that changes only `mut` fields of `self` is a third kind, "changes
+  only `mut` fields" (inferred, no syntax): it may be called on an owned value
+  that is not `mut` (`Counter k = "page", 0; k::hit();` is fine), not through a
+  `&` borrow (E0311), and fine through `&mut`. Any other changing method needs
+  `mut` or `open`, else E0312.
+- `take p.f leaving v` writes `p.f`, so it needs a `mut` binding or a `mut` field.
 - `open` allows field writes, `open` parameters (`none fill(open string s)`), and
   declaring without a value and assigning once later.
 - Moving a field out says `take`: `string n = take p.name;`. Plain

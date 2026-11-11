@@ -7,8 +7,6 @@ error[E0901]: looping over a string is not supported yet
 error[E0010]: a range can only be used after `of` in a `for`, or as a `case` pattern
 loops.drh:10:16
 loops.drh:11:15
-error[E0205]: cannot change `i`: it is not `mut`
-loops.drh:13:31
 error[E0201]: unknown name `i`
 error[E0101]: expected `bool`, found `uint32`
-9 errors
+8 errors

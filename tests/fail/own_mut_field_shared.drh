@@ -1,0 +1,3 @@
+struct Player { public: string name; mut uint32 hp; }
+none hurt(&Player p) { p.hp = p.hp - 1; }
+none main() { }

@@ -1,0 +1,1 @@
+error[E0311]: cannot call `hit` through a `&` borrow: `hit` changes `self`

@@ -441,6 +441,26 @@ pass a copy instead:
 
     string nameOf(&Player p) { return copy p.name; }
 
+## E0311: cannot change through a `&` borrow
+
+A `&` borrow only reads what it points to, and that includes the `mut`
+fields of a struct behind it. Changing it, lending it `&mut`, or calling
+a method that changes `self` needs a `&mut` borrow:
+
+    none hurt(&mut Player p) { p.hp = p.hp - 1; }
+
+## E0312: cannot lend `&mut` from an immutable binding
+
+A `&mut` borrow, and a method that changes `self`, need a binding that is
+`mut` (it may also be reassigned) or `open` (its contents may change).
+A temporary value has no name to make either, so it cannot be lent
+`&mut` at all. A method that changes only `mut` fields is the exception:
+
+    Counter k = "page", 0;
+    k::hit();                 // fine if `hit` writes only `mut` fields
+    open string xs = "a";
+    grow(&mut xs);            // fine
+
 ## E0313: assigning part of a moved value
 
 A field cannot be given a value while the struct holding it has moved

@@ -22,7 +22,9 @@ Methods inside the struct may use private members.
 A field may be a `string` or another struct. `mut` before a field type lets
 that field change even when the binding holding the struct is not `mut`. Any
 other field needs a `mut` binding to change, for example `p.id = 3;` needs
-`mut Counter p`, and without it the compiler reports E0205.
+`mut Counter p`, and without it the compiler reports E0205. Through a `&`
+borrow no field changes, not even a `mut` one (E0311); see
+[Changing things](reference-ownership.md#changing-things).
 
 Each struct value is separate. Plain assignment of a struct that holds a
 string moves it; write `copy a` to get a second value with its own text.
@@ -43,7 +45,8 @@ another expression, call a function that returns it.
 A method is called with `::`, and every call after the first in a chain with
 `->`. Inside a method, `self` is the value it was called on. A method that
 changes a field of `self` needs a `mut` binding when it is called, unless the
-field itself is `mut`.
+field itself is `mut`. A method that changes only `mut` fields can be called on
+any value you own, and `mut` on the binding is not needed for it.
 
 A `static` method has no `self` and is called on the type, as in
 `Temperature::boiling()`. A method that never uses `self` should be

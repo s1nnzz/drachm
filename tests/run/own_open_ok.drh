@@ -1,0 +1,11 @@
+in io;
+struct Player { public: string name; uint32 hp; }
+Player rename(open Player p) { p.hp = 9; return p; }
+none main() {
+    open Player p = "Illy", 1;
+    p.hp = 5;
+    open Player q = rename(p);
+    open string later;
+    later = "x";
+    io::outln(later + q.hp::text());
+}

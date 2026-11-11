@@ -1,0 +1,3 @@
+error[E0312]: cannot call `tag` on `a`: `tag` changes `self`, and `a` is neither `mut` nor `open`
+error[E0312]: cannot call `tag` on a temporary value: `tag` changes `self`
+error[E0312]: cannot call `tag` on `b`: `tag` changes `self`, and `b` is neither `mut` nor `open`

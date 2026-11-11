@@ -1,0 +1,8 @@
+struct Point { public: sint32 x; sint32 y; }
+none shift(Point p) { p.x = 1; }
+none bump(sint32 n) { n = n + 1; }
+none main() {
+    mut Point q = 1, 2;
+    q.x = 3;
+    shift(q);
+}
