@@ -4,3 +4,4 @@ out
 .sample-content
 next-env.d.ts
 *.tsbuildinfo
+AGENTS.md
