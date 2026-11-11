@@ -1,11 +1,4 @@
 error[E0205]: cannot change parameter `n`: it is not `mut`
-error[E0205]: cannot change `x`: it is not `mut`
-assigned a second time here
-declared here without `mut`
-help: declare it as `mut uint32 x` to allow changes
-immutable.drh:8:5
 error[E0205]: cannot change `y`: it is not `mut`
 error[E0205]: cannot change `z`: it is not `mut`
-error[E0205]: cannot change `once`: it is not `mut`
-error[E0205]: cannot assign `looped` inside a loop: it is not `mut`
-6 errors
+3 errors

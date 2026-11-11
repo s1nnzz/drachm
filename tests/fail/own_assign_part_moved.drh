@@ -1,0 +1,7 @@
+struct Player { public: string name; mut uint32 hp; }
+none consume(Player p) { }
+none main() {
+    mut Player p = "Illy", 3;
+    consume(p);
+    p.hp = 5;
+}

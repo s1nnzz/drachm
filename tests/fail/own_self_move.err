@@ -1,0 +1,3 @@
+error[E0310]: cannot move `self.name` out of a borrow
+`self` is borrowed by `nameOf`
+help: `self` is borrowed; write `return copy self.name;`

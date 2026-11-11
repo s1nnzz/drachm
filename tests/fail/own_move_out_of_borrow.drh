@@ -1,0 +1,3 @@
+struct Player { public: string name; }
+string nameOf(&Player p) { return p.name; }
+none main() { }

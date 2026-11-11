@@ -14,7 +14,7 @@ public:
     none rename(string to) { self.name = to; }
     none annotate(string more) { self.note += more; }
     Person older(uint32 years) {
-        Person p = self.name, self.age + years, self.note;
+        Person p = copy self.name, self.age + years, copy self.note;
         return p;
     }
     bool sameName(Person other) { return self.name == other.name; }
@@ -67,18 +67,18 @@ public:
 
 // Struct values through functions: the callee owns (and drops) its copy.
 Person birthday(Person p) {
-    Person q = p.name, p.age + 1, p.note + "+1";
+    Person q = copy p.name, p.age + 1, p.note + "+1";
     return q;
 }
 
 uint64 nameLength(Person p) { return p.name::len(); }
 
 Pair swap(Pair p) {
-    Pair q = p.second, p.first, p.tag;
+    Pair q = copy p.second, copy p.first, p.tag;
     return q;
 }
 
-string firstName(Pair p) { return p.first.name; }
+string firstName(Pair p) { return copy p.first.name; }
 
 Person make(string name) {
     Person p = name: name, age: 30, note: "";
@@ -116,17 +116,17 @@ none main() {
     io::outln(carl.name);
 
     // Copies are deep: changing one leaves the other alone.
-    mut Person dup = carl;
+    mut Person dup = copy carl;
     dup.name += " II";
     io::outln(carl.name + " / " + dup.name);
-    dup = ann;
+    dup = copy ann;
     dup.note = "changed";
     io::outln(ann.note + " / " + dup.note);
 
     // Passed to and returned from functions.
-    Person older = birthday(ann);
+    Person older = birthday(copy ann);
     io::outln(older::describe() + " " + older.note);
-    io::outln(nameLength(bob)::text());
+    io::outln(nameLength(copy bob)::text());
     io::outln(make("Dee")::describe());
     io::outln(ann::older(10)->describe());
     io::outln(Person::nobody().name);
@@ -137,16 +137,16 @@ none main() {
     io::outln((ann == ann2)::text() + " " + (ann != ann2)::text());
     io::outln((ann == bob)::text() + " " + (ann == older)::text());
     io::outln(ann::sameName(older)->text());
-    Person built = "A" + "nn", 31, ann.note;
+    Person built = "A" + "nn", 31, copy ann.note;
     io::outln((built == ann)::text());
 
     // Nested owning structs.
-    Pair pair = ann, bob, 7;
-    Pair swapped = swap(pair);
+    Pair pair = copy ann, copy bob, 7;
+    Pair swapped = swap(copy pair);
     io::outln(swapped.first.name + " " + swapped.second.name + " " + swapped.tag::text());
-    io::outln(firstName(pair));
-    io::outln((pair == swapped)::text() + " " + (swap(swapped) == pair)::text());
-    mut Pair edit = pair;
+    io::outln(firstName(copy pair));
+    io::outln((pair == swapped)::text() + " " + (swap(copy swapped) == pair)::text());
+    mut Pair edit = copy pair;
     edit.second.name = "Robert";
     edit.first.note += "!";
     io::outln(edit.second.name + " " + pair.second.name + " " + edit.first.note);
@@ -168,22 +168,22 @@ none main() {
     io::outln((t2 < t1)::text() + " " + (t1 < t2)::text());
     Tag t4 = "red", 9;
     io::outln((t1 == t4)::text() + " " + (t1 != t4)::text() + " " + (t1 != t2)::text());
-    mut Labelled l = t1, 0;
+    mut Labelled l = copy t1, 0;
     l.tag += t2;
     l.tag.text += "!";
     l.uses++;
     io::outln(l.tag.text + " " + l.tag.weight::text() + " " + l.uses::text());
     // The automatic `==` of a struct uses the custom `==` of its fields.
     Labelled l2 = t4, 1;
-    Labelled l3 = t1, 1;
+    Labelled l3 = copy t1, 1;
     io::outln((l2 == l3)::text() + " " + (l == l3)::text());
 
     // A binding declared without a value gets one later.
     Person later;
     if (ann.age > 30) {
-        later = ann;
+        later = copy ann;
     } else {
-        later = bob;
+        later = copy bob;
     }
     io::outln(later.name);
 }

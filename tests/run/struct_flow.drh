@@ -98,7 +98,7 @@ string search(uint32 target) {
     for (uint32 a of 1..5) {
         Item outer = "a" + a::text(), a;
         for (uint32 b of 1..5) {
-            Stock s = outer, b;
+            Stock s = copy outer, b;
             if (a * b == target) {
                 found = s.item.name + "*" + s.sold::text();
                 break 2;
@@ -130,7 +130,7 @@ Item pick(uint32 kind) {
 
 // `match` arms that each build and replace a struct.
 Stock restock(Stock s, uint32 code) {
-    mut Stock res = s;
+    mut Stock res = copy s;
     match (code) {
         case 0 { }
         case 1 {
@@ -165,7 +165,7 @@ none main() {
     io::outln(a::repeated(6));
     Stock s = b, 2;
     for (uint32 code of 0..4) {
-        Stock r = restock(s, code);
+        Stock r = restock(copy s, code);
         io::outln(code::text() + ": " + r.item.name + " " + r.item.count::text() + " sold " + r.sold::text());
     }
     // A `for` whose init binding is a struct holding strings.

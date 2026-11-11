@@ -10,4 +10,4 @@ error[E0201]: unknown function `two`
 error[E0201]: unknown name `missing`
 error[E0201]: unknown binding `undefined`
 error[E0201]: unknown type `fn`
-14 errors
+13 errors

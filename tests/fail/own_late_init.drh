@@ -1,0 +1,19 @@
+none main() {
+    uint32 x = 1;
+    x = 2;
+
+    uint32 once;
+    once = 1;
+    once = 2;
+
+    uint32 looped;
+    mut uint32 i = 0;
+    while (i < 3) {
+        looped = i;
+        i++;
+    }
+
+    for (uint32 j of 0..9) {
+        j = 3;
+    }
+}

@@ -1,4 +1,2 @@
-error[E0105]: function `f` can finish without returning a value
-error[E0105]: function `g` can finish without returning a value
 error[E0105]: this function must return a `uint32`
-3 errors
+1 error

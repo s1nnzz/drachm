@@ -1,0 +1,6 @@
+none add(&mut string t) { }
+none fill(&mut string s) {
+    add(s);
+    add(s);
+}
+none main() { }

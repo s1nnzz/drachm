@@ -11,6 +11,10 @@ pub mod print;
 pub mod traversal;
 pub mod ty;
 pub mod validate;
+pub mod check;
+pub mod dataflow;
+pub mod lateinit;
+pub mod moves;
 
 use crate::diag::{Diagnostic, Span};
 use crate::hir::{self, FuncId, StructId};
@@ -361,7 +365,7 @@ struct Named { public: string s; }
 struct Edge { public: sint8 tag; uint128 big; }
 none main() { }
 ";
-        let (hir, diags) = crate::check(src);
+        let (hir, diags) = crate::front(src);
         let hir = hir.unwrap_or_else(|| panic!("does not check: {diags:?}"));
         let small = struct_ty(&hir, "Small");
         assert_eq!(hir.struct_def(small).size, 24);
@@ -381,7 +385,7 @@ none main() { }
     }
 
     fn built(src: &str) -> (hir::Program, Program, Vec<Diagnostic>) {
-        let (hir, diags) = crate::check(src);
+        let (hir, diags) = crate::front(src);
         let hir = hir.unwrap_or_else(|| panic!("does not check: {diags:?}"));
         let mut mir_diags = Vec::new();
         let mir = build_program(&hir, &mut mir_diags);

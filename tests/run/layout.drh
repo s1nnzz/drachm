@@ -112,20 +112,20 @@ none main() {
     All x = 255, 65535, 4294967295, 18446744073709551615, 340282366920938463463374607431768211455,
             -128, -32768, -2147483648, -9223372036854775808, -170141183460469231731687303715884105728,
             1.5, 0.1, false;
-    showAll(x);
+    showAll(copy x);
     showAll(x::bumped());
     showAll(x::bumped()->bumped());
 
-    mut Big b = x, t, w, x::bumped(), 0;
+    mut Big b = copy x, t, w, x::bumped(), 0;
     b.second.l = 2.5;
     b::grow();
     b::grow();
     io::outln(b.wide.big::text());
     io::outln(b.count::text());
     io::outln(b.small.v::text());
-    showAll(b.first);
-    showAll(b.second);
-    Big c = b;
+    showAll(copy b.first);
+    showAll(copy b.second);
+    Big c = copy b;
     b.first.a = 7;
     io::outln(c.first.a::text());
     io::outln(b.first.a::text());

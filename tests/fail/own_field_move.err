@@ -1,0 +1,2 @@
+error[E0324]: cannot move `p.name` out of `p` without `take`
+write `take p.name` to move it out

@@ -1,0 +1,3 @@
+error[E0301]: `s` is used after it moved
+`s` moved here, in the previous time round the loop
+help: move it only once (for example after the loop), or pass `copy s`

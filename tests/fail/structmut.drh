@@ -48,10 +48,6 @@ none main() {
     l.a::shift(1);
     l.b::shift(1);
 
-    Point later;
-    later.x = 1;
-    later = a;
-
     mut Point ok = a;
     ok.x = 1;
     ok::shiftTwice(2);

@@ -1,0 +1,3 @@
+error[E0105]: function `f` can finish without returning a value
+error[E0105]: function `g` can finish without returning a value
+2 errors
