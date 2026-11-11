@@ -1,0 +1,14 @@
+in si;
+
+// A plain number beside a measure in + - % or a comparison needs its unit
+// (Q12: a variable is no different from a constant; Q14: a point's zero is
+// not unit-free).
+none main() {
+    uint32 n = 4;
+    float64<m> d = 2.0<m>;
+    float64<m> sum = n + d;
+    float64<m> near = d + 5;
+    float64<degC> t = 20.0<degC>;
+    bool warm = t > 0;
+    float64<m> five = 5::in<m>();
+}

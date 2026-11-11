@@ -54,8 +54,6 @@ programs that use them build and run. What is still to come:
 ## Later, not yet scheduled
 
 - Maths: vector and matrix types.
-- Units of measure: the SI set with `in si;`, and giving a plain number a
-  unit without writing one. The rest works; see [Units of measure](reference-units.md).
 - Concurrency: threads, channels, and async functions.
 - Importing C headers.
 - A formatter (`drachm fmt`) and a package registry.

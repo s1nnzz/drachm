@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use control::{Target, Test};
 
 use crate::ast::{self, BinOp, ExprKind, OpClass, Stmt, UnOp};
+use crate::{lexer, parser};
 use crate::consts::{Const, FoldError, Folded};
 use crate::diag::{codes, Diagnostic, Span};
 use crate::hir::{self, FuncId, LocalId, StructId};
@@ -219,18 +220,31 @@ impl Globals {
 /// errors were reported.
 pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir::Program {
     let mut g = Globals { unsafe_allowed: prog.unsafe_allowed, ..Globals::default() };
+    let mut si = false;
     for import in &prog.imports {
         if import.module == "io" {
             g.io_imported = true;
+        } else if import.module == "si" {
+            si = true;
         } else {
             diags.push(
                 Diagnostic::at(&codes::E0201, import.span, format!("unknown module `{}`", import.module))
-                    .help("`io` is the only module so far"),
+                    .help("`io` and `si` are the only modules so far"),
             );
         }
     }
 
     // Units first: a type may name any unit, and a unit may name none.
+    // `in si;` declares the SI prelude before the file's own units, so a
+    // file that declares one of those names again is an error.
+    if si {
+        let mut prelude_diags = Vec::new();
+        let tokens = lexer::lex(units::SI_PRELUDE, &mut prelude_diags);
+        let prelude = parser::parse(tokens, &mut prelude_diags);
+        debug_assert!(prelude_diags.is_empty(), "the SI prelude must parse");
+        units::declare_units(&mut g, &prelude.units, &mut prelude_diags);
+        debug_assert!(prelude_diags.is_empty(), "the SI prelude must check");
+    }
     units::declare_units(&mut g, &prog.units, diags);
 
     // Struct names first, so that any type can name any struct, wherever it is defined.
@@ -1849,7 +1863,7 @@ impl Checker<'_> {
         let text = self.text(at.span);
         let fix = if text.len() > 40 || text.contains('\n') {
             format!("add `::to<{to}>()` to say the conversion is intended")
-        } else if at.compound {
+        } else if at.compound || text.contains("::") || text.contains("->") {
             format!("write `({text})::to<{to}>()` to say the conversion is intended")
         } else {
             format!("write `{text}::to<{to}>()` to say the conversion is intended")
@@ -2504,9 +2518,11 @@ impl Checker<'_> {
                     return self.unit_to(value, to, recv.span, targs[0].span);
                 }
                 if !to.is_numeric() {
-                    self.diags.push(
-                        Diagnostic::at(&codes::E0101, targs[0].span, format!("`to` converts between number types, not to `{to}`")),
-                    );
+                    let mut d = Diagnostic::at(&codes::E0101, targs[0].span, format!("`to` converts between number types, not to `{to}`"));
+                    if to == Type::Str {
+                        d = d.help("`::text()` makes a string from a number");
+                    }
+                    self.diags.push(d);
                     return None;
                 }
                 match value {

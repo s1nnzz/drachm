@@ -30,11 +30,22 @@ pub struct UnitEnv {
     failed: HashSet<String>,
 }
 
+/// The SI units of `in si;` (`src/prelude/si.drh`): ordinary declarations.
+pub const SI_PRELUDE: &str = include_str!("../prelude/si.drh");
+
 /// Declares the units of a file. Order does not matter: a unit that uses
-/// another one evaluates it first. Runs before any type is resolved.
+/// another one evaluates it first. Runs before any type is resolved. Units
+/// already in the table (the SI prelude) cannot be declared again.
 pub(super) fn declare_units(g: &mut Globals, decls: &[ast::UnitDecl], diags: &mut Vec<Diagnostic>) {
     let mut by_name: HashMap<&str, &ast::UnitDecl> = HashMap::new();
     for d in decls {
+        if g.units.get_mut().table.lookup(&d.name).is_some() {
+            diags.push(
+                Diagnostic::at(&codes::E0403, d.name_span, format!("`{}` is declared twice", d.name))
+                    .note("already declared by `in si;`"),
+            );
+            continue;
+        }
         match by_name.get(d.name.as_str()) {
             Some(first) => diags.push(
                 Diagnostic::at(&codes::E0403, d.name_span, format!("`{}` is declared twice", d.name))
@@ -79,7 +90,7 @@ impl<'d> Eval<'_, 'd> {
         self.diags.push(
             Diagnostic::at(&codes::E0402, at, format!("unknown unit `{name}`"))
                 .note("no unit with this name is declared")
-                .help(format!("declare it with `unit {name};` (a base unit) or `unit {name} = ...;` (a size of other units)")),
+                .help(format!("add `in si;` for the SI units, or declare it with `unit {name};` (a base unit) or `unit {name} = ...;` (a size of other units)")),
         );
         None
     }
@@ -518,7 +529,7 @@ impl Checker<'_> {
             "use a wider number type".to_string()
         } else if text.len() > 40 || text.contains('\n') {
             format!("add `::in<{tu}>()` to say the conversion is intended")
-        } else if at.compound {
+        } else if at.compound || text.contains("::") || text.contains("->") {
             format!("write `({text})::in<{tu}>()` to say the conversion is intended")
         } else {
             format!("write `{text}::in<{tu}>()` to say the conversion is intended")
@@ -676,11 +687,16 @@ impl Checker<'_> {
         let fu = val_unit(&v);
         let plain_value = fu.is_none();
         if plain_value && tu.is_some() {
-            // OPEN(unitsQ12): a plain number into a variable, argument or
-            // field that has a unit. Not decided; an error until it is.
-            let is_const = matches!(v, Val::Const(_));
-            self.plain_for_measure(from, is_const, tu);
-            return None;
+            // Q12b: a plain value into a slot with a unit attaches that unit:
+            // `float64<m> d = 5;` is 5 m. The number is the reading, unscaled.
+            return match v {
+                Val::Const(c) => {
+                    let e = self.fit_const(&c, to.bare(), from.span, false);
+                    Some(retag(e, to))
+                }
+                Val::Expr(e) => Some(retag(self.convert_value(e, to.bare(), false, from), to)),
+                Val::UConst(..) => unreachable!("a unit constant has a unit"),
+            };
         }
         // A plain target takes the base amount of any unit (Q1).
         if tu.is_some() && dim_of(fu) != dim_of(tu) {
@@ -1085,7 +1101,8 @@ impl Checker<'_> {
                     );
                 }
                 _ => {
-                    // OPEN(unitsQ12): giving a unit to a plain number is not decided.
+                    // `5::in<m>()` is a conversion of a measure, not a slot (Q12b covers
+                    // declaring and assigning only), so a plain number still needs its unit.
                     self.plain_for_measure(o, matches!(v, Val::Const(_)), Some(target));
                 }
             }

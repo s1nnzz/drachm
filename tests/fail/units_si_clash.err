@@ -1,0 +1,2 @@
+error[E0403]: `m` is declared twice
+already declared by `in si;`

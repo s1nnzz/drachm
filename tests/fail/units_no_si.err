@@ -1,0 +1,2 @@
+error[E0402]: unknown unit `m`
+help: add `in si;` for the SI units, or declare it with `unit m;`

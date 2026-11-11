@@ -35,9 +35,15 @@ examples in `site/examples/`). Every change that makes a feature usable, or
 adds/changes a diagnostic, updates the site **in the same commit**:
 - add or edit the relevant tour/reference page, with a real example in
   `site/examples/NAME.drh` + `.out` (checked by `cargo test`);
-- move the feature off `site/content/coming-later.md` once it builds;
+- remove the feature's "Not implemented yet" / "Tentative" marker once it builds;
 - rerun `site/gen-errors.sh` when `src/diag/codes.rs` changes.
-Only document what the compiler accepts today. Agent briefs must say this.
+The site shows the language **as designed** (owner, 2026-11-11: "for showoff
+purposes"), not only what builds. Every page or section about something the
+compiler does not accept yet carries a status marker: **Not implemented yet**
+(decided in `docs/SPEC.md`, not built) or **Tentative** (still open, may
+change). Built features must have tested examples; marked ones may show
+untested code. When a feature lands, remove its marker in the same commit.
+Agent briefs must say this.
 
 ## Commands
 

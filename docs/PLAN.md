@@ -21,7 +21,7 @@ answers into `docs/SPEC.md` and the design doc, and note leftovers under that st
 | 2 | Strings and structs | done (`\u{NAME}` escapes, user `copy`, `split`/`lines`/`chars` later) |
 | 3 | Ownership and borrow checking | not started |
 | 4 | `for`, `skip`, `match` | control flow done; string patterns, `*` globs and for-each over strings left (lists: step 6) |
-| 4.5 | Units of measure | spec being written |
+| 4.5 | Units of measure | done (`in si;`, points and deltas, scaled integers wrap; decisions in `docs/impl/step4.5-units.md`) |
 | 4.6 | Input: `io::inln()`, `io::ended()`, text `::to<T>()` | done (interim: bad text stops the program with exit 101; strict number text; `\r\n` lines; invalid UTF-8 becomes U+FFFD) |
 | 5 | Constructors, enums, `fails` / `maybe` | not started |
 | 6 | Generics, interfaces, collections | not started |
@@ -543,9 +543,14 @@ number types, checked by typeck, erased before codegen (zero runtime cost).
 SPEC section 4 has the decided basics (`unit m;`, derived `unit N = kg * m /
 s^2;`, scaled `unit km = 1000 m;`, `float64<m/s>`, literals `9.6<s>`, scaled
 units convert to the first operand's unit, SI units in std). Implementation
-spec: `docs/impl/step4.5-units.md`.
+spec and decisions: `docs/impl/step4.5-units.md`.
 
-**Open (ask owner):** see the spec's open questions.
+Done (2026-11-11): all owner answers Q1-Q15 are implemented (`src/units.rs`,
+`src/typeck/units.rs`, `src/prelude/si.drh`). Not built: unit-generic functions
+(step 6, Q6); the mutability message for a unit variable shows the bare type
+(`mut float64 d`), because units are erased before the MIR.
+
+**Open (ask owner):** none.
 
 ---
 
@@ -738,7 +743,7 @@ Decided (2026-11-10): **Cranelift for plain builds and scripts, generated C for
   integers, fractions, decimal/fixed-point; user-definable units of measure
   (`unit m; unit N = kg * m / s^2;`, `float64<m/s>`, literals `9.6<s>`),
   checked at compile time. Scaled units auto-convert to the first operand's
-  unit; SI units ship in std. Open: the maths type names and module.
+  unit; SI units come with `in si;` (done in step 4.5). Open: the maths type names and module.
 - **256-bit integers and `float8`/`float16`:** runtime software arithmetic
   where Cranelift lacks native support.
 - **`drachm fmt`**, the **Agora** registry (agora.drachm.dev), `drachm add`.
