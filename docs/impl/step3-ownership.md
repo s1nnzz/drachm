@@ -1813,6 +1813,7 @@ step needs (file flags, `mut open`), so that parallel branches adding
 | E0330 | `&mut` where `&` is wanted | typeck |
 | E0331 | calling `drop` yourself | typeck |
 | E0332 | assigning part of a value that has none yet | moves (`wp2.md`) |
+| E0333 | cannot write through a `*fixed T` | typeck / unsafety (`wp9.md`) |
 
 Existing codes whose reporting moves to MIR with unchanged texts: E0105,
 E0205, E0207. E0205 gains one variant for `open` (below).
@@ -2255,6 +2256,24 @@ error[E0327]: `take` needs a field of a variable, like `p.name`
 Variants: "`copy` needs a variable or a field, like `copy name`" (help: name
 the value first); "`address of` needs a variable or a field, like `address of n`".
 
+### E0333 cannot write through a `*fixed T`
+
+`address of` an immutable binding gives a `*fixed T` (owner answer #9), which
+cannot be written through. Raised by the unsafety pass (`wp9.md`).
+
+```text
+error[E0333]: cannot write through `p`: it is a `*fixed uint32`, which can only be read
+  --> main.drh:5:9
+   |
+ 3 |     uint32 n = 5;
+   |     - `n` is not `mut`, so `address of n` gives a read-only pointer
+ 4 |     unsafe {
+ 5 |         *p = 6;
+   |         ^^ written through a `*fixed` pointer here
+   |
+ help: declare `n` as `mut uint32 n`, so that `address of n` gives a `*uint32`
+```
+
 ### E0328 `drop` has the wrong shape
 
 ```text
@@ -2333,6 +2352,31 @@ the WP2 report for confirmation.
 | E0331 | `drop` runs by itself; write `destroy x;` to end `x` now |
 | E0901 (#9) | `address of` an immutable binding (which gives a `*fixed T`) is not supported yet |
 | E0332 | cannot give `p.hp` a value: `p` has no value yet |
+| E0333 | cannot write through `p`: it is a `*fixed uint32`, which can only be read |
+
+Message variants written by the WP7 to WP9 briefs (same review pass). The first
+line of each is the message; the label and help columns are in the briefs.
+
+| Code | Variant | Message line |
+|---|---|---|
+| E0302 | `&mut` argument while a `&` loan is live | cannot change `p` while it is borrowed (label: `&mut` borrow attempted here) |
+| E0302 | later use on the next trip round a loop | same message; use label "the borrow is used again here, on the next time round the loop" |
+| E0302 | later use is a user `drop()` | same message; use label "`h` is dropped here, and its `drop()` can still use the borrow" |
+| E0304 | shared borrow while `&mut` is live | cannot borrow `p` while it is borrowed with `&mut` |
+| E0304 | using a `&mut` while a `lend` of it is alive | cannot use `r` while a part of it is lent |
+| E0306 | owner is a parameter or ends with the function | `s` does not live long enough (label: `s` is dropped here, when `f` returns) |
+| E0306 | stored into a `&mut` parameter | `s` does not live long enough (label: `s` is dropped here, but `out` keeps the borrow after `f` returns) |
+| E0306 | kept in a struct field | `text` does not live long enough (borrow label: "`text` is borrowed here, and kept in `q.src`") |
+| E0307 | of a temporary | cannot return a borrow of a temporary value |
+| E0307 | of a by-value parameter | cannot return a borrow of `n`, which belongs to this function |
+| E0316 | `address of` | making a raw pointer with `address of` needs an `unsafe { }` block |
+| E0316 | read through a pointer | reading through a raw pointer needs an `unsafe { }` block |
+| E0316 | write through a pointer | writing through a raw pointer needs an `unsafe { }` block |
+| E0316 | `copy p` | copying a raw pointer needs an `unsafe { }` block |
+| E0316 | `p == none`, `p == q` | comparing a raw pointer needs an `unsafe { }` block |
+| E0316 | `none` as a pointer | making a null pointer needs an `unsafe { }` block |
+| E0316 | call of an `unsafe` function | calling `one`, an `unsafe` function, needs an `unsafe { }` block |
+| E0320 | (wp8.md) | cannot store a borrow of `b` inside `a` |
 
 ---
 
