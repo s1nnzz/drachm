@@ -1,0 +1,27 @@
+// Strings moved in one branch and reassigned later, and `break` and
+// `continue` out of a loop with strings alive.
+in io;
+
+none eat(string s) { io::outln("ate " + s); }
+
+none main() {
+    mut uint32 i = 0;
+    while (i < 6) {
+        mut string s = "s" + i::text();
+        if (i % 2 == 0) {
+            eat(s);
+            s = "again" + i::text();
+        }
+        string t = "t" + i::text();
+        if (i == 3) {
+            i++;
+            continue;
+        }
+        if (i == 4) {
+            break;
+        }
+        io::outln(s + t);
+        i++;
+    }
+    io::outln("done");
+}

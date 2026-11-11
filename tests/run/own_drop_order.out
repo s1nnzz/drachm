@@ -1,0 +1,8 @@
+tmp
+drop inner tmp
+end
+drop inner y
+drop inner x
+drop outer
+drop inner a
+drop inner b

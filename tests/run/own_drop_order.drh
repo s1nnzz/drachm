@@ -1,0 +1,31 @@
+// Drop order: a struct's `drop()` runs before its fields, the fields go in
+// declaration order, locals die in reverse declaration order, and a
+// temporary dies at the end of its statement.
+in io;
+
+struct Inner {
+    string tag;
+    none drop() { io::outln("drop inner " + self.tag); }
+    string name() { return copy self.tag; }
+}
+
+struct Outer {
+    Inner first;
+    Inner second;
+    none drop() { io::outln("drop outer"); }
+}
+
+Inner make(string t) {
+    Inner i = t;
+    return i;
+}
+
+none main() {
+    Inner a = "a";
+    Inner b = "b";
+    Outer o = a, b;
+    Inner x = "x";
+    Inner y = "y";
+    io::outln(make("tmp")::name());
+    io::outln("end");
+}

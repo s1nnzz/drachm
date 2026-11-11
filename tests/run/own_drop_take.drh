@@ -1,0 +1,15 @@
+// On a struct with a `drop()`, `take x.f leaving v` works and the struct
+// is still dropped whole. A plain `take x.f` is E0325 (tests/fail).
+in io;
+
+struct File {
+public:
+    string path;
+    none drop() { io::outln("close " + self.path); }
+}
+
+none main() {
+    File f = "a.txt";
+    string old = take f.path leaving "b.txt";
+    io::outln("took " + old);
+}

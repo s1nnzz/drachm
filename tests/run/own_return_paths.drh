@@ -1,0 +1,37 @@
+// Early `return` with strings alive in several scopes, a moved parameter
+// returned, and a field returned through `copy`.
+in io;
+
+struct Pack {
+public:
+    string a;
+    string b;
+}
+
+string pick(uint32 n, string spare) {
+    string x = "x" + n::text();
+    if (n == 0) {
+        string y = "y";
+        return spare;
+    }
+    if (n == 1) {
+        return x;
+    }
+    string z = "z";
+    if (n == 2) {
+        return z + x;
+    }
+    return spare + z;
+}
+
+string first(Pack p) { return copy p.a; }
+
+none main() {
+    io::outln(pick(0, "spare0"));
+    io::outln(pick(1, "spare1"));
+    io::outln(pick(2, "spare2"));
+    io::outln(pick(3, "spare3"));
+    Pack p = "left", "right";
+    io::outln(first(copy p));
+    io::outln(first(p));
+}

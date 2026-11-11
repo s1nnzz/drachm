@@ -60,7 +60,7 @@ string, or of a struct holding one, is a deep copy.
 | `src/main.rs` | thin CLI: `build`/`run`/`check`/`explain`, `-O` |
 | `runtime/runtime.c` | printing, panics, values as text (numbers, floats, `%.N`, zero padding), float→int wrapping, 128-bit division, integer power. Linked for plain builds, pasted inline for `-O` (with `runtime/strings.h`) |
 | `runtime/strings.h`, `runtime/strings/` | the string runtime: a Rust staticlib (grapheme-aware methods, live-buffer counter) behind a C interface; built by `build.rs`, linked into every program |
-| `tests/run.rs` | golden test harness (how to add a case is at the top of the file); programs run with `DRACHM_CHECK_LEAKS=1` and a leak fails the case |
+| `tests/run.rs` | golden test harness (how to add a case is at the top of the file); programs run with `DRACHM_CHECK_LEAKS=1` and a leak or a double free fails the case |
 | `bench/` | benchmarks with C and Rust twins; `bench/run.sh` prints a comparison |
 
 Backend notes:

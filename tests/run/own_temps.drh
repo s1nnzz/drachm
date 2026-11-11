@@ -1,0 +1,17 @@
+// Temporaries: made for a call's receiver or argument, and dead at the end
+// of the statement; in a `while` condition, each time round.
+in io;
+
+none main() {
+    uint32 n = 7;
+    io::outln(("a" + "b")::upper());
+    if (("x" + n::text())::len() == 2) {
+        io::outln("two");
+    }
+    mut uint32 i = 0;
+    while (("x" + i::text())::len() < 3) {
+        i++;
+    }
+    io::outln(i::text());
+    io::outln(("ab" + "cd")::upper()->reverse()->len()->text());
+}

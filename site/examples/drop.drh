@@ -1,0 +1,21 @@
+in io;
+
+struct Guard {
+    string name;
+
+    none drop() {
+        io::outln("drop " + self.name);
+    }
+}
+
+none main() {
+    Guard a = "a";
+    Guard b = "b";
+    destroy a;
+    io::outln("destroyed a");
+    if (true) {
+        Guard c = "c";
+        io::outln("inside");
+    }
+    io::outln("end");
+}

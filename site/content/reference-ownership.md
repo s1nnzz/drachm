@@ -44,13 +44,9 @@ it is assigned again, and the other fields stay usable. `take p.title leaving "n
 puts a new value back in the same statement, so the field stays usable.
 
 A struct with a `drop()` method must stay whole, so a plain `take` out of it is
-E0325, while `take f.path leaving ""` is allowed. `drachm check` accepts `take`
-today; programs that move a field out cannot be built yet.
+E0325, while `take f.path leaving ""` is allowed.
 
-```drachm
-mut Player p = "Illy", 10;
-string n = take p.name leaving "nobody";
-```
+<!-- example: take -->
 
 ## Other move errors
 
@@ -67,3 +63,36 @@ Two neighbours are checked in the same pass. E0207 means a binding declared
 without a value was read before every path gave it one, and E0105 means a
 function that promises a value can reach its end without a `return`. See the
 [error index](errors.md) for every code.
+
+## When a value dies
+
+A value that still has an owner when its scope ends is destroyed there. For a
+`string` that frees its text. Several values dying at the same `}` go in the
+reverse of the order they were declared in, so the last one made goes first.
+A value that was moved away is not destroyed by its old name, because the new
+owner does that: only what still holds a value when the scope ends is dropped,
+and a struct with some fields taken out drops the ones that remain.
+
+A temporary, such as the `"a" + "b"` in `("a" + "b")::upper()`, dies at the
+end of the statement that made it. In the condition of a `while` that means
+every time round; in the condition of an `if` it means before either branch runs.
+
+### drop()
+
+A struct can name what happens when it dies by giving it a method called `drop`
+that returns `none`. It runs when a value of that struct is destroyed, before the
+struct's fields are dropped, and the fields then go in the order they were
+declared. You cannot call `drop` yourself: `x::drop()` is error E0331.
+
+### destroy
+
+`destroy x;` runs `drop()` now instead of at the end of the scope, and ends `x`
+like a move does: reading it afterwards is error E0301, and nothing runs for it
+at the end of the scope. It works on a variable whose struct has a `drop()`;
+anything else is E0901 for now.
+
+<!-- example: drop -->
+
+If `destroy` is on only some paths, the compiler remembers at run time whether
+the value is still there, so the scope end drops it on the paths that did not
+destroy it and only on those.
