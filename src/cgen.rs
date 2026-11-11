@@ -22,32 +22,8 @@ const RUNTIME_C: &str = include_str!("../runtime/runtime.c");
 const STRINGS_H: &str = include_str!("../runtime/strings.h");
 
 pub fn generate(prog: &Program) -> String {
-    let mut out = String::from("#define DRACHM_INLINE 1\n");
-    out += &RUNTIME_C.replace("#include \"strings.h\"\n", STRINGS_H);
-    out += "\nstatic inline double drachm_f64_bits(uint64_t b) { double d; memcpy(&d, &b, 8); return d; }\n";
-    out += "static inline float drachm_f32_bits(uint32_t b) { float f; memcpy(&f, &b, 4); return f; }\n\n";
-
-    for s in struct_order(prog) {
-        let def = &prog.structs[s];
-        let name = struct_name(&def.name);
-        let _ = writeln!(out, "typedef struct {{");
-        for f in &def.fields {
-            let _ = writeln!(out, "    {} f_{};", c_type(f.ty), f.name);
-        }
-        let _ = writeln!(out, "}} {name};\n");
-        if def.owns {
-            // The bits first, then a new copy of each string inside.
-            let _ = writeln!(out, "static void drachm_copy_{}({name} *d, const {name} *s) {{\n    *d = *s;", def.name);
-            for f in def.fields.iter().filter(|f| prog.owns(f.ty)) {
-                let _ = writeln!(out, "    {}(&d->f_{n}, &s->f_{n});", copy_fn(f.ty), n = f.name);
-            }
-            let _ = writeln!(out, "}}\n\nstatic void drachm_drop_{}({name} *p) {{", def.name);
-            for f in def.fields.iter().filter(|f| prog.owns(f.ty)) {
-                let _ = writeln!(out, "    {}(&p->f_{});", drop_fn(f.ty), f.name);
-            }
-            let _ = writeln!(out, "}}\n");
-        }
-    }
+    let mut out = prelude();
+    out += &struct_defs(prog, false);
     for f in &prog.funcs {
         let _ = writeln!(out, "{};", signature(f));
     }
@@ -67,15 +43,64 @@ pub fn generate(prog: &Program) -> String {
         g.block(&f.body);
         let _ = writeln!(out, "\n{} {{\n{}}}", signature(f), g.out);
     }
-
-    let main = &prog.funcs[prog.main];
-    let call = format!("{}()", main.symbol);
-    let body = if main.ret == Type::None { format!("{call}; return 0;") } else { format!("return (int){call};") };
-    let _ = writeln!(out, "\nint main(void) {{ {body} }}");
+    out += &main_fn(prog);
     out
 }
 
-fn struct_name(name: &str) -> String {
+/// The runtime and the constant helpers every program starts with.
+pub(crate) fn prelude() -> String {
+    let mut out = String::from("#define DRACHM_INLINE 1\n");
+    out += &RUNTIME_C.replace("#include \"strings.h\"\n", STRINGS_H);
+    out += "\nstatic inline double drachm_f64_bits(uint64_t b) { double d; memcpy(&d, &b, 8); return d; }\n";
+    out += "static inline float drachm_f32_bits(uint32_t b) { float f; memcpy(&f, &b, 4); return f; }\n\n";
+    out
+}
+
+/// Every struct's definition (and, for owning ones, its copy and drop
+/// functions). With `asserts`, each definition is followed by a
+/// `_Static_assert` that the C compiler lays it out as `hir::layout` did.
+pub(crate) fn struct_defs(prog: &Program, asserts: bool) -> String {
+    let mut out = String::new();
+    for s in struct_order(prog) {
+        let def = &prog.structs[s];
+        let name = struct_name(&def.name);
+        let _ = writeln!(out, "typedef struct {{");
+        for f in &def.fields {
+            let _ = writeln!(out, "    {} f_{};", c_type(f.ty), f.name);
+        }
+        let _ = writeln!(out, "}} {name};\n");
+        if asserts {
+            let mut checks = format!("sizeof({name}) == {}", def.size);
+            for f in &def.fields {
+                let _ = write!(checks, " && __builtin_offsetof({name}, f_{}) == {}", f.name, f.offset);
+            }
+            let _ = writeln!(out, "_Static_assert({checks}, \"layout\");\n");
+        }
+        if def.owns {
+            // The bits first, then a new copy of each string inside.
+            let _ = writeln!(out, "static void drachm_copy_{}({name} *d, const {name} *s) {{\n    *d = *s;", def.name);
+            for f in def.fields.iter().filter(|f| prog.owns(f.ty)) {
+                let _ = writeln!(out, "    {}(&d->f_{n}, &s->f_{n});", copy_fn(f.ty), n = f.name);
+            }
+            let _ = writeln!(out, "}}\n\nstatic void drachm_drop_{}({name} *p) {{", def.name);
+            for f in def.fields.iter().filter(|f| prog.owns(f.ty)) {
+                let _ = writeln!(out, "    {}(&p->f_{});", drop_fn(f.ty), f.name);
+            }
+            let _ = writeln!(out, "}}\n");
+        }
+    }
+    out
+}
+
+/// `int main(void)`, which calls the Drachm `main` and turns its result into an exit code.
+pub(crate) fn main_fn(prog: &Program) -> String {
+    let main = &prog.funcs[prog.main];
+    let call = format!("{}()", main.symbol);
+    let body = if main.ret == Type::None { format!("{call}; return 0;") } else { format!("return (int){call};") };
+    format!("\nint main(void) {{ {body} }}\n")
+}
+
+pub(crate) fn struct_name(name: &str) -> String {
     format!("drachm_s_{name}")
 }
 
@@ -130,7 +155,7 @@ fn signature(f: &Func) -> String {
     format!("static {} {}({params})", c_type(f.ret), f.symbol)
 }
 
-fn c_type(t: Type) -> String {
+pub(crate) fn c_type(t: Type) -> String {
     let name = match t {
         Type::Int { bits: 8, signed: false } => "uint8_t",
         Type::Int { bits: 16, signed: false } => "uint16_t",
@@ -153,20 +178,20 @@ fn c_type(t: Type) -> String {
     name.to_string()
 }
 
-fn bits(t: Type) -> u16 {
+pub(crate) fn bits(t: Type) -> u16 {
     match t {
         Type::Int { bits, .. } => bits,
         _ => unreachable!("not an integer type"),
     }
 }
 
-fn signed(t: Type) -> bool {
+pub(crate) fn signed(t: Type) -> bool {
     matches!(t, Type::Int { signed: true, .. })
 }
 
 /// The unsigned type integer arithmetic on `t` is carried out in: at least
 /// 32 bits, so that C's promotion to (signed) `int` never gets involved.
-fn work_type(t: Type) -> &'static str {
+pub(crate) fn work_type(t: Type) -> &'static str {
     match bits(t) {
         8 | 16 | 32 => "uint32_t",
         64 => "uint64_t",
@@ -175,17 +200,17 @@ fn work_type(t: Type) -> &'static str {
 }
 
 /// `v`'s low and high 64-bit halves, sign- or zero-extended from its own type.
-fn halves(v: &str, t: Type) -> String {
+pub(crate) fn halves(v: &str, t: Type) -> String {
     let wide = if signed(t) { "drachm_s128" } else { "drachm_u128" };
     format!("(uint64_t)({v}), (uint64_t)((({wide})({v})) >> 64)")
 }
 
 /// A literal as a `drachm_str` initialiser: a not-owned view of read-only bytes.
-fn c_str_value(s: &str) -> String {
+pub(crate) fn c_str_value(s: &str) -> String {
     if s.is_empty() { "{0}".to_string() } else { format!("{{(uint8_t *){}, {}, 0}}", c_string(s), s.len()) }
 }
 
-fn c_string(s: &str) -> String {
+pub(crate) fn c_string(s: &str) -> String {
     let mut out = String::from("\"");
     for b in s.bytes() {
         match b {
