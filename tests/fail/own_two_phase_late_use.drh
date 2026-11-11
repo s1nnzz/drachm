@@ -1,0 +1,10 @@
+in io;
+none main() {
+    mut string s = "ab";
+    &string r = &s;
+    s = s::join(r);
+    mut string t = "ab";
+    &string q = &t;
+    t += t::len()->text();
+    io::outln(q);
+}

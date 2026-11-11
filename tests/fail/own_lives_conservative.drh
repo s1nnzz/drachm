@@ -4,6 +4,6 @@ none main() {
     string x = "one";
     mut string y = "two";
     &string r = first(&x, &y);
-    y = "three";
+    y += "!";
     io::outln(r);
 }

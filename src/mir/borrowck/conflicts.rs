@@ -49,6 +49,9 @@ pub struct Access {
     pub via: Via,
     /// The loan that is being activated, which the access is not checked against.
     pub skip_loan: Option<usize>,
+    /// Shared borrows passed to the activating runtime string call are not checked
+    /// (its functions read the other string before changing, so `s += s` is fine).
+    pub skip_str_args: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -63,7 +66,7 @@ fn operand_access(op: &Operand, span: Span, loc: Location, via: Via, out: &mut V
         Operand::Move(p) => (p, AccessKind::Move),
         Operand::Const(_) => return,
     };
-    out.push(Access { place: place.clone(), kind, span, loc, scope_loc: loc, via, skip_loan: None });
+    out.push(Access { place: place.clone(), kind, span, loc, scope_loc: loc, via, skip_loan: None, skip_str_args: false });
 }
 
 /// The accesses of the statement or terminator at `loc`, in evaluation order.
@@ -71,7 +74,7 @@ pub fn accesses(hir: &hir::Program, body: &Body, loc: Location) -> Vec<Access> {
     let block = &body.blocks[loc.block];
     let i = loc.index as usize;
     let mut out = Vec::new();
-    let acc = |place: &Place, kind, span, via| Access { place: place.clone(), kind, span, loc, scope_loc: loc, via, skip_loan: None };
+    let acc = |place: &Place, kind, span, via| Access { place: place.clone(), kind, span, loc, scope_loc: loc, via, skip_loan: None, skip_str_args: false };
     if i < block.statements.len() {
         let s = &block.statements[i];
         match &s.kind {
@@ -225,6 +228,9 @@ pub fn find(hir: &hir::Program, body: &Body, cg: &Generated, scopes: &LoanScopes
                 continue;
             }
             let loan: &Loan = &cg.loans[li];
+            if access.skip_str_args && loan.kind == BorrowKind::Shared && call_arg_is(body, access.loc, loan.dest.local) {
+                continue;
+            }
             let reserved = scopes.reserved[li].contains(at);
             let kind = match loan.kind {
                 BorrowKind::Mut { two_phase: true } if reserved => BorrowKind::Shared,
@@ -251,19 +257,17 @@ pub fn find(hir: &hir::Program, body: &Body, cg: &Generated, scopes: &LoanScopes
         for (li, act) in scopes.activation.iter().enumerate() {
             if *act == Some(loc) {
                 let loan = &cg.loans[li];
-                // The runtime's string functions tolerate aliasing: `s += s`.
-                if matches!(&body.blocks[loc.block].terminator.kind, TerminatorKind::Call { callee: Callee::Func(_), .. }) {
                     let a = Access {
                         place: loan.place.clone(),
                         kind: AccessKind::MutBorrow,
-                        span: loan.span,
+                        span: body.blocks[loc.block].terminator.span,
                         loc,
                         scope_loc: loc,
                         via: Via::Receiver,
                         skip_loan: Some(li),
+                        skip_str_args: matches!(&body.blocks[loc.block].terminator.kind, TerminatorKind::Call { callee: Callee::Str(_), .. }),
                     };
                     check(a, &mut best);
-                }
             }
         }
     }
@@ -271,4 +275,12 @@ pub fn find(hir: &hir::Program, body: &Body, cg: &Generated, scopes: &LoanScopes
         .enumerate()
         .filter_map(|(loan, b)| b.map(|(_, _, access)| Conflict { loan, access }))
         .collect()
+}
+
+/// Is `local` (a borrow temp) one of the arguments of the call at `loc`?
+fn call_arg_is(body: &Body, loc: Location, local: Local) -> bool {
+    match &body.blocks[loc.block].terminator.kind {
+        TerminatorKind::Call { args, .. } => args.iter().any(|a| matches!(&a.op, Operand::Copy(p) | Operand::Move(p) if p.local == local && p.proj.is_empty())),
+        _ => false,
+    }
 }

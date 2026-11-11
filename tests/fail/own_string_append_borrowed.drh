@@ -1,0 +1,7 @@
+in io;
+none main() {
+    mut string y = "ab";
+    &string r = &y;
+    y += "this is a long string that forces a reallocation of the buffer";
+    io::outln(r);
+}

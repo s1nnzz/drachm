@@ -1,0 +1,5 @@
+error[E0302]: cannot change `t` while it is borrowed
+`t` is borrowed here
+change attempted here
+the borrow is still used here
+help: finish using `q` before changing `t`
