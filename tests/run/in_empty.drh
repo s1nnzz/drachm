@@ -1,0 +1,8 @@
+in io;
+
+none main() {
+    bool done = io::ended();
+    io::outln(done::text());
+    string line = io::inln();
+    io::outln("[" + line + "]");
+}

@@ -1,0 +1,6 @@
+in io;
+
+none main() {
+    bool b = "true"::to<bool>();
+    io::outln(b::text());
+}

@@ -1,0 +1,7 @@
+in io;
+unit m;
+
+none main() {
+    float64<m> d = "5"::to<float64<m>>();
+    io::outln(d::text());
+}

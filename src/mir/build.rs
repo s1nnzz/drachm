@@ -897,6 +897,12 @@ impl<'a> Builder<'a> {
                 let ops = self.operands(&[&**v], &|_| None);
                 self.call(Callee::Text, ops, e.ty)
             }
+            ExprKind::InLine => self.call(Callee::InLine, Vec::new(), Type::Str),
+            ExprKind::InEnded => self.call(Callee::InEnded, Vec::new(), Type::Bool),
+            ExprKind::ParseText { text, to } => {
+                let ops = self.operands(&[&**text], &|_| Some((false, false)));
+                self.call(Callee::Parse(*to), ops, *to)
+            }
             ExprKind::Radix { value, base, upper } => {
                 let ops = self.operands(&[&**value], &|_| None);
                 self.call(Callee::Radix { base: *base, upper: *upper }, ops, e.ty)
@@ -1058,6 +1064,9 @@ fn kind_name(k: &ExprKind) -> &'static str {
         ExprKind::StrCall(..) => "StrCall",
         ExprKind::Join(_) => "Join",
         ExprKind::Out { .. } => "Out",
+        ExprKind::InLine => "InLine",
+        ExprKind::InEnded => "InEnded",
+        ExprKind::ParseText { .. } => "ParseText",
         ExprKind::Borrow { .. } => "Borrow",
         ExprKind::Deref(_) => "Deref",
         ExprKind::DeepCopy(_) => "DeepCopy",

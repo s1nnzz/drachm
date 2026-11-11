@@ -1,0 +1,10 @@
+in io;
+
+none main() {
+    io::out("first:");
+    io::out(io::inln());
+    io::outln("");
+    io::out("second:");
+    io::outln(io::inln());
+    io::outln("done");
+}

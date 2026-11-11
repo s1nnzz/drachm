@@ -1,0 +1,9 @@
+in io;
+
+none main() {
+    mut sint64 total = 0;
+    while (!io::ended()) {
+        total = total + io::inln()->to<sint64>();
+    }
+    io::outln(total::text());
+}

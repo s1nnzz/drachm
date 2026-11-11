@@ -1,0 +1,13 @@
+in io;
+
+none main() {
+    mut sint64 total = 0;
+    mut uint32 count = 0;
+    while (!io::ended()) {
+        total = total + io::inln()->to<sint64>();
+        count++;
+    }
+    io::outln("sum " + total::text());
+    float64 average = total::to<float64>() / count::to<float64>();
+    io::outf("average %.2\n", average);
+}

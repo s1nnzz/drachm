@@ -1,0 +1,10 @@
+in io;
+
+none main() {
+    string first = io::inln();
+    io::outln(first);
+    io::outln("[" + io::inln() + "]");
+    io::outln("[" + io::inln() + "]");
+    io::outln(io::ended()->text());
+    io::outln(io::ended()->text());
+}

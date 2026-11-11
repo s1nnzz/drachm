@@ -8,7 +8,7 @@ use crate::hir::StrFn;
 /// What `string` methods exist, for "no method" errors.
 const METHODS: &str = "`len`, `isEmpty`, `reverse`, `sub`, `upper`, `lower`, `trim`, `find`, `contains`, \
     `startsWith`, `endsWith`, `count`, `join`, `replace`, `replaceLimit`, `insert`, `remove`, `repeat`, \
-    `padLeft`, `padRight` and `text`";
+    `padLeft`, `padRight`, `text` and `to`";
 
 /// Names other languages use for these methods.
 fn method_hint(name: &str) -> Option<&'static str> {
@@ -149,6 +149,9 @@ impl Checker<'_> {
 
     /// `recv::name(args)` on a string.
     pub(super) fn string_method(&mut self, recv: hir::Expr, name: &str, name_span: Span, targs: &[ast::TypeName], args: &[ast::Expr]) -> Option<Val> {
+        if name == "to" {
+            return self.parse_text(recv, name_span, targs, args);
+        }
         if let Some(t) = targs.first() {
             self.diags.push(Diagnostic::at(&codes::E0103, t.span, format!("`{name}` takes no type arguments")));
         }
@@ -230,6 +233,34 @@ impl Checker<'_> {
             out.push(str_lit(" ".into()));
         }
         ok.then(|| Val::Expr(str_call(f, out)))
+    }
+
+    /// `text::to<T>()`: the number the text reads as. Bad text stops the
+    /// program with a panic until failing calls exist (step 5).
+    fn parse_text(&mut self, recv: hir::Expr, name_span: Span, targs: &[ast::TypeName], args: &[ast::Expr]) -> Option<Val> {
+        for a in args {
+            self.diags.push(Diagnostic::at(&codes::E0103, a.span, "`to` takes no arguments"));
+        }
+        let [target] = targs else {
+            self.diags.push(
+                Diagnostic::at(&codes::E0103, name_span, "`to` needs the type to convert to").help("for example `text::to<uint32>()`"),
+            );
+            return None;
+        };
+        let to = self.g.resolve(target, self.diags)?;
+        if to.mentions_unit() {
+            self.diags.push(Diagnostic::at(&codes::E0901, target.span, "reading text as a number with a unit is not supported yet"));
+            return None;
+        }
+        if to == Type::Bool {
+            self.diags.push(Diagnostic::at(&codes::E0901, target.span, "reading text as `bool` is not supported yet"));
+            return None;
+        }
+        if !to.is_numeric() {
+            self.diags.push(Diagnostic::at(&codes::E0101, target.span, format!("`to` on text reads a number, not `{to}`")));
+            return None;
+        }
+        Some(Val::Expr(hir::Expr::new(hir::ExprKind::ParseText { text: Box::new(recv), to }, to)))
     }
 
     /// A two-sided operator with a string on the left: `+` joins, the

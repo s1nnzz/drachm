@@ -21,7 +21,8 @@ drachm explain <code>                        describe an error code, e.g. E0101
 
 `build` writes an executable. Without `-o` the file is named like the source,
 without its `.drh` extension, so `build hello.drh` writes `hello`. `run` builds the
-program in a temporary place, runs it and removes it afterwards. Compiler warnings
+program in a temporary place, runs it and removes it afterwards. The program gets
+your standard input, so `printf '1\n2\n' | drachm run sum.drh` feeds it two lines. Compiler warnings
 are printed first, and the compiler exits with the program's exit code.
 
 A `main` that returns `sint32` sets the exit code, and a `none main()` exits with 0.

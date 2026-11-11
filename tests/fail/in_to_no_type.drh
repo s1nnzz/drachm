@@ -1,0 +1,6 @@
+in io;
+
+none main() {
+    uint32 n = "5"::to();
+    io::outln(n::text());
+}

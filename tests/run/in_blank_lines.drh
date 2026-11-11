@@ -1,0 +1,11 @@
+in io;
+
+none main() {
+    mut uint32 count = 0;
+    while (!io::ended()) {
+        string line = io::inln();
+        count++;
+        io::outln("[" + line + "]");
+    }
+    io::outln("total " + count::text());
+}

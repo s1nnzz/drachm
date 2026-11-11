@@ -165,4 +165,12 @@ none main() {
 }
 ```
 
+## Reading a line
+
+`io::inln()` gives the next line of standard input as a `string`, without the
+line ending. When you run the program, its input comes from the terminal, a file
+or a pipe. [Input and output](reference-io.md) lists the rules.
+
+<!-- example: input-name -->
+
 Next: [Lesson 6: Structs and methods](lesson-6-structs.md).

@@ -1,0 +1,2 @@
+error[E0201]: module `io` has no function `input`
+help: it has `io::out`, `io::outln`, `io::outf`, `io::inln` and `io::ended`

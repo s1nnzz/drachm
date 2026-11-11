@@ -1,0 +1,7 @@
+in io;
+
+none main() {
+    io::outln("start");
+    uint8 n = io::inln()->to<uint8>();
+    io::outln(n::text());
+}

@@ -238,6 +238,8 @@ impl Cx<'_> {
             | ExprKind::Bool(_)
             | ExprKind::Str(_)
             | ExprKind::Local(_)
+            | ExprKind::InLine
+            | ExprKind::InEnded
             | ExprKind::NullPtr => {}
             ExprKind::Field(inner, _)
             | ExprKind::Neg(inner)
@@ -249,6 +251,7 @@ impl Cx<'_> {
             | ExprKind::AddressOf(inner)
             | ExprKind::Deref(inner)
             | ExprKind::Out { arg: inner, .. }
+            | ExprKind::ParseText { text: inner, .. }
             | ExprKind::Radix { value: inner, .. } => self.expr(inner, out),
             ExprKind::Struct(fields) => {
                 for (_, v) in fields {

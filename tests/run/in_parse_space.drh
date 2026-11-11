@@ -1,0 +1,7 @@
+in io;
+
+none main() {
+    io::outln("start");
+    sint32 n = io::inln()->to<sint32>();
+    io::outln(n::text());
+}

@@ -25,6 +25,7 @@
       "pages": [
         "reference-types",
         "reference-units",
+        "reference-io",
         "reference-strings",
         "reference-structs",
         "reference-ownership",

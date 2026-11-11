@@ -1,0 +1,7 @@
+in io;
+
+none main() {
+    string line = io::inln();
+    io::outln(line::len()->text());
+    io::outln(io::ended()->text());
+}

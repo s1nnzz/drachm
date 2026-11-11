@@ -343,6 +343,12 @@ pub enum ExprKind {
     Join(Vec<Expr>),
     /// `io::out` / `io::outln` of a `string` place.
     Out { newline: bool, arg: Box<Expr> },
+    /// `io::inln()`: the next line of standard input, an owned `string`.
+    InLine,
+    /// `io::ended()`: true when standard input has nothing left.
+    InEnded,
+    /// `text::to<T>()`: the number the text reads as (a number type `to`).
+    ParseText { text: Box<Expr>, to: Type },
     /// `&place` / `&mut place` (the place may also be a temporary value).
     Borrow { mutable: bool, place: Box<Expr> },
     /// Reads through a borrow or pointer; also a place.

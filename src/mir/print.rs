@@ -74,6 +74,9 @@ fn terminator(p: &Program, hir: &hir::Program, k: &TerminatorKind) -> String {
                 Callee::Out { newline: false } => "Out".to_string(),
                 Callee::Out { newline: true } => "Outln".to_string(),
                 Callee::Text => "Text".to_string(),
+                Callee::InLine => "InLine".to_string(),
+                Callee::InEnded => "InEnded".to_string(),
+                Callee::Parse(ty) => format!("Parse<{ty}>"),
                 Callee::Radix { base, upper } => format!("Radix{base}{}", if *upper { "Upper" } else { "" }),
                 Callee::Join => "Join".to_string(),
             };

@@ -1,0 +1,6 @@
+in io;
+
+none main() {
+    string s = "5"::to<string>();
+    io::outln(s);
+}

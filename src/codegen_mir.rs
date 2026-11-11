@@ -840,6 +840,38 @@ impl Cg<'_, '_> {
                 let nl = self.b.ins().iconst(i32t, newline as i64);
                 self.rt("drachm_out_str", &[ptr, i64t, i32t], &[], &[sptr, len, nl]);
             }
+            Callee::InLine => {
+                let out = self.dest_addr(dest);
+                self.rt("drachm_in_line", &[ptr], &[], &[out]);
+            }
+            Callee::InEnded => {
+                let r = self.rt("drachm_in_ended", &[], &[types::I8], &[]);
+                if let Some(d) = dest {
+                    let (loc, _) = self.locate(d);
+                    self.store(loc, r[0]);
+                }
+            }
+            Callee::Parse(ty) => {
+                let text = self.operand(&args[0].op);
+                let v = match ty {
+                    Type::Float(bits) => {
+                        let bits = self.b.ins().iconst(i32t, bits as i64);
+                        let r = self.rt("drachm_parse_float", &[ptr, i32t], &[types::F64], &[text, bits]);
+                        if ty == Type::Float(32) { self.b.ins().fdemote(types::F32, r[0]) } else { r[0] }
+                    }
+                    Type::Int { bits, signed } => {
+                        let signed = self.b.ins().iconst(types::I8, signed as i64);
+                        let bits = self.b.ins().iconst(i32t, bits as i64);
+                        let r = self.rt("drachm_parse_int", &[ptr, types::I8, i32t], &[i64t, i64t], &[text, signed, bits]);
+                        self.join_halves(&r, cl_type(ty).expect("an integer has a machine type"))
+                    }
+                    _ => unreachable!("checked by typeck"),
+                };
+                if let Some(d) = dest {
+                    let (loc, _) = self.locate(d);
+                    self.store(loc, v);
+                }
+            }
             Callee::Text => {
                 let value_ty = self.op_ty(&args[0].op);
                 let v = self.operand(&args[0].op);

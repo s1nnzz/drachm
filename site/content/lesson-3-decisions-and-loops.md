@@ -191,4 +191,46 @@ none main() {
 }
 ```
 
+### Your turn: sum the numbers on standard input
+
+The program reads one number per line until there is no input left, and adds
+them up. Give it the input below, either in a file or in a pipe. The numbers
+can be negative, so the total is a `sint64`. `io::inln()` gives a line as text,
+and `::to<sint64>()` reads it as a number.
+
+```drachm title="starter"
+in io;
+
+none main() {
+    mut sint64 total = 0;
+    while (!io::ended()) {
+        // your code here
+    }
+    io::outln(total::text());
+}
+```
+
+```text title="input"
+4
+10
+-3
+```
+
+```text title="expected output"
+11
+```
+
+<!-- solution-of: solution-3-3 -->
+```drachm solution
+in io;
+
+none main() {
+    mut sint64 total = 0;
+    while (!io::ended()) {
+        total = total + io::inln()->to<sint64>();
+    }
+    io::outln(total::text());
+}
+```
+
 Next: [Lesson 4: Functions](lesson-4-functions.md).

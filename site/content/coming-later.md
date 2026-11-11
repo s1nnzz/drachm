@@ -30,6 +30,8 @@ programs that use them build and run. What is still to come:
 - Enums that carry data, with `match` on their variants.
 - Error handling with `fails with` and `maybe`, and `failure` types. There is no
   `Result` type.
+- `::to<T>()` on text reports bad text as an error you handle (`maybe`) instead
+  of stopping the program.
 
 ## Step 6: generics, interfaces and collections
 

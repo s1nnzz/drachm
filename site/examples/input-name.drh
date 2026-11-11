@@ -1,0 +1,6 @@
+in io;
+
+none main() {
+    string name = io::inln();
+    io::outln("Hello, " + name + "!");
+}

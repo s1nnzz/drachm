@@ -590,6 +590,35 @@ impl Gen<'_> {
                 let p = self.operand(&args[0].op);
                 self.line(format!("drachm_out_str((const char *)(*{p}).ptr, (*{p}).len, {});", newline as u8));
             }
+            Callee::InLine => {
+                let dest = dest_lv.expect("a string result has a destination");
+                self.line(format!("drachm_in_line(&{dest});"));
+            }
+            Callee::InEnded => {
+                let dest = dest_lv.expect("a bool result has a destination");
+                self.line(format!("{dest} = drachm_in_ended();"));
+            }
+            Callee::Parse(ty) => {
+                let dest = dest_lv.expect("a number result has a destination");
+                let text = self.operand(&args[0].op);
+                match ty {
+                    Type::Float(_) => {
+                        let bits = if ty == Type::Float(32) { 32 } else { 64 };
+                        self.line(format!("{dest} = ({})drachm_parse_float({text}, {bits});", c_type(ty)));
+                    }
+                    Type::Int { bits: 128, signed } => {
+                        self.line(format!(
+                            "{{ const drachm_pair p = drachm_parse_int({text}, {}, 128); {dest} = ({})drachm_join(p.lo, p.hi); }}",
+                            signed as u8,
+                            c_type(ty)
+                        ));
+                    }
+                    Type::Int { bits, signed } => {
+                        self.line(format!("{dest} = ({})drachm_parse_int({text}, {}, {bits}).lo;", c_type(ty), signed as u8));
+                    }
+                    _ => unreachable!("checked by typeck"),
+                }
+            }
             Callee::Text => {
                 let dest = dest_lv.expect("a string result has a destination");
                 let ty = self.op_ty(&args[0].op);

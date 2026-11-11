@@ -26,6 +26,6 @@ strings.drh:25:24
 error[E0104]: this produces no value to turn into text
 strings.drh:26:20
 error[E0101]: `++` needs a number, found `string`
-error[E0101]: `to` converts numbers, found `string`
+error[E0101]: expected `string`, found `uint8`
 error[E0103]: `sub` takes 2 arguments, but 3 given
 23 errors

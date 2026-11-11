@@ -1,0 +1,8 @@
+in io;
+
+none main() {
+    while (!io::ended()) {
+        string line = io::inln();
+        io::outln("[" + line + "] " + line::len()->text());
+    }
+}

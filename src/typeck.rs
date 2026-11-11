@@ -2370,6 +2370,23 @@ impl Checker<'_> {
             // Say it once per file.
             self.g.io_imported = true;
         }
+        if matches!(name, "inln" | "ended") {
+            if let Some(t) = targs.first() {
+                self.diags.push(Diagnostic::at(&codes::E0103, t.span, format!("`io::{name}` takes no type arguments")));
+            }
+            if let Some(a) = args.first() {
+                self.diags.push(Diagnostic::at(&codes::E0103, a.span, format!("`io::{name}` takes no arguments")));
+                for a in args {
+                    self.expr(a);
+                }
+                return None;
+            }
+            return Some(Val::Expr(if name == "inln" {
+                hir::Expr::new(hir::ExprKind::InLine, Type::Str)
+            } else {
+                hir::Expr::new(hir::ExprKind::InEnded, Type::Bool)
+            }));
+        }
         let newline = match name {
             "out" => false,
             "outln" => true,
@@ -2382,7 +2399,7 @@ impl Checker<'_> {
             _ => {
                 self.diags.push(
                     Diagnostic::at(&codes::E0201, name_span, format!("module `io` has no function `{name}`"))
-                        .help("it has `io::out`, `io::outln` and `io::outf`"),
+                        .help("it has `io::out`, `io::outln`, `io::outf`, `io::inln` and `io::ended`"),
                 );
                 for a in args {
                     self.expr(a);
@@ -2439,7 +2456,7 @@ impl Checker<'_> {
                 let s = v.ty.struct_id().unwrap();
                 self.struct_method(s, v, recv.span, name, name_span, targs, args, span)
             }
-            Some(Val::Expr(v)) if v.ty == Type::Str && name != "to" => self.string_method(v, name, name_span, targs, args),
+            Some(Val::Expr(v)) if v.ty == Type::Str => self.string_method(v, name, name_span, targs, args),
             value => self.value_method(value, recv, name, name_span, targs, args),
         }
     }

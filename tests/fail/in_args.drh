@@ -1,0 +1,6 @@
+in io;
+
+none main() {
+    string s = io::inln(1);
+    io::outln(s);
+}

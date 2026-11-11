@@ -686,7 +686,11 @@ warning[W0102]: converting `sint64` to `uint8` can lose information
 Standard library ("middle" size): core `io string collections math convert`;
 system `fs time env process`; concurrency/network `thread async net http`.
 `json random regex crypto` are official optional packages from the Agora.
-`io::out` (no newline), `io::outln` (newline), `io::outf` (printf-style).
+`io::out` (no newline), `io::outln` (newline), `io::outf` (printf-style),
+`io::inln()` (the next line of standard input as a `string`, without its line
+ending; `""` at the end) and `io::ended()` (no input left). Text reads as a
+number with `text::to<T>()`; until failing calls exist, bad text stops the
+program (exit 101). Rules: `site/content/reference-io.md`.
 
 ## Later
 

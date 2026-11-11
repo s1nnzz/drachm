@@ -1,0 +1,8 @@
+in io;
+
+none main() {
+    string line = io::inln();
+    uint32 n = line::to<uint32>();
+    io::out(io::inln());
+    io::outln(n::text());
+}

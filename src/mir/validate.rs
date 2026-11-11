@@ -250,6 +250,9 @@ impl Validator<'_> {
                 (Some(args.collect()), f.ret())
             }
             Callee::Out { .. } => (Some(vec![shared(Type::Str)]), Type::None),
+            Callee::InLine => (Some(Vec::new()), Type::Str),
+            Callee::InEnded => (Some(Vec::new()), Type::Bool),
+            Callee::Parse(ty) => (Some(vec![shared(Type::Str)]), ty),
             Callee::Text | Callee::Radix { .. } => (None, Type::Str),
             Callee::Join => (Some(Vec::new()), Type::Str),
         }

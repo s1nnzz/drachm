@@ -201,6 +201,12 @@ pub enum Callee {
     Str(hir::StrFn),
     /// `io::out` / `io::outln` of a `&string`.
     Out { newline: bool },
+    /// `io::inln()`: the next line of input, an owned string.
+    InLine,
+    /// `io::ended()`.
+    InEnded,
+    /// A `&string` read as a number of this type (panics on bad text).
+    Parse(Type),
     /// Number or bool to an owned string.
     Text,
     Radix { base: u32, upper: bool },
