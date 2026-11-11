@@ -672,8 +672,10 @@ Pages: introduction and install, a tour (hello world through structs and
 methods, control flow, errors/diagnostics, the CLI), and the error index
 (generated from `src/diag/codes.rs`, matching `drachm explain`).
 
-**Open (ask owner):** domain (docs.drachm.dev?), and whether the repo/site go
-public.
+Decided (2026-11-11): repo and site stay private for now; build locally with
+`mdbook serve site`. The Pages workflow is kept but not enabled.
+
+**Open (ask owner):** domain (docs.drachm.dev?) once it goes public.
 
 ---
 
