@@ -142,6 +142,8 @@ pub enum Stmt {
     Return { value: Option<Expr>, span: Span },
     /// `unsafe { }`
     Unsafe { body: Block, span: Span },
+    /// `destroy x;`: runs `drop()` now and ends `x`.
+    Destroy { target: Expr, span: Span },
     Expr(Expr),
 }
 

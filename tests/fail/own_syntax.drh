@@ -1,0 +1,7 @@
+in io;
+struct Parser { &string src; }
+none grow(&mut uint32 n) { }
+none main() {
+    uint32 b = 2;
+    grow(b);
+}

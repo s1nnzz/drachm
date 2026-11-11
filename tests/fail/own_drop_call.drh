@@ -1,0 +1,8 @@
+struct S {
+    uint32 n;
+    none drop() { }
+}
+none main() {
+    S x = 1;
+    x::drop();
+}

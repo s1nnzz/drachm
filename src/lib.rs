@@ -39,6 +39,9 @@ pub fn check(src: &str) -> (Option<hir::Program>, Vec<Diagnostic>) {
 /// Build an executable at `out`. Plain builds go through Cranelift, which is
 /// fast to compile; optimised builds go through C, which is fast to run.
 pub fn build(program: &hir::Program, out: &std::path::Path, optimise: bool) -> Result<(), String> {
+    if program.uses_borrows {
+        return Err("borrows and pointers cannot be built yet (step 3 is in progress)".to_string());
+    }
     if optimise {
         link::compile_c(&cgen::generate(program), out)
     } else {

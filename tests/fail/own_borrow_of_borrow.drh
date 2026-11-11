@@ -1,0 +1,5 @@
+none main() {
+    string s = "a";
+    &string r = &s;
+    &string q = &r;
+}

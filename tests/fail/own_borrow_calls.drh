@@ -1,0 +1,10 @@
+struct Player { string name; }
+none show(&Player p) { }
+none grow(&mut string s) { }
+none main() {
+    Player p = "a";
+    mut string xs = "b";
+    show(p);
+    grow(xs);
+    show(&mut p);
+}

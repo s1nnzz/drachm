@@ -25,7 +25,7 @@ pub const KEYWORDS: &[&str] = &[
     "otherwise", "any", "failure", "because", "exit", "extends", "Self", "self", "none", "mut", "if", "else",
     "while", "for", "of", "match", "case", "return", "skip", "struct", "enum", "interface", "with", "static",
     "public", "private", "new", "in", "out", "from", "as", "fails", "fail", "maybe", "copy", "lives", "open",
-    "break", "continue", "take", "lend", "unsafe", "async", "await", "move", "test", "unit", "true", "false",
+    "break", "continue", "take", "lend", "destroy", "unsafe", "async", "await", "move", "test", "unit", "true", "false",
 ];
 
 /// Longest first, so that `**=` wins over `**` and `*`.

@@ -1,0 +1,4 @@
+&string pick(&string a, uint32 n) lives n {
+    return a;
+}
+none main() { }

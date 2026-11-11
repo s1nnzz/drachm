@@ -1,0 +1,2 @@
+field `b` is a borrow, but `lives` does not name it
+names nothing `Q` borrows

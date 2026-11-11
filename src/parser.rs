@@ -420,6 +420,12 @@ impl Parser<'_> {
                 let body = self.block()?;
                 Ok(Stmt::Unsafe { body, span: start.to(self.prev_span()) })
             }
+            Tok::Kw("destroy") => {
+                self.bump();
+                let target = self.expr()?;
+                self.expect(";")?;
+                Ok(Stmt::Destroy { target, span: start.to(self.prev_span()) })
+            }
             Tok::Kw("if") => self.if_stmt(),
             Tok::Kw("while") => {
                 self.bump();
@@ -1142,6 +1148,13 @@ mod tests {
             let (_, d) = parse_src(src);
             assert!(errors(&d).iter().any(|m| m == "borrowing a borrow is not supported yet"), "{src}: {:?}", errors(&d));
         }
+    }
+
+    #[test]
+    fn destroy_statement() {
+        let (s, d) = body("destroy x;");
+        assert!(d.is_empty(), "{:?}", errors(&d));
+        assert!(matches!(&s[0], Stmt::Destroy { .. }));
     }
 
     #[test]

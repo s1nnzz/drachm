@@ -1,0 +1,1 @@
+error[E0331]: `drop` runs by itself; write `destroy x;` to end `x` now

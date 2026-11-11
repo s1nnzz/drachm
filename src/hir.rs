@@ -267,7 +267,7 @@ impl Expr {
     /// needed.
     pub fn is_place(&self) -> bool {
         match &self.kind {
-            ExprKind::Local(_) | ExprKind::Temp(..) => true,
+            ExprKind::Local(_) | ExprKind::Temp(..) | ExprKind::Deref(_) => true,
             ExprKind::Field(inner, _) => inner.is_place(),
             _ => false,
         }
