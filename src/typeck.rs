@@ -86,8 +86,6 @@ struct Globals {
     io_imported: bool,
     /// The file flag `//--!$unsafe: true`.
     unsafe_allowed: bool,
-    /// A raw pointer was seen (`hir::Program::uses_pointers`).
-    uses_pointers: std::cell::Cell<bool>,
     /// Which structs copy automatically (`hir::StructDef::copy`).
     struct_copy: Vec<bool>,
     /// The units declared in the file (`typeck::units`).
@@ -123,9 +121,6 @@ impl Globals {
 
     fn resolve(&self, t: &ast::TypeName, diags: &mut Vec<Diagnostic>) -> Option<Type> {
         if let Some((_, span)) = t.mods.first() {
-            if t.mods.iter().any(|(m, _)| matches!(m, ast::TypeMod::Ptr | ast::TypeMod::FixedPtr)) {
-                self.uses_pointers.set(true);
-            }
             if !self.unsafe_allowed && let Some((_, at)) = t.mods.iter().find(|(m, _)| matches!(m, ast::TypeMod::Ptr | ast::TypeMod::FixedPtr)) {
                 diags.push(unsafe_disabled(*at, "raw pointer type here"));
             }
@@ -353,7 +348,7 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
     }
 
     let main = g.funcs_by_name.get("main").copied().unwrap_or(0);
-    let mut program = hir::Program { funcs: funcs.into_iter().map(|f| f.unwrap_or_else(placeholder)).collect(), structs, main, uses_pointers: g.uses_pointers.get() };
+    let mut program = hir::Program { funcs: funcs.into_iter().map(|f| f.unwrap_or_else(placeholder)).collect(), structs, main };
     units::erase(&mut program);
     if cfg!(debug_assertions) {
         units::assert_erased(&mut program);
@@ -414,9 +409,6 @@ fn unsafe_disabled(span: Span, what: &str) -> Diagnostic {
 /// An `unsafe` function needs the file flag; `lives` names parameters that
 /// hold a borrow.
 fn check_signature_extras(g: &Globals, f: &ast::Func, params: &[Option<Type>], diags: &mut Vec<Diagnostic>) {
-    if f.is_unsafe.is_some() {
-        g.uses_pointers.set(true);
-    }
     if let Some(at) = f.is_unsafe
         && !g.unsafe_allowed
     {
@@ -1451,7 +1443,6 @@ impl Checker<'_> {
                 let mut p = self.lvalue(inner)?;
                 match p.ty {
                     Type::Ptr { to } | Type::FixedPtr { to } => {
-                        self.g.uses_pointers.set(true);
                         if p.ty.is_fixed_ptr() {
                             p.through_fixed = true;
                             p.through_shared = true;
@@ -1599,7 +1590,6 @@ impl Checker<'_> {
     /// Check `e` and convert it to `to`, reporting a mismatch or a lossy conversion.
     fn coerce(&mut self, e: &ast::Expr, to: Type) -> Option<hir::Expr> {
         if to.is_ptr() && matches!(e.kind, ExprKind::NoneValue) {
-            self.g.uses_pointers.set(true);
             return Some(hir::Expr::new(hir::ExprKind::NullPtr, to).at(e.span));
         }
         if to.is_borrow() {
@@ -2094,7 +2084,6 @@ impl Checker<'_> {
                 let x = self.materialise(v, inner.span)?;
                 match x.ty {
                     Type::Ptr { to } | Type::FixedPtr { to } => {
-                        self.g.uses_pointers.set(true);
                         typed(hir::ExprKind::Deref(Box::new(x)), *to)
                     }
                     t => {
@@ -2269,7 +2258,6 @@ impl Checker<'_> {
 
     /// `address of e`.
     fn address_expr(&mut self, e: &ast::Expr, inner: &ast::Expr) -> Option<Val> {
-        self.g.uses_pointers.set(true);
         if !self.g.unsafe_allowed {
             self.diags.push(unsafe_disabled(Span::new(e.span.start, e.span.start + 7), "needs the file flag"));
         }
@@ -2311,7 +2299,6 @@ impl Checker<'_> {
         let v = self.expr_raw(other)?;
         match v {
             Val::Expr(x) if x.ty.is_ptr() => {
-                self.g.uses_pointers.set(true);
                 let null = hir::Expr::new(hir::ExprKind::NullPtr, x.ty);
                 let hop = if op == BinOp::Eq { hir::BinOp::Eq } else { hir::BinOp::Ne };
                 let (a, b) = if none_left { (null, x) } else { (x, null) };
@@ -2544,7 +2531,6 @@ impl Checker<'_> {
                 return None;
             }
         };
-        self.g.uses_pointers.set(true);
         let ty = if want_fixed { Type::fixed_ptr(to) } else { Type::ptr(to) };
         Some(Val::Expr(hir::Expr::new(hir::ExprKind::PtrConv(Box::new(v)), ty)))
     }
