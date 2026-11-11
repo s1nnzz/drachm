@@ -29,3 +29,10 @@ STILL OPEN: Q19 wording of the 03xx message drafts (show with the other draft wo
 outf: every unescaped `%` is a placeholder (keep). `\%` = literal percent. NEW: `%\` ends a placeholder's options: `io::outf("%\5 apples!", "£")` prints "£5 apples!" (the `5` is text), whereas `"%5 apples!"` is width 5. (My reading of the owner's note "%\ in general should negate anything after the %".)
 Operator methods: overloadable by right-hand type, resolved like constructors (exact, lossless, lossy+warning). Owner note: `v * w` as dot product was a bad example; dot would be a named method.
 Range loops: `by` step word: `for (float64 x of 0.0..1.0 by 0.25)`, `for (uint32 i of 0..10 by 3)` = 0,3,6,9 (stops at the last value not past the end; never clamps to the end). Float ranges require `by`? (option text said float ranges MUST say their step with `by`; integer ranges may.)
+
+# Step 3 edge cases, 2026-11-11 (spec "Still open" #1, #3, #6, #9)
+#1 borrow of a borrow: `&mut s` where `s` is already a `&mut` binding is an error with fix-it "write `lend s`". No `&&T` types.
+#3 `&mut` where `&` is expected: must be written `show(&m)` (an explicit shared borrow through the `&mut` you hold); bare `show(m)` is an error with fix-it "write `&m`". (So `&m` on a `&mut` binding is the one allowed borrow-of-a-borrow: it lends a shared view for the call.)
+#6 calling drop yourself: `x::drop()` is an error. New statement `destroy x;` runs `drop()` now and ends `x` (like a move; nothing runs at scope end). `destroy` becomes a keyword.
+#9 `address of` an immutable binding: allowed, gives a read-only pointer of a second pointer kind `*fixed T` (cannot be written through). `address of` a `mut`/`open` binding gives `*T`.
+Still open: #2 `lend` on a `&T`, #5 more `take` forms, #7 multi-slot borrow fields, #8 pointers outside `unsafe` / inside unsafe fn bodies, #10 `none` as a non-pointer value (likely step 5 `maybe`).
