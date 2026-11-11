@@ -142,8 +142,9 @@ _Noreturn void drachm_parse_failed(const drachm_str *s, const char *type_name);
 The text is shown truncated to 40 bytes with `...` after it, control bytes as `?`.
 Final output: `drachm: panic: cannot read "abc" as uint32`, exit code 101.
 
-**Interim parsing rules** (language question 1; implement strictly so a later
-loosening breaks no program that worked):
+**Parsing rules, as first written** (superseded: question 1 was decided forgiving
+on 2026-11-11, see "Language questions found"; the rules that now apply are in
+`site/content/reference-io.md`):
 - the whole text must be the number: no spaces before or after, no empty text;
 - integers: decimal digits, with a leading `-` allowed only for signed types
   (`-0` is `0`), no `+`, no `_`, no `0x`;
@@ -239,7 +240,7 @@ and the existing `optimised_output_matches` compares them):
 - `in_long_line`: a 100 000 byte line, echoed by length with `::len()`.
 - `in_parse_bad`: `abc` as `uint32`: `.code` 101, `.err` lines
   `cannot read "abc" as uint32`; `in_parse_range`: `256` as `uint8` likewise;
-  `in_parse_space`: `" 5"` bad (interim strictness); `in_parse_empty`: `""` bad.
+  `in_parse_space`: `" 5"` is 5 (forgiving, Q1); `in_parse_gap`: `"4 2"` bad; `in_parse_empty`: `""` bad.
   These panic, so they are exempt from the leak check.
 - `in_mixed_with_out`: interleaved `io::out`/`io::inln` to check ordering of output.
 
@@ -322,6 +323,12 @@ Interim behaviour is what the code above does; none of it was asked.
    - B. Forgiving: surrounding spaces are ignored, `+` allowed; out-of-range is still bad.
    - C. Original: say what is accepted in the call, so the program, not the language,
      decides: `line::to<uint32>(spaces: skip)`.
+
+   **Decided (2026-11-11): B.** Surrounding whitespace is ignored, a leading `+` is
+   allowed, and for floats `.5` and `5.` are fine (a lone `.` is still bad).
+   Out-of-range values, `1_000`, `0x10`, `4 2` and empty text stay bad text, exit
+   101. Implemented in `runtime/strings/src/lib.rs`; golden tests
+   `in_parse_space`, `in_parse_forgiving`, `in_parse_gap`.
    ```cpp
    uint32 a = " 42 "::to<uint32>();          // A: stops the program   B: 42
    uint32 b = " 42 "::trim()::to<uint32>();  // 42 in both

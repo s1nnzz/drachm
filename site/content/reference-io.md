@@ -53,14 +53,19 @@ text as `bool` or as a number with a unit is not supported yet.
 
 <!-- example: input-sum -->
 
-The text must be the whole number, and the rules are strict for now:
+The text must hold one number. Spaces, tabs and line breaks around it are
+ignored, so `" 42 "::to<uint32>()` is 42.
 
-- An integer is digits, with a `-` before them only for a signed type. No spaces,
-  no `+`, no `_` and no `0x`.
-- A number out of range for its type is bad text: `"256"::to<uint8>()` is bad.
-- A float is an optional `-`, digits, an optional `.` followed by digits, and an
-  optional exponent such as `e3` or `E-3`. So `.5`, `5.`, `inf` and `nan` are bad.
+- An integer is an optional sign, then digits. A `-` is allowed only for a
+  signed type; a `+` is allowed for any type. No spaces inside the number, no
+  `_` and no `0x`: `"4 2"`, `"1_000"` and `"0x10"` are bad.
+- A number out of range for its type is bad text: `"256"::to<uint8>()` is bad,
+  and so is `"-1"::to<uint8>()`.
+- A float is an optional sign (`-` or `+`), digits, an optional `.` with digits
+  after it, and an optional exponent such as `e3` or `E-3`. So `.5` and `5.` are
+  fine, but `.` alone, `inf` and `nan` are bad.
 - A float too large for its type is bad text.
+- Empty text, or text with only spaces, is bad text.
 
 ## Bad text
 
