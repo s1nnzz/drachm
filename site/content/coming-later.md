@@ -58,4 +58,4 @@ programs that use them build and run. What is still to come:
 - Importing C headers.
 - A formatter (`drachm fmt`) and a package registry.
 - 256-bit integers, and the `float8` and `float16` types.
-- Targets besides Linux x86-64.
+- Targets besides x86-64 Linux and Windows: macOS, and AArch64.

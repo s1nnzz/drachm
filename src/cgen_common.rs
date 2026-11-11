@@ -18,7 +18,8 @@ const STRINGS_H: &str = include_str!("../runtime/strings.h");
 /// The runtime and the constant helpers every program starts with.
 pub(crate) fn prelude() -> String {
     let mut out = String::from("#define DRACHM_INLINE 1\n");
-    out += &RUNTIME_C.replace("#include \"strings.h\"\n", STRINGS_H);
+    // Without the line ending, which is "\r\n" in a Windows checkout.
+    out += &RUNTIME_C.replace("#include \"strings.h\"", STRINGS_H);
     out += "\nstatic inline double drachm_f64_bits(uint64_t b) { double d; memcpy(&d, &b, 8); return d; }\n";
     out += "static inline float drachm_f32_bits(uint32_t b) { float f; memcpy(&f, &b, 4); return f; }\n\n";
     out

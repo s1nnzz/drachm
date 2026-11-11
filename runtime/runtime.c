@@ -18,6 +18,18 @@
 
 #include "strings.h"
 
+#ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
+
+// The C library on Windows turns "\n" into "\r\n" on text streams. Drachm
+// programs write exactly the bytes they print, as they do everywhere else.
+__attribute__((constructor, unused)) static void drachm_binary_stdio(void) {
+    _setmode(_fileno(stdout), _O_BINARY);
+    _setmode(_fileno(stderr), _O_BINARY);
+}
+#endif
+
 #ifdef DRACHM_INLINE
 #define DRACHM_FN static inline __attribute__((unused))
 #else

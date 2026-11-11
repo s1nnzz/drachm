@@ -17,6 +17,7 @@ use std::collections::HashMap;
 
 use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
 use cranelift_codegen::ir::{types, AbiParam, InstBuilder, StackSlotData, StackSlotKind, TrapCode, UserFuncName, Value};
+use cranelift_codegen::isa::CallConv;
 use cranelift_codegen::settings::{self, Configurable};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use cranelift_module::{DataDescription, DataId, FuncId, Linkage, Module};
@@ -917,6 +918,16 @@ impl Cg<'_, '_> {
 
     /// Call a runtime function, importing it on first use.
     fn rt(&mut self, name: &'static str, params: &[ClType], returns: &[ClType], args: &[Value]) -> Vec<Value> {
+        // A `drachm_pair` result. SysV returns it in two registers, as declared;
+        // Windows x64 returns a 16-byte struct through a hidden first argument.
+        if returns.len() == 2 && self.module.isa().default_call_conv() == CallConv::WindowsFastcall {
+            let slot = self.b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 16, 3));
+            let at = self.b.ins().stack_addr(self.ptr, slot, 0);
+            let id = import_rt(self.module, self.runtime, name, &[&[self.ptr], params].concat(), &[]);
+            let callee = self.module.declare_func_in_func(id, self.b.func);
+            self.b.ins().call(callee, &[&[at], args].concat());
+            return (0..2).map(|i| self.b.ins().load(returns[i], MEM, at, 8 * i as i32)).collect();
+        }
         let id = import_rt(self.module, self.runtime, name, params, returns);
         let callee = self.module.declare_func_in_func(id, self.b.func);
         let call = self.b.ins().call(callee, args);

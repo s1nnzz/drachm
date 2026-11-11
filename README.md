@@ -44,7 +44,9 @@ cargo build --release
 ./target/release/drachm explain W0102                 # describe a code
 ```
 
-Requires `cc` (gcc or clang) on `PATH`.
+Requires `cc` (gcc or clang) on `PATH`. On Windows (x86-64, MSVC Rust toolchain)
+it uses `clang` from LLVM, with Visual Studio or its Build Tools for the linker
+and libraries.
 
 ## The language so far
 

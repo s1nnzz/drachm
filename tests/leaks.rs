@@ -39,13 +39,16 @@ fn build() -> std::path::PathBuf {
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("t.c"), C).unwrap();
     std::fs::write(dir.join("strings.h"), include_str!("../runtime/strings.h")).unwrap();
-    let exe = dir.join("t");
-    let out = Command::new("cc")
+    let exe = drachm::link::exe_path(&dir.join("t"));
+    let out = Command::new(drachm::link::CC)
         .current_dir(&dir)
-        .args(["t.c", env!("DRACHM_STRINGS_LIB"), "-lpthread", "-ldl", "-lgcc_s", "-lm", "-o"])
+        .args(drachm::link::CC_FLAGS)
+        .args(["t.c", env!("DRACHM_STRINGS_LIB")])
+        .args(drachm::link::LINK_FLAGS)
+        .arg("-o")
         .arg(&exe)
         .output()
-        .expect("could not run cc");
+        .expect("could not run the C compiler");
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     exe
 }
@@ -64,7 +67,9 @@ fn run(exe: &Path, mode: &str, check: bool) -> (Option<i32>, String) {
 fn runtime_checks() {
     let exe = build();
     let (code, err) = run(&exe, "double", true);
-    assert_eq!(code, None, "aborted by a signal");
+    // abort() is a signal on Unix; on Windows it is a fast fail, which ends
+    // the process with STATUS_STACK_BUFFER_OVERRUN.
+    assert_eq!(code, if cfg!(windows) { Some(0xC0000409_u32 as i32) } else { None }, "aborted");
     assert!(err.contains("drachm: double free of a string"), "{err}");
 
     let (code, err) = run(&exe, "leak", true);

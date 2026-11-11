@@ -58,7 +58,7 @@ struct dies (step 3, WP6).
 | `src/hir.rs` | the typed tree both backends consume: every conversion explicit, names resolved, ownership explicit (see its module comment); struct layouts |
 | `src/codegen.rs` | plain builds: HIR → Cranelift IR → object file (`cranelift-object` 0.137) |
 | `src/cgen.rs` | `-O` builds: HIR → C (one `const` temporary per sub-expression) |
-| `src/link.rs` | runs `cc`; caches the compiled runtime in `~/.cache/drachm` |
+| `src/link.rs` | runs `cc` (`clang` on Windows); caches the compiled runtime in `~/.cache/drachm` (`%LOCALAPPDATA%\drachm` on Windows) |
 | `src/diag/` | `Diagnostic`, `Span`, `Source`; `render.rs` (SPEC section 10 layout, colour); `codes.rs` (code table) |
 | `src/main.rs` | thin CLI: `build`/`run`/`check`/`explain`, `-O` |
 | `runtime/runtime.c` | printing, panics, values as text (numbers, floats, `%.N`, zero padding), float→int wrapping, 128-bit division, integer power. Linked for plain builds, pasted inline for `-O` (with `runtime/strings.h`) |
@@ -742,4 +742,4 @@ Decided (2026-11-10): **Cranelift for plain builds and scripts, generated C for
 - **256-bit integers and `float8`/`float16`:** runtime software arithmetic
   where Cranelift lacks native support.
 - **`drachm fmt`**, the **Agora** registry (agora.drachm.dev), `drachm add`.
-- **Targets:** AArch64, macOS, Windows.
+- **Targets:** AArch64, macOS. (Windows x86-64 works: clang with the MSVC linker and libraries.)
