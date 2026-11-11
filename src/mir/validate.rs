@@ -157,6 +157,8 @@ impl Validator<'_> {
                 if let Some(f) = flag {
                     if local_ty(self.body, *f).ok() != Some(Type::Bool) {
                         self.err(&at, "a drop flag must be a bool local");
+                    } else if !matches!(self.body.locals[*f].kind, LocalKind::DropFlag) {
+                        self.err(&at, format!("{f} is named as a drop flag but is not a DropFlag local"));
                     }
                 }
             }

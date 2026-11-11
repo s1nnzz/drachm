@@ -39,8 +39,10 @@ Steps 0, 1 and 2 are done, and the control-flow part of step 4: the compiler
 takes Drachm syntax (`.drh`), all number types up to 128 bits, `bool`, `none`,
 owned `string`s with interpolation and `io::outf`, structs (fields that may be
 strings, methods, operators), `for`/ranges/`break N`/`continue N`/`skip`/
-`match`, and has two backends. Ownership is still step 2's: every copy of a
-string, or of a struct holding one, is a deep copy.
+`match`, and has two backends. A string, or a struct holding one, moves when it
+is assigned, passed or returned; `copy x` is the only deep copy; drops are
+decided on the MIR (`src/mir/drops.rs`) and a `drop()` method runs when its
+struct dies (step 3, WP6).
 
 | File | Role |
 |---|---|
@@ -439,7 +441,7 @@ Work:
    Error messages should say which was inferred and why.
 8. `unsafe { }` and `*T`, gated by the `//--!$unsafe: true` file flag. This
    needs the file-flag parser, which the full config later reuses.
-9. Remove step 2's deep-copy-on-assign workaround.
+9. Remove step 2's deep-copy-on-assign workaround. (Done in WP6.)
 
 **Done when:** fail tests cover use after move, mutation through `&`, two live
 `&mut`, `&` and `&mut` overlapping, returning a borrow of a local, a missing
