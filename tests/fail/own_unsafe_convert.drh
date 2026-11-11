@@ -1,0 +1,8 @@
+//--!$unsafe: true
+none main() {
+    mut uint32 n = 5;
+    unsafe {
+        *uint32 w = address of n;
+        *fixed uint32 r = w;
+    }
+}

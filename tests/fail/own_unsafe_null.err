@@ -1,0 +1,1 @@
+error[E0316]: making a null pointer needs an `unsafe { }` block

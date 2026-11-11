@@ -1,0 +1,3 @@
+//--!$unsafe: true
+none read(*uint32 p) { uint32 v = *p; }
+none main() { }

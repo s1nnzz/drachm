@@ -1,0 +1,2 @@
+none f(*fixed uint32 p) { }
+none main() { }

@@ -103,7 +103,7 @@ pub(crate) fn c_type(t: Type) -> String {
         Type::None => "void",
         Type::Unit { .. } => unreachable!("units are erased before the backends"),
         Type::Struct { name, .. } => return struct_name(name),
-        Type::Ref { to, .. } | Type::Ptr { to } => return format!("{} *", c_type(*to)),
+        Type::Ref { to, .. } | Type::Ptr { to } | Type::FixedPtr { to } => return format!("{} *", c_type(*to)),
     };
     name.to_string()
 }

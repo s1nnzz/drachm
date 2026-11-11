@@ -1,0 +1,1 @@
+error[E0316]: calling `one`, an `unsafe` function, needs an `unsafe { }` block
