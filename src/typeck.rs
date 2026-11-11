@@ -2352,7 +2352,7 @@ impl Checker<'_> {
                 let ty = self.g.sigs[id].ret?;
                 typed(hir::ExprKind::Call(id, args?), ty)
             }
-            ExprKind::Method { recv, name, name_span, targs, args } => {
+            ExprKind::Method { recv, name, name_span, targs, args, .. } => {
                 if let ExprKind::Var(n) = &recv.kind
                     && self.lookup(n).is_none()
                 {

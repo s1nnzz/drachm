@@ -6,10 +6,13 @@ use crate::ast::NumLit;
 use crate::consts::Const;
 use crate::diag::{codes, Diagnostic, Span};
 use crate::types::{Type, TypeError};
+use crate::units;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Tok {
-    Num(NumLit),
+    /// A number literal, and the text of the unit written right after it
+    /// (`9.6<s>` gives `"s"`) with the span of that text.
+    Num(NumLit, Option<(String, Span)>),
     /// A string literal of any form, in pieces.
     Str(Vec<StrPiece>),
     Ident(String),
@@ -20,12 +23,13 @@ pub enum Tok {
 }
 
 /// Every reserved word (SPEC section 1). `to` is not here: it only means
-/// something directly after `skip`.
+/// something directly after `skip`. `unit` is not here either: it is a
+/// context word that declares only at the start of a top-level item.
 pub const KEYWORDS: &[&str] = &[
     "otherwise", "any", "failure", "because", "exit", "extends", "Self", "self", "none", "mut", "if", "else",
     "while", "for", "of", "match", "case", "return", "skip", "struct", "enum", "interface", "with", "static",
     "public", "private", "new", "in", "out", "from", "as", "fails", "fail", "maybe", "copy", "lives", "open",
-    "break", "continue", "take", "lend", "destroy", "unsafe", "async", "await", "move", "test", "unit", "true", "false",
+    "break", "continue", "take", "lend", "destroy", "unsafe", "async", "await", "move", "test", "true", "false",
 ];
 
 /// Longest first, so that `**=` wins over `**` and `*`.
@@ -39,7 +43,7 @@ impl Tok {
     /// How the token is named in error messages.
     pub fn describe(&self) -> String {
         match self {
-            Tok::Num(_) => "a number".into(),
+            Tok::Num(..) => "a number".into(),
             Tok::Str(_) => "a string".into(),
             Tok::Ident(s) => format!("name `{s}`"),
             Tok::Kw(s) => format!("keyword `{s}`"),
@@ -125,7 +129,8 @@ impl Lexer<'_> {
                     }
                 }
             } else if c.is_ascii_digit() {
-                return Some((self.number(), start));
+                let tok = self.number();
+                return Some((self.with_unit(tok), start));
             } else if c.is_ascii_alphabetic() || c == b'_' {
                 while is_word(self.at(0)) {
                     self.i += 1;
@@ -135,7 +140,7 @@ impl Lexer<'_> {
                     return Some((self.string(start, true), start));
                 }
                 if let Some(tok) = self.word_base(word) {
-                    return Some((tok, start));
+                    return Some((self.with_unit(tok), start));
                 }
                 let tok = match KEYWORDS.iter().find(|k| **k == word) {
                     Some(k) => Tok::Kw(k),
@@ -193,6 +198,40 @@ impl Lexer<'_> {
         Some(self.finish_int(digits_start, digits_start, radix))
     }
 
+    /// The unit-literal rule (step 4.5, 2.4): a number literal directly
+    /// followed by `<` with no space, then unit text up to the first `>`.
+    /// Only the text's characters `A-Z a-z 0-9 _ / * ^ - ( )` are allowed,
+    /// and a space only right after the word `delta`. If the text is not a
+    /// valid unit expression the `<` is an ordinary less-than and the
+    /// number is left as it was.
+    fn with_unit(&mut self, tok: Tok) -> Tok {
+        let Tok::Num(lit, _) = tok else { return tok };
+        let plain = Tok::Num(lit.clone(), None);
+        if self.at(0) != b'<' {
+            return plain;
+        }
+        let from = self.i + 1;
+        let mut j = from;
+        loop {
+            let Some(&b) = self.bytes.get(j) else { return plain };
+            if b == b'>' {
+                break;
+            }
+            let allowed = is_word(b) || matches!(b, b'/' | b'*' | b'^' | b'-' | b'(' | b')');
+            if !allowed && !(b == b' ' && &self.src[from..j] == "delta") {
+                return plain;
+            }
+            j += 1;
+        }
+        let text = &self.src[from..j];
+        if !units::is_valid_unit_text(text) {
+            return plain;
+        }
+        let unit = Some((text.to_string(), Span::new(from, j)));
+        self.i = j + 1;
+        Tok::Num(lit, unit)
+    }
+
     fn number(&mut self) -> Tok {
         let start = self.i;
         let radix = match (self.at(0), self.at(1)) {
@@ -243,7 +282,7 @@ impl Lexer<'_> {
             BigRational::zero()
         });
         let suffix = self.suffix(start, true, true);
-        Tok::Num(NumLit { value: Const::Dec(value), suffix })
+        Tok::Num(NumLit { value: Const::Dec(value), suffix, unit: None }, None)
     }
 
     /// Finish an integer literal whose digits run from `digits` to here.
@@ -259,7 +298,7 @@ impl Lexer<'_> {
             Some(Type::Float(_)) => Const::Dec(BigRational::from_integer(value)),
             _ => Const::Int(value),
         };
-        Tok::Num(NumLit { value, suffix })
+        Tok::Num(NumLit { value, suffix, unit: None }, None)
     }
 
     /// A type suffix directly after a number: `u8`, `s`, `f32`, ...
@@ -484,8 +523,12 @@ mod tests {
         assert!(diags.is_empty(), "{diags:?}");
         toks.into_iter()
             .map(|t| match t.tok {
-                Tok::Num(NumLit { value: Const::Int(v), suffix }) => format!("{v}{}", suffix.map_or(String::new(), |s| format!(":{s}"))),
-                Tok::Num(NumLit { value: Const::Dec(v), suffix }) => format!("d{v}{}", suffix.map_or(String::new(), |s| format!(":{s}"))),
+                Tok::Num(NumLit { value: Const::Int(v), suffix, .. }, unit) => {
+                    format!("{v}{}{}", suffix.map_or(String::new(), |s| format!(":{s}")), unit_text(unit))
+                }
+                Tok::Num(NumLit { value: Const::Dec(v), suffix, .. }, unit) => {
+                    format!("d{v}{}{}", suffix.map_or(String::new(), |s| format!(":{s}")), unit_text(unit))
+                }
                 Tok::Ident(s) => s,
                 Tok::Sym(s) | Tok::Kw(s) => s.to_string(),
                 Tok::Str(pieces) => format!("{:?}", show(&pieces)),
@@ -493,6 +536,10 @@ mod tests {
             })
             .filter(|s| !s.is_empty())
             .collect()
+    }
+
+    fn unit_text(unit: Option<(String, Span)>) -> String {
+        unit.map_or(String::new(), |(u, _)| format!("<{u}>"))
     }
 
     /// A string token's pieces: raw text as is, escapes in `[]`, interpolations
@@ -530,6 +577,19 @@ mod tests {
         assert_eq!(nums("hex zz"), ["hex", "zz"]);
         assert_eq!(nums("1..9"), ["1", "..", "9"]);
         assert_eq!(nums("5::text()"), ["5", "::", "text", "(", ")"]);
+    }
+
+    #[test]
+    fn unit_literals() {
+        assert_eq!(
+            nums("9.6<s> 5u8<m> 2.5f32<m/s> 1<1/s> 3.0<delta degC> 100<kg*m/s^2>"),
+            ["d48/5<s>", "5:uint8<m>", "d5/2:float32<m/s>", "1<1/s>", "d3<delta degC>", "100<kg*m/s^2>"]
+        );
+        assert_eq!(nums("3<m>>2"), ["3<m>", ">", "2"]);
+        assert_eq!(nums("9<s>>3 1<m>>=2"), ["9<s>", ">", "3", "1<m>", ">=", "2"]);
+        // Not unit literals: a space, a bad unit, or no closing `>`.
+        assert_eq!(nums("3 < m 3<m* 3<4 3<x && y>2"), ["3", "<", "m", "3", "<", "m", "*", "3", "<", "4", "3", "<", "x", "&&", "y", ">", "2"]);
+        assert_eq!(nums("3.0<delta  degC>"), ["d3", "<", "delta", "degC", ">"]);
     }
 
     #[test]

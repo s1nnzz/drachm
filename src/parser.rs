@@ -9,13 +9,21 @@ use crate::lexer::{StrPiece, Tok, Token};
 /// on at the next statement or function, so several can be found in one go.
 pub fn parse(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>) -> Program {
     let mut p = Parser { tokens, pos: 0, diags };
-    let mut program = Program { imports: Vec::new(), funcs: Vec::new(), structs: Vec::new(), unsafe_allowed: false };
+    let mut program = Program {
+        imports: Vec::new(),
+        units: Vec::new(),
+        funcs: Vec::new(),
+        structs: Vec::new(),
+        unsafe_allowed: false,
+    };
     while p.peek() != &Tok::Eof {
         let start = p.pos;
         let item = if p.peek() == &Tok::Kw("in") {
             p.import().map(|i| program.imports.push(i))
         } else if p.peek() == &Tok::Kw("struct") {
             p.struct_decl().map(|s| program.structs.push(s))
+        } else if p.at_unit_item() {
+            p.unit_decl().map(|u| program.units.push(u))
         } else {
             p.func().map(|f| program.funcs.push(f))
         };
@@ -123,23 +131,177 @@ impl Parser<'_> {
         }
         if self.peek() == &Tok::Kw("none") {
             let span = self.bump().span;
-            return Ok(TypeName { name: "none".into(), span, mods });
+            let unit = self.type_unit()?;
+            return Ok(TypeName { name: "none".into(), span, mods, unit });
         }
         let (name, span) = self.ident("a type")?;
-        Ok(TypeName { name, span, mods })
+        let unit = self.type_unit()?;
+        Ok(TypeName { name, span, mods, unit })
+    }
+
+    /// The optional `<unit>` after a type name.
+    fn type_unit(&mut self) -> Parsed<Option<UnitSpec>> {
+        // Only when the tokens read as a unit up to a `>`: `bool <(Point o)`
+        // is an operator method named `<`.
+        if self.unit_close(0).is_none() {
+            return Ok(None);
+        }
+        self.bump();
+        let spec = self.unit_spec()?;
+        self.close_angle()?;
+        Ok(Some(spec))
+    }
+
+    /// `[delta] unit-expr`, inside angle brackets.
+    fn unit_spec(&mut self) -> Parsed<UnitSpec> {
+        let delta = matches!(self.peek(), Tok::Ident(w) if w == "delta") && matches!(self.peek_at(1), Tok::Ident(_));
+        if delta {
+            self.bump();
+        }
+        Ok(UnitSpec { delta, expr: self.unit_expr()? })
+    }
+
+    /// `term { (* | /) term }`, left to right.
+    fn unit_expr(&mut self) -> Parsed<UnitExpr> {
+        let first = self.unit_term()?;
+        self.unit_expr_rest(first)
+    }
+
+    /// The `(* | /) term` steps that follow `lhs`.
+    fn unit_expr_rest(&mut self, mut lhs: UnitExpr) -> Parsed<UnitExpr> {
+        loop {
+            match self.peek() {
+                Tok::Sym("*") => {
+                    self.bump();
+                    let rhs = self.unit_term()?;
+                    lhs = UnitExpr::Mul(Box::new(lhs), Box::new(rhs));
+                }
+                Tok::Sym("/") => {
+                    self.bump();
+                    let rhs = self.unit_term()?;
+                    lhs = UnitExpr::Div(Box::new(lhs), Box::new(rhs));
+                }
+                _ => return Ok(lhs),
+            }
+        }
+    }
+
+    /// `NAME [^ [-] INTEGER]`, `( unit-expr )` or `1`.
+    fn unit_term(&mut self) -> Parsed<UnitExpr> {
+        let start = self.span();
+        match self.peek().clone() {
+            Tok::Ident(name) => {
+                let span = self.bump().span;
+                let base = UnitExpr::Name(name, span);
+                if !self.eat("^") {
+                    return Ok(base);
+                }
+                let neg = self.eat("-");
+                let (n, npos) = self.unit_exponent()?;
+                Ok(UnitExpr::Pow(Box::new(base), if neg { -n } else { n }, span.to(npos)))
+            }
+            Tok::Sym("(") => {
+                self.bump();
+                let e = self.unit_expr()?;
+                self.expect(")")?;
+                Ok(e)
+            }
+            Tok::Num(NumLit { value: Const::Int(v), suffix: None, .. }, None) if v == num_bigint::BigInt::from(1) => {
+                Ok(UnitExpr::One(self.bump().span))
+            }
+            _ => Err(self
+                .unexpected("a unit name, `1` or `(`")
+                .help("a unit is a name, a product or quotient such as `kg*m/s^2`, or `1` for a dimensionless unit")
+                .label(start, "the unit starts here")),
+        }
+    }
+
+    /// The whole number after `^`. It must fit in an `i32`.
+    fn unit_exponent(&mut self) -> Parsed<(i32, Span)> {
+        let span = self.span();
+        match self.peek() {
+            Tok::Num(NumLit { value: Const::Int(v), suffix: None, .. }, None) => match v.to_i32() {
+                Some(n) => {
+                    self.bump();
+                    Ok((n, span))
+                }
+                None => Err(Diagnostic::at(&codes::E0003, span, "this unit exponent is too large")),
+            },
+            _ => Err(self.unexpected("a whole number after `^`")),
+        }
+    }
+
+    /// Consume a `>` that closes angle brackets. A `>>` is split: its first
+    /// `>` closes here and the second is left for the enclosing brackets.
+    fn close_angle(&mut self) -> Parsed<()> {
+        match self.peek() {
+            Tok::Sym(">") => {
+                self.bump();
+                Ok(())
+            }
+            Tok::Sym(">>") => {
+                let t = &mut self.tokens[self.pos];
+                t.span = Span::new(t.span.start + 1, t.span.end);
+                t.tok = Tok::Sym(">");
+                Ok(())
+            }
+            _ => Err(self.unexpected("`>`")),
+        }
     }
 
     /// Where a type written at token offset `n` ends (the offset after its
-    /// name), if one is written there.
+    /// name and any unit), if one is written there.
     fn type_end(&self, mut n: usize) -> Option<usize> {
         loop {
             match self.peek_at(n) {
                 Tok::Sym("&" | "&&" | "*" | "**") => n += 1,
                 Tok::Kw("mut") if n > 0 && matches!(self.peek_at(n - 1), Tok::Sym("&")) => n += 1,
-                Tok::Ident(_) | Tok::Kw("none") => return Some(n + 1),
+                Tok::Ident(_) | Tok::Kw("none") => return Some(self.name_end(n)),
                 _ => return None,
             }
         }
+    }
+
+    /// The offset just after the type name at token offset `n`, with its
+    /// unit part (`<m/s>`) if one is written there.
+    fn name_end(&self, n: usize) -> usize {
+        self.unit_part_end(n + 1).unwrap_or(n + 1)
+    }
+
+    /// If a unit part starts at token offset `n` (a `<`) and its tokens run to
+    /// a `>` as a unit expression would, the offset after that `>`. Lookahead
+    /// only: nothing is consumed.
+    fn unit_part_end(&self, n: usize) -> Option<usize> {
+        match self.unit_close(n) {
+            Some(j) if self.peek_at(j) == &Tok::Sym(">") => Some(j + 1),
+            _ => None,
+        }
+    }
+
+    /// The token offset of the `>` or `>>` that closes a unit part starting at
+    /// `n` (a `<`), if the tokens between read as a unit. A `>>` closes a
+    /// nested unit: `close_angle` splits it.
+    fn unit_close(&self, n: usize) -> Option<usize> {
+        if self.peek_at(n) != &Tok::Sym("<") {
+            return None;
+        }
+        let mut j = n + 1;
+        loop {
+            match self.peek_at(j) {
+                Tok::Ident(_) | Tok::Sym("*" | "/" | "^" | "-" | "(" | ")") => j += 1,
+                Tok::Num(NumLit { value: Const::Int(_), suffix: None, .. }, None) => j += 1,
+                Tok::Sym(">" | ">>") => return Some(j),
+                _ => return None,
+            }
+        }
+    }
+
+    /// Does a unit declaration (`unit NAME;` or `unit NAME = ...`) start here?
+    /// `unit` is a context word: elsewhere it is an ordinary name.
+    fn at_unit_item(&self) -> bool {
+        matches!(self.peek(), Tok::Ident(w) if w == "unit")
+            && matches!(self.peek_at(1), Tok::Ident(_))
+            && matches!(self.peek_at(2), Tok::Sym(";" | "="))
     }
 
     /// Does a top-level item (a function, struct or import) start here?
@@ -394,7 +556,7 @@ impl Parser<'_> {
     fn at_binding(&self) -> bool {
         match self.peek() {
             Tok::Kw("mut" | "open") => true,
-            Tok::Ident(_) | Tok::Kw("none") => matches!(self.peek_at(1), Tok::Ident(_) | Tok::Kw(_)),
+            Tok::Ident(_) | Tok::Kw("none") => matches!(self.peek_at(self.name_end(0)), Tok::Ident(_) | Tok::Kw(_)),
             Tok::Sym("&" | "&&") => true,
             // `*uint32 p = ..` declares; `*p = 7;` and `*p.f = 7;` assign.
             Tok::Sym("*" | "**") => {
@@ -402,7 +564,8 @@ impl Parser<'_> {
                 while matches!(self.peek_at(n), Tok::Sym("*" | "**")) {
                     n += 1;
                 }
-                matches!(self.peek_at(n), Tok::Ident(_) | Tok::Kw("none")) && matches!(self.peek_at(n + 1), Tok::Ident(_))
+                matches!(self.peek_at(n), Tok::Ident(_) | Tok::Kw("none"))
+                    && matches!(self.peek_at(self.name_end(n)), Tok::Ident(_))
             }
             _ => false,
         }
@@ -490,11 +653,11 @@ impl Parser<'_> {
     /// The optional count after `break`, `continue` or `skip`: a plain whole number.
     fn count(&mut self, word: &str) -> Parsed<Option<(u64, Span)>> {
         match self.peek() {
-            Tok::Num(NumLit { value: Const::Int(v), suffix: None }) => {
+            Tok::Num(NumLit { value: Const::Int(v), suffix: None, .. }, None) => {
                 let n = v.to_u64().unwrap_or(u64::MAX);
                 Ok(Some((n, self.bump().span)))
             }
-            Tok::Num(_) => Err(Diagnostic::at(
+            Tok::Num(..) => Err(Diagnostic::at(
                 &codes::E0003,
                 self.span(),
                 format!("the count after `{word}` must be a plain whole number"),
@@ -551,9 +714,10 @@ impl Parser<'_> {
         self.bump();
 
         let m = (self.peek() == &Tok::Kw("mut")) as usize;
+        let name_at = self.name_end(m);
         if matches!(self.peek_at(m), Tok::Ident(_) | Tok::Kw("none"))
-            && matches!(self.peek_at(m + 1), Tok::Ident(_))
-            && self.peek_at(m + 2) == &Tok::Kw("of")
+            && matches!(self.peek_at(name_at), Tok::Ident(_))
+            && self.peek_at(name_at + 1) == &Tok::Kw("of")
         {
             let mutable = self.eat_kw("mut");
             let ty = self.ty()?;
@@ -878,18 +1042,23 @@ impl Parser<'_> {
                 _ => self.ident("a method name")?,
             };
             let mut targs = Vec::new();
-            if self.eat("<") {
+            let mut unit = None;
+            if name == "in" && self.peek() == &Tok::Sym("<") {
+                self.bump();
+                unit = Some(self.unit_spec()?);
+                self.close_angle()?;
+            } else if self.eat("<") {
                 loop {
                     targs.push(self.ty()?);
                     if !self.eat(",") {
                         break;
                     }
                 }
-                self.expect(">")?;
+                self.close_angle()?;
             }
             let args = self.args()?;
             let span = e.span.to(self.prev_span());
-            e = Expr { kind: ExprKind::Method { recv: Box::new(e), name, name_span, targs, args }, span, paren: false };
+            e = Expr { kind: ExprKind::Method { recv: Box::new(e), name, name_span, targs, unit, args }, span, paren: false };
         }
     }
 
@@ -907,10 +1076,133 @@ impl Parser<'_> {
         Ok(args)
     }
 
+    /// Does a unit term start here? (`NAME`, `(`, or the `1` of a factor-free unit.)
+    fn starts_unit_term(&self) -> bool {
+        match self.peek() {
+            Tok::Ident(_) | Tok::Sym("(") => true,
+            Tok::Num(NumLit { value: Const::Int(v), suffix: None, .. }, None) => *v == num_bigint::BigInt::from(1),
+            _ => false,
+        }
+    }
+
+    /// A unit literal's text (`9.6<s>` gives `s`; `span` covers that text) as a
+    /// unit expression. The lexer has already checked the text, so it is
+    /// split here with plain rules: names, whole numbers and `* / ^ - ( )`.
+    fn unit_literal(&mut self, text: &str, span: Span) -> Parsed<UnitSpec> {
+        let bytes = text.as_bytes();
+        let mut tokens = Vec::new();
+        let mut i = 0;
+        while i < bytes.len() {
+            let c = bytes[i];
+            if c == b' ' {
+                i += 1;
+                continue;
+            }
+            let from = i;
+            let tok = if c.is_ascii_alphabetic() || c == b'_' {
+                while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
+                    i += 1;
+                }
+                Tok::Ident(text[from..i].to_string())
+            } else if c.is_ascii_digit() {
+                while i < bytes.len() && bytes[i].is_ascii_digit() {
+                    i += 1;
+                }
+                let value: num_bigint::BigInt = text[from..i].parse().unwrap_or_default();
+                Tok::Num(NumLit { value: Const::Int(value), suffix: None, unit: None }, None)
+            } else {
+                i += 1;
+                Tok::Sym(match c {
+                    b'*' => "*",
+                    b'/' => "/",
+                    b'^' => "^",
+                    b'-' => "-",
+                    b'(' => "(",
+                    _ => ")",
+                })
+            };
+            tokens.push(Token { tok, span: Span::new(span.start + from, span.start + i) });
+        }
+        tokens.push(Token { tok: Tok::Eof, span: Span::new(span.end, span.end) });
+        let mut inner = Parser { tokens, pos: 0, diags: &mut *self.diags };
+        let spec = inner.unit_spec()?;
+        if inner.peek() != &Tok::Eof {
+            return Err(inner.unexpected("the end of the unit"));
+        }
+        Ok(spec)
+    }
+
+    /// `unit NAME;` or `unit NAME = def [offset SIGNED];`. Called at `unit`.
+    fn unit_decl(&mut self) -> Parsed<UnitDecl> {
+        let start = self.bump().span;
+        let (name, name_span) = self.ident("a unit name")?;
+        let mut def = None;
+        let mut offset = None;
+        if self.eat("=") {
+            def = Some(self.unit_def()?);
+            if matches!(self.peek(), Tok::Ident(w) if w == "offset") {
+                self.bump();
+                offset = Some(self.signed_number()?);
+            }
+        }
+        self.expect(";")?;
+        Ok(UnitDecl { name, name_span, def, offset, span: start.to(self.prev_span()) })
+    }
+
+    /// The right side of `unit NAME =`: `[NUMBER] [unit-expr]`, or
+    /// `NUMBER / unit-expr` (the number is the factor, the rest is `1 / ...`).
+    fn unit_def(&mut self) -> Parsed<UnitDef> {
+        let mut factor = None;
+        let mut expr = None;
+        match self.peek().clone() {
+            Tok::Num(NumLit { value, suffix, unit: None }, None) => {
+                let span = self.bump().span;
+                if suffix.is_some() {
+                    return Err(Diagnostic::at(&codes::E0003, span, "a unit's factor is a plain number")
+                        .help("write the factor without a number type, for example `unit km = 1000 m;`"));
+                }
+                factor = Some((value, span));
+                if self.eat("/") {
+                    let rhs = self.unit_term()?;
+                    let one = UnitExpr::Div(Box::new(UnitExpr::One(span)), Box::new(rhs));
+                    expr = Some(self.unit_expr_rest(one)?);
+                } else if self.starts_unit_term() {
+                    expr = Some(self.unit_expr()?);
+                }
+            }
+            _ if self.starts_unit_term() => expr = Some(self.unit_expr()?),
+            _ => return Err(self.unexpected("a number or a unit after `=`")),
+        }
+        Ok(UnitDef { factor, expr })
+    }
+
+    /// The value after `offset`: an optional `-` and a plain number.
+    fn signed_number(&mut self) -> Parsed<(Const, Span)> {
+        let start = self.span();
+        let neg = self.eat("-");
+        match self.peek().clone() {
+            Tok::Num(NumLit { value, suffix: None, unit: None }, None) => {
+                let span = start.to(self.bump().span);
+                let value = match value {
+                    Const::Int(v) if neg => Const::Int(-v),
+                    Const::Dec(v) if neg => Const::Dec(-v),
+                    other => other,
+                };
+                Ok((value, span))
+            }
+            _ => Err(self.unexpected("a plain number after `offset`")),
+        }
+    }
+
     fn primary(&mut self) -> Parsed<Expr> {
         let t = self.bump();
         let kind = match t.tok {
-            Tok::Num(n) => ExprKind::Num(n),
+            Tok::Num(mut n, unit) => {
+                if let Some((text, span)) = unit {
+                    n.unit = Some(self.unit_literal(&text, span)?);
+                }
+                ExprKind::Num(n)
+            }
             Tok::Str(pieces) => ExprKind::Str(self.string_parts(pieces)?),
             Tok::Kw("self") => ExprKind::SelfValue,
             Tok::Kw("true") => ExprKind::Bool(true),
@@ -1162,5 +1454,181 @@ mod tests {
         let (p, d) = parse_src("none main() {\n}");
         assert!(d.is_empty());
         assert_eq!(p.funcs[0].body.end.start, 14);
+    }
+
+    /// A unit expression, fully parenthesised: `((kg*m)/s^2)`.
+    fn show(e: &UnitExpr) -> String {
+        match e {
+            UnitExpr::Name(n, _) => n.clone(),
+            UnitExpr::One(_) => "1".into(),
+            UnitExpr::Mul(a, b) => format!("({}*{})", show(a), show(b)),
+            UnitExpr::Div(a, b) => format!("({}/{})", show(a), show(b)),
+            UnitExpr::Pow(a, n, _) => format!("{}^{n}", show(a)),
+        }
+    }
+
+    fn unit_str(u: &UnitSpec) -> String {
+        format!("{}{}", if u.delta { "delta " } else { "" }, show(&u.expr))
+    }
+
+    fn type_unit(t: &TypeName) -> String {
+        t.unit.as_ref().map_or("-".into(), unit_str)
+    }
+
+    fn lit_unit(e: &Expr) -> String {
+        match &e.kind {
+            ExprKind::Num(n) => n.unit.as_ref().map_or("-".into(), unit_str),
+            other => panic!("not a number: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn unit_declarations() {
+        let src = "unit m; unit N = kg*m/s^2; unit Hz = 1 / s; unit km = 1000 m; unit degC = K offset -273.15; \
+                   unit pct = 0.01; unit g = 0.001 kg; unit Pa = (N)/m^2; unit ft = 0.3048 m;";
+        let (p, d) = parse_src(src);
+        assert!(d.is_empty(), "{:?}", errors(&d));
+        assert_eq!(p.units.len(), 9);
+        assert_eq!(p.units[0].name, "m");
+        assert!(p.units[0].def.is_none() && p.units[0].offset.is_none());
+        let def = |i: usize| p.units[i].def.as_ref().unwrap();
+        assert_eq!(show(def(1).expr.as_ref().unwrap()), "((kg*m)/s^2)");
+        assert!(def(1).factor.is_none());
+        assert_eq!(show(def(2).expr.as_ref().unwrap()), "(1/s)");
+        assert!(matches!(&def(2).factor, Some((Const::Int(v), _)) if *v == num_bigint::BigInt::from(1)));
+        assert!(matches!(&def(3).factor, Some((Const::Int(v), _)) if *v == num_bigint::BigInt::from(1000)));
+        assert_eq!(show(def(3).expr.as_ref().unwrap()), "m");
+        assert_eq!(show(def(4).expr.as_ref().unwrap()), "K");
+        assert!(matches!(&p.units[4].offset, Some((Const::Dec(v), _)) if num_traits::Signed::is_negative(v)));
+        assert!(def(5).expr.is_none() && matches!(&def(5).factor, Some((Const::Dec(_), _))));
+        assert_eq!(show(def(7).expr.as_ref().unwrap()), "(N/m^2)");
+        assert_eq!(show(def(8).expr.as_ref().unwrap()), "m");
+    }
+
+    #[test]
+    fn unit_declaration_errors() {
+        for src in ["unit x = ;", "unit x = 2 * m;", "unit x = m offset;", "unit 3 = m;", "unit x = 2u8 m;", "unit m offset 3;"] {
+            let (_, d) = parse_src(src);
+            assert!(!d.is_empty(), "{src} should not parse");
+        }
+    }
+
+    #[test]
+    fn unit_is_a_context_word() {
+        let (p, d) = parse_src("struct Circle { static Circle unit() { } } unit foo() { } unit m;");
+        assert!(d.is_empty(), "{:?}", errors(&d));
+        assert_eq!(p.structs[0].methods[0].func.name, "unit");
+        assert_eq!(p.funcs[0].name, "foo");
+        assert_eq!(p.funcs[0].ret.name, "unit");
+        assert_eq!(p.units.len(), 1);
+        let (s, d) = body("uint32 unit = 3; unit = 4;");
+        assert!(d.is_empty(), "{:?}", errors(&d));
+        assert!(matches!(&s[0], Stmt::Let { name, .. } if name == "unit"));
+        assert!(matches!(&s[1], Stmt::Assign { .. }));
+    }
+
+    #[test]
+    fn unit_types() {
+        let (s, d) = body("float64<m/s> v = 3.0<m/s>; mut float64<m> dd; open uint8<kg> w; float64<delta degC> t; \
+                           float64<kg*m/s^2> f; float64<1/s> r; uint8<m^2> q; float64<m / s> g;");
+        assert!(d.is_empty(), "{:?}", errors(&d));
+        let Stmt::Let { ty, mutable, .. } = &s[0] else { panic!() };
+        assert_eq!(type_unit(ty), "(m/s)");
+        let Stmt::Let { value: Some(Init::Expr(e)), .. } = &s[0] else { panic!() };
+        assert_eq!(lit_unit(e), "(m/s)");
+        assert!(!mutable);
+        let Stmt::Let { ty, mutable, .. } = &s[1] else { panic!() };
+        assert!(*mutable && type_unit(ty) == "m");
+        let Stmt::Let { ty, open, .. } = &s[2] else { panic!() };
+        assert!(*open && type_unit(ty) == "kg");
+        let units: Vec<String> = s[3..].iter().map(|st| match st {
+            Stmt::Let { ty, .. } => type_unit(ty),
+            _ => panic!(),
+        }).collect();
+        assert_eq!(units, ["delta degC", "((kg*m)/s^2)", "(1/s)", "m^2", "(m/s)"]);
+    }
+
+    #[test]
+    fn unit_literals() {
+        let (s, d) = body("float64 a = 9.6<s>; uint8 b = 5u8<m>; float32 c = 2.5f32<m/s>; float64 e = 1<1/s>; \
+                           float64 f = 3.0<delta degC>; float64 g = 100<kg*m/s^2>;");
+        assert!(d.is_empty(), "{:?}", errors(&d));
+        let units: Vec<String> = s.iter().map(|st| match st {
+            Stmt::Let { value: Some(Init::Expr(e)), .. } => lit_unit(e),
+            _ => panic!(),
+        }).collect();
+        assert_eq!(units, ["s", "m", "(m/s)", "(1/s)", "delta degC", "((kg*m)/s^2)"]);
+    }
+
+    #[test]
+    fn unit_literal_ambiguity() {
+        // Less-than, as before the unit rule.
+        assert_eq!(lexed("3<4"), ["3", "<", "4"]);
+        assert_eq!(lexed("3 < m"), ["3", "<", "m"]);
+        assert_eq!(lexed("3<m"), ["3", "<", "m"]);
+        assert_eq!(lexed("3<m*>"), ["3", "<", "m", "*", ">"]);
+        assert_eq!(lexed("3<>"), ["3", "<", ">"]);
+        assert_eq!(lexed("3<x && y>2"), ["3", "<", "x", "&&", "y", ">", "2"]);
+        assert_eq!(lexed("if (n<limit)"), ["if", "(", "n", "<", "limit", ")"]);
+        // A literal, then the rest.
+        assert_eq!(lexed("3<m>>2"), ["3<m>", ">", "2"]);
+        assert_eq!(lexed("9<s>>3"), ["9<s>", ">", "3"]);
+        assert_eq!(lexed("1<m>>=2"), ["1<m>", ">=", "2"]);
+    }
+
+    /// Tokens of a source text, unit literals shown as `3<m>`.
+    fn lexed(src: &str) -> Vec<String> {
+        let mut diags = Vec::new();
+        let toks = crate::lexer::lex(src, &mut diags);
+        toks.iter()
+            .filter(|t| t.tok != Tok::Eof)
+            .map(|t| match &t.tok {
+                Tok::Num(n, unit) => {
+                    let text = match &n.value {
+                        Const::Int(v) => v.to_string(),
+                        Const::Dec(_) => "dec".into(),
+                    };
+                    unit.as_ref().map_or(text.clone(), |(u, _)| format!("{text}<{u}>"))
+                }
+                Tok::Ident(s) => s.clone(),
+                Tok::Sym(s) | Tok::Kw(s) => s.to_string(),
+                other => format!("{other:?}"),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn unit_method_and_nested_close() {
+        let (s, d) = body("x = d::in<km/h>(); y = d::in<delta degC>(); z = d::to<float64<km>>();");
+        assert!(d.is_empty(), "{:?}", errors(&d));
+        let calls: Vec<(String, usize, String)> = s
+            .iter()
+            .map(|st| {
+                let Stmt::Assign { value, .. } = st else { panic!() };
+                let ExprKind::Method { name, targs, unit, .. } = &value.kind else { panic!() };
+                (name.clone(), targs.len(), unit.as_ref().map_or("-".into(), unit_str))
+            })
+            .collect();
+        assert_eq!(calls, [("in".into(), 0, "(km/h)".into()), ("in".into(), 0, "delta degC".into()), ("to".into(), 1, "-".into())]);
+        let Stmt::Assign { value, .. } = &s[2] else { panic!() };
+        let ExprKind::Method { targs, .. } = &value.kind else { panic!() };
+        assert_eq!(type_unit(&targs[0]), "km");
+    }
+
+    #[test]
+    fn unit_syntax_errors() {
+        for src in ["none f(float64<> x) { }", "none f(float64<m*> x) { }", "none f(float64<m^x> x) { }", "none f(float64<m^99999999999> x) { }"] {
+            let (_, d) = parse_src(src);
+            assert!(!d.is_empty(), "{src} should not parse");
+        }
+        let (_, d) = parse_src("unit \u{b5}m = 0.000001 m;");
+        assert!(!d.is_empty());
+    }
+
+    #[test]
+    fn for_each_with_unit_type() {
+        let (s, d) = body("for (float64<m> x of xs) { }");
+        assert!(d.is_empty(), "{:?}", errors(&d));
+        assert!(matches!(&s[0], Stmt::ForEach { ty, .. } if type_unit(ty) == "m"));
     }
 }

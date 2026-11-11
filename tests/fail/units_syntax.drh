@@ -1,0 +1,6 @@
+// Unit syntax the parser rejects. (Typing of units is step 4.5 U3.)
+unit µm = 0.000001 m;
+
+none main() {
+    uint32 a = 3<m*>;
+}
