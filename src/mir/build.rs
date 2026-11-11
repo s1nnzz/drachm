@@ -16,7 +16,15 @@ pub fn display_name(symbol: &str) -> &str {
 
 /// A HIR place as a MIR place.
 fn place(p: &hir::Place) -> Place {
-    Place { local: Local::new(p.local + 1), proj: p.fields.iter().map(|&f| Proj::Field(f)).collect() }
+    let proj = p
+        .proj
+        .iter()
+        .map(|pr| match pr {
+            hir::HirProj::Field(f) => Proj::Field(*f),
+            hir::HirProj::Deref => Proj::Deref,
+        })
+        .collect();
+    Place { local: Local::new(p.local + 1), proj }
 }
 
 /// The source span of an expression (phase A: the HIR has none).
@@ -273,7 +281,7 @@ impl<'a> Builder<'a> {
         match s {
             Stmt::Assign(p, e) => self.assign(place(p), e),
             Stmt::If { label, branches } => self.if_stmt(*label, branches),
-            Stmt::Loop { label, cond, body, step } => self.loop_stmt(*label, cond.as_ref(), body, step),
+            Stmt::Loop { label, cond, body, step, .. } => self.loop_stmt(*label, cond.as_ref(), body, step),
             Stmt::Jump(j) => {
                 let to = match *j {
                     Jump::Break(l) => match self.targets[&l] {
@@ -311,6 +319,9 @@ impl<'a> Builder<'a> {
             Stmt::Drop(p) => {
                 self.push(StatementKind::Drop { place: place(p), flag: None, reason: DropReason::ScopeEnd });
             }
+            Stmt::Decl(_) => {}
+            Stmt::Unsafe(b) => self.block(b),
+            Stmt::Destroy(_) => unreachable!("Destroy (phase B)"),
         }
     }
 
@@ -503,6 +514,13 @@ impl<'a> Builder<'a> {
                 let ops = self.operands(&es, &|i| (params.get(i) == Some(&Type::Str)).then_some(*f == StrFn::Append && i == 0));
                 self.call(Callee::Str(*f), ops, e.ty)
             }
+            ExprKind::Borrow { .. }
+            | ExprKind::Deref(_)
+            | ExprKind::DeepCopy(_)
+            | ExprKind::Take { .. }
+            | ExprKind::Lend(_)
+            | ExprKind::AddressOf(_)
+            | ExprKind::NullPtr => unreachable!("{} (phase B)", kind_name(&e.kind)),
             ExprKind::Out { newline, arg } => {
                 let ops = self.operands(&[&**arg], &|_| Some(false));
                 self.call(Callee::Out { newline: *newline }, ops, Type::None)
@@ -640,6 +658,13 @@ fn kind_name(k: &ExprKind) -> &'static str {
         ExprKind::StrCall(..) => "StrCall",
         ExprKind::Join(_) => "Join",
         ExprKind::Out { .. } => "Out",
+        ExprKind::Borrow { .. } => "Borrow",
+        ExprKind::Deref(_) => "Deref",
+        ExprKind::DeepCopy(_) => "DeepCopy",
+        ExprKind::Take { .. } => "Take",
+        ExprKind::Lend(_) => "Lend",
+        ExprKind::AddressOf(_) => "AddressOf",
+        ExprKind::NullPtr => "NullPtr",
     }
 }
 
