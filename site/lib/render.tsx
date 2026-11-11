@@ -2,12 +2,13 @@ import { createCompiler } from '@fumadocs/mdx-remote';
 import { rehypeCodeDefaultOptions } from 'fumadocs-core/mdx-plugins';
 import { remarkExample } from './remark-example';
 import { remarkSections } from './remark-sections';
+import { remarkStatus } from './remark-status';
 import { drachmLang, themes } from './shiki';
 import type { Doc } from './content';
 
 const compiler = createCompiler({
   format: 'md',
-  remarkPlugins: (v) => [remarkExample, ...v, remarkSections],
+  remarkPlugins: (v) => [remarkExample, ...v, remarkStatus, remarkSections],
   rehypeCodeOptions: {
     ...rehypeCodeDefaultOptions,
     themes,

@@ -2,7 +2,7 @@ import { notFound } from 'next/navigation';
 import type { Metadata } from 'next';
 import { DocsPage, DocsBody, DocsTitle, DocsDescription } from 'fumadocs-ui/layouts/docs/page';
 import defaultMdxComponents from 'fumadocs-ui/mdx';
-import { docBySlug, flatDocs } from '@/lib/content';
+import { docBySlug, flatDocs, STATUS_LABEL } from '@/lib/content';
 import { renderDoc } from '@/lib/render';
 import { CodeBlock } from '@/components/code-block';
 import { Walkthrough } from '@/components/walkthrough';
@@ -29,7 +29,10 @@ export default async function Page({ params }: Props) {
   // (`full` hides it and widens the article).
   return (
     <DocsPage toc={toc} full={split}>
-      <DocsTitle>{doc.title}</DocsTitle>
+      <DocsTitle>
+        {doc.title}
+        {doc.status && <span className={`drh-status drh-status-${doc.status}`}>{STATUS_LABEL[doc.status]}</span>}
+      </DocsTitle>
       <DocsDescription>{doc.description}</DocsDescription>
       <DocsBody>
         <Body components={{ ...defaultMdxComponents, pre: CodeBlock }} />

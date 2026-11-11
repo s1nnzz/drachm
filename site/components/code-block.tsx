@@ -2,7 +2,7 @@
 import { useRef, useState } from 'react';
 import type { ComponentProps } from 'react';
 
-const OUTPUT = /^(expected )?output$/i;
+const OUTPUT = /^((expected|intended) )?output$/i;
 
 /**
  * One code block: an optional small label, a hover copy button and the
