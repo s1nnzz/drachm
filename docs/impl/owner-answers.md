@@ -65,3 +65,9 @@ Units Q15: `kg` is the base mass unit (SI): `unit kg; unit g = 0.001 kg;` so `ui
 Still open: units Q13 (declared dimensionless units like `unit pct = 0.01 1;`), Q14 (is `delta degC` the same type as `K`; `::unitText()` of a delta; zero beside a point). Conservative defaults in the spec stand meanwhile.
 Units Q14 (owner, then my choices as the owner asked "for the other ones u choose"): owner: a `delta degC` is the scientific change of temperature, so 1 delta degC is the same size as 1 K: `delta degC` and `K` have the same dimension and scale 1, and convert freely (`float64<K> d = (b - a)::in<K>();`, and adding a `delta degC` to a `K` value is fine). Mine: `::unitText()` of a delta prints `delta degC`; a bare `0` is NOT unit-free beside a point (0 degC is a real temperature): write `0<degC>`.
 Units Q13 (my choice): declared dimensionless units are allowed: `unit pct = 0.01;` (no base unit after the factor). They behave like any scaled unit: `85<pct>` stripped to a plain number is 0.85, and `pct * pct` is a plain number (Q3).
+
+# Input, 2026-11-11
+- `io::inln()` returns the next line of standard input as a `string`, without the newline.
+- At end of input it returns `""`; `io::ended()` (a `bool`) says whether input is finished: `while (!io::ended()) { string line = io::inln(); ... }`.
+- Text to number reuses `::to<T>()`: `line::to<uint32>()`. It can fail on bad text, so it becomes a failing call with step 5 (`line::to<uint32>() maybe 0`). Until step 5 (my interim choice, not asked): bad text stops the program with a runtime error (exit 101) naming the text and the type.
+- Scheduled after WP6 (it touches typeck builtins, the runtime and the backends WP6 is rewriting).
