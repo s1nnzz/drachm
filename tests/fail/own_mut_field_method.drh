@@ -1,0 +1,6 @@
+struct Counter { public: string label; mut uint32 hits; none hit() { self.hits++; } }
+none look(&Counter c) { c::hit(); }
+none main() {
+    Counter k = "page", 0;
+    k::hit();
+}

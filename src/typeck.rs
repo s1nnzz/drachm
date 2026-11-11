@@ -61,34 +61,11 @@ struct MethodInfo {
 }
 
 /// What checking a method's body found out about how it uses `self`.
+/// (Whether it changes `self` is inferred on the HIR, `ownership::self_mode`,
+/// and checked on the MIR, `mir::mutability`.)
 #[derive(Default)]
 struct SelfUse {
     used: bool,
-    /// The first place the body changes a non-`mut` part of `self` itself,
-    /// and what it does there (`assigns \`self.x\``).
-    changes: Option<(Span, String)>,
-    /// Methods called on `self`, or on a part of it that is not `mut`: if
-    /// one of them changes its `self`, so does this method.
-    calls: Vec<(FuncId, Span)>,
-}
-
-/// A method call on a value that must not change. Whether the method
-/// changes `self` is only known once every body has been checked.
-struct FixedReceiver {
-    method: FuncId,
-    /// The method's name at the call.
-    span: Span,
-    /// The receiver as written (`p`, `a.b`).
-    text: String,
-    /// The binding the receiver belongs to; `None` for a temporary value.
-    binding: Option<FixedBinding>,
-}
-
-struct FixedBinding {
-    name: String,
-    ty: Option<Type>,
-    is_param: bool,
-    span: Span,
 }
 
 /// Everything shared by all function bodies.
@@ -100,7 +77,6 @@ struct Globals {
     structs_by_name: HashMap<String, StructId>,
     /// Indexed by `FuncId`; only filled in for methods.
     self_use: Vec<SelfUse>,
-    fixed_receivers: Vec<FixedReceiver>,
     /// The automatic `==` function of each struct that needs one.
     eq_funcs: HashMap<StructId, FuncId>,
     /// Automatic `==` functions asked for whose bodies are not built yet.
@@ -350,8 +326,6 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
             }
         }
     }
-
-    report_fixed_receivers(&g, diags);
 
     while let Some(s) = g.eq_pending.pop() {
         let f = auto_eq(&mut g, s);
@@ -793,49 +767,6 @@ fn lay_out(g: &Globals, cyclic: &[bool]) -> Vec<hir::StructDef> {
     defs
 }
 
-/// After every body is checked: which methods change `self`, and the calls
-/// of such methods on values that must not change.
-fn report_fixed_receivers(g: &Globals, diags: &mut Vec<Diagnostic>) {
-    // A method changes `self` if its body does, or if it calls such a method on `self`.
-    let mut changes: Vec<Option<(Span, String)>> = g.self_use.iter().map(|u| u.changes.clone()).collect();
-    loop {
-        let mut grew = false;
-        for (f, u) in g.self_use.iter().enumerate() {
-            if changes[f].is_some() {
-                continue;
-            }
-            if let Some(&(callee, at)) = u.calls.iter().find(|(c, _)| changes[*c].is_some()) {
-                let name = g.sigs[callee].name.rsplit("::").next().unwrap_or_default();
-                changes[f] = Some((at, format!("calls `{name}`, which changes `self`")));
-                grew = true;
-            }
-        }
-        if !grew {
-            break;
-        }
-    }
-    for r in &g.fixed_receivers {
-        let Some((at, why)) = &changes[r.method] else { continue };
-        let m = g.sigs[r.method].name.rsplit("::").next().unwrap_or_default();
-        let d = match &r.binding {
-            Some(b) => {
-                let ty = b.ty.map_or(String::new(), |t| format!("{t} "));
-                let whose = if b.is_param { "parameter " } else { "" };
-                Diagnostic::at(&codes::E0205, r.span, format!("cannot call `{m}` on `{}`: it changes the value, and {whose}`{}` is not `mut`", r.text, b.name))
-                    .note(format!("`{m}` changes `{}`", r.text))
-                    .label(*at, format!("`{m}` changes `self` here: it {why}"))
-                    .label(b.span, "declared here without `mut`")
-                    .help(format!("declare it as `mut {ty}{}`, or make the fields `{m}` changes `mut`", b.name))
-            }
-            None => Diagnostic::at(&codes::E0205, r.span, format!("cannot call `{m}` on a temporary value: it changes the value"))
-                .note(format!("`{m}` changes `self`"))
-                .label(*at, format!("`{m}` changes `self` here: it {why}"))
-                .help(format!("store the value in a `mut` binding first, then call `{m}` on that")),
-        };
-        diags.push(d);
-    }
-}
-
 /// The automatic `==` of struct `s`: every field equal, in order, with
 /// strings compared by their text and struct fields by their own `==`.
 /// It works like a method: `a` is the receiver, borrowed, and `b` is owned
@@ -1076,17 +1007,6 @@ struct PlaceInfo {
     through_deref: bool,
     /// Some field on the path is `mut`, so the place can change whatever its binding is.
     mut_field: bool,
-}
-
-/// Can the value a method is called on change?
-enum Receiver {
-    /// A `mut` binding, or behind a `mut` field.
-    Changeable,
-    /// `self` or a non-`mut` part of it, inside a method.
-    OfSelf,
-    /// A binding (or a non-`mut` part of one) that is not `mut`.
-    Fixed(LocalId),
-    Temporary,
 }
 
 struct Checker<'a> {
@@ -1513,7 +1433,6 @@ impl Checker<'_> {
                     self.g.uses_borrows.set(true);
                     match self.expr_raw(value) {
                         Some(Val::Expr(x)) if x.ty.is_borrow() => {
-                            self.check_assignable(id, name_span, false);
                             self.borrow_value(Val::Expr(x), value, t, None)
                         }
                         Some(v) => {
@@ -1525,11 +1444,9 @@ impl Checker<'_> {
                     }
                 }
                 Some(t) => {
-                    self.check_assignable(id, name_span, false);
                     self.coerce(value, t).map(|e| self.owned(e))
                 }
                 None => {
-                    self.check_assignable(id, name_span, false);
                     self.expr(value);
                     None
                 }
@@ -1544,7 +1461,6 @@ impl Checker<'_> {
                         Val::Const(_) => None,
                     })
                 } else {
-                    self.check_assignable(id, name_span, true);
                     self.read_local(id, name_span)
                 };
                 self.compound(op, current, name_span, value, span)
@@ -1567,12 +1483,10 @@ impl Checker<'_> {
         };
         let rhs = match op {
             None => {
-                self.check_field_change(&place, target.span, "assigns");
                 self.coerce(value, place.ty).map(|e| self.owned(e))
             }
             Some(op) => {
                 self.read_local(place.local, target.span);
-                self.check_field_change(&place, target.span, "changes");
                 let current = self.place_expr(&place);
                 self.compound(op, Some(current), target.span, value, span)
             }
@@ -1680,74 +1594,6 @@ impl Checker<'_> {
         e
     }
 
-    /// A field of a place is about to change (`does` is "assigns" or
-    /// "changes", for messages). Fine behind a `mut` field or binding; on
-    /// `self` it makes the method a changing one; otherwise an error.
-    fn check_field_change(&mut self, p: &PlaceInfo, at: Span, does: &str) {
-        let l = &self.locals[p.local];
-        // WP5 checks writes through borrows.
-        if p.mut_field || l.mutable || p.through_deref {
-            return;
-        }
-        if l.is_self {
-            let what = format!("{does} `{}`", self.text(at));
-            let m = self.method.unwrap().func;
-            self.g.self_use[m].changes.get_or_insert((at, what));
-            return;
-        }
-        // The last field: the one that could be made `mut` instead.
-        let mut ty = l.ty.unwrap();
-        let fields: Vec<usize> = p
-            .proj
-            .iter()
-            .filter_map(|s| match s {
-                hir::HirProj::Field(i) => Some(*i),
-                hir::HirProj::Deref => None,
-            })
-            .collect();
-        for &i in &fields[..fields.len() - 1] {
-            ty = self.g.structs[ty.struct_id().unwrap()].fields[i].ty.unwrap();
-        }
-        let s = &self.g.structs[ty.struct_id().unwrap()];
-        let f = &s.fields[*fields.last().unwrap()];
-        let (name, lty) = (&l.name, l.ty.unwrap());
-        let whose = if l.is_param { "parameter " } else { "" };
-        let d = Diagnostic::at(&codes::E0205, at, format!("cannot change `{}`: {whose}`{name}` is not `mut`, and neither is the field", self.text(at)))
-            .note("changed here")
-            .label(l.span, "declared here without `mut`")
-            .help(format!(
-                "declare it as `mut {lty} {name}`, or the field as `mut {} {};` in `{}`",
-                f.ty.unwrap(),
-                f.name,
-                s.name
-            ));
-        self.diags.push(d);
-    }
-
-    /// Report if local `id` may not be assigned (or changed, for `++` and `+=`) here.
-    fn check_assignable(&mut self, id: LocalId, at: Span, changes: bool) {
-        let l = &self.locals[id];
-        if l.mutable {
-            return;
-        }
-        let name = &l.name;
-        let ty = l.ty.map_or(String::new(), |t| format!("{t} "));
-        let d = if l.is_param {
-            Diagnostic::at(&codes::E0205, at, format!("cannot change parameter `{name}`: it is not `mut`"))
-                .note("changed here")
-                .label(l.span, "declared here without `mut`")
-                .help(format!("declare it as `mut {ty}{name}` to allow changes"))
-        } else if changes {
-            Diagnostic::at(&codes::E0205, at, format!("cannot change `{name}`: it is not `mut`"))
-                .note("changed here")
-                .label(l.span, "declared here without `mut`")
-                .help(format!("declare it as `mut {ty}{name}` to allow changes"))
-        } else {
-            return;
-        };
-        self.diags.push(d);
-    }
-
     /// A read of local `id`. Whether it has a value is checked on the MIR.
     fn read_local(&mut self, id: LocalId, _at: Span) -> Option<hir::Expr> {
         let ty = self.locals[id].ty?;
@@ -1831,52 +1677,6 @@ impl Checker<'_> {
                 .help(format!("only `{}`'s own methods can use it; put it under `public:` to use it here", info.name)),
         );
         false
-    }
-
-    /// Which kind of value a method is called on.
-    fn receiver(&self, e: &hir::Expr) -> Receiver {
-        let mut mut_field = false;
-        let mut cur = e;
-        let id = loop {
-            match &cur.kind {
-                hir::ExprKind::Field(inner, i) => {
-                    mut_field |= self.g.structs[inner.ty.struct_id().unwrap()].fields[*i].mutable;
-                    cur = inner;
-                }
-                hir::ExprKind::Local(id) => break *id,
-                // WP5 checks changes through borrows.
-                hir::ExprKind::Deref(_) => return Receiver::Changeable,
-                _ => return Receiver::Temporary,
-            }
-        };
-        let l = &self.locals[id];
-        if mut_field || l.mutable {
-            Receiver::Changeable
-        } else if l.is_self {
-            Receiver::OfSelf
-        } else {
-            Receiver::Fixed(id)
-        }
-    }
-
-    /// Remember a call of `method` on `recv`, so it can be reported once it
-    /// is known whether the method changes `self`.
-    fn note_receiver(&mut self, recv: &hir::Expr, recv_span: Span, method: FuncId, span: Span) {
-        let binding = match self.receiver(recv) {
-            Receiver::Changeable => return,
-            Receiver::OfSelf => {
-                let m = self.method.unwrap().func;
-                self.g.self_use[m].calls.push((method, span));
-                return;
-            }
-            Receiver::Fixed(id) => {
-                let l = &self.locals[id];
-                Some(FixedBinding { name: l.name.clone(), ty: l.ty, is_param: l.is_param, span: l.span })
-            }
-            Receiver::Temporary => None,
-        };
-        let text = self.text(recv_span).to_string();
-        self.g.fixed_receivers.push(FixedReceiver { method, span, text, binding });
     }
 
     /// Check `e` and convert it to `to`, reporting a mismatch or a lossy conversion.
@@ -2328,13 +2128,6 @@ impl Checker<'_> {
                             .note(format!("this is `{}`", p.ty)),
                     );
                     return None;
-                }
-                if p.through_deref {
-                    // WP5 checks writes through borrows.
-                } else if p.proj.is_empty() {
-                    self.check_assignable(p.local, target.span, true);
-                } else {
-                    self.check_field_change(&p, target.span, "changes");
                 }
                 self.read_local(p.local, target.span)?;
                 let ty = p.ty;
@@ -2909,7 +2702,6 @@ impl Checker<'_> {
         if !visible {
             return None;
         }
-        self.note_receiver(&recv, recv_span, m.func, name_span);
         let mut all = vec![self.receiver_value(recv)];
         all.extend(args?);
         Some(Val::Expr(hir::Expr::new(hir::ExprKind::Call(m.func, all), ty)))
@@ -2922,12 +2714,12 @@ impl Checker<'_> {
         let t = lhs.ty;
         let not = |e: hir::Expr| hir::Expr::new(hir::ExprKind::Not(Box::new(e)), Type::Bool);
         if let Some(m) = self.g.operator(s, op).cloned() {
-            return self.operator_call(s, &m, lhs, lo, rv, ro, span).map(Val::Expr);
+            return self.operator_call(s, &m, lhs, rv, ro, span).map(Val::Expr);
         }
         match op {
             BinOp::Ne if self.g.operator(s, BinOp::Eq).is_some() => {
                 let m = self.g.operator(s, BinOp::Eq).cloned().unwrap();
-                self.operator_call(s, &m, lhs, lo, rv, ro, span).map(|e| Val::Expr(not(e)))
+                self.operator_call(s, &m, lhs, rv, ro, span).map(|e| Val::Expr(not(e)))
             }
             BinOp::Eq | BinOp::Ne => {
                 let rhs = self.into(rv, t, ro)?;
@@ -2950,7 +2742,7 @@ impl Checker<'_> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn operator_call(&mut self, s: StructId, m: &MethodInfo, lhs: hir::Expr, lo: Origin, rv: Val, ro: Origin, span: Span) -> Option<hir::Expr> {
+    fn operator_call(&mut self, s: StructId, m: &MethodInfo, lhs: hir::Expr, rv: Val, ro: Origin, span: Span) -> Option<hir::Expr> {
         if !self.check_method_visible(s, m, span) {
             return None;
         }
@@ -2958,7 +2750,6 @@ impl Checker<'_> {
         let (param, ty) = (sig.params[0]?, sig.ret?);
         let rhs = self.into(rv, param, ro)?;
         let rhs = self.copied(rhs);
-        self.note_receiver(&lhs, lo.span, m.func, span);
         let lhs = self.receiver_value(lhs);
         Some(hir::Expr::new(hir::ExprKind::Call(m.func, vec![lhs, rhs]), ty))
     }

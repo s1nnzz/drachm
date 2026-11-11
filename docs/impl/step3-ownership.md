@@ -1817,6 +1817,31 @@ step needs (file flags, `mut open`), so that parallel branches adding
 Existing codes whose reporting moves to MIR with unchanged texts: E0105,
 E0205, E0207. E0205 gains one variant for `open` (below).
 
+Message lines of the mutability pass (WP5, `src/mir/mutability.rs`), for the
+review. Each has the E0302 layout: a primary label on the rejected operation,
+labels on the declaration or the borrow, and a `help:` with code to type. For a
+method, the self-mode note is a label at the write that makes it change `self`
+(`reason_chain`), and at the end of a chain of calls.
+
+| Code | Headline line | Raised for |
+|---|---|---|
+| E0205 | `cannot change `p.x`: parameter `p` is not `mut`, and neither is the field` | a field of a `Fixed` parameter or binding |
+| E0205 | `cannot change parameter `n`: it is not `mut`` | a `Fixed` parameter assigned |
+| E0205 | `cannot change `x`: it is not `mut`` | a `Fixed` binding assigned a second time, or `x += v` / `x++` (note "changed here") |
+| E0205 | `cannot assign `i` inside a loop: it is not `mut`` | a `Fixed` or `open` binding assigned in a loop |
+| E0205 | `cannot reassign `xs`: it is `open`, not `mut`` | an `open` binding assigned after it has a value (new) |
+| E0205 | `cannot reassign parameter `s`: it is `open`, not `mut`` | an `open` parameter assigned (new) |
+| E0311 | `cannot change `p.hp` through a `&` borrow` | a write, or `+=`, through a `&` borrow (new) |
+| E0311 | `cannot lend `p.hp` as `&mut` through a `&` borrow` | a `&mut` of a place through a `&` borrow (new) |
+| E0311 | `cannot call `heal` through a `&` borrow: `heal` changes `self`` | a changing method on a `&` borrow (new) |
+| E0312 | `cannot lend `xs` as `&mut`: it is neither `mut` nor `open`` | a `&mut` of a binding (or field) that is neither (new) |
+| E0312 | `cannot call `heal` on `p`: `heal` changes `self`, and `p` is neither `mut` nor `open`` | a changing method on such a binding (new) |
+| E0312 | `cannot call `heal` on a temporary value: `heal` changes `self`` | a changing method on a temporary (new) |
+| E0312 | `cannot lend a temporary value as `&mut`` | a `&mut` of a temporary (new) |
+
+A method that changes only `mut` fields (Q-MF) is never reported for a value
+you own: it is the exception the table does not list.
+
 ### E0301 used after it moved
 
 ```text

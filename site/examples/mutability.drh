@@ -1,0 +1,20 @@
+in io;
+
+struct Counter {
+public:
+    string label;
+    mut uint32 hits;
+
+    none hit() { self.hits++; }
+}
+
+none main() {
+    Counter k = "page", 0;
+    k.hits++;
+    k::hit();
+
+    open string xs;
+    xs = "clicks: ";
+    xs += k.hits::text();
+    io::outln(xs);
+}

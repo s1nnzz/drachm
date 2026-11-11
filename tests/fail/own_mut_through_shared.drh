@@ -1,0 +1,6 @@
+struct Player {
+    string title;
+    none retitle() { self.title = "x"; }
+}
+none hurt(&Player p) { p::retitle(); }
+none main() { }

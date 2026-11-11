@@ -69,7 +69,7 @@ pub fn infer(hir: &hir::Program) -> Vec<Option<SelfMode>> {
             continue;
         }
         let reason = evidence[m].iter().find_map(|e| match e {
-            Evidence::Writes(span, text) => Some(MutReason { span: *span, kind: MutKind::Writes(text.clone()) }),
+            Evidence::Writes(span, text, _) => Some(MutReason { span: *span, kind: MutKind::Writes(text.clone()) }),
             Evidence::LendsMut(span, text) => Some(MutReason { span: *span, kind: MutKind::LendsMut(text.clone()) }),
             Evidence::Calls(span, callee) => {
                 is_mut(&modes, *callee).then(|| MutReason { span: *span, kind: MutKind::Calls(*callee) })
@@ -115,9 +115,63 @@ fn is_mut(modes: &[Option<SelfMode>], f: FuncId) -> bool {
     matches!(modes[f], Some(SelfMode::Mut(_)))
 }
 
+/// Whether `f` is a method that changes `self` only by writing `mut` fields
+/// (WP5, owner Q-MF): it is `&mut self`, but may be called on an owned value
+/// that is not `mut`. Recomputes the evidence; the MIR asks only when a
+/// receiver check fails.
+pub fn writes_only_mut_fields(hir: &hir::Program, f: FuncId) -> bool {
+    let modes = infer(hir);
+    is_mut(&modes, f) && mut_field_only(hir, &modes)[f]
+}
+
+/// By `FuncId`: every change of `self` the method makes is a write to a `mut`
+/// field, or a call of such a method on `self`. A `drop()` never is.
+fn mut_field_only(hir: &hir::Program, modes: &[Option<SelfMode>]) -> Vec<bool> {
+    let evidence: Vec<Vec<Evidence>> = hir
+        .funcs
+        .iter()
+        .map(|f| {
+            let mut found = Vec::new();
+            if f.has_self {
+                walk(hir, f, &mut |e| found.push(e));
+            }
+            found
+        })
+        .collect();
+    let mut only: Vec<bool> = hir.funcs.iter().map(|f| f.has_self).collect();
+    for s in &hir.structs {
+        if let Some(d) = s.has_drop {
+            only[d] = false;
+        }
+    }
+    // Greatest fixpoint: a call of a method that is only-mut-fields keeps the caller so.
+    loop {
+        let mut changed = false;
+        for id in 0..only.len() {
+            if !only[id] {
+                continue;
+            }
+            let holds = evidence[id].iter().all(|e| match e {
+                Evidence::Writes(_, _, mut_path) => *mut_path,
+                Evidence::LendsMut(..) => false,
+                Evidence::Calls(_, callee) => !is_mut(modes, *callee) || only[*callee],
+            });
+            if !holds {
+                only[id] = false;
+                changed = true;
+            }
+        }
+        if !changed {
+            return only;
+        }
+    }
+}
+
 /// Evidence found in a body.
 enum Evidence {
-    Writes(Span, String),
+    /// A write to a part of `self`; the flag says the path reaches a `mut`
+    /// field before any explicit dereference.
+    Writes(Span, String, bool),
     LendsMut(Span, String),
     /// A call with a self place as its receiver (`args[0]`).
     Calls(Span, FuncId),
@@ -222,7 +276,18 @@ impl Cx<'_> {
                 }
             }
             ExprKind::IncDec { place, .. } => self.place_write(place, out),
-            ExprKind::StrCall(_, args) | ExprKind::Join(args) => {
+            ExprKind::StrCall(f, args) => {
+                // `s += t` appends to `s` in place: a write to it.
+                if *f == hir::StrFn::Append
+                    && let Some(place) = args.first().and_then(|a| self.place_of(a))
+                {
+                    self.place_write(&place, out);
+                }
+                for a in args {
+                    self.expr(a, out);
+                }
+            }
+            ExprKind::Join(args) => {
                 for a in args {
                     self.expr(a, out);
                 }
@@ -254,7 +319,49 @@ impl Cx<'_> {
     /// A write to `place` is evidence when its root is `self`.
     fn place_write(&self, place: &Place, out: &mut dyn FnMut(Evidence)) {
         if let Some(text) = self.place_text(place) {
-            out(Evidence::Writes(place.span, text));
+            out(Evidence::Writes(place.span, text, self.mut_path(place)));
+        }
+    }
+
+    /// Does the path from `self` reach a `mut` field with no explicit `*` before it?
+    fn mut_path(&self, place: &Place) -> bool {
+        let mut ty = self.func.locals[0].ty;
+        let mut derefed = false;
+        for p in &place.proj {
+            match *p {
+                HirProj::Field(i) => {
+                    let pointee = if ty.is_borrow() { ty.target().unwrap_or(ty) } else { ty };
+                    let Some(_) = pointee.struct_id() else { return false };
+                    let f = &self.hir.struct_def(pointee).fields[i];
+                    if f.mutable && !derefed {
+                        return true;
+                    }
+                    ty = f.ty;
+                }
+                HirProj::Deref => {
+                    derefed = true;
+                    ty = ty.target().unwrap_or(ty);
+                }
+            }
+        }
+        false
+    }
+
+    /// The HIR place an expression names, if it is `self` or a part of it.
+    fn place_of(&self, e: &Expr) -> Option<Place> {
+        match &e.kind {
+            ExprKind::Local(0) if self.func.has_self => Some(Place { local: 0, proj: Vec::new(), span: e.span }),
+            ExprKind::Field(inner, i) => {
+                let mut p = self.place_of(inner)?;
+                p.proj.push(HirProj::Field(*i));
+                Some(p)
+            }
+            ExprKind::Deref(inner) if !inner.ty.is_ptr() => {
+                let mut p = self.place_of(inner)?;
+                p.proj.push(HirProj::Deref);
+                Some(p)
+            }
+            _ => None,
         }
     }
 

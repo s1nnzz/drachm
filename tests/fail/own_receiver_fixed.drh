@@ -1,0 +1,11 @@
+struct Box { public: string label; none tag() { self.label = "x"; } }
+none onParam(Box b) { b::tag(); }
+none onLocal() {
+    Box a = "a";
+    a::tag();
+}
+Box make() { Box b = "m"; return b; }
+none onTemp() {
+    make()::tag();
+}
+none main() { }

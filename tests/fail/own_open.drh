@@ -1,0 +1,8 @@
+none grow(&mut string s) { }
+none main() {
+    open string xs = "a";
+    grow(&mut xs);
+    xs = "b";
+    string ys = "c";
+    grow(&mut ys);
+}

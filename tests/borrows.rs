@@ -17,12 +17,12 @@ none pass(&mut uint32 n) {
     return a;
 }
 none main() {
-    uint32 n = 1;
+    mut uint32 n = 1;
     bump(&mut n);
     string s = "a";
     &string r = &s;
     string t = copy r;
-    Person p = "x", 3;
+    mut Person p = "x", 3;
     show(&p);
     string old = take p.name leaving "y";
     mut uint32 m = 5;

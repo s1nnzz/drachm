@@ -323,7 +323,21 @@ codes! {
          move anything out of it, `self` and raw pointers included. Return or\n\
          pass a copy instead:\n\n\
          \x20   string nameOf(&Player p) { return copy p.name; }";
-    E0313: "assigning part of a moved value",
+    E0311: "cannot change through a `&` borrow",
+        "A `&` borrow only reads what it points to, and that includes the `mut`\n\
+         fields of a struct behind it. Changing it, lending it `&mut`, or calling\n\
+         a method that changes `self` needs a `&mut` borrow:\n\n\
+         \x20   none hurt(&mut Player p) { p.hp = p.hp - 1; }";
+    E0312: "cannot lend `&mut` from an immutable binding",
+        "A `&mut` borrow, and a method that changes `self`, need a binding that is\n\
+         `mut` (it may also be reassigned) or `open` (its contents may change).\n\
+         A temporary value has no name to make either, so it cannot be lent\n\
+         `&mut` at all. A method that changes only `mut` fields is the exception:\n\n\
+         \x20   Counter k = \"page\", 0;\n\
+         \x20   k::hit();                 // fine if `hit` writes only `mut` fields\n\
+         \x20   open string xs = \"a\";\n\
+         \x20   grow(&mut xs);            // fine";
+    E0313:"assigning part of a moved value",
         "A field cannot be given a value while the struct holding it has moved\n\
          as a whole. Give the whole struct a new value first:\n\n\
          \x20   consume(p);\n\

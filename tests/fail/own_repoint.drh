@@ -1,0 +1,7 @@
+none main() {
+    mut string a = "a";
+    mut string b = "b";
+    &mut string r = &mut a;
+    r = &mut b;
+    r = "x";
+}

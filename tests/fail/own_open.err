@@ -1,0 +1,2 @@
+error[E0205]: cannot reassign `xs`: it is `open`, not `mut`
+error[E0312]: cannot lend `ys` as `&mut`: it is neither `mut` nor `open`

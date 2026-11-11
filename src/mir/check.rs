@@ -1,17 +1,17 @@
 //! The ownership checks that run on the finished MIR, body by body: moves and
 //! initialisation (E0301, E0207, E0313, E0332), moves out of borrows
 //! (E0310), copies of `&mut` holders (E0315), a missing `return` (E0105) and
-//! late initialisation of immutable bindings (E0205).
+//! the mutability checks of `mutability.rs` (E0205, E0311, E0312).
 
 use super::dataflow::{BitSet, Results};
-use super::lateinit;
 use super::moves::*;
+use super::mutability;
 use super::traversal::{in_cycle, predecessors, reverse_postorder};
 use super::*;
 use crate::diag::codes;
 
 /// Run every ownership analysis that exists so far on every body, appending
-/// diagnostics. Order per body: moves/uses, then lateinit. Bodies go in
+/// diagnostics. Order per body: moves/uses, then mutability. Bodies go in
 /// `FuncId` order and one body's diagnostics are sorted by position.
 pub fn run(hir: &hir::Program, mir: &Program, diags: &mut Vec<Diagnostic>) {
     for body in mir.bodies.iter().flatten() {
@@ -20,7 +20,7 @@ pub fn run(hir: &hir::Program, mir: &Program, diags: &mut Vec<Diagnostic>) {
             continue;
         }
         let mut ds = Vec::new();
-        check_body(hir, body, &mut ds);
+        check_body(hir, body, &mir.self_modes, &mut ds);
         ds.sort_by_key(|d| d.labels.first().map_or(0, |l| l.0.start));
         diags.extend(ds);
     }
@@ -61,23 +61,9 @@ impl Cx<'_> {
         }
     }
 
-    /// The user's spelling of a place: dereferences vanish (`(*p).name` is `p.name`).
+    /// The user's spelling of a place (`(*p).name` is `p.name`).
     fn place_text(&self, p: &Place) -> String {
-        let Some(name) = self.local_name(p.local) else { return THIS_VALUE.to_string() };
-        let mut text = name.to_string();
-        let mut t = self.body.locals[p.local].ty;
-        for pr in &p.proj {
-            match pr {
-                Proj::Deref => t = t.target().unwrap_or(t),
-                Proj::Field(f) => {
-                    let def = self.hir.struct_def(t);
-                    text.push('.');
-                    text.push_str(&def.fields[*f].name);
-                    t = def.fields[*f].ty;
-                }
-            }
-        }
-        text
+        mutability::place_text(self.hir, self.body, p)
     }
 
     fn path_place(&self, p: MovePathId) -> Place {
@@ -104,7 +90,7 @@ struct Gone {
     here: bool,
 }
 
-fn check_body(hir: &hir::Program, body: &Body, out: &mut Vec<Diagnostic>) {
+fn check_body(hir: &hir::Program, body: &Body, modes: &[Option<SelfMode>], out: &mut Vec<Diagnostic>) {
     let md = MoveData::build(body);
     let cx = Cx { hir, body, md: &md };
     let preds = predecessors(body);
@@ -155,7 +141,7 @@ fn check_body(hir: &hir::Program, body: &Body, out: &mut Vec<Diagnostic>) {
 
     borrow_moves_and_copies(&cx, out);
     let cycles = in_cycle(body);
-    lateinit::check(hir, body, &md, &ever, &cycles, out);
+    mutability::check(hir, body, &md, &ever, &cycles, modes, out);
 
     if let Some(end) = body.fallthrough_end {
         if rpo.contains(&end) {
@@ -515,7 +501,7 @@ none main() {
             "struct P { public: string name; string title; }
 none consume(string s) { }
 none main() {
-    P p = \"a\", \"b\";
+    mut P p = \"a\", \"b\";
     consume(take p.name leaving \"x\");
     consume(copy p.name);
     P q = p;

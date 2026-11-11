@@ -1,0 +1,11 @@
+struct Player { public: string name; mut uint32 hp; }
+none main() {
+    Player p = "a", 1;
+    p.name = "x";
+    p.hp = 5;
+    mut uint32 i = 0;
+    while (i < 2) {
+        p.name = "y";
+        i++;
+    }
+}
