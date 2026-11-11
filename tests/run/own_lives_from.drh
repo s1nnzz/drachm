@@ -1,0 +1,16 @@
+in io;
+struct Table {
+    public:
+    string name;
+    &string pick(&string key) lives from self or key {
+        if (key::len() > 3) { return key; }
+        return &self.name;
+    }
+}
+none main() {
+    Table t = "table";
+    string k = "long key";
+    string s = "k";
+    io::outln(t::pick(&k));
+    io::outln(t::pick(&s));
+}

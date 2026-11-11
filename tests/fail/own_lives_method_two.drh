@@ -1,0 +1,9 @@
+struct Table {
+    public:
+    string name;
+    &string pick(&string key) {
+        if (key::len() > 3) { return key; }
+        return &self.name;
+    }
+}
+none main() { }

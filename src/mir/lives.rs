@@ -176,7 +176,9 @@ impl Cx<'_> {
         for c in edges {
             let span = loc_span(self.body, c.origin.loc);
             match c.origin.kind {
-                ConstraintKind::Return => {
+                ConstraintKind::Return | ConstraintKind::Borrow | ConstraintKind::Reborrow | ConstraintKind::Assign
+                    if c.origin.kind == ConstraintKind::Return || edges.last().is_some_and(|l| std::ptr::eq(*l, *c)) =>
+                {
                     if let Some(f) = found.as_deref_mut() {
                         f.get_or_insert(span);
                     }

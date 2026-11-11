@@ -1,0 +1,3 @@
+struct Parser lives src { public: mut &string src; uint32 pos; }
+none keep(&mut Parser a, &string b) { a.src = b; }
+none main() { }

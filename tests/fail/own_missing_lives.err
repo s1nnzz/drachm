@@ -1,0 +1,4 @@
+error[E0308]
+returns a borrow of `a` here
+returns a borrow of `b` here
+write `lives a, b`

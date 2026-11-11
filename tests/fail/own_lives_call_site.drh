@@ -1,0 +1,14 @@
+in io;
+&string longest(&string a, &string b) lives a, b {
+    if (a::len() > b::len()) { return a; }
+    return b;
+}
+none main() {
+    string x = "long one";
+    mut &string r = &x;
+    if (true) {
+        string y = "short";
+        r = longest(&x, &y);
+    }
+    io::outln(r);
+}

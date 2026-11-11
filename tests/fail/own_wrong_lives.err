@@ -1,0 +1,3 @@
+error[E0309]
+`pick` returns a borrow of `b`, but its `lives` names only `a`
+add `b` to the list: `lives a, b`

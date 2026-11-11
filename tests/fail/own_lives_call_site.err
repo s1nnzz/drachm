@@ -1,0 +1,2 @@
+error[E0306]
+`y` does not live long enough

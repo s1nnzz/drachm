@@ -1,0 +1,9 @@
+in io;
+&string first(&string a, &string b) lives a, b { return a; }
+none main() {
+    string x = "one";
+    mut string y = "two";
+    &string r = first(&x, &y);
+    y = "three";
+    io::outln(r);
+}

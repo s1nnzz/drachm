@@ -1,0 +1,2 @@
+&string pick(&string a, &string b) lives a { return b; }
+none main() { }
