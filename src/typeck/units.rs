@@ -287,6 +287,7 @@ impl Globals {
         Some(t.mods.iter().rev().fold(ty, |ty, (m, _)| match m {
             ast::TypeMod::Ref { mutable } => Type::borrow(*mutable, ty),
             ast::TypeMod::Ptr => Type::ptr(ty),
+            ast::TypeMod::FixedPtr => Type::fixed_ptr(ty),
         }))
     }
 }
@@ -1275,6 +1276,7 @@ fn children_mut(e: &mut hir::Expr) -> Vec<&mut hir::Expr> {
         | K::Not(x)
         | K::BitNot(x)
         | K::Convert(x)
+        | K::PtrConv(x)
         | K::Text(x)
         | K::DeepCopy(x)
         | K::Deref(x)

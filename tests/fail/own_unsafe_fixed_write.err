@@ -1,0 +1,1 @@
+error[E0333]: cannot write through `*p`

@@ -21,6 +21,7 @@ pub fn run(hir: &hir::Program, mir: &Program, diags: &mut Vec<Diagnostic>) {
         }
         let mut ds = Vec::new();
         check_body(hir, body, &mir.self_modes, &mut ds);
+        super::unsafety::run(hir, body, &mut ds);
         ds.sort_by_key(|d| d.labels.first().map_or(0, |l| l.0.start));
         diags.extend(ds);
     }
@@ -405,7 +406,7 @@ fn move_through_deref(cx: &Cx, p: &Place, span: Span, returning: bool) -> Diagno
     let (_, func) = source_name(&cx.hir.funcs[body.func].symbol);
     let local = &body.locals[p.local];
     let is_self = cx.local_name(p.local) == Some("self");
-    if matches!(t, Type::Ptr { .. }) {
+    if t.is_ptr() {
         return Diagnostic::at(&codes::E0310, span, format!("cannot move {} out through a raw pointer", quoted(&text)))
             .note("this would move out of a value the pointer does not own")
             .help(copy_help(&text, returning));

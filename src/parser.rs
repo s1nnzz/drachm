@@ -119,7 +119,17 @@ impl Parser<'_> {
                 Tok::Sym("&&") => return Err(borrow_of_borrow(span)),
                 Tok::Sym("*") => {
                     self.bump();
-                    mods.push((TypeMod::Ptr, span));
+                    // `*fixed uint32 p`: the word `fixed` before a type name.
+                    // `*fixed p` (a struct called `fixed`, then a name) is not.
+                    let fixed = matches!(self.peek(), Tok::Ident(w) if w == "fixed")
+                        && matches!(self.peek_at(1), Tok::Ident(_))
+                        && matches!(self.peek_at(2), Tok::Ident(_) | Tok::Sym("<"));
+                    if fixed {
+                        self.bump();
+                        mods.push((TypeMod::FixedPtr, span.to(self.prev_span())));
+                    } else {
+                        mods.push((TypeMod::Ptr, span));
+                    }
                 }
                 Tok::Sym("**") => {
                     self.bump();
@@ -1353,6 +1363,20 @@ mod tests {
         let Stmt::Let { ty, value: Some(Init::Expr(e)), .. } = &s[2] else { panic!() };
         assert_eq!(ty.mods[0].0, TypeMod::Ptr);
         assert!(matches!(e.kind, ExprKind::AddressOf(_)));
+    }
+
+    #[test]
+    fn fixed_pointer_types() {
+        let (s, d) = body("*fixed uint32 p = address of n; *fixed Player q; *fixed r;");
+        assert!(d.is_empty(), "{:?}", errors(&d));
+        let Stmt::Let { ty, .. } = &s[0] else { panic!() };
+        assert_eq!(ty.mods.iter().map(|m| m.0).collect::<Vec<_>>(), [TypeMod::FixedPtr]);
+        assert_eq!(ty.name, "uint32");
+        let Stmt::Let { ty, .. } = &s[1] else { panic!() };
+        assert_eq!((ty.mods[0].0, ty.name.as_str()), (TypeMod::FixedPtr, "Player"));
+        // `fixed` with no type name after it is an ordinary struct name.
+        let Stmt::Let { ty, .. } = &s[2] else { panic!() };
+        assert_eq!((ty.mods[0].0, ty.name.as_str()), (TypeMod::Ptr, "fixed"));
     }
 
     #[test]

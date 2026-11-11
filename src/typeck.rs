@@ -117,13 +117,14 @@ impl Globals {
         Some(t.mods.iter().rev().fold(base, |ty, (m, _)| match m {
             ast::TypeMod::Ref { mutable } => Type::borrow(*mutable, ty),
             ast::TypeMod::Ptr => Type::ptr(ty),
+            ast::TypeMod::FixedPtr => Type::fixed_ptr(ty),
         }))
     }
 
     fn resolve(&self, t: &ast::TypeName, diags: &mut Vec<Diagnostic>) -> Option<Type> {
         if let Some((_, span)) = t.mods.first() {
             self.uses_borrows.set(true);
-            if !self.unsafe_allowed && let Some((_, at)) = t.mods.iter().find(|(m, _)| *m == ast::TypeMod::Ptr) {
+            if !self.unsafe_allowed && let Some((_, at)) = t.mods.iter().find(|(m, _)| matches!(m, ast::TypeMod::Ptr | ast::TypeMod::FixedPtr)) {
                 diags.push(unsafe_disabled(*at, "raw pointer type here"));
             }
             if self.resolve_base_quiet(t) == Some(Type::None) {
@@ -1021,6 +1022,11 @@ struct PlaceInfo {
     through_deref: bool,
     /// Some field on the path is `mut`, so the place can change whatever its binding is.
     mut_field: bool,
+    /// Some step on the path reads through a `&` borrow or a `*fixed` pointer:
+    /// the place cannot be changed whatever its binding says.
+    through_shared: bool,
+    /// Some step on the path is a `*fixed` pointer: writing to the place is E0333.
+    through_fixed: bool,
 }
 
 struct Checker<'a> {
@@ -1363,6 +1369,11 @@ impl Checker<'_> {
             self.expr(value);
             return;
         };
+        if place.through_fixed {
+            self.fixed_write(target.span);
+            self.expr(value);
+            return;
+        }
         let rhs = match op {
             None => {
                 self.coerce(value, place.ty)
@@ -1377,6 +1388,16 @@ impl Checker<'_> {
             Some(e) => self.store(place.hir_place(target.span), e, op.is_some(), out),
             None => {}
         }
+    }
+
+    /// E0333: writing through a `*fixed T`, which can only be read.
+    fn fixed_write(&mut self, at: Span) {
+        let text = self.text(at);
+        self.diags.push(
+            Diagnostic::at(&codes::E0333, at, format!("cannot write through `{text}`: it is a `*fixed` pointer, which can only be read"))
+                .note("written through a `*fixed` pointer here")
+                .help("only a pointer made from a `mut` or `open` binding (`*T`) can be written through"),
+        );
     }
 
     /// The new value for `target op= value`, given the target's current value.
@@ -1403,12 +1424,12 @@ impl Checker<'_> {
                     return None;
                 };
                 let ty = self.locals[id].ty?;
-                Some(PlaceInfo { local: id, proj: Vec::new(), ty, through_deref: false, mut_field: false })
+                Some(PlaceInfo { local: id, proj: Vec::new(), ty, through_deref: false, mut_field: false, through_shared: false, through_fixed: false })
             }
             ExprKind::SelfValue => {
                 let id = self.self_local(e.span)?;
                 let ty = self.locals[id].ty?;
-                Some(PlaceInfo { local: id, proj: Vec::new(), ty, through_deref: false, mut_field: false })
+                Some(PlaceInfo { local: id, proj: Vec::new(), ty, through_deref: false, mut_field: false, through_shared: false, through_fixed: false })
             }
             ExprKind::Field { recv, name, name_span } => {
                 let mut p = self.lvalue(recv)?;
@@ -1423,7 +1444,11 @@ impl Checker<'_> {
                 self.g.uses_borrows.set(true);
                 let mut p = self.lvalue(inner)?;
                 match p.ty {
-                    Type::Ptr { to } => {
+                    Type::Ptr { to } | Type::FixedPtr { to } => {
+                        if p.ty.is_fixed_ptr() {
+                            p.through_fixed = true;
+                            p.through_shared = true;
+                        }
                         p.proj.push(hir::HirProj::Deref);
                         p.ty = *to;
                         p.through_deref = true;
@@ -1441,7 +1466,8 @@ impl Checker<'_> {
 
     /// A borrow in the middle of a path is read through (R4).
     fn auto_deref(p: &mut PlaceInfo) {
-        if let Type::Ref { to, .. } = p.ty {
+        if let Type::Ref { to, mutable } = p.ty {
+            p.through_shared |= !mutable;
             p.proj.push(hir::HirProj::Deref);
             p.ty = *to;
             p.through_deref = true;
@@ -1803,6 +1829,15 @@ impl Checker<'_> {
                 let v = self.read(Val::Expr(e));
                 self.into(v, to, from)
             }
+            Val::Expr(e) if e.ty.is_ptr() && to.is_ptr() && e.ty != to => {
+                self.diags.push(
+                    Diagnostic::at(&codes::E0334, from.span, format!("expected `{to}`, found `{}`", e.ty))
+                        .note(format!("this is `{}`", e.ty))
+                        .note_line("`*T` and `*fixed T` do not convert to each other")
+                        .help("inside `unsafe { }`, `p::freeze()` gives a `*fixed T` from a `*T`, and `p::thaw()` gives a `*T` from a `*fixed T`"),
+                );
+                None
+            }
             Val::Expr(e) if e.ty == Type::None => {
                 self.diags.push(
                     Diagnostic::at(&codes::E0104, from.span, format!("expected `{to}`, but this produces no value"))
@@ -2053,7 +2088,7 @@ impl Checker<'_> {
                 let v = self.expr_raw(inner)?;
                 let x = self.materialise(v, inner.span)?;
                 match x.ty {
-                    Type::Ptr { to } => typed(hir::ExprKind::Deref(Box::new(x)), *to),
+                    Type::Ptr { to } | Type::FixedPtr { to } => typed(hir::ExprKind::Deref(Box::new(x)), *to),
                     t => {
                         self.deref_error(t, inner.span, e.span);
                         None
@@ -2246,16 +2281,17 @@ impl Checker<'_> {
         }
         let p = self.lvalue(inner)?;
         let l = &self.locals[p.local];
-        if !p.through_deref && !p.mut_field && !l.mutable && !l.open && !l.is_self {
-            self.diags.push(Diagnostic::at(
-                &codes::E0901,
-                e.span,
-                "`address of` an immutable binding (which gives a `*fixed T`) is not supported yet",
-            ));
-            return None;
-        }
+        // A place that can be changed gives `*T`; anything else (an immutable
+        // binding, a place behind `&` or `*fixed`) gives the read-only `*fixed T` (#9).
+        let writable = if p.through_shared {
+            false
+        } else if p.through_deref {
+            true
+        } else {
+            p.mut_field || l.mutable || l.open || l.is_self
+        };
         self.read_local(p.local, inner.span)?;
-        let ty = Type::ptr(p.ty);
+        let ty = if writable { Type::ptr(p.ty) } else { Type::fixed_ptr(p.ty) };
         let place = self.place_expr(&p);
         Some(Val::Expr(hir::Expr::new(hir::ExprKind::AddressOf(Box::new(place)), ty)))
     }
@@ -2470,9 +2506,43 @@ impl Checker<'_> {
                 let s = v.ty.struct_id().unwrap();
                 self.struct_method(s, v, recv.span, name, name_span, targs, args, span)
             }
+            Some(Val::Expr(v)) if v.ty.is_ptr() && matches!(name, "freeze" | "thaw") => {
+                self.pointer_convert(v, recv.span, name, name_span, args)
+            }
             Some(Val::Expr(v)) if v.ty == Type::Str => self.string_method(v, name, name_span, targs, args),
             value => self.value_method(value, recv, name, name_span, targs, args),
         }
+    }
+
+    /// `p::freeze()` (`*T` to `*fixed T`) and `p::thaw()` (the reverse).
+    fn pointer_convert(&mut self, v: hir::Expr, recv: Span, name: &str, name_span: Span, args: &[ast::Expr]) -> Option<Val> {
+        for a in args {
+            self.expr(a);
+        }
+        if let Some(a) = args.first() {
+            self.diags.push(Diagnostic::at(&codes::E0103, a.span, format!("`{name}` takes no arguments")));
+            return None;
+        }
+        let (want_fixed, to) = match (name, v.ty) {
+            ("freeze", Type::Ptr { to }) => (true, *to),
+            ("thaw", Type::FixedPtr { to }) => (false, *to),
+            _ => {
+                let (other, why) = if name == "freeze" {
+                    ("`thaw`", "`freeze` turns a `*T` into a `*fixed T`")
+                } else {
+                    ("`freeze`", "`thaw` turns a `*fixed T` into a `*T`")
+                };
+                self.diags.push(
+                    Diagnostic::at(&codes::E0201, name_span, format!("`{}` has no method `{name}`", v.ty))
+                        .label(recv, format!("this is `{}`", v.ty))
+                        .help(format!("{why}; {other} is the other way")),
+                );
+                return None;
+            }
+        };
+        self.g.uses_borrows.set(true);
+        let ty = if want_fixed { Type::fixed_ptr(to) } else { Type::ptr(to) };
+        Some(Val::Expr(hir::Expr::new(hir::ExprKind::PtrConv(Box::new(v)), ty)))
     }
 
     /// `::text()` and `::to<T>()` on numbers and bools.

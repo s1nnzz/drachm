@@ -246,6 +246,7 @@ impl Cx<'_> {
             | ExprKind::Not(inner)
             | ExprKind::BitNot(inner)
             | ExprKind::Convert(inner)
+            | ExprKind::PtrConv(inner)
             | ExprKind::Text(inner)
             | ExprKind::DeepCopy(inner)
             | ExprKind::AddressOf(inner)

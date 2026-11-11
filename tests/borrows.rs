@@ -26,8 +26,9 @@ none main() {
     show(&p);
     string old = take p.name leaving "y";
     mut uint32 m = 5;
-    *uint32 ptr = address of m;
+    *uint32 ptr;
     unsafe {
+        ptr = address of m;
         *ptr = 7;
         bool gone = ptr == none;
     }

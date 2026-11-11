@@ -18,6 +18,7 @@ pub mod check;
 pub mod dataflow;
 pub mod moves;
 pub mod mutability;
+pub mod unsafety;
 
 use crate::diag::{Diagnostic, Span};
 use crate::hir::{self, FuncId, StructId};
@@ -338,7 +339,7 @@ pub fn is_copy(hir: &hir::Program, ty: Type) -> bool {
         Type::Str => false,
         Type::Struct { id, .. } => hir.structs[id].copy,
         Type::Ref { mutable, .. } => !mutable,
-        Type::Ptr { .. } => false,
+        Type::Ptr { .. } | Type::FixedPtr { .. } => false,
         _ => true,
     }
 }

@@ -142,7 +142,8 @@ impl Validator<'_> {
                     Rvalue::Ref(..) | Rvalue::RawRef(_) | Rvalue::DeepCopy(_) => {}
                 }
                 match (dt, rvalue_ty(self.body, self.hir, rv)) {
-                    (Some(d), Ok(r)) if d != r => self.err(&at, format!("assigns a `{r}` to a `{d}`")),
+                    // `p::freeze()` and `p::thaw()` move the same bits under the other pointer kind.
+                    (Some(d), Ok(r)) if d != r && !(d.is_ptr() && r.is_ptr()) => self.err(&at, format!("assigns a `{r}` to a `{d}`")),
                     (_, Err(e)) => self.err(&at, format!("ill-typed rvalue: {e}")),
                     _ => {}
                 }

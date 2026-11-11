@@ -100,13 +100,28 @@ fn missing_lines<'a>(expected: &'a str, actual: &str) -> Vec<&'a str> {
 
 /// Run `case` on every source, in parallel, and fail with all the reports.
 fn run_all(files: Vec<PathBuf>, case: impl Fn(&Path) -> Result<(), String> + Sync) {
-    let failures: Vec<String> = std::thread::scope(|s| {
-        let handles: Vec<_> = files.iter().map(|f| (f, s.spawn(|| case(f)))).collect();
-        handles
-            .into_iter()
-            .filter_map(|(f, h)| h.join().unwrap().err().map(|e| format!("--- {}\n{e}", f.display())))
-            .collect()
+    // A bounded pool: one worker per core (or DRACHM_TEST_JOBS), so several test
+    // runs at once don't start hundreds of compilers.
+    let jobs = std::env::var("DRACHM_TEST_JOBS").ok().and_then(|v| v.parse().ok())
+        .unwrap_or_else(|| std::thread::available_parallelism().map_or(4, |n| n.get()))
+        .max(1);
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let results: Vec<std::sync::Mutex<Option<Result<(), String>>>> =
+        files.iter().map(|_| std::sync::Mutex::new(None)).collect();
+    std::thread::scope(|s| {
+        for _ in 0..jobs.min(files.len()) {
+            s.spawn(|| loop {
+                let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let Some(f) = files.get(i) else { break };
+                *results[i].lock().unwrap() = Some(case(f));
+            });
+        }
     });
+    let failures: Vec<String> = files
+        .iter()
+        .zip(results)
+        .filter_map(|(f, r)| r.into_inner().unwrap().and_then(|r| r.err()).map(|e| format!("--- {}\n{e}", f.display())))
+        .collect();
     assert!(failures.is_empty(), "{} of {} failed\n\n{}", failures.len(), files.len(), failures.join("\n\n"));
 }
 
