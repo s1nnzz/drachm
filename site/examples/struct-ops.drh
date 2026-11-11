@@ -1,0 +1,41 @@
+in io;
+
+struct Money {
+public:
+    sint64 cents;
+
+    Money +(Money o) {
+        Money r = self.cents + o.cents;
+        return r;
+    }
+
+    Money *(sint64 k) {
+        Money r = self.cents * k;
+        return r;
+    }
+
+    bool <(Money o) {
+        return self.cents < o.cents;
+    }
+}
+
+struct Pair {
+public:
+    uint32 a;
+    string b;
+}
+
+none main() {
+    Money x = 250;
+    Money y = 175;
+    mut Money z = x + y;
+    z += y;
+    io::outln(z.cents::text());
+    io::outln((x * 3).cents::text());
+    io::outln((y < x)::text());
+
+    // == and != work on any struct, field by field.
+    Pair p = 1, "same";
+    Pair q = 1, "same";
+    io::outln((p == q)::text());
+}

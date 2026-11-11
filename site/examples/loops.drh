@@ -1,0 +1,33 @@
+in io;
+
+none main() {
+    mut uint32 n = 3;
+    while (n > 0) {
+        io::out(n::text());
+        n--;
+    }
+    io::outln("");
+
+    for (mut uint32 i = 0; i < 3; i++) {
+        io::out(i::text());
+    }
+    io::outln("");
+
+    for (uint32 k of 5..8) {
+        io::out(k::text());
+    }
+    io::outln("");
+
+    // A start above the end runs zero times.
+    for (uint32 k of 3..1) {
+        io::out("never");
+    }
+    io::outln("done");
+
+    mut uint32 spins = 0;
+    for (;;) {
+        spins++;
+        if (spins == 4) { break; }
+    }
+    io::outln(spins::text());
+}

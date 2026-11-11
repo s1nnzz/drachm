@@ -1,0 +1,27 @@
+in io;
+
+struct Point {
+public:
+    sint32 x;
+    sint32 y;
+
+    none show() {
+        io::outln(f"(${self.x}, ${self.y})");
+    }
+}
+
+struct Named {
+public:
+    string name;
+    Point at;
+}
+
+none main() {
+    Point a = 1, 2;
+    Point b = y: 20, x: 10;
+    Named n = "home", a;
+    a::show();
+    b::show();
+    n.at::show();
+    io::outln(n.name);
+}

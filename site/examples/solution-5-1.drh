@@ -1,0 +1,8 @@
+in io;
+
+none main() {
+    string text = "hello world";
+    string loud = text::upper() + "!";
+    io::outln(loud);
+    io::outln(loud::len()->text());
+}

@@ -1,0 +1,7 @@
+in io;
+
+none main() {
+    string name = "Illy";
+    uint32 score = 7;
+    io::outf("[%-8] [%4]\n", name, score);
+}

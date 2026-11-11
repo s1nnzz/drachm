@@ -1,0 +1,31 @@
+in io;
+
+none main() {
+    // Whole division drops the fraction; % is the remainder.
+    io::outln((7 / 2)::text());
+    io::outln((7 % 2)::text());
+    io::outln((7.0 / 2)::text());
+    io::outln((2 ** 10)::text());
+
+    // Overflow wraps around.
+    mut uint8 top = 255;
+    top++;
+    io::outln(top::text());
+
+    // ++, --, and compound assignment need `mut`.
+    mut sint32 score = 10;
+    score++;
+    score += 5;
+    score *= 2;
+    io::outln(score::text());
+
+    // Bit operators next to comparisons need parentheses.
+    uint32 n = 6;
+    bool even = ((n & 1) == 0);
+    io::outln(even::text());
+    io::outln((1 << 4)::text());
+
+    // && and || stop as soon as the answer is known.
+    bool ok = n > 3 && n < 10;
+    io::outln(ok::text());
+}

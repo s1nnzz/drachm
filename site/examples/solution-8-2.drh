@@ -1,0 +1,11 @@
+in io;
+
+string twice(string s) {
+    return s + s;
+}
+
+none main() {
+    string word = "ha";
+    io::outln(twice(copy word));
+    io::outln(twice(word));
+}

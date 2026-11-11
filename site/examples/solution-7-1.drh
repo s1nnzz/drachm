@@ -1,0 +1,16 @@
+in io;
+
+string grade(uint32 score) {
+    match (score) {
+        case 90..100 { return "A"; }
+        case 80..89 { return "B"; }
+        case 70..79 { return "C"; }
+        case _ { return "F"; }
+    }
+}
+
+none main() {
+    io::outln(grade(95));
+    io::outln(grade(82));
+    io::outln(grade(40));
+}

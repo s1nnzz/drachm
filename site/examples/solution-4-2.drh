@@ -1,0 +1,13 @@
+in io;
+
+uint64 factorial(uint64 n) {
+    if (n <= 1) {
+        return 1;
+    }
+    return n * factorial(n - 1);
+}
+
+none main() {
+    io::outln(factorial(5)::text());
+    io::outln(factorial(10)::text());
+}

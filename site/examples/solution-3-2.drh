@@ -1,0 +1,15 @@
+in io;
+
+none main() {
+    for (uint32 n of 1..15) {
+        if (n % 15 == 0) {
+            io::outln("FizzBuzz");
+        } else if (n % 3 == 0) {
+            io::outln("Fizz");
+        } else if (n % 5 == 0) {
+            io::outln("Buzz");
+        } else {
+            io::outln(n::text());
+        }
+    }
+}

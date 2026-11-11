@@ -1,0 +1,9 @@
+in io;
+
+none main() {
+    string e1 = "e\u{301}";
+    io::outln(("Z" < "a")::text());
+    io::outln(("abc" == "abc")::text());
+    io::outln(("\u{e9}" == e1)::text());
+    io::outln(e1::len()->text());
+}

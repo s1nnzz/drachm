@@ -1,0 +1,22 @@
+in io;
+
+string describe(uint32 n) {
+    match (n) {
+        case 0 { return "zero"; }
+        case 1, 2, 3 { return "few"; }
+        case 4..9 { return "several"; }
+        case 5 + 5 { return "ten"; }
+        case _ { return "many"; }
+    }
+}
+
+none main() {
+    for (uint32 n of 0..11) {
+        io::outln(f"${n}: ${describe(n)}");
+    }
+    bool flag = true;
+    match (flag) {
+        case true { io::outln("on"); }
+        case false { io::outln("off"); }
+    }
+}

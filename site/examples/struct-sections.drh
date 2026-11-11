@@ -1,0 +1,21 @@
+in io;
+
+struct Account {
+    uint32 secret;
+public:
+    string owner;
+    mut uint32 balance;
+private:
+    uint32 pin;
+public:
+    bool check(uint32 guess) {
+        return guess == self.pin;
+    }
+}
+
+none main() {
+    Account a = 7, "Illy", 100, 1234;
+    a.balance += 50;
+    io::outln(f"${a.owner} has ${a.balance}");
+    io::outln(a::check(1234)->text());
+}

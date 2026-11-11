@@ -1,0 +1,8 @@
+tab:	here, quote: ", slash: \, smile: 😀
+plain ${hp}
+formatted 42 and 84
+backticks work like f"..." 42
+Several
+lines of text
+hp is 42
+on the next line

@@ -1,0 +1,16 @@
+in io;
+
+struct Rectangle {
+public:
+    uint32 width;
+    uint32 height;
+
+    uint32 area() {
+        return self.width * self.height;
+    }
+}
+
+none main() {
+    Rectangle r = 7, 6;
+    io::outln(r::area()->text());
+}
