@@ -1,0 +1,14 @@
+in io;
+struct Counter { public: uint32 n; uint32 get() { return self.n; } none add(uint32 k) { self.n += k; } }
+struct V { public: uint32 v; uint32 get() { return self.v; } none set(uint32 k) { self.v = k; } }
+none main() {
+    mut Counter c = 4;
+    c::add(c::get());
+    io::outln(c.n::text());
+    mut string s = "ab";
+    s += s::len()->text();
+    io::outln(s);
+    mut V v = 1;
+    v::set(v::get() + 1);
+    io::outln(v.v::text());
+}

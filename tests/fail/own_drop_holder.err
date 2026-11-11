@@ -1,0 +1,5 @@
+error[E0302]: cannot change `x` while it is borrowed
+`x` is borrowed here
+change attempted here
+`h` is dropped here, and its `drop()` can still use the borrow
+help: end `h` before changing `x`: `destroy h;`

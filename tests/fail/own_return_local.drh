@@ -1,0 +1,5 @@
+&string shout() {
+    string s = "hi"::upper();
+    return &s;
+}
+none main() { }

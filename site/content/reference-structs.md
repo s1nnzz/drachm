@@ -31,6 +31,20 @@ string moves it; write `copy a` to get a second value with its own text.
 
 <!-- example: struct-copy -->
 
+## Fields that borrow
+
+A field may be a borrow, `&string src;`. A struct with such a field must say
+which fields are borrows, with `lives` after its name, or the compiler reports
+E0314:
+
+<!-- example: struct-lives -->
+
+A value of that struct cannot outlive what it borrows, and the compiler checks
+that: `text` above has to stay alive for as long as `p` is used. A `mut &string
+cur;` field can be pointed elsewhere later; a plain borrow field stays pointed
+where it started. A `drop()` method on such a struct may still read the borrow,
+so the borrowed value stays alive until the struct is dropped.
+
 ## Building a value
 
 A struct is built in a declaration, by listing a value for each field in order,

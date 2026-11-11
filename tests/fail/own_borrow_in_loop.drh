@@ -1,0 +1,11 @@
+in io;
+none main() {
+    mut string name = "a";
+    &string first = &name;
+    mut uint32 i = 0;
+    while (i < 2) {
+        io::outln(first);
+        name = "b";
+        i += 1;
+    }
+}

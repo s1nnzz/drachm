@@ -1,0 +1,29 @@
+in io;
+uint64 size(&string s) { return s::len(); }
+string shout(&string s) { return s::upper(); }
+none show(&string s) { io::outln(s); }
+bool same(&string a, &string b) { return a == b; }
+none add(&mut string s) { s += "!"; }
+none setit(&mut string s) { s = "x"; }
+none setme(&mut string s, &string t) { s = copy t; }
+none main() {
+    mut string a = "hello";
+    string b = "hello";
+    io::outln(size(&a)::text());
+    show(&a);
+    io::outln(shout(&a));
+    io::outln(same(&a, &b)::text());
+    add(&mut a);
+    show(&a);
+    setit(&mut a);
+    show(&a);
+    setme(&mut a, &b);
+    show(&a);
+    mut string c = "c1";
+    string d = "d1";
+    mut &string cur = &c;
+    show(cur);
+    cur = &d;
+    show(cur);
+    io::outln(cur);
+}

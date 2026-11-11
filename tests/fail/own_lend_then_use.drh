@@ -1,0 +1,9 @@
+in io;
+&string view(&mut string s) lives s { return &s; }
+none main() {
+    mut string a = "x";
+    &mut string r = &mut a;
+    &string v = view(lend r);
+    uint64 n = r::len();
+    io::outln(v);
+}

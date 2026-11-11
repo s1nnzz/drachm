@@ -1,0 +1,5 @@
+error[E0307]: cannot return a borrow of `n`, which belongs to this function
+`n` is taken by value, so it is dropped when `keep` returns
+the borrow is returned here
+note: `keep` takes no borrows, so a borrow it returns can only point at something it owns
+help: take it as a borrow: `&uint32 n`, or return `n` itself

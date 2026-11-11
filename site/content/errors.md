@@ -433,6 +433,83 @@ To keep both, copy: `string b = copy a;`. Moving one field out with
 `take p.name` leaves `p.name` without a value until it is assigned
 again; `p` as a whole cannot be used meanwhile.
 
+## E0302: cannot change while borrowed
+
+A value cannot be changed while a borrow of it is still going to be
+used. The borrow ends after its last use, so use it first:
+
+    mut string name = "Illy";
+    &string first = &name;
+    name = "Sam";             // error: `first` is used below
+    io::outln(first);
+
+Move `io::outln(first);` above the assignment, or do not hold the
+borrow across it.
+
+## E0303: two `&mut` at once
+
+Only one `&mut` borrow of a value can be in use at a time, so that
+nothing else can change it behind your back:
+
+    &mut Player a = &mut p;
+    &mut Player b = &mut p;     // error: `a` is used below
+    heal(a);
+
+Finish using the first borrow before taking the second.
+
+## E0304: used while borrowed with `&mut`
+
+While a `&mut` borrow of a value is going to be used, the value itself
+cannot be read or borrowed again, only the borrow can:
+
+    &mut Player a = &mut p;
+    io::outln(p.hp::text());    // error: `a` is used below
+    heal(a);
+
+Read through the borrow (`a.hp`), or read before borrowing.
+
+## E0305: moved while borrowed
+
+A value cannot be moved away while a borrow of it is still going to be
+used:
+
+    string name = "Illy";
+    &string first = &name;
+    consume(name);              // error: `first` is used below
+    io::outln(first);
+
+Finish with the borrow first, or move a copy: `consume(copy name)`.
+
+## E0306: does not live long enough
+
+A value is dropped at the end of its block, or when its function
+returns, but a borrow of it is still going to be used after that:
+
+    &string keep;
+    if (true) {
+        string local = "x";
+        keep = &local;
+    }                           // `local` is dropped here
+    io::outln(keep);            // error
+
+Declare the value outside the block, so that it lives as long as the
+borrow is used.
+
+## E0307: returns a borrow of a local
+
+A function cannot return a borrow of something it owns: the value is
+dropped when the function returns, and the borrow would point at
+nothing. This covers its own locals, its by-value parameters and
+temporaries:
+
+    &string shout() {
+        string s = "hi"::upper();
+        return &s;               // error
+    }
+
+Return the value itself (`string shout()` and `return s;`), or borrow
+from a parameter that is already a borrow.
+
 ## E0310: cannot move out of a borrow
 
 A function that only borrows a value does not own it, so it cannot

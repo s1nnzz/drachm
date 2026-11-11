@@ -1,0 +1,10 @@
+struct Counter {
+    public:
+    uint32 n;
+    uint32 get() { return self.n; }
+    none add(uint32 k) { self.n += k; }
+}
+none main() {
+    mut Counter c = 1;
+    c::add(c::get());
+}

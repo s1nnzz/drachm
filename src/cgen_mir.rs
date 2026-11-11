@@ -337,6 +337,10 @@ impl Gen<'_> {
     fn operand(&self, op: &Operand) -> String {
         match op {
             Operand::Copy(p) | Operand::Move(p) => self.lvalue(p),
+            Operand::Const(Constant::Int(v, ty)) if ty.is_ptr() => {
+                debug_assert_eq!(*v, 0, "the only pointer constant is none");
+                format!("(({})0)", c_type(*ty))
+            }
             Operand::Const(Constant::Int(v, ty)) => {
                 let (lo, hi) = (*v as u64, (*v >> 64) as u64);
                 let t = c_type(*ty);
@@ -442,7 +446,7 @@ impl Gen<'_> {
                     _ => format!("({t}){v}"),
                 }
             }
-            Rvalue::Ref(_, p) => format!("&{}", self.lvalue(p)),
+            Rvalue::Ref(_, p) | Rvalue::RawRef(p) => format!("&{}", self.lvalue(p)),
             Rvalue::Aggregate(sid, ops) => {
                 let def = &self.hir.structs[*sid];
                 let parts: Vec<String> = ops.iter().enumerate().map(|(i, op)| format!(".f_{} = {}", def.fields[i].name, self.operand(op))).collect();
@@ -457,7 +461,6 @@ impl Gen<'_> {
                 }
                 return;
             }
-            Rvalue::RawRef(_) => unreachable!("raw pointers are not supported by the backends yet (WP9): {rv:?}"),
         };
         self.line(format!("{lv} = {value};"));
     }

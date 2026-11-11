@@ -1,0 +1,10 @@
+error[E0304]: cannot use `p.hp` while `p` is borrowed with `&mut`
+`p` is borrowed with `&mut` here
+used here
+the `&mut` borrow is still used here
+help: read `p.hp` before borrowing `p` with `&mut`, or read it through `a`: `a.hp`
+error[E0304]: cannot borrow `q` while it is borrowed with `&mut`
+`q` is borrowed with `&mut` here
+borrowed again here
+the `&mut` borrow is still used here
+help: finish using `b` before borrowing `q` again

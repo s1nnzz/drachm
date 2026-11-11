@@ -1,0 +1,5 @@
+error[E0302]: cannot change `name` while it is borrowed
+`name` is borrowed here
+the borrow is used again here, on the next time round the loop
+change attempted here
+help: finish using `first` inside the loop, or borrow `name` again each time round

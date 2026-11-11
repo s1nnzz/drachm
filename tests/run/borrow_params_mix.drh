@@ -1,0 +1,19 @@
+in io;
+struct Pt { public: uint32 x; }
+none show(&Pt p) { io::outln(p.x::text()); }
+none bump(&mut Pt p) { p.x += 1; }
+none go(&mut Pt m) {
+    show(&m);
+    bump(lend m);
+    show(&m);
+}
+none main() {
+    mut Pt p = 1;
+    show(&p);
+    go(&mut p);
+    &mut Pt m = &mut p;
+    show(&m);
+    bump(lend m);
+    bump(m);
+    show(&p);
+}

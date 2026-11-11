@@ -1,0 +1,4 @@
+loan L0: &mut two_phase _1 at P2 in {P3,P4,P5} activated at P5
+loan L1: &_1 at P3 in {P4}
+region R0 (self): {all points} + end(self)
+region R0 (self): {all points} + end(self)

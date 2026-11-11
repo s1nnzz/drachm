@@ -1,0 +1,6 @@
+struct Counter { public: uint32 n; none inc() { self.n += 1; } }
+none twice(&mut Counter r) {
+    &mut Counter r2 = r;
+    r::inc();
+}
+none main() { }

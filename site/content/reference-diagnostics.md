@@ -36,7 +36,7 @@ The first two digits say what kind of problem it is.
 | `00xx` | syntax: the text is not Drachm |
 | `01xx` | types, conversions, operators, `match`, `skip` |
 | `02xx` | names, declarations, bindings, structs |
-| `03xx` | ownership: moves and copies |
+| `03xx` | ownership: moves, copies and borrows |
 | `09xx` | valid Drachm that this compiler cannot do yet |
 
 ## Explain a code

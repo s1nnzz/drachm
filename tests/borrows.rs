@@ -1,7 +1,6 @@
-//! Programs that use borrows and pointers type-check but cannot be built yet.
+//! Borrows build; raw pointers type-check but cannot be built yet.
 
-const SOURCE: &str = r#"//--!$unsafe: true
-struct Person { public: string name; uint32 age; }
+const BORROWS: &str = r#"struct Person { public: string name; uint32 age; }
 struct Counter { uint32 n; }
 struct Holder lives src { &string src; }
 
@@ -25,13 +24,6 @@ none main() {
     mut Person p = "x", 3;
     show(&p);
     string old = take p.name leaving "y";
-    mut uint32 m = 5;
-    *uint32 ptr;
-    unsafe {
-        ptr = address of m;
-        *ptr = 7;
-        bool gone = ptr == none;
-    }
     Holder h = &s;
     &string both = pick(&s, &t);
     mut &string cur = &s;
@@ -39,14 +31,32 @@ none main() {
 }
 "#;
 
+const POINTERS: &str = r#"//--!$unsafe: true
+none main() {
+    mut uint32 m = 5;
+    *uint32 ptr;
+    unsafe {
+        ptr = address of m;
+        *ptr = 7;
+        bool gone = ptr == none;
+    }
+}
+"#;
+
 #[test]
-fn borrows_type_check_but_do_not_build() {
-    let (program, diags) = drachm::check(SOURCE);
+fn borrows_build_and_pointers_do_not_yet() {
+    let (program, diags) = drachm::check(BORROWS);
     let errors: Vec<String> = diags.iter().filter(|d| d.severity == drachm::diag::Severity::Error).map(|d| d.message.clone()).collect();
     assert!(errors.is_empty(), "{errors:?}");
-    let program = program.expect("type-checks");
-    assert!(program.uses_borrows);
-    let out = std::env::temp_dir().join("drachm_borrows_test");
+    let program = program.expect("checks");
+    assert!(!program.uses_pointers);
+    let out = std::env::temp_dir().join(format!("drachm_borrows_test{}", std::env::consts::EXE_SUFFIX));
+    drachm::build(&program, &out, false).expect("borrows build");
+    let _ = std::fs::remove_file(&out);
+
+    let (program, diags) = drachm::check(POINTERS);
+    let program = program.unwrap_or_else(|| panic!("{:?}", diags.iter().map(|d| d.message.clone()).collect::<Vec<_>>()));
+    assert!(program.uses_pointers);
     let err = drachm::build(&program, &out, false).expect_err("must not build");
     assert!(err.contains("cannot be built yet"), "{err}");
 }

@@ -1,0 +1,2 @@
+loan L0: &_1 at P3 in {P4,P5,P6,P7}
+loan L1: &(*_2) at P6 in {P7}

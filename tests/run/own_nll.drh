@@ -1,0 +1,14 @@
+in io;
+struct Pair { public: string a; string b; }
+none main() {
+    mut string name = "Illy";
+    &string first = &name;
+    io::outln(first);
+    name = "Sam";
+    io::outln(name);
+    mut Pair p = "x", "y";
+    &mut string pa = &mut p.a;
+    &string pb = &p.b;
+    io::outln(pb);
+    io::outln(pa);
+}

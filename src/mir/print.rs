@@ -44,6 +44,20 @@ fn function(out: &mut String, p: &Program, hir: &hir::Program, body: &Body) {
     }
 }
 
+/// The statement or terminator at `loc`, as the text format prints it.
+pub fn point_text(p: &Program, hir: &hir::Program, body: &Body, loc: Location) -> String {
+    let block = &body.blocks[loc.block];
+    match block.statements.get(loc.index as usize) {
+        Some(s) => statement(p, hir, &s.kind),
+        None => terminator(p, hir, &block.terminator.kind),
+    }
+}
+
+/// A place in the text format.
+pub fn place_text(pl: &Place) -> String {
+    place(pl)
+}
+
 fn statement(p: &Program, hir: &hir::Program, k: &StatementKind) -> String {
     match k {
         StatementKind::Assign(dest, rv) => format!("{} = {}", place(dest), rvalue(p, hir, rv)),

@@ -1,0 +1,19 @@
+in io;
+struct Parser lives src { public: &string src; uint32 pos; }
+uint32 advance(&mut Parser p) { p.pos += 1; return p.pos; }
+uint64 total(&Parser p) { return p.src::len() + p.pos; }
+Parser make(&string t) lives t { Parser q = t, 0; return q; }
+none main() {
+    string text = "hello world";
+    mut Parser p = &text, 0;
+    advance(&mut p);
+    advance(&mut p);
+    io::outln(total(&p)::text());
+    Parser q = make(&text);
+    io::outln(q.src);
+    mut Parser c = p;
+    advance(&mut c);
+    io::outln(c.pos::text());
+    io::outln(p.pos::text());
+    io::outln(text);
+}

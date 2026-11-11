@@ -1,0 +1,19 @@
+in io;
+struct Pair { public: string a; uint32 n; string get() { return copy self.a; } uint32 num() { return self.n; } none bump() { self.n += 1; } &string name() { return &self.a; } }
+none show(&Pair p) { io::outln(p.a); io::outln(p.n::text()); }
+none grow(&mut Pair p) { p.a = p.a + "+"; p.n += 5; }
+&string first(&Pair p) { return &p.a; }
+none main() {
+    mut Pair p = "x", 1;
+    show(&p);
+    grow(&mut p);
+    show(&p);
+    io::outln(p::get());
+    io::outln(p::num()->text());
+    p::bump();
+    &string f = first(&p);
+    io::outln(f);
+    &string g = p::name();
+    io::outln(g);
+    io::outln(p.n::text());
+}

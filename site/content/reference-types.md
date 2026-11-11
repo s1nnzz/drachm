@@ -31,6 +31,19 @@ if (answer > 40) {
 
 <!-- example: mutable -->
 
+## Borrow types
+
+`&T` is a shared borrow of a `T`: it reads. `&mut T` is a unique borrow: it
+reads and changes. A `&T` copies by itself, since it only points; a `&mut T`
+moves, like a `string`. There is no borrow of a borrow, so a `&string` parameter
+is passed on as it is.
+
+A binding can hold a borrow: `&string first = &name;`. Put `mut` in front
+(`mut &string cur = &a;`) to point it somewhere else later with `cur = &b;`.
+A borrow lasts until its last use. The rules, and the errors E0302 to E0307 for
+breaking them, are on the [Moves and copies](reference-ownership.md#borrowing)
+page.
+
 ## Number literals
 
 Decimal numbers may use `_` to group digits (`1_000_000`) and an exponent

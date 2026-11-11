@@ -1,0 +1,21 @@
+in io;
+struct Pair { public: string a; string b; }
+struct Hp { public: mut uint32 hp; string name; none heal() { self.hp += 1; } }
+none swap_ends(&mut Pair r) {
+    &mut string x = &mut r.a;
+    &mut string y = &mut r.b;
+    x += "1";
+    y += "2";
+}
+none main() {
+    mut Hp p = 5, "k";
+    &mut uint32 hp = &mut p.hp;
+    &string nm = &p.name;
+    hp += 3;
+    io::outln(nm);
+    p::heal();
+    io::outln(p.hp::text());
+    mut Pair q = "q", "r";
+    swap_ends(&mut q);
+    io::outln(q.a + q.b);
+}

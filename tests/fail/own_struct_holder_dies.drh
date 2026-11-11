@@ -1,0 +1,11 @@
+in io;
+struct Parser lives src { public: mut &string src; uint32 pos; }
+none main() {
+    string base = "a";
+    mut Parser q = &base, 0;
+    if (true) {
+        string text = "x";
+        q.src = &text;
+    }
+    io::outln(q.src);
+}

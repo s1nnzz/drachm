@@ -1,0 +1,13 @@
+in io;
+struct Counter { public: uint32 n; none inc() { self.n += 1; } }
+none grow(&mut string s) { s += "!"; }
+none twice(&mut string s) { grow(lend s); grow(lend s); }
+none count(&mut Counter r) { r::inc(); r::inc(); r.n += 10; r::inc(); }
+none main() {
+    mut string s = "a";
+    twice(&mut s);
+    io::outln(s);
+    mut Counter c = 0;
+    count(&mut c);
+    io::outln(c.n::text());
+}
