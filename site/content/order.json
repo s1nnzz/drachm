@@ -1,0 +1,39 @@
+{
+  "sections": [
+    {
+      "title": "Start",
+      "pages": [
+        "index",
+        "install"
+      ]
+    },
+    {
+      "title": "Tour",
+      "pages": [
+        "tour-hello",
+        "tour-numbers",
+        "tour-strings",
+        "tour-structs",
+        "tour-control"
+      ]
+    },
+    {
+      "title": "Reference",
+      "pages": [
+        "reference-types",
+        "reference-strings",
+        "reference-structs",
+        "reference-control-flow",
+        "reference-diagnostics",
+        "reference-cli",
+        "errors"
+      ]
+    },
+    {
+      "title": "Later",
+      "pages": [
+        "coming-later"
+      ]
+    }
+  ]
+}

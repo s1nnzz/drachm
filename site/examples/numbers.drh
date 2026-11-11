@@ -1,0 +1,31 @@
+in io;
+
+none main() {
+    // Whole numbers: the type is written before the name.
+    uint32 answer = 40 + 2;
+    sint8 cold = -12;
+    io::outln(answer::text());
+    io::outln(cold::text());
+
+    // Whole division drops the fraction. Use float64 for decimals.
+    io::outln((answer / 4)::text());
+    io::outln((answer::to<float64>() / 4)::text());
+
+    // Constants are exact until they reach a type.
+    io::outln((0.1 + 0.2)::text());
+    io::outln((2 ** 64)::text());
+
+    // Bool and text of a bool.
+    bool ready = answer > 40;
+    io::outln(ready::text());
+
+    // A number converts to a wider type on its own.
+    uint8 small = 200;
+    uint32 wide = small;
+    io::outln((wide + 100)::text());
+
+    // `::to<T>()` says that a conversion that may lose value is intended.
+    sint64 big = 1000;
+    uint8 cut = big::to<uint8>();
+    io::outln(cut::text());
+}

@@ -1,0 +1,34 @@
+in io;
+
+none main() {
+    // Literals, escapes and interpolation.
+    string name = "Drachm";
+    io::outln("Tab:\tQuote: \" Backslash: \\");
+    io::outln(f"${name} has ${name::len()->text()} letters");
+    io::outln("No ${interpolation} here");
+
+    // Several lines.
+    io::outln("""First line
+  second line""");
+
+    // Joining with + and +=.
+    mut string greeting = "Hello, " + name;
+    greeting += "!";
+    io::outln(greeting);
+
+    // Methods: `::` for the first call, `->` for each call after it.
+    io::outln("dcba"::reverse()->sub(0, 1));
+    io::outln("  padded  "::trim()->upper());
+    io::outln("banana"::replace("an", "AN"));
+    io::outln("banana"::count("a")->text());
+    io::outln("7"::padLeft(3, "0"));
+
+    // Comparisons go by bytes.
+    io::outln((name == "Drachm")::text());
+    io::outln(("abc" < "abd")::text());
+
+    // Formatting with io::outf: `%` prints a value as text.
+    uint32 hp = 42;
+    io::outf("% has % hp (%.1 of max)\n", name, hp, 0.875);
+    io::outf("[%6] [%-6] [%06] [%x]\n", hp, hp, hp, 255);
+}
