@@ -656,8 +656,9 @@ VS Code first (decided).
 
 Goal: a browsable site for people learning Drachm, separate from the design
 documents. Lives in `site/`: a Next.js site built with Fumadocs and exported
-as static files (the owner likes Next.js and the look of
-alloy-luau.github.io: big hero, side-by-side code panels, chapter cards).
+as static files. Look: like the nextjs.org docs (minimal, monochrome, Geist
+fonts, thin borders); only a slight nod to alloy-luau.github.io, which the
+owner finds too busy.
 Content is plain Markdown in `site/content/`; Drachm code is highlighted by
 Shiki using the VS Code TextMate grammar in `editors/vscode/syntaxes/`, so the
 editor and the site always agree.
