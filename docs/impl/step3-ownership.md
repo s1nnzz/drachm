@@ -1809,6 +1809,7 @@ step needs (file flags, `mut open`), so that parallel branches adding
 | E0326 | `lend` of something that is not a `&mut` you hold | typeck |
 | E0327 | `take` / `copy` / `address of` of something that is not a variable or field | typeck |
 | E0328 | `drop` has the wrong shape | typeck (declarations) |
+| E0332 | assigning part of a value that has none yet | moves (`wp2.md`) |
 
 Existing codes whose reporting moves to MIR with unchanged texts: E0105,
 E0205, E0207. E0205 gains one variant for `open` (below).
@@ -2238,6 +2239,25 @@ error[E0328]: `drop` must be written `none drop()`
  help: write `none drop() { ... }`, not `static`, with no parameters
 ```
 
+### E0332 assigning part of a value that has none yet
+
+```text
+error[E0332]: cannot give `p.hp` a value: `p` has no value yet
+  --> main.drh:4:5
+   |
+ 3 |     mut Player p;
+   |                - `p` is declared here without a value
+ 4 |     p.hp = 5;
+   |     ^^^^ assigned here
+   |
+ help: give `p` a whole value first: `p = ...;`
+```
+
+The never-assigned sibling of E0313 (same rule, 3.1.3: the parents of an
+assigned part must be initialised). Whether a struct may be filled in field by
+field is not decided by the owner; this is the spec's reading and is listed in
+the WP2 report for confirmation.
+
 ### W0322 / W0323
 
 - W0322: "`copy` does nothing for `uint32`" (label on `copy`; help "remove
@@ -2280,6 +2300,7 @@ error[E0328]: `drop` must be written `none drop()`
 | E0326 | `lend` passes on a `&mut` borrow you hold, and `n` is not one |
 | E0327 | `take` needs a field of a variable, like `p.name` |
 | E0328 | `drop` must be written `none drop()` |
+| E0332 | cannot give `p.hp` a value: `p` has no value yet |
 
 ---
 
@@ -2404,6 +2425,12 @@ Each package ends with `cargo test` green on both backends and the leak
 check (once WP6 lands) clean. Golden test conventions are those at the top
 of `tests/run.rs`. New fail tests go in `tests/fail/own_*.drh`, new run
 tests in `tests/run/own_*.drh`, MIR tests in `tests/mir/` (WP1).
+
+Second wave: `wp2.md` (dataflow + moves; it also takes 3.1.6 late-init E0205, which
+the removal of `Flow` forces), `wp3.md` (self modes), `wp4.md` (backends on MIR,
+stage 1; its eligibility rule replaces the cutover rule in the WP4 section below,
+and speed is compared against a baseline built on the same machine, not PLAN
+numbers). Where a brief differs from this document, the brief wins.
 
 The first-wave packages (WP0a, WP0b, WP1) have their own briefs with exact
 file ownership: `wp0a.md`, `wp0b.md`, `wp1.md`. Test programs below follow the
