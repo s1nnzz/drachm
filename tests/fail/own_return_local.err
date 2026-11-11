@@ -1,0 +1,5 @@
+error[E0307]: cannot return a borrow of `s`, which belongs to this function
+`s` is created here and dropped when `shout` returns
+the borrow is returned here
+note: `shout` takes no borrows, so a borrow it returns can only point at something it owns
+help: return the string itself: change the return type to `string` and write `return s;`

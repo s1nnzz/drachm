@@ -17,7 +17,8 @@
         "lesson-5-strings",
         "lesson-6-structs",
         "lesson-7-match-and-skip",
-        "lesson-8-ownership"
+        "lesson-8-ownership",
+        "lesson-9-borrowing"
       ]
     },
     {

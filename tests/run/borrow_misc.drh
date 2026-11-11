@@ -1,0 +1,32 @@
+in io;
+struct Holder lives src { public: &string src; none drop() { io::outln("drop " + self.src); } }
+struct W lives r { public: &mut uint32 r; uint32 k; }
+struct Pt lives name { public: &string name; uint32 n; }
+none tick(&mut W w) { w.k += 1; }
+none show(&string s) { io::outln(s); }
+none main() {
+    string a = "alpha";
+    if (true) {
+        Holder h = &a;
+        io::outln("in");
+    }
+    mut uint32 c = 5;
+    mut W w = &mut c, 3;
+    tick(&mut w);
+    tick(&mut w);
+    io::outln(w.k::text()); io::outln(c::text());
+    string nm = "pt";
+    Pt p = &nm, 1;
+    Pt q = &nm, 1;
+    io::outln((p == q)::text());
+    show(p.name);
+    mut string m = "mm";
+    &mut string r = &mut m;
+    show(&r);
+    r += "!";
+    show(&m);
+    for (mut uint32 i = 0; i < 2; i++) {
+        &string t = &"x";
+        show(t);
+    }
+}

@@ -1,0 +1,8 @@
+in io;
+none consume(string s) { }
+none main() {
+    string name = "Illy";
+    &string first = &name;
+    consume(name);
+    io::outln(first);
+}

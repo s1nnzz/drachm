@@ -11,7 +11,7 @@ Drachm compiler
 usage:
   drachm build <file.drh> [-o <output>] [-O]   compile to a native executable
   drachm run   <file.drh> [-O]                 compile and run
-  drachm check <file.drh> [--dump-mir]         check for errors only (--dump-mir also prints the MIR)
+  drachm check <file.drh> [--dump-mir | --dump-borrowck]  check for errors only (the dumps print the MIR or the borrow checker state)
   drachm explain <code>                        describe an error code, e.g. E0101
 
   -O   optimised build: slower to compile, much faster to run";
@@ -33,12 +33,14 @@ fn main() {
     let mut output = None;
     let mut opt = false;
     let mut dump_mir = false;
+    let mut dump_borrowck = false;
     let mut rest = args[1..].iter();
     while let Some(a) = rest.next() {
         match a.as_str() {
             "-o" => output = Some(PathBuf::from(rest.next().unwrap_or_else(|| die("-o needs a path")))),
             "-O" => opt = true,
             "--dump-mir" => dump_mir = true,
+            "--dump-borrowck" => dump_borrowck = true,
             _ if input.is_none() => input = Some(PathBuf::from(a)),
             _ => die(&format!("unexpected argument '{a}'\n\n{USAGE}")),
         }
@@ -49,7 +51,13 @@ fn main() {
         "check" => {
             // The MIR dump is for looking at programs the ownership checks
             // reject too, so it stops after type checking.
-            let hir = front_end(&input, !dump_mir);
+            let hir = front_end(&input, !dump_mir && !dump_borrowck);
+            if dump_borrowck {
+                let mut diags = Vec::new();
+                let mir = drachm::mir::build_program(&hir, &mut diags);
+                print!("{}", drachm::mir::borrowck::dump(&hir, &mir));
+                return;
+            }
             if dump_mir {
                 let mut diags = Vec::new();
                 let mut mir = drachm::mir::build_program(&hir, &mut diags);

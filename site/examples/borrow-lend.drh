@@ -1,0 +1,32 @@
+in io;
+
+struct Counter {
+public:
+    uint32 n;
+    none bump() { self.n += 1; }
+}
+
+none grow(&mut string s) {
+    s += "!";
+}
+
+none twice(&mut string s) {
+    grow(lend s);
+    grow(lend s);
+}
+
+none count(&mut Counter c) {
+    c::bump();
+    c::bump();
+    c.n += 10;
+}
+
+none main() {
+    mut string s = "hey";
+    twice(&mut s);
+    io::outln(s);
+
+    mut Counter c = 0;
+    count(&mut c);
+    io::outln(c.n::text());
+}

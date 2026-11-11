@@ -1,0 +1,5 @@
+error[E0303]: `p` is already borrowed with `&mut`
+first `&mut` borrow here
+second `&mut` borrow here
+the first borrow is still used here
+help: only one `&mut` borrow of `p` can be in use at a time; finish using `a` before borrowing `p` again

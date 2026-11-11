@@ -16,8 +16,8 @@ place owns the value, and the old name has none until it is given a new one.
 Using a name after its value moved is error E0301.
 
 Numbers, bools and small plain structs copy by themselves, so they never need
-`copy`. Borrow parameters such as `&string` are designed but this compiler cannot
-build them yet (see [Roadmap](coming-later.md)).
+`copy`. A `&` borrow copies too, because it only points at something; see
+[Borrowing](#borrowing) below.
 
 ```drachm
 none greet(string s) { }
@@ -73,9 +73,8 @@ other method that changes `self` needs a `mut` or `open` binding.
 
 Through a `&` borrow nothing changes, not even a `mut` field: changing it,
 lending it `&mut`, or calling a method that changes `self` is error E0311. A
-`&mut` borrow needs a `mut` or `open` binding, or it is error E0312. Borrows
-cannot be built yet (see [Roadmap](coming-later.md)), so these examples
-are only checked:
+`&mut` borrow needs a `mut` or `open` binding, or it is error E0312. The
+examples show each error:
 
 ```drachm
 struct Player {
@@ -160,6 +159,230 @@ Two neighbours are checked in the same pass. E0207 means a binding declared
 without a value was read before every path gave it one, and E0105 means a
 function that promises a value can reach its end without a `return`. See the
 [error index](errors.md) for every code.
+
+## Borrowing
+
+A borrow lets a function use a value without owning it. `&string` is a shared
+borrow: it reads. `&mut string` is a unique borrow: it reads and changes. The
+call site says which one it passes, by writing `&` or `&mut` before the
+argument, and leaving it off is error E0321.
+
+<!-- example: borrow -->
+
+Through a borrow you use the value as if you held it: `s::len()` and `p.hp`
+read it, and `s = ...` or `p.hp = ...` on a `&mut` writes through to the
+original, dropping the old value first. A borrow can be returned too, as
+`name_of` does, as long as it points at something the function was given.
+
+### lend
+
+A `&mut` borrow is used up when you pass it on, like any other value that does
+not copy. To pass it on and keep using it, write `lend`: `grow(lend s)` hands
+`grow` a temporary borrow of what `s` points at, and `s` is yours again after
+the call. Calling a method on a `&mut` binding does this by itself.
+
+<!-- example: borrow-lend -->
+
+Passing the binding itself (`grow(s)`) moves it, and using `s` afterwards is
+E0301. `lend` only works on a `&mut` you hold; a `&` is shared already, so you
+simply pass it again.
+
+### The rules
+
+At any moment a value has either many `&` borrows or one `&mut` borrow, never
+both. A borrow lasts until its last use, not until the end of the block, so
+this is fine:
+
+```drachm
+mut string name = "Illy";
+&string first = &name;
+io::outln(first);
+name = "Sam";
+```
+
+While a borrow is going to be used again, the value it points at cannot be
+changed (E0302, E0303), read another way when the borrow is `&mut` (E0304),
+moved (E0305) or dropped (E0306), and a function cannot return a borrow of
+something it owns (E0307).
+
+A method call borrows its receiver. If the arguments only read the receiver,
+that is fine, because the borrow is not used until the call itself:
+
+<!-- example: borrow-two-phase -->
+
+`xs::push(xs::first())` is E0302: the borrow `first` returns is still in use
+when `push` needs to change `xs`.
+
+### Changing a value while it is borrowed (E0302)
+
+```drachm
+in io;
+none main() {
+    mut string name = "Illy";
+    &string first = &name;
+    name = "Sam";
+    io::outln(first);
+}
+```
+
+```text title="drachm check"
+error[E0302]: cannot change `name` while it is borrowed
+  --> main.drh:5:5
+   |
+ 4 |     &string first = &name;
+   |                     ----- `name` is borrowed here
+ 5 |     name = "Sam";
+   |     ^^^^ change attempted here
+ 6 |     io::outln(first);
+   |               ----- the borrow is still used here
+   |
+ help: finish using `first` before changing `name`
+```
+
+Passing `&mut p` while a `&` borrow of `p` is still going to be used is E0302
+as well, and so is changing `name` when the later use is a `return` or comes
+round again in a loop; the message then says where.
+
+### Two `&mut` at once (E0303)
+
+```drachm
+struct Player { public: mut uint32 hp; }
+none heal(&mut Player p) { p.hp = p.hp + 1; }
+none main() {
+    mut Player p = 1;
+    &mut Player a = &mut p;
+    &mut Player b = &mut p;
+    heal(a);
+    heal(b);
+}
+```
+
+```text title="drachm check"
+error[E0303]: `p` is already borrowed with `&mut`
+  --> main.drh:6:21
+   |
+ 5 |     &mut Player a = &mut p;
+   |                     ------ first `&mut` borrow here
+ 6 |     &mut Player b = &mut p;
+   |                     ^^^^^^ second `&mut` borrow here
+ 7 |     heal(a);
+   |          - the first borrow is still used here
+   |
+ help: only one `&mut` borrow of `p` can be in use at a time; finish using `a` before borrowing `p` again
+```
+
+### Using a value that is borrowed with `&mut` (E0304)
+
+While a `&mut` borrow is going to be used, the value itself cannot be read or
+borrowed again. Read it through the borrow, or before.
+
+```drachm
+in io;
+struct Player { public: mut uint32 hp; }
+none heal(&mut Player p) { p.hp = p.hp + 1; }
+none main() {
+    mut Player p = 1;
+    &mut Player a = &mut p;
+    io::outln(p.hp::text());
+    heal(a);
+}
+```
+
+```text title="drachm check"
+error[E0304]: cannot use `p.hp` while `p` is borrowed with `&mut`
+  --> main.drh:7:15
+   |
+ 6 |     &mut Player a = &mut p;
+   |                     ------ `p` is borrowed with `&mut` here
+ 7 |     io::outln(p.hp::text());
+   |               ^^^^ used here
+ 8 |     heal(a);
+   |          - the `&mut` borrow is still used here
+   |
+ help: read `p.hp` before borrowing `p` with `&mut`, or read it through `a`: `a.hp`
+```
+
+### Moving a value that is borrowed (E0305)
+
+```drachm
+in io;
+none consume(string s) { }
+none main() {
+    string name = "Illy";
+    &string first = &name;
+    consume(name);
+    io::outln(first);
+}
+```
+
+```text title="drachm check"
+error[E0305]: cannot move `name` while it is borrowed
+  --> main.drh:6:13
+   |
+ 5 |     &string first = &name;
+   |                     ----- `name` is borrowed here
+ 6 |     consume(name);
+   |             ^^^^ moved here
+ 7 |     io::outln(first);
+   |               ----- the borrow is still used here
+   |
+ help: finish using `first` before moving `name`, or move a copy: `copy name`
+```
+
+### A borrow that outlives its value (E0306)
+
+```drachm
+in io;
+none main() {
+    mut &string keep = &"a";
+    if (true) {
+        string local = "x";
+        keep = &local;
+    }
+    io::outln(keep);
+}
+```
+
+```text title="drachm check"
+error[E0306]: `local` does not live long enough
+  --> main.drh:7:5
+   |
+ 6 |         keep = &local;
+   |                ------ `local` is borrowed here
+ 7 |     }
+   |     ^ `local` is dropped here, at the end of its block
+ 8 |     io::outln(keep);
+   |               ---- the borrow is still used here
+   |
+ help: declare `local` outside the block, so it lives as long as `keep` is used
+```
+
+### Returning a borrow of a local (E0307)
+
+```drachm
+&string shout() {
+    string s = "hi"::upper();
+    return &s;
+}
+none main() { }
+```
+
+```text title="drachm check"
+error[E0307]: cannot return a borrow of `s`, which belongs to this function
+  --> main.drh:3:12
+   |
+ 2 |     string s = "hi"::upper();
+   |            - `s` is created here and dropped when `shout` returns
+ 3 |     return &s;
+   |            ^^ the borrow is returned here
+   |
+ note: `shout` takes no borrows, so a borrow it returns can only point at something it owns
+ help: return the string itself: change the return type to `string` and write `return s;`
+```
+
+A function that returns a borrow and has more than one borrowed parameter says
+which of them the result points into, with `lives`:
+`&string longer(&string a, &string b) lives a, b`.
 
 ## When a value dies
 

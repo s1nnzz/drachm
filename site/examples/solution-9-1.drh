@@ -1,0 +1,11 @@
+in io;
+
+none describe(&string s) {
+    io::outln(s + " has " + s::len()->text() + " letters");
+}
+
+none main() {
+    string word = "borrow";
+    describe(&word);
+    describe(&word);
+}

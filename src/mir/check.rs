@@ -25,6 +25,8 @@ pub fn run(hir: &hir::Program, mir: &Program, diags: &mut Vec<Diagnostic>) {
         ds.sort_by_key(|d| d.labels.first().map_or(0, |l| l.0.start));
         diags.extend(ds);
     }
+    // Loans: borrowed values that change, move or die while the borrow is still used.
+    borrowck::check_program(hir, mir, diags);
 }
 
 /// Whether the symbol is a method, and the name as written.

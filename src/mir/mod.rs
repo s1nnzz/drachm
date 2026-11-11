@@ -14,8 +14,10 @@ pub mod print;
 pub mod traversal;
 pub mod ty;
 pub mod validate;
+pub mod borrowck;
 pub mod check;
 pub mod dataflow;
+pub mod liveness;
 pub mod moves;
 pub mod mutability;
 pub mod unsafety;
@@ -58,9 +60,18 @@ impl std::fmt::Display for BlockId {
 
 pub use crate::ownership::{MutKind, MutReason, SelfMode};
 
-/// Placeholder until WP8 (lifetimes in signatures).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// What a call site may assume about the borrow a function returns (spec 3.6.1):
+/// every return region is outlived by every region of every listed parameter.
+/// A parameter index counts from 0; `self` is 0 in a method.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LivesSig {
+    /// The return type has no region slots.
+    NoBorrowResult,
+    /// Written `lives a, b`.
+    Declared(Vec<usize>),
+    /// Computed from the body.
+    Inferred(Vec<usize>),
+    /// The body had errors: callers assume nothing and report nothing.
     Unknown,
 }
 

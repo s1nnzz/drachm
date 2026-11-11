@@ -1,0 +1,10 @@
+in io;
+none poke(&mut string r) {
+    &string look = &r;
+    r = "new";
+    io::outln(look);
+}
+none main() {
+    mut string s = "a";
+    poke(&mut s);
+}

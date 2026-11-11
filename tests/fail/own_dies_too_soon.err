@@ -1,0 +1,5 @@
+error[E0306]: `local` does not live long enough
+`local` is borrowed here
+`local` is dropped here, at the end of its block
+the borrow is still used here
+help: declare `local` outside the block, so it lives as long as `keep` is used

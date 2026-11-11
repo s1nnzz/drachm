@@ -1,0 +1,5 @@
+error[E0302]: cannot change `p` while it is borrowed
+`p` is borrowed here
+`&mut` borrow attempted here
+the borrow is still used here
+help: finish using `look` before lending `p` as `&mut`

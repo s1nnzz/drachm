@@ -1,0 +1,19 @@
+in io;
+none bump(&mut uint32 n) { n += 1; }
+none twice(&mut uint32 n) { bump(lend n); bump(lend n); }
+struct C { public: uint32 n; uint32 get() { return self.n; } none add(uint32 k) { self.n += k; } }
+struct V { public: string s; none set(uint64 k) { self.s = k::text(); } uint64 get() { return self.s::len() + 6; } }
+none main() {
+    mut uint32 n = 1;
+    twice(&mut n);
+    io::outln(n::text());
+    mut C c = 4;
+    c::add(c::get());
+    io::outln(c.n::text());
+    mut string s = "ab";
+    s += s::len()->text();
+    io::outln(s);
+    mut V v = "q";
+    v::set(v::get() + 1);
+    io::outln(v.s);
+}

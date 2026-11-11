@@ -1,0 +1,13 @@
+in io;
+none main() {
+    mut string x = "lo";
+    if (true) {
+        &string t = &"a";
+        &string u = &x::upper();
+        io::outln(t);
+        io::outln(u);
+    }
+    io::outln(&x::upper());
+    x = "after";
+    io::outln(x);
+}

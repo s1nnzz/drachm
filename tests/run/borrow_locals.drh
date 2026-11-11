@@ -1,0 +1,24 @@
+in io;
+struct P { public: string name; uint32 hp; }
+none main() {
+    mut P p = "ann", 10;
+    &string nm = &p.name;
+    &mut uint32 hp = &mut p.hp;
+    hp += 3;
+    io::outln(nm);
+    io::outln(p.hp::text());
+    string x = "lo";
+    &string t = &"a";
+    &string u = &x::upper();
+    io::outln(t);
+    io::outln(u);
+    mut uint32 i = 0;
+    while (i < 3) {
+        &string w = &x;
+        mut &string cur = &x;
+        string y = "k";
+        cur = &y;
+        io::outln(w + cur);
+        i += 1;
+    }
+}

@@ -1,0 +1,9 @@
+struct Bag {
+    string a;
+    &string first() { return &self.a; }
+    none put(&string s) { self.a = copy s; }
+}
+none main() {
+    mut Bag b = "x";
+    b::put(b::first());
+}

@@ -1,0 +1,7 @@
+in io;
+struct Parser lives src { public: &string src; uint32 pos; }
+none main() {
+    string text = "abc";
+    Parser p = &text, 0;
+    io::outln(p.src);
+}

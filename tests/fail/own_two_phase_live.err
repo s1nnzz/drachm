@@ -1,0 +1,5 @@
+error[E0302]: cannot change `b` while it is borrowed
+change attempted here
+`b` is borrowed here
+the borrow is still used here
+help: finish using the borrow before changing `b`

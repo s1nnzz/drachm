@@ -61,25 +61,20 @@ pub fn check(src: &str) -> (Option<hir::Program>, Vec<Diagnostic>) {
 /// Build an executable at `out`. Plain builds go through Cranelift, which is
 /// fast to compile; optimised builds go through C, which is fast to run.
 pub fn build(program: &hir::Program, out: &std::path::Path, optimise: bool) -> Result<(), String> {
-    if program.uses_borrows {
-        return Err("borrows and pointers cannot be built yet (step 3 is in progress)".to_string());
+    if program.uses_pointers {
+        return Err("raw pointers cannot be built yet (step 3, WP9)".to_string());
     }
     build_unchecked(program, out, optimise)
 }
 
-/// `build` without the gate on user-written borrows and pointers (which have
-/// no borrow checker yet). Tests only.
+/// `build` without the gate on raw pointers. Tests only.
 ///
 /// Both code generators read the same MIR: built, marked (which locals live in
-/// memory), cleaned, drop-elaborated, cleaned again. A program that takes the
-/// address of something cannot be built until WP9.
+/// memory), cleaned, drop-elaborated, cleaned again.
 pub fn build_unchecked(program: &hir::Program, out: &std::path::Path, optimise: bool) -> Result<(), String> {
     // The errors, if any, were reported by `check`.
     let mut mir = mir::build_program(program, &mut Vec::new());
     for body in mir.bodies.iter_mut().flatten() {
-        if let Some(why) = unsupported(body) {
-            return Err(format!("not supported by the backends yet: {why}"));
-        }
         mir::analysis::mark_in_memory(program, body);
     }
     mir::cleanup::cleanup_program(program, &mut mir);
@@ -90,17 +85,4 @@ pub fn build_unchecked(program: &hir::Program, out: &std::path::Path, optimise: 
     } else {
         link::link_object(&codegen_mir::compile(program, &mir)?, out)
     }
-}
-
-/// What the code generators cannot do yet.
-fn unsupported(body: &mir::Body) -> Option<String> {
-    if body.locals.iter().any(|d| d.ty.is_ptr()) {
-        return Some(format!("raw pointers in `{}` (step 3, WP9)", body.name));
-    }
-    let takes_address = body
-        .blocks
-        .iter()
-        .flat_map(|b| &b.statements)
-        .any(|s| matches!(s.kind, mir::StatementKind::Assign(_, mir::Rvalue::RawRef(_))));
-    takes_address.then(|| format!("`address of` in `{}` (step 3, WP9)", body.name))
 }

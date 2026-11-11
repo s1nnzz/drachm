@@ -1,0 +1,5 @@
+&string longest(&string a, &string b) lives a, b {
+    if (a::len() > b::len()) { return a; }
+    return b;
+}
+none main() { }

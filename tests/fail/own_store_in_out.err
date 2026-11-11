@@ -1,0 +1,4 @@
+error[E0306]: `s` does not live long enough
+`s` is borrowed here
+`s` is dropped here, but `slot` keeps the borrow after `fill` returns
+help: store a copy: `*slot = copy s`

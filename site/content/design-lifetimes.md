@@ -1,15 +1,13 @@
 ---
 title: Borrows and lifetimes
 description: Borrow parameters, lend, lives on functions and structs, open and destroy.
-status: not-implemented
 ---
 
 # Borrows and lifetimes
 
-The ownership checks for moves work today (see [Ownership](reference-ownership.md)).
-Borrows are designed, and the compiler already parses and checks parts of
-them, but it cannot build a program that uses one yet. This page is the
-design.
+The ownership checks for moves and borrows work, and programs that use borrows
+build and run (see [Ownership](reference-ownership.md)). This page is the
+design. Parts still to come are marked below.
 
 ## Borrowing a value
 
@@ -66,9 +64,8 @@ ends before the change. `xs::push(xs::first())` is not.
 
 ## lives on functions
 
-A function that returns a borrow must say where it comes from when that is not
-clear. With one candidate parameter the compiler works it out, and with several
-it asks (E0308). `lives` names whole parameters, never parts of them.
+A function that returns a borrow must say where it comes from. `lives` names
+whole parameters, never parts of them.
 
 <!-- focus: 1 -->
 
@@ -78,6 +75,14 @@ it asks (E0308). `lives` names whole parameters, never parts of them.
     return b;
 }
 ```
+
+### Working it out
+
+<!-- status: not-implemented -->
+
+With one candidate parameter the compiler works out `lives` itself, and with
+several it asks (E0308). Today a function that returns a borrow and has several
+borrowed parameters must write `lives` itself.
 
 ### Naming self as a source
 

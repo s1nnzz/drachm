@@ -1,0 +1,5 @@
+error[E0305]: cannot move `name` while it is borrowed
+`name` is borrowed here
+moved here
+the borrow is still used here
+help: finish using `first` before moving `name`, or move a copy: `copy name`

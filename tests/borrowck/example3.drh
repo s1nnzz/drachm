@@ -1,0 +1,8 @@
+in io;
+
+none main() {
+    mut string name = "Illy";
+    &string first = &name;
+    name = "Sam";
+    io::outln(first);
+}

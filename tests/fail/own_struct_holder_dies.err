@@ -1,0 +1,5 @@
+error[E0306]: `text` does not live long enough
+`text` is borrowed here, and kept in `q.src`
+`text` is dropped here, at the end of its block
+the borrow is still used here
+help: declare `text` outside the block, so it lives as long as `q` is used

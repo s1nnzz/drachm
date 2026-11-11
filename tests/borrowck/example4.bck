@@ -1,0 +1,5 @@
+region R0 (a): {all points} + end(a),end(the result)
+region R1 (b): {all points} + end(b),end(the result)
+region R2 (the result): {all points} + end(the result)
+loan L0: &(*_1) at P5 in {P6}
+loan L1: &(*_2) at P7 in {P8}
