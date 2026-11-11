@@ -9,7 +9,7 @@ use crate::lexer::{StrPiece, Tok, Token};
 /// on at the next statement or function, so several can be found in one go.
 pub fn parse(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>) -> Program {
     let mut p = Parser { tokens, pos: 0, diags };
-    let mut program = Program { imports: Vec::new(), funcs: Vec::new(), structs: Vec::new() };
+    let mut program = Program { imports: Vec::new(), funcs: Vec::new(), structs: Vec::new(), unsafe_allowed: false };
     while p.peek() != &Tok::Eof {
         let start = p.pos;
         let item = if p.peek() == &Tok::Kw("in") {

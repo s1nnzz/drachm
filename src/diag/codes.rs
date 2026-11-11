@@ -257,6 +257,20 @@ codes! {
     E0901: "not supported yet",
         "This is part of Drachm's design, but this version of the compiler does\n\
          not implement it yet.";
+
+    E0318: "invalid file flag",
+        "A `//--!$` line at the top of a file sets a file flag. Flags are read\n\
+         before the code, so they come first: above the first line of code,\n\
+         after an optional `#!` line, with no blank line in between.\n\n\
+         \x20   //--!$unsafe: true\n\n\
+         A flag is `key: value`. `unsafe` takes `true` or `false`. A line that\n\
+         is not `key: value`, a value the key does not accept, or a flag below\n\
+         the top block is an error.";
+    W0319: "unknown file flag",
+        "A `//--!$` line names a key this compiler does not know. The line is\n\
+         ignored, so the file still builds, but a misspelt key does nothing:\n\
+         `//--!$unsfe: true` is not `unsafe`. New keys come with later versions\n\
+         of the language, so older compilers warn instead of failing.";
 }
 
 #[cfg(test)]

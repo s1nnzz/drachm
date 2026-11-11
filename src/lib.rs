@@ -6,6 +6,7 @@ pub mod cgen;
 pub mod codegen;
 pub mod consts;
 pub mod diag;
+pub mod flags;
 pub mod hir;
 pub mod lexer;
 pub mod link;
@@ -19,8 +20,10 @@ use diag::Diagnostic;
 /// included); the program is `None` if any of them is an error.
 pub fn check(src: &str) -> (Option<hir::Program>, Vec<Diagnostic>) {
     let mut diags = Vec::new();
+    let flags = flags::parse(src, &mut diags);
     let tokens = lexer::lex(src, &mut diags);
-    let program = parser::parse(tokens, &mut diags);
+    let mut program = parser::parse(tokens, &mut diags);
+    program.unsafe_allowed = flags.unsafe_allowed;
     // A program with syntax errors has holes in it; type errors found in what
     // is left would mostly be noise.
     if diag::has_errors(&diags) {

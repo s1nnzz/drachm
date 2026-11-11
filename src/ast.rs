@@ -10,6 +10,8 @@ pub struct Program {
     pub imports: Vec<Import>,
     pub funcs: Vec<Func>,
     pub structs: Vec<Struct>,
+    /// The file flag `//--!$unsafe: true` is present (set by `lib::check`).
+    pub unsafe_allowed: bool,
 }
 
 /// `struct Name { fields and methods }`
