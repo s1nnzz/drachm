@@ -220,7 +220,7 @@ impl Gen<'_> {
         }
         let listed: &[usize] = match &self.sigs[f] {
             LivesSig::Declared(v) | LivesSig::Inferred(v) => v,
-            LivesSig::NoBorrowResult | LivesSig::Unknown => &[],
+            LivesSig::NoBorrowResult => &[],
         };
         let listed = listed.to_vec();
         for x in listed {

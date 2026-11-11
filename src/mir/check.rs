@@ -13,7 +13,7 @@ use crate::diag::codes;
 /// Run every ownership analysis that exists so far on every body, appending
 /// diagnostics. Order per body: moves/uses, then mutability. Bodies go in
 /// `FuncId` order and one body's diagnostics are sorted by position.
-pub fn run(hir: &hir::Program, mir: &Program, diags: &mut Vec<Diagnostic>) {
+pub fn run(hir: &hir::Program, mir: &mut Program, diags: &mut Vec<Diagnostic>) {
     for body in mir.bodies.iter().flatten() {
         // The compiler's own functions (the automatic `==`) move fields as step 2 did.
         if hir.funcs[body.func].span == Span::new(0, 0) {
@@ -26,7 +26,7 @@ pub fn run(hir: &hir::Program, mir: &Program, diags: &mut Vec<Diagnostic>) {
         diags.extend(ds);
     }
     // Loans: borrowed values that change, move or die while the borrow is still used.
-    borrowck::check_program(hir, mir, diags);
+    super::lives::check_program(hir, mir, diags);
 }
 
 /// Whether the symbol is a method, and the name as written.
@@ -472,10 +472,10 @@ mod tests {
         let (hir, diags) = crate::front(src);
         let hir = hir.unwrap_or_else(|| panic!("does not check: {diags:?}"));
         let mut d = Vec::new();
-        let mir = crate::mir::build_program(&hir, &mut d);
+        let mut mir = crate::mir::build_program(&hir, &mut d);
         assert!(d.is_empty(), "builder: {d:?}");
         let mut out = Vec::new();
-        run(&hir, &mir, &mut out);
+        run(&hir, &mut mir, &mut out);
         out
     }
 

@@ -58,7 +58,7 @@ pub fn program(hir: &hir::Program, diags: &mut Vec<Diagnostic>) -> Program {
         main: hir.main,
         strings,
         self_modes,
-        lives: (0..hir.funcs.len()).map(|f| borrowck::sigs::provisional(hir, f)).collect(),
+        lives: (0..hir.funcs.len()).map(|f| super::lives::initial(hir, f)).collect(),
     }
 }
 

@@ -10,7 +10,6 @@ pub mod constraints;
 pub mod explain;
 pub mod loans;
 pub mod regions;
-pub mod sigs;
 pub mod solve;
 
 use crate::diag::{Diagnostic, Span};

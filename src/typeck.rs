@@ -270,7 +270,7 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
             ret: g.resolve(&f.ret, diags),
             span: f.span,
         };
-        check_signature_extras(&g, f, &sig.params, diags);
+        check_signature_extras(&g, f, &sig.params, false, diags);
         if let Some(&first) = g.funcs_by_name.get(&f.name) {
             diags.push(
                 Diagnostic::at(&codes::E0202, f.name_span, format!("function `{}` is defined twice", f.name))
@@ -377,6 +377,7 @@ fn placeholder() -> hir::Func {
         body_end: none,
         is_unsafe: false,
         lives: None,
+        lives_span: None,
     }
 }
 
@@ -413,7 +414,7 @@ fn unsafe_disabled(span: Span, what: &str) -> Diagnostic {
 
 /// An `unsafe` function needs the file flag; `lives` names parameters that
 /// hold a borrow.
-fn check_signature_extras(g: &Globals, f: &ast::Func, params: &[Option<Type>], diags: &mut Vec<Diagnostic>) {
+fn check_signature_extras(g: &Globals, f: &ast::Func, params: &[Option<Type>], is_method: bool, diags: &mut Vec<Diagnostic>) {
     if f.is_unsafe.is_some() {
         g.uses_pointers.set(true);
     }
@@ -423,6 +424,22 @@ fn check_signature_extras(g: &Globals, f: &ast::Func, params: &[Option<Type>], d
         diags.push(unsafe_disabled(at, "needs the file flag"));
     }
     for (name, span) in &f.lives {
+        if name == "self" {
+            if !is_method {
+                diags.push(
+                    Diagnostic::at(&codes::E0309, *span, "`lives` names `self`, but this is not a method")
+                        .note("only a method has `self`")
+                        .help("name a parameter holding a borrow instead"),
+                );
+            } else if !f.lives_from {
+                diags.push(
+                    Diagnostic::at(&codes::E0309, *span, "`self` can only be named after `lives from`")
+                        .note("`lives a, b` lists parameters")
+                        .help("write `lives from self or ...`, with the sources joined by `or`"),
+                );
+            }
+            continue;
+        }
         let pos = f.params.iter().position(|p| p.name == *name);
         if pos.is_some_and(|i| params[i].is_some_and(|t| g.holds_borrow(t))) {
             continue;
@@ -554,7 +571,7 @@ fn declare_methods(g: &mut Globals, id: StructId, s: &ast::Struct, diags: &mut V
             ret: g.resolve(&f.ret, diags),
             span: f.span,
         };
-        check_signature_extras(g, f, &sig.params, diags);
+        check_signature_extras(g, f, &sig.params, m.is_static.is_none(), diags);
         let mut is_drop = false;
         if f.name == "drop" && m.operator.is_none() {
             if m.is_static.is_some() || !f.params.is_empty() || sig.ret != Some(Type::None) || f.is_unsafe.is_some() {
@@ -833,6 +850,7 @@ fn auto_eq(g: &mut Globals, s: StructId) -> hir::Func {
         body_end: none,
         is_unsafe: false,
         lives: None,
+        lives_span: None,
     }
 }
 
@@ -902,8 +920,22 @@ fn check_body(g: &mut Globals, src: &str, diags: &mut Vec<Diagnostic>, f: &ast::
         is_unsafe: f.is_unsafe.is_some(),
         // Parameter indexes with `self` as 0 (names that are no parameter were reported as E0309).
         lives: (!f.lives.is_empty()).then(|| {
-            f.lives.iter().filter_map(|(n, _)| f.params.iter().position(|p| p.name == *n).map(|i| i + has_self as usize)).collect()
+            let mut v: Vec<usize> = f
+                .lives
+                .iter()
+                .filter_map(|(n, _)| {
+                    if n == "self" {
+                        has_self.then_some(0)
+                    } else {
+                        f.params.iter().position(|p| p.name == *n).map(|i| i + has_self as usize)
+                    }
+                })
+                .collect();
+            v.sort();
+            v.dedup();
+            v
         }),
+        lives_span: f.lives_span,
         symbol,
         params: f.params.len() + has_self as usize,
         has_self,

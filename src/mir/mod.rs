@@ -16,6 +16,7 @@ pub mod ty;
 pub mod validate;
 pub mod borrowck;
 pub mod check;
+pub mod lives;
 pub mod dataflow;
 pub mod liveness;
 pub mod moves;
@@ -71,8 +72,6 @@ pub enum LivesSig {
     Declared(Vec<usize>),
     /// Computed from the body.
     Inferred(Vec<usize>),
-    /// The body had errors: callers assume nothing and report nothing.
-    Unknown,
 }
 
 #[derive(Debug)]

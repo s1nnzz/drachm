@@ -254,11 +254,30 @@ codes! {
          other method is called on a value (`p::length()`). This call used the\n\
          wrong one.";
 
+    E0308: "which parameter the result borrows from is ambiguous",
+        "A function that returns a borrow gets its `lives` from its body when only\n\
+         one parameter can be the source. When the result may borrow from several\n\
+         parameters, depending on the path taken, say which with `lives`:\n\n\
+         \x20   &string longest(&string a, &string b) lives a, b {\n\
+         \x20       if (a::len() > b::len()) { return a; }\n\
+         \x20       return b;\n\
+         \x20   }\n\n\
+         A method that may return a borrow of `self` or of a parameter names `self`\n\
+         after `from`: `lives from self or key`.";
     E0309: "`lives` does not match the body",
         "A function's `lives` clause names whole parameters that hold a borrow,\n\
          and the result may borrow from those. Naming something that is not a\n\
          parameter holding a borrow is an error:\n\n\
          \x20   &string pick(&string a, uint32 n) lives n { ... }   // `n` holds no borrow";
+    E0320: "a borrow stored where the caller cannot promise it",
+        "A parameter that holds a borrow, such as `&mut &string a`, can only be given\n\
+         borrows that last as long as what the caller put there. Storing a borrow of\n\
+         another parameter into it is not allowed, because the caller cannot promise\n\
+         the other parameter lives that long:\n\n\
+         \x20   none keep(&mut &string a, &string b) {\n\
+         \x20       a = b;                   // error\n\
+         \x20   }\n\n\
+         Store a copy of the value instead.";
     E0314: "struct borrows without `lives`",
         "A struct with a borrow field (`&string src;`) must say what it borrows\n\
          from, and `lives` must name exactly the borrow fields:\n\n\
