@@ -412,7 +412,7 @@ impl Lexer<'_> {
         let at = self.i;
         self.i += 1;
         let esc = self.src[self.i..].chars().next()?;
-        if esc == '\n' {
+        if esc == '\n' || self.src[self.i..].starts_with("\r\n") {
             // Leave the newline to end (or continue) the string.
             self.error(&codes::E0008, at, "a `\\` at the end of a line is not an escape")
                 .set_help(ESCAPES_HELP);
@@ -617,6 +617,17 @@ mod tests {
             let mut diags = Vec::new();
             lex(bad, &mut diags);
             assert_eq!(diags.len(), 1, "{bad}: {diags:?}");
+        }
+    }
+
+    /// A `\` before a Windows line ending is the end-of-line error, not `\r`.
+    #[test]
+    fn backslash_at_crlf() {
+        for src in ["\"a \\\n\"", "\"a \\\r\n\""] {
+            let mut diags = Vec::new();
+            lex(src, &mut diags);
+            assert_eq!(diags[0].code.id, "E0008", "{src:?}: {diags:?}");
+            assert!(diags[0].message.contains("end of a line"), "{src:?}: {diags:?}");
         }
     }
 }

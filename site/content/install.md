@@ -7,9 +7,15 @@ description: Build the Drachm compiler and run, build and check a program.
 
 ## Build the compiler
 
-You need Rust with `cargo` to build the compiler, and a C compiler on your `PATH`
-(`cc`, from gcc or clang). The compiler uses the C compiler to link programs and
-to build `-O` programs. From the root of the repository, build in release mode.
+You need Rust with `cargo` to build the compiler, and a C compiler on your `PATH`.
+The compiler uses the C compiler to link programs and to build `-O` programs.
+
+- **Linux (x86-64):** `cc`, from gcc or clang.
+- **Windows (x86-64):** `clang` from LLVM, plus Visual Studio or its Build Tools
+  with the C++ workload, which Rust needs anyway. Use the MSVC Rust toolchain
+  (the default). clang finds Visual Studio's linker and libraries by itself.
+
+From the root of the repository, build in release mode.
 The compiler is then `target/release/drachm`, and the examples use that path.
 
 ```sh
@@ -20,7 +26,8 @@ cargo build --release
 
 Save the program below as `hello.drh`. `run` compiles it and runs it in one step.
 If you would rather keep the executable, `build` writes it and you start it
-yourself.
+yourself. On Windows the executable gets `.exe` added (`hello.exe`), and you
+start it with `.\hello`.
 
 <!-- example: hello -->
 

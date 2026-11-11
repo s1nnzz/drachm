@@ -1,3 +1,4 @@
+use std::env::consts::EXE_EXTENSION;
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::process::{exit, Command};
@@ -68,13 +69,13 @@ fn main() {
             }
         }
         "build" => {
-            let out = output.unwrap_or_else(|| input.with_extension(""));
+            let out = output.unwrap_or_else(|| input.with_extension(EXE_EXTENSION));
             build(&input, &out, opt);
         }
         "run" => {
             let dir = std::env::temp_dir().join(format!("drachm-run-{}", std::process::id()));
             std::fs::create_dir_all(&dir).unwrap_or_else(|e| die(&e.to_string()));
-            let exe = dir.join("prog");
+            let exe = dir.join("prog").with_extension(EXE_EXTENSION);
             build(&input, &exe, opt);
             let status = Command::new(&exe).status();
             let _ = std::fs::remove_dir_all(&dir);

@@ -23,7 +23,12 @@ fn main() {
         .expect("could not run cargo to build runtime/strings");
     assert!(status.success(), "building runtime/strings failed");
 
-    let archive = target_dir.join("release").join("libdrachm_strings.a");
+    // MSVC names a staticlib `name.lib`; everything else uses `libname.a`.
+    let file = match std::env::var("CARGO_CFG_TARGET_ENV").as_deref() {
+        Ok("msvc") => "drachm_strings.lib",
+        _ => "libdrachm_strings.a",
+    };
+    let archive = target_dir.join("release").join(file);
     assert!(archive.exists(), "{} was not produced", archive.display());
     println!("cargo:rustc-env=DRACHM_STRINGS_LIB={}", archive.display());
 }

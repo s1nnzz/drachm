@@ -22,6 +22,7 @@
 //! `DRACHM_BLESS=1 cargo test` writes `.out`/`.code` for run cases from what
 //! the program actually printed. Read the diff before committing it.
 
+use std::env::consts::EXE_SUFFIX;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -42,11 +43,13 @@ fn sources(dir: &str) -> Vec<PathBuf> {
 }
 
 fn drachm(args: &[&str], file: &Path) -> Output {
-    // Relative paths keep file names in diagnostics the same on every machine.
+    // Relative paths with `/` keep file names in diagnostics the same on every
+    // machine (Windows accepts `/` too).
+    let relative = file.strip_prefix(root()).unwrap().to_str().unwrap().replace('\\', "/");
     Command::new(env!("CARGO_BIN_EXE_drachm"))
         .current_dir(root())
         .args(args)
-        .arg(file.strip_prefix(root()).unwrap())
+        .arg(relative)
         .output()
         .expect("could not start the drachm binary")
 }
@@ -95,7 +98,7 @@ fn run_case(src: &Path, expect_dir: &Path) -> Result<(), String> {
     let stem = src.file_stem().unwrap().to_str().unwrap();
     let expect = |ext: &str| expect_dir.join(format!("{stem}.{ext}"));
     let exe = Path::new(env!("CARGO_TARGET_TMPDIR"))
-        .join(format!("{}-{stem}", expect_dir.file_name().unwrap().to_str().unwrap()));
+        .join(format!("{}-{stem}{EXE_SUFFIX}", expect_dir.file_name().unwrap().to_str().unwrap()));
 
     let build = drachm(&["build", "-o", exe.to_str().unwrap()], src);
     let compiler_output = text(&build.stderr);
@@ -206,7 +209,7 @@ fn site_example(src: &Path) -> Result<(), String> {
     let want = if bless { None } else { Some(read(&out_file).ok_or_else(|| format!("no {stem}.out (write it, or run with DRACHM_BLESS=1)"))?) };
     let mut outputs = Vec::new();
     for flags in [&[][..], &["-O"][..]] {
-        let exe = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("site{}-{stem}", flags.len()));
+        let exe = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("site{}-{stem}{EXE_SUFFIX}", flags.len()));
         let mut args = vec!["build", "-o", exe.to_str().unwrap()];
         args.extend(flags);
         let build = drachm(&args, src);
@@ -248,7 +251,7 @@ fn optimised_output_matches() {
         let stem = src.file_stem().unwrap().to_str().unwrap();
         let mut outputs = Vec::new();
         for flags in [&[][..], &["-O"][..]] {
-            let exe = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("opt{}-{stem}", flags.len()));
+            let exe = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("opt{}-{stem}{EXE_SUFFIX}", flags.len()));
             let mut args = vec!["build", "-o", exe.to_str().unwrap()];
             args.extend(flags);
             let build = drachm(&args, src);

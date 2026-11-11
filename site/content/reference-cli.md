@@ -53,7 +53,7 @@ drachm explain W0102
 ## -O
 
 `-O` gives an optimised build. The compiler writes C and calls your C compiler
-(`cc`), so the build is slower and the program much faster. Both builds print the
+(`cc`, or `clang` on Windows), so the build is slower and the program much faster. Both builds print the
 same output, and the compiler's tests check that. It does not change what the
 program means. Set `NO_COLOR` to turn off coloured diagnostics.
 

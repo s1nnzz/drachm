@@ -2,6 +2,7 @@
 //! `build` refuses until the borrow checker exists (WP7). Every other program
 //! is built and compared on both backends by `tests/run.rs`.
 
+use std::env::consts::EXE_SUFFIX;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -41,7 +42,7 @@ fn borrows_through_mir() {
         let strict = drachm::build(&hir, &Path::new(env!("CARGO_TARGET_TMPDIR")).join("be-no"), false);
         assert!(strict.is_err(), "build must still refuse user borrows");
         for optimise in [false, true] {
-            let exe = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("be-borrow-{i}-{}", optimise as u8));
+            let exe = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("be-borrow-{i}-{}{EXE_SUFFIX}", optimise as u8));
             drachm::build_unchecked(&hir, &exe, optimise).unwrap_or_else(|e| panic!("program {i} (-O {optimise}): {e}"));
             let run = Command::new(&exe).output().unwrap();
             let _ = fs::remove_file(&exe);
