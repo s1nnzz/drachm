@@ -20,7 +20,7 @@ the compiler accepts what they show.
 | 3 | Ownership and borrow checking | in progress: moves, `copy`, `take`, `drop()` work; see [Borrows](design-lifetimes.md) and [Unsafe](design-unsafe.md) |
 | 4 | `for`, `skip`, `match` | control flow done; string patterns, globs and `for` over strings left |
 | 4.5 | Units of measure | done, see [Units](reference-units.md) |
-| 4.6 | Input: `io::inln()`, `io::ended()`, text `::to<T>()` | decided, see [Tooling](design-tooling.md#the-standard-library) |
+| 4.6 | Input: `io::inln()`, `io::ended()`, text `::to<T>()` | done, see [Input and output](reference-io.md) |
 | 5 | Constructors, enums, `fails` / `maybe` | not started: [Constructors](design-constructors.md), [Enums](design-enums.md), [Errors](design-errors.md) |
 | 6 | Generics, interfaces, collections | not started: [Generics](design-generics.md), [Collections](design-collections.md) |
 | 7 | Modules, config, scripts, stdlib | not started: [Modules](design-modules.md), [Config](design-config.md), [Scripts](design-scripts.md) |
