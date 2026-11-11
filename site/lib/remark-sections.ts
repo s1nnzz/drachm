@@ -21,8 +21,8 @@ const el = (name: string, className: string, children: RootContent[]): RootConte
 
 const text = (value: string): RootContent => ({ type: 'text', value }) as never;
 
-function headingText(node: RootContent): string {
-  if (node.type !== 'heading') return '';
+function headingText(node: RootContent | undefined): string {
+  if (!node || node.type !== 'heading') return '';
   return node.children.map((c) => ('value' in c ? String(c.value) : '')).join('');
 }
 
@@ -82,6 +82,7 @@ export function remarkSections() {
     const out: RootContent[] = [];
     let split = false;
     for (const group of groups) {
+      if (!group.length) continue;
       const exercise = /^your turn\b/i.test(headingText(group[0]));
       const hasCode = group.some(isCode);
       if (!hasCode && !exercise) {
