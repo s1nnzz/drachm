@@ -1,0 +1,9 @@
+in io;
+in si;
+
+unit m;
+
+none main() {
+    float64<m> d = 2.0<m>;
+    io::outln(d::text());
+}

@@ -187,4 +187,15 @@ none main() {
 }
 ```
 
+## Units of measure
+
+A number can say what it counts. With `in si;` the SI units are ready to use,
+and a unit goes in angle brackets after the type or after the literal. The
+compiler will not add metres to seconds, and `::in<U>()` changes the unit:
+
+<!-- example: units-si -->
+
+`::text()` gives the number and `::unitText()` gives the unit, so you decide how
+they are printed. The full rules are in [Units of measure](reference-units.md).
+
 Next: [Lesson 3: Decisions and loops](lesson-3-decisions-and-loops.md).

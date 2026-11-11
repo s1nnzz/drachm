@@ -1,0 +1,15 @@
+// The SI units, brought in by `in si;`. Ordinary unit declarations: prefixes
+// are not automatic, so the common ones are written out here.
+unit m;  unit s;  unit kg;  unit A;  unit K;  unit mol;  unit cd;   // base units
+unit g   = 0.001 kg;
+unit N   = kg * m / s^2;      unit Pa  = N / m^2;        unit J = N * m;
+unit W   = J / s;             unit C   = A * s;          unit V = W / A;
+unit F   = C / V;             unit ohm = V / A;          unit S = 1 / ohm;
+unit Wb  = V * s;             unit T   = Wb / m^2;       unit H = Wb / A;
+unit Hz  = 1 / s;             unit rad;
+unit mm  = 0.001 m;   unit cm = 0.01 m;      unit km = 1000 m;
+unit mg  = 0.000001 kg; unit ms = 0.001 s;   unit us = 0.000001 s;  unit ns = 0.000000001 s;
+unit min = 60 s;      unit h  = 3600 s;
+unit kHz = 1000 Hz;   unit MHz = 1000000 Hz; unit GHz = 1000000000 Hz;
+unit kJ  = 1000 J;    unit kW  = 1000 W;     unit kN  = 1000 N;
+unit degC = K offset -273.15;

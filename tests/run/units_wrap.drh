@@ -1,0 +1,13 @@
+in io;
+in si;
+
+none main() {
+    sint64 x = 9000000000000000000;
+    sint64<km> a = x * 1<km>;
+    sint64<m> b = a::in<m>();
+    io::outln(b::text());
+    uint64 y = 18000000000000000000;
+    uint64<km> c = y * 1<km>;
+    uint64<m> d = c::in<m>();
+    io::outln(d::text());
+}
