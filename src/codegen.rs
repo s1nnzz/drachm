@@ -30,14 +30,14 @@ type ClType = types::Type;
 type ClBlock = cranelift_codegen::ir::Block;
 
 /// Loads and stores of strings and structs: always aligned, never trapping.
-const MEM: MemFlagsData = MemFlagsData::trusted();
+pub(crate) const MEM: MemFlagsData = MemFlagsData::trusted();
 
 /// Offsets of a `drachm_str`'s length and capacity.
-const STR_LEN: i32 = 8;
-const STR_CAP: i32 = 16;
+pub(crate) const STR_LEN: i32 = 8;
+pub(crate) const STR_CAP: i32 = 16;
 
 /// The Cranelift type of a number or bool; `None` for everything else.
-fn cl_type(t: Type) -> Option<ClType> {
+pub(crate) fn cl_type(t: Type) -> Option<ClType> {
     match t {
         Type::Int { bits, .. } => ClType::int(bits),
         Type::Float(32) => Some(types::F32),
@@ -49,11 +49,11 @@ fn cl_type(t: Type) -> Option<ClType> {
 }
 
 /// Strings and structs live in memory and are handled by address.
-fn in_memory(t: Type) -> bool {
+pub(crate) fn in_memory(t: Type) -> bool {
     t == Type::Str || t.struct_id().is_some()
 }
 
-fn signature(module: &ObjectModule, f: &Func) -> Signature {
+pub(crate) fn signature(module: &ObjectModule, f: &Func) -> Signature {
     let ptr = module.target_config().pointer_type();
     let mut s = module.make_signature();
     if in_memory(f.ret) {
@@ -64,11 +64,11 @@ fn signature(module: &ObjectModule, f: &Func) -> Signature {
     s
 }
 
-fn is_signed(t: Type) -> bool {
+pub(crate) fn is_signed(t: Type) -> bool {
     matches!(t, Type::Int { signed: true, .. })
 }
 
-fn err(e: impl std::fmt::Debug) -> String {
+pub(crate) fn err(e: impl std::fmt::Debug) -> String {
     format!("{e:?}")
 }
 
@@ -179,7 +179,7 @@ pub fn compile(prog: &Program) -> Result<Vec<u8>, String> {
 }
 
 /// `int main(void)` that calls the Drachm `main` and turns its result into an exit code.
-fn emit_c_main(
+pub(crate) fn emit_c_main(
     module: &mut ObjectModule,
     ctx: &mut cranelift_codegen::Context,
     fctx: &mut FunctionBuilderContext,

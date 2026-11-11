@@ -1,0 +1,942 @@
+//! The fast backend, from MIR: `mir::Program` → Cranelift IR → object file.
+//! Replaces the HIR walker in `codegen` for the programs `mir::cleanup::eligible`
+//! accepts; must behave exactly like `cgen_mir`.
+//!
+//! One Cranelift block per MIR block, emitted in reverse post-order. Locals
+//! with `in_memory == false` are SSA `Variable`s (so numeric code is the same
+//! SSA as it was before MIR); the others get a stack slot. The calling
+//! convention is the HIR backend's (see `codegen`): strings and structs are
+//! passed by address, results of those types through a hidden first pointer.
+//! A `Move` of such an argument passes the source's own address, a `Copy`
+//! first copies it, because the callee owns what it is given.
+//!
+//! The arithmetic helpers (`binary`, `divide`, `convert`, ...) are copies of
+//! the ones in `codegen`, which is deleted with the HIR path in WP6.
+
+use std::collections::HashMap;
+
+use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
+use cranelift_codegen::ir::{types, AbiParam, InstBuilder, StackSlotData, StackSlotKind, TrapCode, UserFuncName, Value};
+use cranelift_codegen::settings::{self, Configurable};
+use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
+use cranelift_module::{DataDescription, DataId, FuncId, Linkage, Module};
+use cranelift_object::{ObjectBuilder, ObjectModule};
+
+use crate::codegen::{cl_type, emit_c_main, err, in_memory, is_signed, signature, MEM, STR_CAP, STR_LEN};
+use crate::hir::{self, BinOp, STR_SIZE};
+use crate::mir::cleanup::moved_out_temps;
+use crate::mir::traversal::reverse_postorder;
+use crate::mir::ty::operand_ty;
+use crate::mir::*;
+use crate::types::Type;
+
+type ClType = types::Type;
+type ClBlock = cranelift_codegen::ir::Block;
+
+pub fn compile(hir: &hir::Program, mir: &Program) -> Result<Vec<u8>, String> {
+    let mut flags = settings::builder();
+    flags.set("is_pic", "true").map_err(err)?;
+    flags.set("opt_level", "speed").map_err(err)?;
+    // Lets 128-bit integers appear in (Drachm-to-Drachm) function signatures.
+    flags.set("enable_llvm_abi_extensions", "true").map_err(err)?;
+    let isa = cranelift_native::builder().map_err(err)?.finish(settings::Flags::new(flags)).map_err(err)?;
+    let builder = ObjectBuilder::new(isa, "drachm", cranelift_module::default_libcall_names()).map_err(err)?;
+    let mut module = ObjectModule::new(builder);
+
+    let ptr = module.target_config().pointer_type();
+    let mut ids = Vec::new();
+    for f in &hir.funcs {
+        let s = signature(&module, f);
+        ids.push(module.declare_function(&f.symbol, Linkage::Local, &s).map_err(err)?);
+    }
+
+    let mut ctx = module.make_context();
+    let mut fctx = FunctionBuilderContext::new();
+    let mut runtime = HashMap::new();
+    let mut lits: Vec<Option<DataId>> = vec![None; mir.strings.len()];
+
+    for (f, &id) in ids.iter().enumerate() {
+        let hf = &hir.funcs[f];
+        let body = mir.bodies[f].as_ref().ok_or_else(|| format!("`{}` has no MIR body", hf.symbol))?;
+        ctx.func.signature = module.declarations().get_function_decl(id).signature.clone();
+        ctx.func.name = UserFuncName::user(0, id.as_u32());
+        let cfg = module.isa().frontend_config();
+        {
+            let mut b = FunctionBuilder::new(&mut ctx.func, &mut fctx);
+            let entry = b.create_block();
+            b.append_block_params_for_function_params(entry);
+            b.switch_to_block(entry);
+            let params = b.block_params(entry).to_vec();
+            let blocks: Vec<ClBlock> = body.blocks.iter().map(|_| b.create_block()).collect();
+            let mut g = Cg {
+                b,
+                module: &mut module,
+                hir,
+                mir,
+                body,
+                ids: &ids,
+                runtime: &mut runtime,
+                lits: &mut lits,
+                ptr,
+                slots: Vec::new(),
+                blocks,
+                ret_ptr: None,
+                skip_drop: moved_out_temps(hir, body),
+            };
+            g.prologue(&params, hf.ret);
+            let first = g.blocks[0];
+            g.b.ins().jump(first, &[]);
+            for bb in reverse_postorder(body) {
+                g.b.switch_to_block(g.blocks[bb.index()]);
+                let block = &body.blocks[bb];
+                for s in &block.statements {
+                    g.statement(&s.kind);
+                }
+                g.terminator(&block.terminator.kind);
+            }
+            g.b.seal_all_blocks();
+            g.b.finalize(cfg);
+        }
+        module.define_function(id, &mut ctx).map_err(|e| format!("in `{}`: {e:?}", hf.symbol))?;
+        module.clear_context(&mut ctx);
+    }
+
+    emit_c_main(&mut module, &mut ctx, &mut fctx, ids[hir.main], hir.funcs[hir.main].ret)?;
+    module.finish().emit().map_err(err)
+}
+
+/// Where a local lives.
+#[derive(Clone, Copy)]
+enum Slot {
+    /// Type `none`.
+    Nothing,
+    Var(Variable),
+    Mem(Value),
+}
+
+/// Where a place is: an SSA variable, or memory at `base + offset`.
+#[derive(Clone, Copy)]
+enum Loc {
+    Var(Variable),
+    Mem(Value, u32),
+}
+
+#[derive(Clone, Copy)]
+enum Leaf {
+    Scalar(ClType),
+    Str,
+}
+
+struct Cg<'a, 'b> {
+    b: FunctionBuilder<'b>,
+    module: &'a mut ObjectModule,
+    hir: &'a hir::Program,
+    mir: &'a Program,
+    body: &'a Body,
+    ids: &'a [FuncId],
+    runtime: &'a mut HashMap<&'static str, FuncId>,
+    /// The read-only data of each string literal emitted so far, by `StrId`.
+    lits: &'a mut Vec<Option<DataId>>,
+    ptr: ClType,
+    slots: Vec<Slot>,
+    blocks: Vec<ClBlock>,
+    /// Where a function that returns a string or struct writes it.
+    ret_ptr: Option<Value>,
+    /// Locals whose `Drop` is skipped (see `moved_out_temps`).
+    skip_drop: Vec<bool>,
+}
+
+impl Cg<'_, '_> {
+    // ---- locals ------------------------------------------------------------
+
+    fn prologue(&mut self, params: &[Value], ret: Type) {
+        let hidden = in_memory(ret) as usize;
+        self.ret_ptr = (hidden == 1).then(|| params[0]);
+        let body = self.body;
+        for (l, d) in body.locals.iter_enumerated() {
+            let i = l.index();
+            let ty = d.ty;
+            let incoming = (1..=body.arg_count).contains(&i).then(|| params[hidden + i - 1]);
+            let slot = if i == 0 {
+                match (self.ret_ptr, cl_type(ty)) {
+                    (Some(p), _) => Slot::Mem(p),
+                    (None, Some(_)) if d.in_memory => Slot::Mem(self.mem(ty)),
+                    (None, Some(cl)) => Slot::Var(self.b.declare_var(cl)),
+                    (None, None) => Slot::Nothing,
+                }
+            } else {
+                match cl_type(ty) {
+                    Some(_) if d.in_memory => {
+                        let addr = self.mem(ty);
+                        if let Some(v) = incoming {
+                            self.b.ins().store(MEM, v, addr, 0);
+                        }
+                        Slot::Mem(addr)
+                    }
+                    Some(cl) => {
+                        let var = self.b.declare_var(cl);
+                        if let Some(v) = incoming {
+                            self.b.def_var(var, v);
+                        }
+                        Slot::Var(var)
+                    }
+                    // A string parameter is taken over from the caller.
+                    None if ty == Type::Str => {
+                        let addr = self.mem(ty);
+                        match incoming {
+                            Some(from) => self.copy_bits(ty, addr, from),
+                            None => self.clear(addr),
+                        }
+                        Slot::Mem(addr)
+                    }
+                    // A struct parameter's memory is the callee's own.
+                    None if ty.struct_id().is_some() => match incoming {
+                        Some(p) => Slot::Mem(p),
+                        None => Slot::Mem(self.mem(ty)),
+                    },
+                    None => Slot::Nothing,
+                }
+            };
+            self.slots.push(slot);
+        }
+    }
+
+    /// Fresh memory for a value of type `ty`; returns its address.
+    fn mem(&mut self, ty: Type) -> Value {
+        let (size, align) = self.hir.size_align(ty);
+        let slot = self.b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, size.max(1), align.trailing_zeros() as u8));
+        self.b.ins().stack_addr(self.ptr, slot, 0)
+    }
+
+    /// `base + off`.
+    fn offset(&mut self, base: Value, off: u32) -> Value {
+        if off == 0 { base } else { self.b.ins().iadd_imm_u(base, off as i64) }
+    }
+
+    /// Where `p` is, and its type. A `Deref` loads the pointer it goes through.
+    fn locate(&mut self, p: &Place) -> (Loc, Type) {
+        let mut ty = self.body.locals[p.local].ty;
+        let mut loc = match self.slots[p.local.index()] {
+            Slot::Var(v) => Loc::Var(v),
+            Slot::Mem(a) => Loc::Mem(a, 0),
+            Slot::Nothing => unreachable!("{} has no storage", p.local),
+        };
+        for pr in &p.proj {
+            match *pr {
+                Proj::Field(i) => {
+                    let Loc::Mem(base, off) = loc else { unreachable!("a field of a register") };
+                    let f = &self.hir.struct_def(ty).fields[i];
+                    loc = Loc::Mem(base, off + f.offset);
+                    ty = f.ty;
+                }
+                Proj::Deref => {
+                    let ptr = match loc {
+                        Loc::Var(v) => self.b.use_var(v),
+                        Loc::Mem(base, off) => self.b.ins().load(self.ptr, MEM, base, off as i32),
+                    };
+                    loc = Loc::Mem(ptr, 0);
+                    ty = ty.target().expect("deref of a non-pointer");
+                }
+            }
+        }
+        (loc, ty)
+    }
+
+    /// The address of a place that is in memory.
+    fn addr_of(&mut self, p: &Place) -> Value {
+        match self.locate(p).0 {
+            Loc::Mem(base, off) => self.offset(base, off),
+            Loc::Var(_) => unreachable!("{} is borrowed but not in memory", p.local),
+        }
+    }
+
+    fn load(&mut self, loc: Loc, ty: Type) -> Value {
+        match loc {
+            Loc::Var(v) => self.b.use_var(v),
+            Loc::Mem(base, off) => self.b.ins().load(cl_type(ty).expect("a scalar"), MEM, base, off as i32),
+        }
+    }
+
+    fn store(&mut self, loc: Loc, v: Value) {
+        match loc {
+            Loc::Var(var) => self.b.def_var(var, v),
+            Loc::Mem(base, off) => {
+                self.b.ins().store(MEM, v, base, off as i32);
+            }
+        }
+    }
+
+    // ---- operands ----------------------------------------------------------
+
+    fn op_ty(&self, op: &Operand) -> Type {
+        operand_ty(self.body, self.hir, op).expect("validated MIR")
+    }
+
+    /// The value of a scalar operand.
+    fn operand(&mut self, op: &Operand) -> Value {
+        match op {
+            Operand::Copy(p) | Operand::Move(p) => {
+                let (loc, ty) = self.locate(p);
+                self.load(loc, ty)
+            }
+            Operand::Const(Constant::Int(bits, ty)) => self.int_const(cl_type(*ty).expect("an integer type"), *bits),
+            Operand::Const(Constant::Float(v, Type::Float(32))) => self.b.ins().f32const(*v as f32),
+            Operand::Const(Constant::Float(v, _)) => self.b.ins().f64const(*v),
+            Operand::Const(Constant::Bool(v)) => self.b.ins().iconst(types::I8, *v as i64),
+            Operand::Const(Constant::Str(_)) => unreachable!("a string constant is not a scalar"),
+        }
+    }
+
+    /// The address of a string or struct operand, without copying it (a
+    /// string constant gets a temporary).
+    fn operand_addr(&mut self, op: &Operand) -> Value {
+        match op {
+            Operand::Copy(p) | Operand::Move(p) => self.addr_of(p),
+            Operand::Const(Constant::Str(id)) => {
+                let addr = self.mem(Type::Str);
+                self.store_literal(addr, *id);
+                addr
+            }
+            Operand::Const(_) => unreachable!("not a string or struct"),
+        }
+    }
+
+    // ---- values in memory --------------------------------------------------
+
+    fn leaves(&self, ty: Type, at: u32, out: &mut Vec<(u32, Leaf)>) {
+        if ty == Type::Str {
+            out.push((at, Leaf::Str));
+            return;
+        }
+        if let Some(cl) = cl_type(ty) {
+            out.push((at, Leaf::Scalar(cl)));
+            return;
+        }
+        for f in &self.hir.struct_def(ty).fields {
+            self.leaves(f.ty, at + f.offset, out);
+        }
+    }
+
+    /// Copy the bits of a value of type `ty` (padding is never read).
+    fn copy_bits(&mut self, ty: Type, dst: Value, src: Value) {
+        let mut leaves = Vec::new();
+        self.leaves(ty, 0, &mut leaves);
+        for (off, leaf) in leaves {
+            let off = off as i32;
+            match leaf {
+                Leaf::Scalar(cl) => {
+                    let v = self.b.ins().load(cl, MEM, src, off);
+                    self.b.ins().store(MEM, v, dst, off);
+                }
+                Leaf::Str => {
+                    for word in [0, STR_LEN, STR_CAP] {
+                        let v = self.b.ins().load(types::I64, MEM, src, off + word);
+                        self.b.ins().store(MEM, v, dst, off + word);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Make the string at `addr` empty, without freeing.
+    fn clear(&mut self, addr: Value) {
+        let zero = self.b.ins().iconst(types::I64, 0);
+        for word in [0, STR_LEN, STR_CAP] {
+            self.b.ins().store(MEM, zero, addr, word);
+        }
+    }
+
+    fn store_str(&mut self, dest: Value, ptr: Value, len: Value, cap: Value) {
+        self.b.ins().store(MEM, ptr, dest, 0);
+        self.b.ins().store(MEM, len, dest, STR_LEN);
+        self.b.ins().store(MEM, cap, dest, STR_CAP);
+    }
+
+    /// Write a not-owned view of a literal to `dest`.
+    fn store_literal(&mut self, dest: Value, id: StrId) {
+        let (p, len) = self.literal(id);
+        let zero = self.b.ins().iconst(types::I64, 0);
+        self.store_str(dest, p, len, zero);
+    }
+
+    fn literal(&mut self, id: StrId) -> (Value, Value) {
+        let s = &self.mir.strings[id];
+        let len = self.b.ins().iconst(types::I64, s.len() as i64);
+        if s.is_empty() {
+            let null = self.b.ins().iconst(self.ptr, 0);
+            return (null, len);
+        }
+        let data = match self.lits[id.index()] {
+            Some(d) => d,
+            None => {
+                let name = format!("drachm_lit_{}", id.index());
+                let d = self.module.declare_data(&name, Linkage::Local, false, false).expect("string data");
+                let mut desc = DataDescription::new();
+                desc.define(s.as_bytes().to_vec().into_boxed_slice());
+                self.module.define_data(d, &desc).expect("string data");
+                self.lits[id.index()] = Some(d);
+                d
+            }
+        };
+        let gv = self.module.declare_data_in_func(data, self.b.func);
+        (self.b.ins().symbol_value(self.ptr, gv), len)
+    }
+
+    // ---- statements --------------------------------------------------------
+
+    fn statement(&mut self, k: &StatementKind) {
+        match k {
+            StatementKind::Assign(dest, rv) => self.assign(dest, rv),
+            StatementKind::Drop { place, flag: None, .. } => {
+                if place.proj.is_empty() && self.skip_drop[place.local.index()] {
+                    return;
+                }
+                let (loc, ty) = self.locate(place);
+                if ty != Type::Str {
+                    return;
+                }
+                let Loc::Mem(base, off) = loc else { unreachable!("a string is in memory") };
+                let a = self.offset(base, off);
+                // `drachm_str_drop` starts with this test; doing it here skips
+                // the call for literals and empty strings.
+                let cap = self.b.ins().load(types::I64, MEM, a, STR_CAP);
+                let drop_b = self.b.create_block();
+                let after = self.b.create_block();
+                self.b.ins().brif(cap, drop_b, &[], after, &[]);
+                self.b.switch_to_block(drop_b);
+                self.rt("drachm_str_drop", &[self.ptr], &[], &[a]);
+                self.b.ins().jump(after, &[]);
+                self.b.switch_to_block(after);
+            }
+            StatementKind::Drop { flag: Some(_), .. } => unreachable!("drop flags are not supported by the MIR backend yet"),
+            StatementKind::StorageLive(_) | StatementKind::StorageDead(_) | StatementKind::FakeRead(_) | StatementKind::Nop => {}
+        }
+    }
+
+    fn assign(&mut self, dest: &Place, rv: &Rvalue) {
+        let ty = crate::mir::ty::place_ty(self.body, self.hir, dest).expect("validated MIR");
+        if ty == Type::None {
+            return;
+        }
+        if cl_type(ty).is_some() {
+            let v = self.rvalue(rv);
+            let (loc, _) = self.locate(dest);
+            self.store(loc, v);
+            return;
+        }
+        match rv {
+            Rvalue::Use(Operand::Const(Constant::Str(id))) => {
+                let (loc, _) = self.locate(dest);
+                let Loc::Mem(base, off) = loc else { unreachable!() };
+                let a = self.offset(base, off);
+                self.store_literal(a, *id);
+            }
+            Rvalue::Use(op @ (Operand::Copy(_) | Operand::Move(_))) => {
+                let src = self.operand_addr(op);
+                let d = self.addr_of(dest);
+                self.copy_bits(ty, d, src);
+            }
+            Rvalue::Aggregate(sid, ops) => self.aggregate(dest, ty, *sid, ops),
+            _ => unreachable!("not supported by the MIR backend yet: {rv:?}"),
+        }
+    }
+
+    fn aggregate(&mut self, dest: &Place, ty: Type, sid: hir::StructId, ops: &[Operand]) {
+        // Read every scalar operand before writing anything: an operand may
+        // be part of the destination (`p = P(p.y, p.x)`).
+        enum Part {
+            Scalar(Value),
+            Mem(Type, Value),
+        }
+        let mut parts = Vec::new();
+        let mut overlaps = false;
+        for op in ops {
+            let t = self.op_ty(op);
+            if cl_type(t).is_some() {
+                parts.push(Part::Scalar(self.operand(op)));
+            } else {
+                if matches!(op, Operand::Copy(p) | Operand::Move(p) if p.local == dest.local) {
+                    overlaps = true;
+                }
+                parts.push(Part::Mem(t, self.operand_addr(op)));
+            }
+        }
+        let target = if overlaps { self.mem(ty) } else { self.addr_of(dest) };
+        for (i, part) in parts.into_iter().enumerate() {
+            let off = self.hir.structs[sid].fields[i].offset;
+            match part {
+                Part::Scalar(v) => {
+                    self.b.ins().store(MEM, v, target, off as i32);
+                }
+                Part::Mem(t, src) => {
+                    let at = self.offset(target, off);
+                    self.copy_bits(t, at, src);
+                }
+            }
+        }
+        if overlaps {
+            let d = self.addr_of(dest);
+            self.copy_bits(ty, d, target);
+        }
+    }
+
+    /// The value of a scalar rvalue.
+    fn rvalue(&mut self, rv: &Rvalue) -> Value {
+        match rv {
+            Rvalue::Use(op) => self.operand(op),
+            Rvalue::Neg(op) => {
+                let ty = self.op_ty(op);
+                let v = self.operand(op);
+                if ty.is_float() { self.b.ins().fneg(v) } else { self.b.ins().ineg(v) }
+            }
+            Rvalue::Not(op) => {
+                let v = self.operand(op);
+                self.b.ins().bxor_imm_u(v, 1)
+            }
+            Rvalue::BitNot(op) => {
+                let v = self.operand(op);
+                self.b.ins().bnot(v)
+            }
+            Rvalue::Binary(op, l, r) => {
+                let operand = self.op_ty(l);
+                let a = self.operand(l);
+                let b = self.operand(r);
+                self.binary(*op, operand, a, b)
+            }
+            Rvalue::Shift { left, value, amount } => {
+                let ty = self.op_ty(value);
+                let v = self.operand(value);
+                let n = self.operand(amount);
+                // Only the low bits of the amount matter; Cranelift wraps it
+                // around the value's width, which is Drachm's rule too.
+                let n = match self.b.func.dfg.value_type(n).bits() {
+                    32 => n,
+                    0..32 => self.b.ins().uextend(types::I32, n),
+                    _ => self.b.ins().ireduce(types::I32, n),
+                };
+                match (*left, is_signed(ty)) {
+                    (true, _) => self.b.ins().ishl(v, n),
+                    (false, true) => self.b.ins().sshr(v, n),
+                    (false, false) => self.b.ins().ushr(v, n),
+                }
+            }
+            Rvalue::IntPow(base, exp) => {
+                let ty = self.op_ty(base);
+                let exp_ty = self.op_ty(exp);
+                let cl = cl_type(ty).unwrap();
+                let bv = self.operand(base);
+                let xv = self.operand(exp);
+                let exp_cl = self.b.func.dfg.value_type(xv);
+                let negative = if is_signed(exp_ty) {
+                    let zero = self.zero(exp_cl);
+                    let lt = self.b.ins().icmp(IntCC::SignedLessThan, xv, zero);
+                    self.b.ins().uextend(types::I32, lt)
+                } else {
+                    self.b.ins().iconst(types::I32, 0)
+                };
+                let base_signed = self.b.ins().iconst(types::I32, is_signed(ty) as i64);
+                let (i32t, i64t) = (types::I32, types::I64);
+                if cl.bits() <= 64 && exp_cl.bits() <= 64 {
+                    let b64 = self.widen64(bv, ty);
+                    let x64 = self.widen64(xv, exp_ty);
+                    let r = self.rt("drachm_ipow64", &[i64t, i64t, i32t, i32t], &[i64t], &[b64, x64, negative, base_signed]);
+                    self.join_halves(&[r[0], r[0]], cl)
+                } else {
+                    let [blo, bhi] = self.halves(bv, ty);
+                    let [xlo, xhi] = self.halves(xv, exp_ty);
+                    let r = self.rt(
+                        "drachm_ipow128",
+                        &[i64t, i64t, i64t, i64t, i32t, i32t],
+                        &[i64t, i64t],
+                        &[blo, bhi, xlo, xhi, negative, base_signed],
+                    );
+                    self.join_halves(&r, cl)
+                }
+            }
+            Rvalue::Convert(op, to) => {
+                let from = self.op_ty(op);
+                let v = self.operand(op);
+                self.convert(v, from, *to)
+            }
+            Rvalue::Ref(_, p) => self.addr_of(p),
+            Rvalue::RawRef(_) | Rvalue::DeepCopy(_) | Rvalue::Aggregate(..) => {
+                unreachable!("not supported by the MIR backend yet: {rv:?}")
+            }
+        }
+    }
+
+    // ---- terminators -------------------------------------------------------
+
+    fn terminator(&mut self, k: &TerminatorKind) {
+        match k {
+            TerminatorKind::Goto(t) => {
+                self.b.ins().jump(self.blocks[t.index()], &[]);
+            }
+            TerminatorKind::If { cond, then, els } => {
+                let c = self.operand(cond);
+                self.b.ins().brif(c, self.blocks[then.index()], &[], self.blocks[els.index()], &[]);
+            }
+            TerminatorKind::Return => {
+                if self.ret_ptr.is_some() || matches!(self.slots[0], Slot::Nothing) {
+                    self.b.ins().return_(&[]);
+                } else {
+                    let ty = self.body.locals[Local(0)].ty;
+                    let v = match self.slots[0] {
+                        Slot::Var(var) => self.b.use_var(var),
+                        Slot::Mem(a) => self.load(Loc::Mem(a, 0), ty),
+                        Slot::Nothing => unreachable!(),
+                    };
+                    self.b.ins().return_(&[v]);
+                }
+            }
+            TerminatorKind::Unreachable => {
+                self.b.ins().trap(TrapCode::unwrap_user(1));
+            }
+            TerminatorKind::Call { callee, args, dest, target } => {
+                self.call(*callee, args, dest.as_ref());
+                self.b.ins().jump(self.blocks[target.index()], &[]);
+            }
+            TerminatorKind::Switch { .. } | TerminatorKind::Panic(_) => {
+                unreachable!("not supported by the MIR backend yet: {k:?}")
+            }
+        }
+    }
+
+    /// The address a string result is written to.
+    fn dest_addr(&mut self, dest: Option<&Place>) -> Value {
+        self.addr_of(dest.expect("a call with a string result has a destination"))
+    }
+
+    fn call(&mut self, callee: Callee, args: &[Arg], dest: Option<&Place>) {
+        let (i32t, i64t, ptr) = (types::I32, types::I64, self.ptr);
+        match callee {
+            Callee::Func(id) => {
+                let ret = self.hir.funcs[id].ret;
+                let mut vals = Vec::new();
+                if in_memory(ret) {
+                    vals.push(self.dest_addr(dest));
+                }
+                for a in args {
+                    let ty = self.op_ty(&a.op);
+                    let v = if !in_memory(ty) {
+                        self.operand(&a.op)
+                    } else {
+                        match &a.op {
+                            // The source is dead afterwards: the callee may use it as its own.
+                            Operand::Move(p) => self.addr_of(p),
+                            Operand::Copy(_) | Operand::Const(_) => {
+                                let src = self.operand_addr(&a.op);
+                                let tmp = self.mem(ty);
+                                self.copy_bits(ty, tmp, src);
+                                tmp
+                            }
+                        }
+                    };
+                    vals.push(v);
+                }
+                let callee = self.module.declare_func_in_func(self.ids[id], self.b.func);
+                let call = self.b.ins().call(callee, &vals);
+                if let (Some(d), true) = (dest, cl_type(ret).is_some()) {
+                    let r = self.b.inst_results(call)[0];
+                    let (loc, _) = self.locate(d);
+                    self.store(loc, r);
+                }
+            }
+            Callee::Str(f) => {
+                let mut params = Vec::new();
+                let mut vals = Vec::new();
+                if f.ret() == Type::Str {
+                    params.push(ptr);
+                    vals.push(self.dest_addr(dest));
+                }
+                for (a, &p) in args.iter().zip(f.params()) {
+                    params.push(cl_type(p).unwrap_or(ptr));
+                    // A `string` parameter is a `&string` operand: already a pointer.
+                    vals.push(self.operand(&a.op));
+                }
+                let returns: Vec<ClType> = cl_type(f.ret()).into_iter().collect();
+                let r = self.rt(f.name(), &params, &returns, &vals);
+                if let (Some(d), Some(&v)) = (dest, r.first()) {
+                    let (loc, _) = self.locate(d);
+                    self.store(loc, v);
+                }
+            }
+            Callee::Out { newline } => {
+                let p = self.operand(&args[0].op);
+                let sptr = self.b.ins().load(ptr, MEM, p, 0);
+                let len = self.b.ins().load(i64t, MEM, p, STR_LEN);
+                let nl = self.b.ins().iconst(i32t, newline as i64);
+                self.rt("drachm_out_str", &[ptr, i64t, i32t], &[], &[sptr, len, nl]);
+            }
+            Callee::Text => {
+                let value_ty = self.op_ty(&args[0].op);
+                let v = self.operand(&args[0].op);
+                let out = self.dest_addr(dest);
+                match value_ty {
+                    Type::Bool => {
+                        self.rt("drachm_text_bool", &[ptr, types::I8], &[], &[out, v]);
+                    }
+                    Type::Float(32) => {
+                        self.rt("drachm_text_f32", &[ptr, types::F32], &[], &[out, v]);
+                    }
+                    Type::Float(_) => {
+                        self.rt("drachm_text_f64", &[ptr, types::F64], &[], &[out, v]);
+                    }
+                    Type::Int { bits: 128, signed } => {
+                        let [lo, hi] = self.halves(v, value_ty);
+                        let name = if signed { "drachm_text_s128" } else { "drachm_text_u128" };
+                        self.rt(name, &[ptr, i64t, i64t], &[], &[out, lo, hi]);
+                    }
+                    Type::Int { signed, .. } => {
+                        let wide = self.widen64(v, value_ty);
+                        let name = if signed { "drachm_text_s64" } else { "drachm_text_u64" };
+                        self.rt(name, &[ptr, i64t], &[], &[out, wide]);
+                    }
+                    Type::None | Type::Str | Type::Struct { .. } | Type::Ref { .. } | Type::Ptr { .. } => unreachable!("checked by typeck"),
+                }
+            }
+            Callee::Radix { base, upper } => {
+                let value_ty = self.op_ty(&args[0].op);
+                let v = self.operand(&args[0].op);
+                let out = self.dest_addr(dest);
+                let [lo, hi] = self.halves(v, value_ty);
+                let signed = self.b.ins().iconst(types::I8, is_signed(value_ty) as i64);
+                let base = self.b.ins().iconst(i32t, base as i64);
+                let upper = self.b.ins().iconst(types::I8, upper as i64);
+                self.rt("drachm_str_radix", &[ptr, i64t, i64t, types::I8, i32t, types::I8], &[], &[out, lo, hi, signed, base, upper]);
+            }
+            Callee::Join => {
+                // The parts' values side by side, as the runtime's array.
+                let size = STR_SIZE * args.len() as u32;
+                let array = self.b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, size.max(1), 3));
+                for (i, a) in args.iter().enumerate() {
+                    let src = self.operand(&a.op);
+                    let at = self.b.ins().stack_addr(ptr, array, (STR_SIZE as usize * i) as i32);
+                    self.copy_bits(Type::Str, at, src);
+                }
+                let base = self.b.ins().stack_addr(ptr, array, 0);
+                let n = self.b.ins().iconst(i64t, args.len() as i64);
+                let out = self.dest_addr(dest);
+                self.rt("drachm_str_join", &[ptr, ptr, i64t], &[], &[out, base, n]);
+            }
+        }
+    }
+
+    // ---- arithmetic (copies of the helpers in `codegen`) -------------------
+
+    fn zero(&mut self, ty: ClType) -> Value {
+        match ty {
+            types::F32 => self.b.ins().f32const(0.0),
+            types::F64 => self.b.ins().f64const(0.0),
+            _ => self.int_const(ty, 0),
+        }
+    }
+
+    /// An integer constant from its (zero-extended) bits.
+    fn int_const(&mut self, ty: ClType, bits: u128) -> Value {
+        if ty == types::I128 {
+            let lo = self.b.ins().iconst(types::I64, bits as u64 as i64);
+            let hi = self.b.ins().iconst(types::I64, (bits >> 64) as u64 as i64);
+            return self.b.ins().iconcat(lo, hi);
+        }
+        // Cranelift wants narrow immediates sign-extended.
+        let shift = 64 - ty.bits();
+        self.b.ins().iconst(ty, ((bits as u64 as i64) << shift) >> shift)
+    }
+
+    /// Call a runtime function, importing it on first use.
+    fn rt(&mut self, name: &'static str, params: &[ClType], returns: &[ClType], args: &[Value]) -> Vec<Value> {
+        let id = match self.runtime.get(name) {
+            Some(id) => *id,
+            None => {
+                let mut sig = self.module.make_signature();
+                // C expects narrow arguments widened by the caller.
+                sig.params.extend(params.iter().map(|&t| if t.bits() < 32 { AbiParam::new(t).uext() } else { AbiParam::new(t) }));
+                sig.returns.extend(returns.iter().copied().map(AbiParam::new));
+                let id = self.module.declare_function(name, Linkage::Import, &sig).expect("runtime import");
+                self.runtime.insert(name, id);
+                id
+            }
+        };
+        let callee = self.module.declare_func_in_func(id, self.b.func);
+        let call = self.b.ins().call(callee, args);
+        self.b.inst_results(call).to_vec()
+    }
+
+    /// Widen an integer to 64 bits, by its own signedness.
+    fn widen64(&mut self, v: Value, ty: Type) -> Value {
+        match self.b.func.dfg.value_type(v) {
+            types::I64 => v,
+            types::I128 => self.b.ins().ireduce(types::I64, v),
+            _ if is_signed(ty) => self.b.ins().sextend(types::I64, v),
+            _ => self.b.ins().uextend(types::I64, v),
+        }
+    }
+
+    /// An integer as (low, high) 64-bit halves, extended by its own signedness.
+    fn halves(&mut self, v: Value, ty: Type) -> [Value; 2] {
+        let wide = match self.b.func.dfg.value_type(v) {
+            types::I128 => v,
+            _ if is_signed(ty) => self.b.ins().sextend(types::I128, v),
+            _ => self.b.ins().uextend(types::I128, v),
+        };
+        let (lo, hi) = self.b.ins().isplit(wide);
+        [lo, hi]
+    }
+
+    /// The low bits of a (low, high) pair as an integer of type `ty`.
+    fn join_halves(&mut self, pair: &[Value], ty: ClType) -> Value {
+        match ty {
+            types::I128 => self.b.ins().iconcat(pair[0], pair[1]),
+            types::I64 => pair[0],
+            _ => self.b.ins().ireduce(ty, pair[0]),
+        }
+    }
+
+    fn binary(&mut self, op: BinOp, operand: Type, a: Value, b: Value) -> Value {
+        if operand.is_float() {
+            let (name_rem, name_pow, f) = match operand {
+                Type::Float(32) => ("fmodf", "powf", types::F32),
+                _ => ("fmod", "pow", types::F64),
+            };
+            let cc = |op| match op {
+                BinOp::Eq => FloatCC::Equal,
+                BinOp::Ne => FloatCC::NotEqual,
+                BinOp::Lt => FloatCC::LessThan,
+                BinOp::Le => FloatCC::LessThanOrEqual,
+                BinOp::Gt => FloatCC::GreaterThan,
+                _ => FloatCC::GreaterThanOrEqual,
+            };
+            return match op {
+                BinOp::Add => self.b.ins().fadd(a, b),
+                BinOp::Sub => self.b.ins().fsub(a, b),
+                BinOp::Mul => self.b.ins().fmul(a, b),
+                BinOp::Div => self.b.ins().fdiv(a, b),
+                BinOp::Rem => self.rt(name_rem, &[f, f], &[f], &[a, b])[0],
+                BinOp::Pow => self.rt(name_pow, &[f, f], &[f], &[a, b])[0],
+                BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor => unreachable!("checked by typeck"),
+                _ => self.b.ins().fcmp(cc(op), a, b),
+            };
+        }
+        let signed = is_signed(operand);
+        let cc = match (op, signed) {
+            (BinOp::Eq, _) => IntCC::Equal,
+            (BinOp::Ne, _) => IntCC::NotEqual,
+            (BinOp::Lt, true) => IntCC::SignedLessThan,
+            (BinOp::Le, true) => IntCC::SignedLessThanOrEqual,
+            (BinOp::Gt, true) => IntCC::SignedGreaterThan,
+            (BinOp::Ge, true) => IntCC::SignedGreaterThanOrEqual,
+            (BinOp::Lt, false) => IntCC::UnsignedLessThan,
+            (BinOp::Le, false) => IntCC::UnsignedLessThanOrEqual,
+            (BinOp::Gt, false) => IntCC::UnsignedGreaterThan,
+            _ => IntCC::UnsignedGreaterThanOrEqual,
+        };
+        match op {
+            BinOp::Add => self.b.ins().iadd(a, b),
+            BinOp::Sub => self.b.ins().isub(a, b),
+            BinOp::Mul => self.b.ins().imul(a, b),
+            BinOp::Div | BinOp::Rem => self.divide(op == BinOp::Div, operand, a, b),
+            BinOp::Pow => unreachable!("integer power is IntPow"),
+            BinOp::BitAnd => self.b.ins().band(a, b),
+            BinOp::BitOr => self.b.ins().bor(a, b),
+            BinOp::BitXor => self.b.ins().bxor(a, b),
+            _ => self.b.ins().icmp(cc, a, b),
+        }
+    }
+
+    /// Whole-number division or remainder: panics on zero, and the smallest
+    /// signed value divided by -1 wraps instead of trapping.
+    fn divide(&mut self, div: bool, ty: Type, a: Value, b: Value) -> Value {
+        let cl = cl_type(ty).unwrap();
+        let signed = is_signed(ty);
+        if cl == types::I128 {
+            // The runtime does the checks for 128 bits.
+            let name = match (div, signed) {
+                (true, false) => "drachm_div_u128",
+                (false, false) => "drachm_rem_u128",
+                (true, true) => "drachm_div_s128",
+                (false, true) => "drachm_rem_s128",
+            };
+            let [alo, ahi] = self.halves(a, ty);
+            let [blo, bhi] = self.halves(b, ty);
+            let r = self.rt(name, &[types::I64; 4], &[types::I64; 2], &[alo, ahi, blo, bhi]);
+            return self.join_halves(&r, cl);
+        }
+
+        let bad = self.b.create_block();
+        let ok = self.b.create_block();
+        self.b.ins().brif(b, ok, &[], bad, &[]);
+        self.b.switch_to_block(bad);
+        self.rt("drachm_div_zero", &[], &[], &[]);
+        self.b.ins().trap(TrapCode::unwrap_user(2));
+        self.b.switch_to_block(ok);
+
+        if !signed {
+            return if div { self.b.ins().udiv(a, b) } else { self.b.ins().urem(a, b) };
+        }
+        let minus_one = self.int_const(cl, u128::MAX);
+        let is_minus_one = self.b.ins().icmp(IntCC::Equal, b, minus_one);
+        let wrap_b = self.b.create_block();
+        let normal_b = self.b.create_block();
+        let merge = self.b.create_block();
+        self.b.append_block_param(merge, cl);
+        self.b.ins().brif(is_minus_one, wrap_b, &[], normal_b, &[]);
+
+        self.b.switch_to_block(wrap_b);
+        let wrapped = if div { self.b.ins().ineg(a) } else { self.int_const(cl, 0) };
+        self.b.ins().jump(merge, &[wrapped.into()]);
+
+        self.b.switch_to_block(normal_b);
+        let r = if div { self.b.ins().sdiv(a, b) } else { self.b.ins().srem(a, b) };
+        self.b.ins().jump(merge, &[r.into()]);
+
+        self.b.switch_to_block(merge);
+        self.b.block_params(merge)[0]
+    }
+
+    fn convert(&mut self, v: Value, from: Type, to: Type) -> Value {
+        let to_cl = cl_type(to).unwrap();
+        let from_cl = self.b.func.dfg.value_type(v);
+        match (from, to) {
+            (Type::Int { .. }, Type::Int { .. }) => {
+                if to_cl.bits() < from_cl.bits() {
+                    self.b.ins().ireduce(to_cl, v)
+                } else if to_cl.bits() == from_cl.bits() {
+                    v
+                } else if is_signed(from) {
+                    self.b.ins().sextend(to_cl, v)
+                } else {
+                    self.b.ins().uextend(to_cl, v)
+                }
+            }
+            (Type::Int { bits: 128, signed }, Type::Float(fb)) => {
+                let name = match (signed, fb) {
+                    (false, 32) => "drachm_u128_to_f32",
+                    (true, 32) => "drachm_s128_to_f32",
+                    (false, _) => "drachm_u128_to_f64",
+                    (true, _) => "drachm_s128_to_f64",
+                };
+                let [lo, hi] = self.halves(v, from);
+                self.rt(name, &[types::I64; 2], &[to_cl], &[lo, hi])[0]
+            }
+            (Type::Int { signed, .. }, Type::Float(_)) => {
+                let wide = self.widen64(v, from);
+                if signed { self.b.ins().fcvt_from_sint(to_cl, wide) } else { self.b.ins().fcvt_from_uint(to_cl, wide) }
+            }
+            (Type::Float(a), Type::Float(b)) => {
+                if a < b { self.b.ins().fpromote(to_cl, v) } else { self.b.ins().fdemote(to_cl, v) }
+            }
+            (Type::Float(fb), Type::Int { bits, .. }) => {
+                let d = if fb == 32 { self.b.ins().fpromote(types::F64, v) } else { v };
+                if bits == 128 {
+                    let r = self.rt("drachm_f64_to_u128", &[types::F64], &[types::I64; 2], &[d]);
+                    self.join_halves(&r, to_cl)
+                } else {
+                    let r = self.rt("drachm_f64_to_u64", &[types::F64], &[types::I64], &[d]);
+                    self.join_halves(&[r[0], r[0]], to_cl)
+                }
+            }
+            _ => unreachable!("checked by typeck"),
+        }
+    }
+}
