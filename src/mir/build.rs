@@ -619,6 +619,7 @@ impl<'a> Builder<'a> {
             | ExprKind::Borrow { .. }
             | ExprKind::AddressOf(_) => true,
             ExprKind::DeepCopy(_) => !is_copy(self.hir, e.ty),
+            ExprKind::Scoped(_, drops) if drops.is_empty() => !is_copy(self.hir, e.ty),
             _ => false,
         };
         if is_rvalue {
@@ -714,7 +715,8 @@ impl<'a> Builder<'a> {
         }
         let root_hidden = matches!(self.locals[p.local].kind, LocalKind::Temp);
         let field_move = p.proj.iter().any(|x| matches!(x, Proj::Field(_))) && !p.proj.contains(&Proj::Deref);
-        if field_move && !root_hidden {
+        // The compiler's own functions (the automatic `==`) have no source span.
+        if field_move && !root_hidden && self.func.span != NO_SPAN {
             self.field_move_error(&p, e.span);
         }
         Operand::Move(p)
@@ -794,6 +796,23 @@ impl<'a> Builder<'a> {
                 self.read_place(p, e)
             }
             ExprKind::Move(l) => Operand::Move(Place::local(self.local(*l))),
+            // A written `copy place`: typeck builds it for the backends as the
+            // place, or a legacy `Copy` of it if it owns what it copies, in an
+            // empty `Scoped` (until WP6); the MIR makes the copy.
+            ExprKind::Scoped(inner, drops) if drops.is_empty() => {
+                let place = match &inner.kind {
+                    ExprKind::Copy(place) => place,
+                    _ => inner,
+                };
+                let p = self.as_place(place);
+                if is_copy(self.hir, e.ty) {
+                    Operand::Copy(p)
+                } else {
+                    let t = self.new_temp(e.ty);
+                    self.assign_stmt(Place::local(t), Rvalue::DeepCopy(p));
+                    Operand::Move(Place::local(t))
+                }
+            }
             // Legacy nodes (2.2a): the copy is not made, and the scope list is ignored.
             ExprKind::Copy(inner) | ExprKind::Scoped(inner, _) => self.operand(inner),
             ExprKind::Neg(_)
@@ -970,6 +989,14 @@ impl<'a> Builder<'a> {
             }
             ExprKind::AddressOf(inner) => Rvalue::RawRef(self.as_place(inner)),
             ExprKind::DeepCopy(inner) => Rvalue::DeepCopy(self.as_place(inner)),
+            // A written `copy` (see `operand`).
+            ExprKind::Scoped(inner, drops) if drops.is_empty() => {
+                let place = match &inner.kind {
+                    ExprKind::Copy(place) => place,
+                    _ => inner,
+                };
+                Rvalue::DeepCopy(self.as_place(place))
+            }
             _ => unreachable!("rvalue of {}", kind_name(&e.kind)),
         }
     }
