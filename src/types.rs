@@ -1,8 +1,8 @@
 //! Drachm's types: the built-in ones, plus structs by id.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 use std::fmt;
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 
 use num_bigint::BigInt;
 
@@ -17,6 +17,22 @@ pub enum Type {
     Str,
     /// A struct: its index in `hir::Program::structs`, and its name for messages.
     Struct { id: usize, name: &'static str },
+    /// `&T` / `&mut T`. `to` is never itself a `Ref`.
+    Ref { mutable: bool, to: &'static Type },
+    /// `*T`: a raw pointer, which may be written through and may be `none`.
+    Ptr { to: &'static Type },
+}
+
+/// Leaks each distinct type once, so a `Type` can point at another and stay `Copy`.
+fn intern_type(t: Type) -> &'static Type {
+    static TYPES: LazyLock<Mutex<HashSet<&'static Type>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
+    let mut types = TYPES.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(&found) = types.get(&t) {
+        return found;
+    }
+    let leaked: &'static Type = Box::leak(Box::new(t));
+    types.insert(leaked);
+    leaked
 }
 
 /// A struct's name as a `&'static str`, so that `Type` can stay `Copy` and
@@ -81,6 +97,32 @@ impl Type {
             ("s", _) => Type::from_name(&format!("sint{bits}")),
             ("f", _) => Type::from_name(&format!("float{bits}")),
             _ => Err(TypeError::Unknown),
+        }
+    }
+
+    /// `&to` or `&mut to`.
+    pub fn borrow(mutable: bool, to: Type) -> Type {
+        Type::Ref { mutable, to: intern_type(to) }
+    }
+
+    /// `*to`
+    pub fn ptr(to: Type) -> Type {
+        Type::Ptr { to: intern_type(to) }
+    }
+
+    pub fn is_borrow(self) -> bool {
+        matches!(self, Type::Ref { .. })
+    }
+
+    pub fn is_ptr(self) -> bool {
+        matches!(self, Type::Ptr { .. })
+    }
+
+    /// What a borrow or pointer points at.
+    pub fn target(self) -> Option<Type> {
+        match self {
+            Type::Ref { to, .. } | Type::Ptr { to } => Some(*to),
+            _ => None,
         }
     }
 
@@ -158,6 +200,26 @@ impl fmt::Display for Type {
             Type::None => f.write_str("none"),
             Type::Str => f.write_str("string"),
             Type::Struct { name, .. } => f.write_str(name),
+            Type::Ref { mutable: false, to } => write!(f, "&{to}"),
+            Type::Ref { mutable: true, to } => write!(f, "&mut {to}"),
+            Type::Ptr { to } => write!(f, "*{to}"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn borrow_types_intern_and_print() {
+        let a = Type::borrow(true, Type::Str);
+        assert_eq!(a, Type::borrow(true, Type::Str));
+        assert_ne!(a, Type::borrow(false, Type::Str));
+        assert_eq!(a.to_string(), "&mut string");
+        assert_eq!(Type::borrow(false, Type::U32).to_string(), "&uint32");
+        assert_eq!(Type::ptr(Type::U32).to_string(), "*uint32");
+        assert!(a.is_borrow() && !a.is_ptr());
+        assert_eq!(Type::ptr(Type::Bool).target(), Some(Type::Bool));
     }
 }
