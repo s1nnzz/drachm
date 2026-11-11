@@ -26,6 +26,7 @@ answers into `docs/SPEC.md` and the design doc, and note leftovers under that st
 | 5 | Constructors, enums, `fails` / `maybe` | not started |
 | 6 | Generics, interfaces, collections | not started |
 | 7 | Modules, config, scripts, stdlib | not started |
+| 7.5 | MIR optimiser: SSA, inlining, scalar replacement, constant folding, loop opts, check elimination, alias info from borrows | not started |
 | 8 | Language server | not started |
 | D | Documentation site (cross-cutting) | live locally: lessons 1-9, reference, design pages with status badges |
 
@@ -660,6 +661,34 @@ lines, local imports, deps in `srachm.toml` and via `//--!$dep name: ver`,
 `os-cpu` target names, `drachm fmt` with few knobs and no `=` alignment.
 
 **Open (ask owner):** the full `[warnings]` name list (grows as warnings are added).
+
+---
+
+## Step 7.5: MIR optimiser
+
+Owner (2026-11-11): make Drachm fast without leaning on C or Rust. Plain
+builds keep Cranelift for instruction selection and register allocation; the
+optimising happens on the MIR, so plain builds approach `-O` and `-O` can
+eventually stop going through C.
+
+After step 7 because inlining across modules needs modules, generics
+(step 6) decide what gets specialised, and the MIR must be stable first.
+
+Work, roughly in payoff order, each pass measured with `bench/run.sh`:
+1. SSA form for the MIR (and back out for the backends).
+2. Inlining (small and single-use functions; most of the `fib` gap).
+3. Scalar replacement of structs (fields in registers, no memory copies).
+4. Constant propagation and folding, dead code and unreachable block removal.
+5. Loop-invariant code motion, common subexpressions, induction variables.
+6. Removing proven-unneeded checks (division by zero, later list bounds) and
+   no-op drops/moves.
+7. Alias information from the borrow checker: a `&mut` never aliases, which
+   C cannot assume without `restrict`.
+
+`-O` via C stays as the reference until plain builds match it on every bench.
+
+**Open (ask owner):** whether `-O` keeps going through C after this step, or
+plain/optimised both use the MIR optimiser with different pass sets.
 
 ---
 
