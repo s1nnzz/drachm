@@ -1,9 +1,9 @@
 //! Building MIR from HIR (spec 2.5, phase B).
 //!
-//! The MIR makes its own moves, drops and scopes; the HIR's legacy ownership
-//! nodes (spec 2.2a) are read as follows: `Copy(e)` is just `e` (a move for a
-//! non-Copy type), `Scoped` keeps only its value, `Stmt::Drop` is ignored,
-//! `Move(l)` and `Temp(l, e)` mean what they say. User locals come from
+//! The MIR makes the moves, copies, temporaries and drops: the HIR only says
+//! what the program wrote. Reading a place of a type that is not Copy moves
+//! it; `copy x` is `Rvalue::DeepCopy`; an owned value used as a place goes
+//! into a temporary that dies with its statement. User locals come from
 //! `Stmt::Decl` and the block structure. The HIR is read through `place` and
 //! `expr_span`.
 
@@ -531,8 +531,6 @@ impl<'a> Builder<'a> {
                 let gone = self.decl(ty, LocalKind::Temp);
                 self.assign_stmt(Place::local(gone), Rvalue::Use(Operand::Move(pl)));
             }
-            // The legacy workaround's drops; the builder makes its own.
-            Stmt::Drop(_) => {}
         }
     }
 
@@ -624,7 +622,6 @@ impl<'a> Builder<'a> {
             | ExprKind::Borrow { .. }
             | ExprKind::AddressOf(_) => true,
             ExprKind::DeepCopy(_) => !is_copy(self.hir, e.ty),
-            ExprKind::Scoped(_, drops) if drops.is_empty() => !is_copy(self.hir, e.ty),
             _ => false,
         };
         if is_rvalue {
@@ -670,15 +667,6 @@ impl<'a> Builder<'a> {
             ExprKind::Deref(inner) => {
                 let mut p = self.as_place(inner);
                 p.proj.push(Proj::Deref);
-                p
-            }
-            ExprKind::Temp(l, inner) => {
-                let local = self.local(*l);
-                let p = Place::local(local);
-                self.assign(p.clone(), inner, false);
-                if needs_drop(self.hir, self.locals[local].ty) {
-                    self.register(local, false);
-                }
                 p
             }
             _ => match self.operand(e) {
@@ -795,31 +783,11 @@ impl<'a> Builder<'a> {
             ExprKind::Bool(b) => Operand::Const(Constant::Bool(*b)),
             ExprKind::Str(s) => Operand::Const(Constant::Str(self.intern(s))),
             ExprKind::NullPtr => Operand::Const(Constant::Int(0, e.ty)),
-            ExprKind::Local(_) | ExprKind::Field(..) | ExprKind::Temp(..) | ExprKind::Deref(_) => {
+            ExprKind::Local(_) | ExprKind::Field(..) | ExprKind::Deref(_) => {
                 let p = self.as_place(e);
                 self.at(expr_span(e));
                 self.read_place(p, e)
             }
-            ExprKind::Move(l) => Operand::Move(Place::local(self.local(*l))),
-            // A written `copy place`: typeck builds it for the backends as the
-            // place, or a legacy `Copy` of it if it owns what it copies, in an
-            // empty `Scoped` (until WP6); the MIR makes the copy.
-            ExprKind::Scoped(inner, drops) if drops.is_empty() => {
-                let place = match &inner.kind {
-                    ExprKind::Copy(place) => place,
-                    _ => inner,
-                };
-                let p = self.as_place(place);
-                if is_copy(self.hir, e.ty) {
-                    Operand::Copy(p)
-                } else {
-                    let t = self.new_temp(e.ty);
-                    self.assign_stmt(Place::local(t), Rvalue::DeepCopy(p));
-                    Operand::Move(Place::local(t))
-                }
-            }
-            // Legacy nodes (2.2a): the copy is not made, and the scope list is ignored.
-            ExprKind::Copy(inner) | ExprKind::Scoped(inner, _) => self.operand(inner),
             ExprKind::Neg(_)
             | ExprKind::Not(_)
             | ExprKind::BitNot(_)
@@ -994,14 +962,6 @@ impl<'a> Builder<'a> {
             }
             ExprKind::AddressOf(inner) => Rvalue::RawRef(self.as_place(inner)),
             ExprKind::DeepCopy(inner) => Rvalue::DeepCopy(self.as_place(inner)),
-            // A written `copy` (see `operand`).
-            ExprKind::Scoped(inner, drops) if drops.is_empty() => {
-                let place = match &inner.kind {
-                    ExprKind::Copy(place) => place,
-                    _ => inner,
-                };
-                Rvalue::DeepCopy(self.as_place(place))
-            }
             _ => unreachable!("rvalue of {}", kind_name(&e.kind)),
         }
     }
@@ -1056,14 +1016,12 @@ fn pure(e: &Expr) -> bool {
         | ExprKind::Bool(_)
         | ExprKind::Str(_)
         | ExprKind::Local(_)
-        | ExprKind::Move(_)
         | ExprKind::NullPtr => true,
         ExprKind::Field(a, _)
         | ExprKind::Neg(a)
         | ExprKind::Not(a)
         | ExprKind::BitNot(a)
         | ExprKind::Convert(a)
-        | ExprKind::Copy(a)
         | ExprKind::Deref(a)
         | ExprKind::DeepCopy(a)
         | ExprKind::AddressOf(a) => pure(a),
@@ -1097,10 +1055,6 @@ fn kind_name(k: &ExprKind) -> &'static str {
         ExprKind::IncDec { .. } => "IncDec",
         ExprKind::Text(_) => "Text",
         ExprKind::Radix { .. } => "Radix",
-        ExprKind::Copy(_) => "Copy",
-        ExprKind::Move(_) => "Move",
-        ExprKind::Temp(..) => "Temp",
-        ExprKind::Scoped(..) => "Scoped",
         ExprKind::StrCall(..) => "StrCall",
         ExprKind::Join(_) => "Join",
         ExprKind::Out { .. } => "Out",

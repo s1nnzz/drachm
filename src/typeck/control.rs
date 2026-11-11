@@ -21,18 +21,16 @@ use std::collections::HashMap;
 
 use num_rational::BigRational;
 
-use super::{int_lit, origin, scoped, Checker, Val};
+use super::{int_lit, origin, Checker, Val};
 use crate::ast::{self, ExprKind, Pattern, SkipTarget};
 use crate::consts::Const;
 use crate::diag::{codes, Diagnostic, Span};
 use crate::hir;
 use crate::types::Type;
 
-/// Something a jump can go to. Each keeps the depth of `Checker::owned`
-/// outside it (`owned`): a jump to it drops the strings of every scope from
-/// there in.
+/// Something a jump can go to.
 pub(super) enum Target {
-    Loop { label: hir::Label, span: Span, owned: usize },
+    Loop { label: hir::Label, span: Span },
     /// One `skip` level: an `if` chain or a `match`, now in branch number `branch`.
     Level {
         label: hir::Label,
@@ -40,7 +38,6 @@ pub(super) enum Target {
         is_match: bool,
         /// An `if` chain that ends in `else`.
         has_else: bool,
-        owned: usize,
         branch: usize,
         branches: usize,
         /// Some `skip to next` goes to the last branch's test.
@@ -240,10 +237,10 @@ impl Checker<'_> {
         }
     }
 
-    /// A jump to `targets[idx]`: its label and its `owned` depth.
-    fn record(&mut self, idx: usize) -> (hir::Label, usize) {
+    /// The label a jump to `targets[idx]` names.
+    fn record(&mut self, idx: usize) -> hir::Label {
         match &self.targets[idx] {
-            Target::Loop { label, owned, .. } | Target::Level { label, owned, .. } => (*label, *owned),
+            Target::Loop { label, .. } | Target::Level { label, .. } => *label,
         }
     }
 
@@ -262,7 +259,7 @@ impl Checker<'_> {
     ) -> Option<Vec<hir::Branch>> {
         let branches = parts.len();
         let has_else = !is_match && matches!(parts.last(), Some((Test::Always, _)));
-        self.targets.push(Target::Level { label, span, is_match, has_else, owned: self.owned.len(), branch: 0, branches, next_to_last: false });
+        self.targets.push(Target::Level { label, span, is_match, has_else, branch: 0, branches, next_to_last: false });
         let mut out = Vec::new();
         let mut ok = true;
         for (i, (test, body)) in parts.into_iter().enumerate() {
@@ -291,7 +288,7 @@ impl Checker<'_> {
 
     /// Check a loop body and step. Returns the body and the step.
     pub(super) fn looped(&mut self, label: hir::Label, span: Span, body: &ast::Block, step: Option<&ast::Stmt>) -> (hir::Block, hir::Block) {
-        self.targets.push(Target::Loop { label, span, owned: self.owned.len() });
+        self.targets.push(Target::Loop { label, span });
         let body = self.block(body);
         let mut step_b = Vec::new();
         if let Some(s) = step {
@@ -321,17 +318,12 @@ impl Checker<'_> {
             ExprKind::Range(lo, hi) => match ty {
                 Some(t) if t.is_int() => {
                     let a = self.coerce(lo, t);
-                    let temps = self.take_temps();
-                    let a = a.map(|a| scoped(a, temps));
                     let b = self.coerce(hi, t);
-                    let temps = self.take_temps();
-                    let b = b.map(|b| scoped(b, temps));
                     a.zip(b)
                 }
                 _ => {
                     self.expr(lo);
                     self.expr(hi);
-                    self.take_temps();
                     if let Some(t) = ty {
                         // Open: whether float (or other) range loops exist, and how they would step.
                         self.diags.push(
@@ -345,13 +337,11 @@ impl Checker<'_> {
             },
             _ => {
                 self.not_iterable(iter);
-                self.take_temps();
                 None
             }
         };
 
         self.scopes.push(HashMap::new());
-        self.owned.push(Vec::new());
         let hidden = bounds.map(|(a, b)| {
             let t = a.ty;
             (self.hidden_named("range start", t), self.hidden_named("range end", t), self.hidden_named("range counter", t), a, b, t)
@@ -362,10 +352,6 @@ impl Checker<'_> {
         let body_end = body.end;
         let (body, _) = self.looped(label, *span, body, None);
         self.scopes.pop();
-        // Range loop variables are numbers, so nothing here needs dropping
-        // yet; a loop over strings would hold its variable here.
-        let owned = self.owned.pop().unwrap();
-        debug_assert!(owned.is_empty());
 
         let Some((start, end, counter, a, b, t)) = hidden else { return };
         let mut inner = vec![hir::Stmt::Decl(var), hir::Stmt::Assign(hir::Place::local(var), local(counter, t))];
@@ -417,8 +403,7 @@ impl Checker<'_> {
     }
 
     /// `break`, `continue`, with an optional count of loops.
-    /// Returns the jump and the `owned` depth of its target.
-    pub(super) fn break_target(&mut self, cont: bool, count: Option<(u64, Span)>, span: Span) -> Option<(hir::Jump, usize)> {
+    pub(super) fn break_target(&mut self, cont: bool, count: Option<(u64, Span)>, span: Span) -> Option<hir::Jump> {
         let word = if cont { "continue" } else { "break" };
         let loops: Vec<usize> = (0..self.targets.len()).rev().filter(|&i| matches!(self.targets[i], Target::Loop { .. })).collect();
         let n = count.map_or(1, |c| c.0);
@@ -443,21 +428,15 @@ impl Checker<'_> {
             .help(format!("`{word} {k};` {} the outermost loop", if cont { "continues" } else { "leaves" }))
         } else {
             let idx = loops[n as usize - 1];
-            return Some(if cont {
-                let (l, depth) = self.record(idx);
-                (hir::Jump::Continue(l), depth)
-            } else {
-                let (l, depth) = self.record(idx);
-                (hir::Jump::Break(l), depth)
-            });
+            let label = self.record(idx);
+            return Some(if cont { hir::Jump::Continue(label) } else { hir::Jump::Break(label) });
         };
         self.diags.push(d);
         None
     }
 
     /// `skip`, `skip N` and `skip to next`, counted as described at the top of this file.
-    /// Returns the jump and the `owned` depth of its target.
-    pub(super) fn skip_target(&mut self, target: SkipTarget, span: Span) -> Option<(hir::Jump, usize)> {
+    pub(super) fn skip_target(&mut self, target: SkipTarget, span: Span) -> Option<hir::Jump> {
         let wall = self.targets.iter().rposition(|t| matches!(t, Target::Loop { .. }));
         // Innermost first.
         let levels: Vec<usize> = (wall.map_or(0, |w| w + 1)..self.targets.len()).rev().collect();
@@ -485,8 +464,7 @@ impl Checker<'_> {
                 {
                     *next_to_last = true;
                 }
-                let (l, depth) = self.record(idx);
-                return Some((hir::Jump::Next(l, branch + 1), depth));
+                return Some(hir::Jump::Next(self.record(idx), branch + 1));
             }
             let (label, help) = if is_match {
                 ("this `match` has no `case` after this one", "`skip 1;` leaves the `match`")
@@ -522,8 +500,7 @@ impl Checker<'_> {
                 }
                 d.help(format!("`skip {k};` (or `skip;`) leaves the outermost level"))
             } else {
-                let (l, depth) = self.record(levels[n as usize - 1]);
-                return Some((hir::Jump::Leave(l), depth));
+                return Some(hir::Jump::Leave(self.record(levels[n as usize - 1])));
             }
         };
         self.diags.push(d);
@@ -532,8 +509,6 @@ impl Checker<'_> {
 
     pub(super) fn match_stmt(&mut self, value: &ast::Expr, cases: &[ast::Case], span: Span, out: &mut hir::Block) {
         let v = self.expr(value).and_then(|v| self.materialise(v, value.span));
-        // The value's temporaries die once it is stored.
-        let temps = self.take_temps();
         let v = match v {
             Some(v) if v.ty.is_numeric() || v.ty == Type::Bool => Some(v),
             Some(v) => {
@@ -556,7 +531,7 @@ impl Checker<'_> {
         // Evaluated once, before any case is tested.
         let tmp = v.map(|v| {
             let id = self.hidden_named("match value", v.ty);
-            out.push(hir::Stmt::Assign(hir::Place::local(id), scoped(v, temps)));
+            out.push(hir::Stmt::Assign(hir::Place::local(id), v));
             id
         });
 

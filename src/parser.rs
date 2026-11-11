@@ -772,7 +772,7 @@ impl Parser<'_> {
             Tok::Kw("copy") => {
                 self.bump();
                 let e = self.unary()?;
-                return Ok(Expr { span: start.to(e.span), kind: ExprKind::Copy(Box::new(e)), paren: false });
+                return Ok(Expr { span: start.to(e.span), kind: ExprKind::CopyOf(Box::new(e)), paren: false });
             }
             Tok::Kw("lend") => {
                 self.bump();
@@ -1093,7 +1093,7 @@ mod tests {
         let Stmt::Let { value: Some(Init::Expr(e)), .. } = &s[0] else { panic!() };
         assert!(matches!(&e.kind, ExprKind::Take { leaving: Some(_), .. }));
         let Stmt::Let { value: Some(Init::Expr(e)), .. } = &s[1] else { panic!() };
-        assert!(matches!(e.kind, ExprKind::Copy(_)));
+        assert!(matches!(e.kind, ExprKind::CopyOf(_)));
         let Stmt::Let { value: Some(Init::Expr(e)), .. } = &s[2] else { panic!() };
         assert!(matches!(&e.kind, ExprKind::Take { leaving: None, .. }));
         let Stmt::Expr(e) = &s[3] else { panic!() };
