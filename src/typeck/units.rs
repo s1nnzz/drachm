@@ -30,11 +30,22 @@ pub struct UnitEnv {
     failed: HashSet<String>,
 }
 
+/// The SI units of `in si;` (`src/prelude/si.drh`): ordinary declarations.
+pub const SI_PRELUDE: &str = include_str!("../prelude/si.drh");
+
 /// Declares the units of a file. Order does not matter: a unit that uses
-/// another one evaluates it first. Runs before any type is resolved.
+/// another one evaluates it first. Runs before any type is resolved. Units
+/// already in the table (the SI prelude) cannot be declared again.
 pub(super) fn declare_units(g: &mut Globals, decls: &[ast::UnitDecl], diags: &mut Vec<Diagnostic>) {
     let mut by_name: HashMap<&str, &ast::UnitDecl> = HashMap::new();
     for d in decls {
+        if g.units.get_mut().table.lookup(&d.name).is_some() {
+            diags.push(
+                Diagnostic::at(&codes::E0403, d.name_span, format!("`{}` is declared twice", d.name))
+                    .note("already declared by `in si;`"),
+            );
+            continue;
+        }
         match by_name.get(d.name.as_str()) {
             Some(first) => diags.push(
                 Diagnostic::at(&codes::E0403, d.name_span, format!("`{}` is declared twice", d.name))
@@ -79,7 +90,7 @@ impl<'d> Eval<'_, 'd> {
         self.diags.push(
             Diagnostic::at(&codes::E0402, at, format!("unknown unit `{name}`"))
                 .note("no unit with this name is declared")
-                .help(format!("declare it with `unit {name};` (a base unit) or `unit {name} = ...;` (a size of other units)")),
+                .help(format!("add `in si;` for the SI units, or declare it with `unit {name};` (a base unit) or `unit {name} = ...;` (a size of other units)")),
         );
         None
     }
