@@ -19,7 +19,7 @@ answers into `docs/SPEC.md` and the design doc, and note leftovers under that st
 | 0 | Foundations: lib split, test harness | done |
 | 1 | Migrate v0.1 to Drachm syntax | done (256-bit, float8/16 deferred) |
 | 2 | Strings and structs | done (`\u{NAME}` escapes, user `copy`, `split`/`lines`/`chars` later) |
-| 3 | Ownership and borrow checking | nearly done: WP0-WP8 merged (MIR, moves, drops, mutability, borrow checker, lives); WP9 pointer programs and a `+=` borrow fix in progress |
+| 3 | Ownership and borrow checking | done: MIR, moves, drops, mutability, borrow checker, `lives` inference, pointers/`unsafe`/`*fixed T` (benchmarks to rerun on a quiet machine; pointer `==` between two pointers left) |
 | 4 | `for`, `skip`, `match` | control flow done; string patterns, `*` globs and for-each over strings left (lists: step 6) |
 | 4.5 | Units of measure | done (`in si;`, points and deltas, scaled integers wrap; decisions in `docs/impl/step4.5-units.md`) |
 | 4.6 | Input: `io::inln()`, `io::ended()`, text `::to<T>()` | done (interim: bad text stops the program with exit 101; forgiving number text (spaces, `+`, `.5`); `\r\n` lines; invalid UTF-8 becomes U+FFFD) |

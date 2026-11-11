@@ -1,0 +1,9 @@
+//--!$unsafe: true
+in io;
+none main() {
+    *uint32 p;
+    unsafe { p = none; }
+    bool gone;
+    unsafe { gone = p == none; }
+    io::outln(gone::text());
+}

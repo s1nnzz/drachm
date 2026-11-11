@@ -44,21 +44,19 @@ none main() {
 "#;
 
 #[test]
-fn borrows_build_and_pointers_do_not_yet() {
+fn borrows_and_pointers_build() {
     let (program, diags) = drachm::check(BORROWS);
     let errors: Vec<String> = diags.iter().filter(|d| d.severity == drachm::diag::Severity::Error).map(|d| d.message.clone()).collect();
     assert!(errors.is_empty(), "{errors:?}");
     let program = program.expect("checks");
-    assert!(!program.uses_pointers);
     let out = std::env::temp_dir().join(format!("drachm_borrows_test{}", std::env::consts::EXE_SUFFIX));
     drachm::build(&program, &out, false).expect("borrows build");
     let _ = std::fs::remove_file(&out);
 
     let (program, diags) = drachm::check(POINTERS);
     let program = program.unwrap_or_else(|| panic!("{:?}", diags.iter().map(|d| d.message.clone()).collect::<Vec<_>>()));
-    assert!(program.uses_pointers);
-    let err = drachm::build(&program, &out, false).expect_err("must not build");
-    assert!(err.contains("cannot be built yet"), "{err}");
+    drachm::build(&program, &out, false).expect("pointers build");
+    let _ = std::fs::remove_file(&out);
 }
 
 #[test]

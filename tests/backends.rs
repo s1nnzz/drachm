@@ -1,6 +1,5 @@
-//! `build_unchecked`: the way tests build programs with raw pointers, which
-//! `build` refuses until WP9. Every other program is built and compared on
-//! both backends by `tests/run.rs`.
+//! Programs with raw pointers, built on both backends and run with the leak
+//! check. Every other program is built and compared by `tests/run.rs`.
 
 use std::env::consts::EXE_SUFFIX;
 use std::fs;
@@ -11,9 +10,8 @@ fn text(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).replace("\r\n", "\n")
 }
 
-/// Programs with raw pointers: `build` refuses them until WP9, so they go
-/// straight to the code generators. Each runs on both backends
-/// with the string runtime's leak check on.
+/// Programs with raw pointers. Each runs on both backends with the string
+/// runtime's leak check on.
 const PROGRAMS: &[(&str, &str, &str)] = &[
     (
         "b1",
@@ -52,7 +50,7 @@ fn raw_pointers_through_mir() {
         let hir = checked.unwrap_or_else(|| panic!("{name} does not check: {:?}", diags.iter().map(|d| d.message.clone()).collect::<Vec<_>>()));
         for optimise in [false, true] {
             let exe = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("be-{name}-{}{EXE_SUFFIX}", optimise as u8));
-            drachm::build_unchecked(&hir, &exe, optimise).unwrap_or_else(|e| panic!("{name} (-O {optimise}): {e}"));
+            drachm::build(&hir, &exe, optimise).unwrap_or_else(|e| panic!("{name} (-O {optimise}): {e}"));
             let run = Command::new(&exe).stdin(Stdio::null()).env("DRACHM_CHECK_LEAKS", "1").output().unwrap();
             let _ = fs::remove_file(&exe);
             assert_eq!(text(&run.stdout), *want, "{name} (-O {optimise})");

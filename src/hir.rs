@@ -31,9 +31,6 @@ pub struct Program {
     pub funcs: Vec<Func>,
     pub structs: Vec<StructDef>,
     pub main: FuncId,
-    /// Uses a raw pointer (`*T`, `address of`, `unsafe`): the type checker
-    /// accepts it, but `build` refuses it until WP9.
-    pub uses_pointers: bool,
 }
 
 /// A struct's layout, C-style: fields in declaration order, each at the next

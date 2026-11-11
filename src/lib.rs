@@ -60,19 +60,11 @@ pub fn check(src: &str) -> (Option<hir::Program>, Vec<Diagnostic>) {
 
 /// Build an executable at `out`. Plain builds go through Cranelift, which is
 /// fast to compile; optimised builds go through C, which is fast to run.
-pub fn build(program: &hir::Program, out: &std::path::Path, optimise: bool) -> Result<(), String> {
-    if program.uses_pointers {
-        return Err("raw pointers cannot be built yet (step 3, WP9)".to_string());
-    }
-    build_unchecked(program, out, optimise)
-}
-
-/// `build` without the gate on raw pointers. Tests only.
 ///
 /// Both code generators read the same MIR: built, marked (which locals live in
-/// memory), cleaned, drop-elaborated, cleaned again.
-pub fn build_unchecked(program: &hir::Program, out: &std::path::Path, optimise: bool) -> Result<(), String> {
-    // The errors, if any, were reported by `check`.
+/// memory), cleaned, drop-elaborated, cleaned again. The errors, if any, were
+/// reported by `check`.
+pub fn build(program: &hir::Program, out: &std::path::Path, optimise: bool) -> Result<(), String> {
     let mut mir = mir::build_program(program, &mut Vec::new());
     for body in mir.bodies.iter_mut().flatten() {
         mir::analysis::mark_in_memory(program, body);

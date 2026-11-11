@@ -1,0 +1,14 @@
+//--!$unsafe: true
+in io;
+none main() {
+    mut uint32 n = 1;
+    unsafe {
+        *uint32 p = address of n;
+        *p = 7;
+    }
+    io::outln(n::text());
+    unsafe {
+        *uint32 q = address of n;
+        io::outln((q == none)::text());
+    }
+}

@@ -1,0 +1,11 @@
+//--!$unsafe: true
+in io;
+none main() {
+    uint32 n = 7;
+    unsafe {
+        *fixed uint32 r = address of n;
+        *uint32 w = r::thaw();
+        uint32 v = *w;
+        io::outln(v::text());
+    }
+}

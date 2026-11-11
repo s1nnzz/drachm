@@ -1,14 +1,15 @@
 ---
 title: Unsafe, pointers and assembly
 description: unsafe blocks, raw pointers, address of, pointers to fixed values, freeze and thaw, assembly functions.
-status: not-implemented
 ---
 
 # Unsafe, pointers and assembly
 
 Raw pointers are the one place where Drachm trusts you instead of checking.
-The compiler already rejects `unsafe` in a file that has not turned it on, but
-it cannot build a program that uses pointers yet. There is no garbage collector.
+Pointer programs build and run, and the operations that need `unsafe` are
+checked; the accepted parts are on [Unsafe and pointers](reference-unsafe.md).
+This page is the design, and parts still to come are marked below. There is no
+garbage collector.
 
 ## Turning unsafe on
 

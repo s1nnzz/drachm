@@ -1,0 +1,13 @@
+//--!$unsafe: true
+in io;
+struct P { public: uint32 hp; uint32 mp; }
+none main() {
+    mut P q = 3, 9;
+    *uint32 h;
+    unsafe {
+        h = address of q.hp;
+        *h = *h + 4;
+    }
+    io::outln(q.hp::text());
+    io::outln(q.mp::text());
+}

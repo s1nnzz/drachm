@@ -1,0 +1,12 @@
+//--!$unsafe: true
+in io;
+struct Watch { public: *uint32 target; uint32 read() { mut uint32 v = 0; unsafe { v = *self.target; } return v; } }
+none main() {
+    mut uint32 n = 9;
+    unsafe {
+        Watch w = address of n;
+        io::outln(w::read()->text());
+        n = 12;
+        io::outln(w::read()->text());
+    }
+}

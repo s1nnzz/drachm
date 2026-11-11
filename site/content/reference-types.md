@@ -44,6 +44,12 @@ A borrow lasts until its last use. The rules, and the errors E0302 to E0307 for
 breaking them, are on the [Moves and copies](reference-ownership.md#borrowing)
 page.
 
+## Pointer types
+
+`*T` is a raw pointer that can be written through, and `*fixed T` one that can
+only be read. Using either needs the file flag and `unsafe { }` blocks; see
+[Unsafe and pointers](reference-unsafe.md).
+
 ## Number literals
 
 Decimal numbers may use `_` to group digits (`1_000_000`) and an exponent
