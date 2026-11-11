@@ -1,0 +1,29 @@
+in io;
+
+unit K;
+unit degC = K offset -273.15;
+
+none main() {
+    float64<degC> morning = 14.5<degC>;
+    float64<degC> noon = 21.0<degC>;
+
+    // The difference of two points is a delta.
+    float64<delta degC> rise = noon - morning;
+    io::outln(rise::text() + " " + rise::unitText());
+
+    // A point plus a delta is a point again.
+    float64<degC> evening = noon + rise;
+    io::outln(evening::text() + " " + evening::unitText());
+
+    // A delta degC is as big as a kelvin, so they convert freely.
+    float64<K> kelvins = rise::in<K>();
+    io::outln(kelvins::text());
+
+    // Points convert with their offset.
+    io::outln(morning::in<K>()->text());
+    io::outln((morning < noon)::text());
+
+    // Stripping to a plain number gives the reading in the base unit.
+    float64 base = morning;
+    io::outln(base::text());
+}

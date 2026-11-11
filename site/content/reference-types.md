@@ -84,3 +84,8 @@ number of places, use `io::outf` with `%.N` (see [Strings](reference-strings.md)
 io::outln((10 / 4)::text());     // 2
 io::outln(true::text());         // true
 ```
+
+## Units
+
+A number type can carry a unit, `float64<m/s>`, and the compiler checks that
+units match. See [Units of measure](reference-units.md).

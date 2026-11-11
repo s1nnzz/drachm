@@ -24,6 +24,7 @@
       "title": "Reference",
       "pages": [
         "reference-types",
+        "reference-units",
         "reference-strings",
         "reference-structs",
         "reference-ownership",

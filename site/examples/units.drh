@@ -1,0 +1,48 @@
+in io;
+
+unit m;
+unit s;
+unit kg;
+unit N = kg * m / s^2;
+unit km = 1000 m;
+unit min = 60 s;
+
+float64<m/s> speed_of(float64<m> distance, float64<s> time) {
+    return distance / time;
+}
+
+none main() {
+    // Units are written after a number.
+    float64<m> dist = 100.0<m>;
+    float64<s> time = 9.6<s>;
+    float64<m/s> speed = speed_of(dist, time);
+    io::outln(speed::text() + " " + speed::unitText());
+
+    // Multiplying and dividing makes new units.
+    float64<N> force = 2.0<kg> * 3.5<m/s^2>;
+    io::outln(force::text() + " " + force::unitText());
+    float64<m^2> area = dist ** 2;
+    io::outln(area::text() + " " + area::unitText());
+
+    // Scaled units convert to the unit of the left side.
+    io::outln((10<km> + 100<m>)::text());
+    io::outln((10<m> + 1<km>)::text());
+    float64<m> total = 2.5<km> + 300.0<m>;
+    io::outln(total::text());
+
+    // `::in` changes the unit, `::to` changes the number type.
+    float64<km> kms = total::in<km>();
+    io::outln(kms::text() + " " + kms::unitText());
+    float32<m> narrow = total::to<float32>();
+    io::outln(narrow::text());
+
+    // A plain number scales a measure; a measure into a plain number gives
+    // the amount in the base unit.
+    float64<m> doubled = 2.0 * dist;
+    uint32 raw = 3<km>;
+    io::outln(doubled::text() + " " + raw::text());
+
+    // Different units of one kind compare and cancel.
+    io::outln((2.0<min> > 90.0<s>)::text());
+    io::outln((4.0<km> / 2.0<m>)::text());
+}
