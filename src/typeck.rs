@@ -4,6 +4,7 @@
 
 mod control;
 mod strings;
+mod units;
 
 use std::collections::HashMap;
 
@@ -112,6 +113,8 @@ struct Globals {
     uses_borrows: std::cell::Cell<bool>,
     /// Which structs copy automatically (`hir::StructDef::copy`).
     struct_copy: Vec<bool>,
+    /// The units declared in the file (`typeck::units`).
+    units: std::cell::RefCell<units::UnitEnv>,
 }
 
 impl Globals {
@@ -130,6 +133,9 @@ impl Globals {
 
     /// `t` with its `&`, `&mut` and `*` marks applied to the named type.
     fn resolve_quiet(&self, t: &ast::TypeName) -> Option<Type> {
+        if let Some(spec) = &t.unit {
+            return self.resolve_unit_type(t, spec, &mut Vec::new());
+        }
         let base = self.resolve_base_quiet(t)?;
         Some(t.mods.iter().rev().fold(base, |ty, (m, _)| match m {
             ast::TypeMod::Ref { mutable } => Type::borrow(*mutable, ty),
@@ -147,6 +153,9 @@ impl Globals {
                 diags.push(Diagnostic::at(&codes::E0901, *span, "a borrow or pointer of `none` is not supported yet"));
                 return None;
             }
+        }
+        if let Some(spec) = &t.unit {
+            return self.resolve_unit_type(t, spec, diags);
         }
         if let Some(ty) = self.resolve_quiet(t) {
             return Some(ty);
@@ -255,6 +264,9 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
         }
     }
 
+    // Units first: a type may name any unit, and a unit may name none.
+    units::declare_units(&mut g, &prog.units, diags);
+
     // Struct names first, so that any type can name any struct, wherever it is defined.
     let struct_ids: Vec<Option<StructId>> = prog.structs.iter().map(|s| declare_struct(&mut g, s, diags)).collect();
     for (s, id) in prog.structs.iter().zip(&struct_ids) {
@@ -360,7 +372,12 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
     }
 
     let main = g.funcs_by_name.get("main").copied().unwrap_or(0);
-    hir::Program { funcs: funcs.into_iter().map(|f| f.unwrap_or_else(placeholder)).collect(), structs, main, uses_borrows: g.uses_borrows.get() }
+    let mut program = hir::Program { funcs: funcs.into_iter().map(|f| f.unwrap_or_else(placeholder)).collect(), structs, main, uses_borrows: g.uses_borrows.get() };
+    units::erase(&mut program);
+    if cfg!(debug_assertions) {
+        units::assert_erased(&mut program);
+    }
+    program
 }
 
 /// Stands in for functions whose definition was never emitted (only ever
@@ -717,7 +734,7 @@ fn copy_structs(g: &Globals, cyclic: &[bool], defs: &[hir::StructDef]) -> Vec<bo
                 continue;
             }
             let ok = defs[i].size <= 32
-                && s.fields.iter().all(|f| match f.ty {
+                && s.fields.iter().all(|f| match f.ty.map(Type::bare) {
                     Some(Type::Int { .. } | Type::Float(_) | Type::Bool | Type::Ref { mutable: false, .. }) => true,
                     Some(Type::Struct { id, .. }) => copy[id],
                     _ => false,
@@ -2098,6 +2115,9 @@ impl Checker<'_> {
     }
 
     fn into(&mut self, v: Val, to: Type, from: Origin) -> Option<hir::Expr> {
+        if to.mentions_unit() || units::has_unit(&v) {
+            return self.unit_into(v, to, from);
+        }
         match v {
             Val::Const(c) if to.is_numeric() => Some(self.fit_const(&c, to, from.span, false)),
             Val::Const(_) => {
@@ -2259,6 +2279,7 @@ impl Checker<'_> {
     fn expr_inner(&mut self, e: &ast::Expr) -> Option<Val> {
         let typed = |kind, ty| Some(Val::Expr(hir::Expr::new(kind, ty)));
         match &e.kind {
+            ExprKind::Num(n) if n.unit.is_some() => self.unit_literal(n.unit.as_ref()?, e.span),
             ExprKind::Num(n) => match n.suffix {
                 Some(ty) => Some(Val::Expr(self.fit_const(&n.value, ty, e.span, false))),
                 None => Some(Val::Const(n.value.clone())),
@@ -2322,6 +2343,10 @@ impl Checker<'_> {
                 }
                 let mut p = self.lvalue(target)?;
                 Self::auto_deref(&mut p);
+                if p.ty.mentions_unit() {
+                    self.unit_arithmetic_not_yet(target.span);
+                    return None;
+                }
                 if !p.ty.is_numeric() {
                     self.diags.push(
                         Diagnostic::at(&codes::E0101, target.span, format!("`{sym}` needs a number, found `{}`", p.ty))
@@ -2351,6 +2376,11 @@ impl Checker<'_> {
                 let args = self.args(id, args, e.span);
                 let ty = self.g.sigs[id].ret?;
                 typed(hir::ExprKind::Call(id, args?), ty)
+            }
+            ExprKind::Method { unit: Some(spec), name_span, .. } => {
+                self.g.resolve_unit_spec(spec, e.span, self.diags);
+                self.unit_method_not_yet(*name_span, "`::in<unit>()`");
+                None
             }
             ExprKind::Method { recv, name, name_span, targs, args, .. } => {
                 if let ExprKind::Var(n) = &recv.kind
@@ -2821,6 +2851,10 @@ impl Checker<'_> {
                     return None;
                 }
                 let to = self.g.resolve(&targs[0], self.diags)?;
+                if to.mentions_unit() || units::has_unit(&value) {
+                    self.unit_method_not_yet(name_span, "`to` with units");
+                    return None;
+                }
                 if !to.is_numeric() {
                     self.diags.push(
                         Diagnostic::at(&codes::E0101, targs[0].span, format!("`to` converts between number types, not to `{to}`")),
@@ -3025,6 +3059,11 @@ impl Checker<'_> {
                     None
                 }
             };
+        }
+
+        if units::has_unit(&lv) || units::has_unit(&rv) {
+            self.unit_arithmetic_not_yet(span);
+            return None;
         }
 
         // An untyped constant on the left takes the right side's type if it

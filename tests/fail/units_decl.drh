@@ -1,0 +1,20 @@
+in io;
+
+// Declarations: each line below is wrong in one way.
+unit a = b;
+unit b = a;
+unit m;
+unit m = 2 m;
+unit zero = 0 m;
+unit onoff = m * m offset 3;
+unit ftm = 5 xyz;
+unit big = m^40000;
+
+// Types: an unknown unit, and units on things that are not numbers.
+none f(float64<parsec> d, string<m> s, bool<m> flag, uint32<m^40000> w, Vec<uint32> v) {
+    io::outln("f");
+}
+
+none main() {
+    io::outln("hi");
+}

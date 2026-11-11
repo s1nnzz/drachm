@@ -692,7 +692,7 @@ impl Cg<'_, '_> {
                         let name = if signed { "drachm_text_s64" } else { "drachm_text_u64" };
                         self.rt(name, &[ptr, i64t], &[], &[out, wide]);
                     }
-                    Type::None | Type::Str | Type::Struct { .. } | Type::Ref { .. } | Type::Ptr { .. } => unreachable!("checked by typeck"),
+                    _ => unreachable!("checked by typeck"),
                 }
             }
             Callee::Radix { base, upper } => {

@@ -537,7 +537,7 @@ impl Gen<'_> {
                     }
                     Type::Int { signed: true, .. } => format!("drachm_text_s64(&{dest}, (int64_t){v})"),
                     Type::Int { signed: false, .. } => format!("drachm_text_u64(&{dest}, (uint64_t){v})"),
-                    Type::None | Type::Str | Type::Struct { .. } | Type::Ref { .. } | Type::Ptr { .. } => unreachable!("checked by typeck"),
+                    _ => unreachable!("checked by typeck"),
                 };
                 self.line(format!("{call};"));
             }

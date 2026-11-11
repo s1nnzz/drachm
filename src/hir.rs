@@ -105,11 +105,12 @@ pub const STR_SIZE: u32 = 24;
 
 /// Size (which is also the alignment) of a number or bool; `None` for the rest.
 pub fn scalar_size(t: Type) -> Option<u32> {
-    match t {
+    // A unit is erased before any backend, so only the number's size matters.
+    match t.bare() {
         Type::Int { bits, .. } | Type::Float(bits) => Some(bits as u32 / 8),
         Type::Bool => Some(1),
         Type::Ref { .. } | Type::Ptr { .. } => Some(8),
-        Type::None | Type::Str | Type::Struct { .. } => None,
+        _ => None,
     }
 }
 

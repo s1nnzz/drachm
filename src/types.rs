@@ -1,10 +1,14 @@
 //! Drachm's types: the built-in ones, plus structs by id.
 
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fmt;
 use std::sync::{LazyLock, Mutex};
 
 use num_bigint::BigInt;
+use num_rational::BigRational;
+use num_traits::One;
+
+use crate::units::Unit;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Type {
@@ -21,6 +25,9 @@ pub enum Type {
     Ref { mutable: bool, to: &'static Type },
     /// `*T`: a raw pointer, which may be written through and may be `none`.
     Ptr { to: &'static Type },
+    /// A number with a unit: `float64<m/s>`. `of` is always `Int` or `Float`.
+    /// Units are checked by `typeck::units`; they are erased before the backends.
+    Unit { of: &'static Type, unit: &'static Unit },
 }
 
 /// Leaks each distinct type once, so a `Type` can point at another and stay `Copy`.
@@ -33,6 +40,23 @@ fn intern_type(t: Type) -> &'static Type {
     let leaked: &'static Type = Box::leak(Box::new(t));
     types.insert(leaked);
     leaked
+}
+
+/// The text of each unit that a `Type` names, by the unit's address. Units
+/// are leaked, so an address is never reused. Display names are not part of
+/// a unit's identity, so they live here rather than in `Type`.
+static UNIT_NAMES: Mutex<BTreeMap<usize, String>> = Mutex::new(BTreeMap::new());
+
+/// Record the name a unit prints as (`km`, `delta degC`). Set when a unit is
+/// first used in a type.
+pub fn name_unit(unit: &'static Unit, name: &str) {
+    let mut names = UNIT_NAMES.lock().unwrap_or_else(|e| e.into_inner());
+    names.insert(unit as *const Unit as usize, name.to_string());
+}
+
+fn unit_name(unit: &'static Unit) -> String {
+    let names = UNIT_NAMES.lock().unwrap_or_else(|e| e.into_inner());
+    names.get(&(unit as *const Unit as usize)).cloned().unwrap_or_else(|| unit.to_string())
 }
 
 /// A struct's name as a `&'static str`, so that `Type` can stay `Copy` and
@@ -110,6 +134,43 @@ impl Type {
         Type::Ptr { to: intern_type(to) }
     }
 
+    /// This number type with `unit`. A dimensionless unit of scale 1 is the
+    /// plain number, since it changes nothing.
+    pub fn with_unit(self, unit: &'static Unit) -> Type {
+        let of = self.bare();
+        if unit.dim.is_empty() && unit.scale == BigRational::one() && unit.offset == BigRational::from_integer(0.into()) {
+            return of;
+        }
+        Type::Unit { of: intern_type(of), unit }
+    }
+
+    /// The number type without its unit. Borrows and pointers are bared too.
+    pub fn bare(self) -> Type {
+        match self {
+            Type::Unit { of, .. } => *of,
+            Type::Ref { mutable, to } => Type::borrow(mutable, to.bare()),
+            Type::Ptr { to } => Type::ptr(to.bare()),
+            t => t,
+        }
+    }
+
+    /// The unit of a number with one (not of a borrow of one).
+    pub fn unit(self) -> Option<&'static Unit> {
+        match self {
+            Type::Unit { unit, .. } => Some(unit),
+            _ => None,
+        }
+    }
+
+    /// Does this type, or the type it points at, carry a unit?
+    pub fn mentions_unit(self) -> bool {
+        match self {
+            Type::Unit { .. } => true,
+            Type::Ref { to, .. } | Type::Ptr { to } => to.mentions_unit(),
+            _ => false,
+        }
+    }
+
     pub fn is_borrow(self) -> bool {
         matches!(self, Type::Ref { .. })
     }
@@ -127,11 +188,11 @@ impl Type {
     }
 
     pub fn is_int(self) -> bool {
-        matches!(self, Type::Int { .. })
+        matches!(self.bare(), Type::Int { .. })
     }
 
     pub fn is_float(self) -> bool {
-        matches!(self, Type::Float(_))
+        matches!(self.bare(), Type::Float(_))
     }
 
     pub fn is_numeric(self) -> bool {
@@ -147,7 +208,7 @@ impl Type {
 
     /// Smallest and largest value of an integer type.
     pub fn int_range(self) -> Option<(BigInt, BigInt)> {
-        let Type::Int { bits, signed } = self else { return None };
+        let Type::Int { bits, signed } = self.bare() else { return None };
         let one = BigInt::from(1);
         Some(if signed {
             (-(&one << (bits - 1)), (&one << (bits - 1)) - 1)
@@ -158,7 +219,7 @@ impl Type {
 
     /// Whole numbers up to 2^n are exact in this float type.
     pub fn float_exact_bits(self) -> u16 {
-        match self {
+        match self.bare() {
             Type::Float(32) => 24,
             _ => 53,
         }
@@ -166,7 +227,7 @@ impl Type {
 
     /// Can every value of `self` be represented exactly in `to`?
     pub fn converts_losslessly_to(self, to: Type) -> bool {
-        match (self, to) {
+        match (self.bare(), to.bare()) {
             (a, b) if a == b => true,
             (Type::Int { bits: fb, signed: fs }, Type::Int { bits: tb, signed: ts }) => {
                 if fs == ts { fb <= tb } else { !fs && fb < tb }
@@ -179,7 +240,7 @@ impl Type {
 
     /// "0 to 255", for messages.
     pub fn describe_range(self) -> String {
-        match self {
+        match self.bare() {
             Type::Int { .. } => {
                 let (lo, hi) = self.int_range().unwrap();
                 format!("{lo} to {hi}")
@@ -203,6 +264,7 @@ impl fmt::Display for Type {
             Type::Ref { mutable: false, to } => write!(f, "&{to}"),
             Type::Ref { mutable: true, to } => write!(f, "&mut {to}"),
             Type::Ptr { to } => write!(f, "*{to}"),
+            Type::Unit { of, unit } => write!(f, "{of}<{}>", unit_name(unit)),
         }
     }
 }
@@ -221,5 +283,25 @@ mod tests {
         assert_eq!(Type::ptr(Type::U32).to_string(), "*uint32");
         assert!(a.is_borrow() && !a.is_ptr());
         assert_eq!(Type::ptr(Type::Bool).target(), Some(Type::Bool));
+    }
+
+    #[test]
+    fn unit_types_print_their_name_and_erase_to_the_number() {
+        use crate::units::UnitTable;
+        let mut table = UnitTable::new();
+        let m = table.base("m").unwrap();
+        let s = table.base("s").unwrap();
+        let speed = table.div(m, s).unwrap();
+        let ty = Type::F64.with_unit(speed);
+        assert_eq!(ty.to_string(), "float64<m/s>");
+        name_unit(speed, "speed");
+        assert_eq!(ty.to_string(), "float64<speed>");
+        assert_eq!(ty.bare(), Type::F64);
+        assert_eq!(Type::borrow(true, ty).bare(), Type::borrow(true, Type::F64));
+        assert!(ty.mentions_unit() && !ty.bare().mentions_unit());
+        assert!(ty.is_numeric() && ty.is_float());
+        assert_eq!(ty.unit(), Some(speed));
+        // A dimensionless scale-1 unit is the plain number.
+        assert_eq!(Type::U32.with_unit(table.dimensionless()), Type::U32);
     }
 }
