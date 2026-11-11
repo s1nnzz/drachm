@@ -5,6 +5,8 @@
 //! legacy ownership nodes) faithfully. Nothing but tests and
 //! `drachm check --dump-mir` uses the MIR yet.
 
+pub mod analysis;
+pub mod cleanup;
 pub mod build;
 pub mod index;
 pub mod print;
