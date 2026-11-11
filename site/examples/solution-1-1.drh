@@ -1,0 +1,7 @@
+in io;
+
+none main() {
+    io::out("Hello, ");
+    io::out("Ada");
+    io::outln("!");
+}

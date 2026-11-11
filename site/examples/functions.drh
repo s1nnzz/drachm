@@ -1,0 +1,30 @@
+in io;
+
+uint32 add(uint32 a, uint32 b) {
+    return a + b;
+}
+
+bool isEven(uint32 n) {
+    return n % 2 == 0;
+}
+
+none announce(string label, uint32 value) {
+    io::outln(label + ": " + value::text());
+}
+
+// A `mut` parameter is the function's own copy, so it can change.
+uint32 countDown(mut uint32 n) {
+    mut uint32 steps = 0;
+    while (n > 0) {
+        n--;
+        steps++;
+    }
+    return steps;
+}
+
+none main() {
+    announce("sum", add(2, 3));
+    announce("steps", countDown(4));
+    io::outln(isEven(10)::text());
+    io::outln(isEven(7)::text());
+}

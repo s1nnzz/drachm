@@ -11,11 +11,13 @@ Names and syntax can still change before then.
 
 ## Step 3: ownership and borrowing
 
-- Moves and borrows checked by the compiler, with `take` and `lend`.
-- Struct fields and `open`.
-- Lifetimes and `unsafe` with raw pointers.
+Moves, `copy`, `take` and the checks for them already work in `drachm check`,
+and programs that use `copy` and moves build and run. What is still to come:
 
-Until then, every copy of a string or of a struct holding one is a deep copy.
+- Borrows, with `&string` and `&mut` parameters and `lend`. Until then the
+  compiler cannot build a program that uses one.
+- Building programs that move a field out with `take`.
+- Struct `open` fields, lifetimes, and `unsafe` with raw pointers.
 
 ## Step 4: the rest of control flow
 

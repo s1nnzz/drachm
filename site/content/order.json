@@ -8,13 +8,16 @@
       ]
     },
     {
-      "title": "Tour",
+      "title": "Lessons",
       "pages": [
-        "tour-hello",
-        "tour-numbers",
-        "tour-strings",
-        "tour-structs",
-        "tour-control"
+        "lesson-1-first-program",
+        "lesson-2-numbers",
+        "lesson-3-decisions-and-loops",
+        "lesson-4-functions",
+        "lesson-5-strings",
+        "lesson-6-structs",
+        "lesson-7-match-and-skip",
+        "lesson-8-ownership"
       ]
     },
     {

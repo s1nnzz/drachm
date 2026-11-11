@@ -1,0 +1,16 @@
+in io;
+
+struct Player {
+public:
+    string name;
+    mut uint32 hp;
+}
+
+none main() {
+    mut Player a = "Illy", 10;
+    mut Player b = copy a;
+    b.hp = 99;
+    b.name = "Copy";
+    io::outln(f"${a.name} ${a.hp}");
+    io::outln(f"${b.name} ${b.hp}");
+}

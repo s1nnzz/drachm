@@ -1,0 +1,8 @@
+in io;
+
+none main() {
+    io::out("Hello, ");
+    io::out("world");
+    io::outln("!");
+    io::outln("This line ends here.");
+}

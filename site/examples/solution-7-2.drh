@@ -1,0 +1,10 @@
+in io;
+
+none main() {
+    for (uint32 day of 1..7) {
+        match (day) {
+            case 6, 7 { io::outln(f"${day}: weekend"); }
+            case _ { io::outln(f"${day}: weekday"); }
+        }
+    }
+}

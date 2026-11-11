@@ -1,0 +1,28 @@
+in io;
+
+none main() {
+    // continue still runs the step of a C-style for.
+    for (mut uint32 i = 0; i < 6; i++) {
+        if (i % 2 == 0) { continue; }
+        io::out(i::text());
+    }
+    io::outln("");
+
+    // break 2 leaves the inner loop and the one around it.
+    for (uint32 a of 1..3) {
+        for (uint32 b of 1..3) {
+            if (a * b == 4) { break 2; }
+            io::out((a * b)::text() + " ");
+        }
+    }
+    io::outln("");
+
+    // continue 2 goes on with the next round of the outer loop.
+    for (uint32 a of 1..3) {
+        for (uint32 b of 1..3) {
+            if (b > a) { continue 2; }
+            io::out(f"${a}${b} ");
+        }
+    }
+    io::outln("");
+}

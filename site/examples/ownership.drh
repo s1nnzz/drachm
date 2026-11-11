@@ -1,0 +1,26 @@
+in io;
+
+none greet(string s) {
+    io::outln("Hello, " + s);
+}
+
+string wrap(string s) {
+    return "[" + s + "]";
+}
+
+none main() {
+    string name = "Illy";
+    greet(copy name);
+    greet(copy name);
+    string boxed = wrap(name);
+    io::outln(boxed);
+
+    // A new binding takes over the value.
+    string other = boxed;
+    io::outln(other);
+
+    // Small plain values just copy.
+    uint32 hp = 10;
+    uint32 more = hp;
+    io::outln((hp + more)::text());
+}

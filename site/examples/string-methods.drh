@@ -1,0 +1,26 @@
+in io;
+
+none main() {
+    string s = "  Hello, Drachm  ";
+    io::outln(s::trim());
+    io::outln(s::trim()->upper());
+    io::outln(s::trim()->len()->text());
+    io::outln(s::trim()->sub(0, 4));
+    io::outln(s::trim()->sub(-6, -1));
+    io::outln(s::trim()->find("Drachm")->text());
+    io::outln(s::trim()->find("zzz")->text());
+    io::outln(s::contains("Hello")->text());
+    io::outln(s::trim()->startsWith("Hello")->text());
+    io::outln(s::trim()->endsWith("m")->text());
+    io::outln("banana"::count("an")->text());
+    io::outln("banana"::replace("an", "AN"));
+    io::outln("banana"::replaceLimit("a", "A", 2));
+    io::outln("abc"::insert(1, "--"));
+    io::outln("abcdef"::remove(1, 3));
+    io::outln("ab"::repeat(3));
+    io::outln("7"::padLeft(3, "0"));
+    io::outln("ab"::padRight(5, ".") + "|");
+    io::outln("dcba"::reverse());
+    io::outln(""::isEmpty()->text());
+    io::outln("one"::join(" two"));
+}

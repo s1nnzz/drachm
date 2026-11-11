@@ -1,0 +1,12 @@
+in io;
+
+none main() {
+    string name = "Illy";
+    uint32 hp = 42;
+    io::outf("% has % hp\n", name, hp);
+    io::outf("[%8] [%-8] [%08]\n", hp, hp, hp);
+    io::outf("%.2 and %.1\n", 3.14159, 2.75);
+    io::outf("%x %X %b %o\n", 255, 255, 5, 8);
+    io::outf("[%-10.2]\n", 3.14159);
+    io::outf("100\% sure\n");
+}

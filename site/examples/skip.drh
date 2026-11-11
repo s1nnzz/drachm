@@ -1,0 +1,27 @@
+in io;
+
+none main() {
+    uint32 hp = 5;
+
+    // skip; leaves the if block it is in.
+    if (hp > 0) {
+        io::out("alive ");
+        if (hp < 10) {
+            skip;
+        }
+        io::out("healthy ");
+    }
+    io::outln("| after");
+
+    // skip to next jumps to the next branch of the same chain.
+    if (hp > 3) {
+        io::out("a ");
+        skip to next;
+        io::out("never ");
+    } else if (hp > 1) {
+        io::out("b ");
+    } else {
+        io::out("c ");
+    }
+    io::outln("| end");
+}

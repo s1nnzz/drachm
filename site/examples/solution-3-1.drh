@@ -1,0 +1,9 @@
+in io;
+
+none main() {
+    mut uint32 sum = 0;
+    for (uint32 n of 1..100) {
+        sum += n;
+    }
+    io::outln(sum::text());
+}

@@ -1,0 +1,18 @@
+in io;
+
+struct Counter {
+public:
+    mut uint32 count;
+
+    none bump() {
+        self.count++;
+    }
+}
+
+none main() {
+    Counter c = 0;
+    c::bump();
+    c::bump();
+    c::bump();
+    io::outln(c.count::text());
+}

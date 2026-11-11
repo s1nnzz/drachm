@@ -1,0 +1,10 @@
+in io;
+
+uint32 square(uint32 n) {
+    return n * n;
+}
+
+none main() {
+    io::outln(square(9)::text());
+    io::outln(square(12)::text());
+}

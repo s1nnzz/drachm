@@ -1,0 +1,25 @@
+in io;
+
+struct Temperature {
+public:
+    float64 celsius;
+
+    float64 fahrenheit() {
+        return self.celsius * 9.0 / 5.0 + 32.0;
+    }
+
+    static Temperature boiling() {
+        Temperature t = 100.0;
+        return t;
+    }
+
+    static float64 freezing() {
+        return 0.0;
+    }
+}
+
+none main() {
+    Temperature t = Temperature::boiling();
+    io::outln(t::fahrenheit()->text());
+    io::outln(Temperature::freezing()->text());
+}

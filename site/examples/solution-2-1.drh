@@ -1,0 +1,9 @@
+in io;
+
+none main() {
+    uint32 width = 7;
+    uint32 height = 6;
+    uint32 area = width * height;
+    io::out("Area: ");
+    io::outln(area::text());
+}

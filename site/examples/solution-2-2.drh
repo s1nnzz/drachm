@@ -1,0 +1,7 @@
+in io;
+
+none main() {
+    float64 celsius = 25.0;
+    float64 fahrenheit = celsius * 9.0 / 5.0 + 32.0;
+    io::outln(fahrenheit::text());
+}

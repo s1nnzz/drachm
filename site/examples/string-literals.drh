@@ -1,0 +1,13 @@
+in io;
+
+none main() {
+    uint32 hp = 42;
+    io::outln("tab:\there, quote: \", slash: \\, smile: \u{1F600}");
+    io::outln("plain ${hp}");
+    io::outln(f"formatted ${hp} and ${hp * 2}");
+    io::outln(`backticks work like f"..." ${hp}`);
+    io::outln("""Several
+lines of text""");
+    io::outln(f"""hp is ${hp}
+on the next line""");
+}

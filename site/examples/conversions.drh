@@ -1,0 +1,22 @@
+in io;
+
+none main() {
+    // Up to a type that holds every value: no warning.
+    uint8 small = 200;
+    uint32 wide = small;
+    io::outln(wide::text());
+
+    // The right side of `+` converts to the type of the left side.
+    uint32 total = wide + small;
+    io::outln(total::text());
+
+    // `to<T>()` says that losing value is intended. The value wraps.
+    sint64 big = 1000;
+    uint8 cut = big::to<uint8>();
+    io::outln(cut::text());
+
+    // A float becomes a whole number by dropping the fraction.
+    float64 pi = 3.99;
+    sint32 three = pi::to<sint32>();
+    io::outln(three::text());
+}
