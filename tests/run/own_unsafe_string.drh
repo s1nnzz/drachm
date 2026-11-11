@@ -1,0 +1,12 @@
+//--!$unsafe: true
+in io;
+none main() {
+    mut string s = "hi";
+    unsafe {
+        *string p = address of s;
+        string s2 = copy *p;
+        *p = "there";
+        io::outln(s2);
+    }
+    io::outln(s);
+}

@@ -1,0 +1,11 @@
+//--!$unsafe: true
+in io;
+unsafe none bump(*uint32 p) { unsafe { *p = *p + 1; } }
+none main() {
+    mut uint32 n = 41;
+    unsafe {
+        *uint32 p = address of n;
+        bump(p);
+    }
+    io::outln(n::text());
+}
