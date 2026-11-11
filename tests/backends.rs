@@ -5,7 +5,7 @@
 use std::env::consts::EXE_SUFFIX;
 use std::fs;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 fn text(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).replace("\r\n", "\n")
@@ -44,7 +44,7 @@ fn borrows_through_mir() {
         for optimise in [false, true] {
             let exe = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("be-borrow-{i}-{}{EXE_SUFFIX}", optimise as u8));
             drachm::build_unchecked(&hir, &exe, optimise).unwrap_or_else(|e| panic!("program {i} (-O {optimise}): {e}"));
-            let run = Command::new(&exe).output().unwrap();
+            let run = Command::new(&exe).stdin(Stdio::null()).output().unwrap();
             let _ = fs::remove_file(&exe);
             assert_eq!(text(&run.stdout), *want, "program {i} (-O {optimise})");
         }

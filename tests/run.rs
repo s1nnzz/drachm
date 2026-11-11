@@ -19,13 +19,18 @@
 //! twice, fails the case. A program that panics (exit code 101) is exempt: a
 //! panic does not drop what is alive.
 //!
+//! `NAME.in` next to a test or example is that program's standard input
+//! (`tests/run/NAME.in`, `tests/examples/NAME.in`, `site/examples/NAME.in`).
+//! Without one, stdin is null: reading gives end of input at once, so a test
+//! never waits for a terminal.
+//!
 //! `DRACHM_BLESS=1 cargo test` writes `.out`/`.code` for run cases from what
 //! the program actually printed. Read the diff before committing it.
 
 use std::env::consts::EXE_SUFFIX;
-use std::fs;
+use std::fs::{self, File};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
 
 fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -62,9 +67,21 @@ fn read(path: &Path) -> Option<String> {
     fs::read_to_string(path).ok().map(|s| s.replace("\r\n", "\n"))
 }
 
-/// Run a compiled program with the string runtime's leak check on.
-fn run_program(exe: &Path) -> Result<Output, String> {
-    Command::new(exe).env("DRACHM_CHECK_LEAKS", "1").output().map_err(|e| format!("could not run: {e}"))
+/// The standard input for a program's source: `NAME.in` beside the source or,
+/// for `examples/`, beside its expectations in `tests/examples/`.
+fn input_of(src: &Path) -> Option<PathBuf> {
+    let stem = src.file_stem().unwrap().to_str().unwrap();
+    [src.with_extension("in"), root().join("tests/examples").join(format!("{stem}.in"))].into_iter().find(|p| p.exists())
+}
+
+/// Run a compiled program with the string runtime's leak check on. Its
+/// standard input is `stdin`'s file, or null.
+fn run_program(exe: &Path, stdin: Option<&Path>) -> Result<Output, String> {
+    let stdin = match stdin {
+        Some(p) => Stdio::from(File::open(p).map_err(|e| format!("{}: {e}", p.display()))?),
+        None => Stdio::null(),
+    };
+    Command::new(exe).env("DRACHM_CHECK_LEAKS", "1").stdin(stdin).output().map_err(|e| format!("could not run: {e}"))
 }
 
 /// The runtime's leak or double-free report, if the program printed one and
@@ -117,7 +134,7 @@ fn run_case(src: &Path, expect_dir: &Path) -> Result<(), String> {
         }
         None => {}
     }
-    let run = run_program(&exe)?;
+    let run = run_program(&exe, input_of(src).as_deref())?;
     let _ = fs::remove_file(&exe);
     let (stdout, stderr) = (text(&run.stdout), text(&run.stderr));
     let code = run.status.code().ok_or("killed by a signal")?;
@@ -217,7 +234,8 @@ fn site_example(src: &Path) -> Result<(), String> {
         if !build.status.success() || !compiler_output.is_empty() {
             return Err(format!("did not compile cleanly with {flags:?}:\n{compiler_output}"));
         }
-        let run = run_program(&exe)?;
+        let input = src.with_extension("in");
+        let run = run_program(&exe, input.exists().then_some(input.as_path()))?;
         let _ = fs::remove_file(&exe);
         let stderr = text(&run.stderr);
         if let Some(leak) = leak_report(&run, &stderr) {
@@ -258,7 +276,7 @@ fn optimised_output_matches() {
             if !build.status.success() {
                 return Err(format!("did not compile with {flags:?}:\n{}", text(&build.stderr)));
             }
-            let run = run_program(&exe)?;
+            let run = run_program(&exe, input_of(src).as_deref())?;
             let _ = fs::remove_file(&exe);
             if let Some(leak) = leak_report(&run, &text(&run.stderr)) {
                 return Err(format!("{leak} (with {flags:?})"));

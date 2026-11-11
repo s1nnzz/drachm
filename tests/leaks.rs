@@ -55,7 +55,7 @@ fn build() -> std::path::PathBuf {
 
 fn run(exe: &Path, mode: &str, check: bool) -> (Option<i32>, String) {
     let mut cmd = Command::new(exe);
-    cmd.arg(mode).env_remove("DRACHM_CHECK_LEAKS");
+    cmd.arg(mode).env_remove("DRACHM_CHECK_LEAKS").stdin(std::process::Stdio::null());
     if check {
         cmd.env("DRACHM_CHECK_LEAKS", "1");
     }
