@@ -1,12 +1,13 @@
 import { createCompiler } from '@fumadocs/mdx-remote';
 import { rehypeCodeDefaultOptions } from 'fumadocs-core/mdx-plugins';
 import { remarkExample } from './remark-example';
+import { remarkSections } from './remark-sections';
 import { drachmLang, themes } from './shiki';
 import type { Doc } from './content';
 
 const compiler = createCompiler({
   format: 'md',
-  remarkPlugins: (v) => [remarkExample, ...v],
+  remarkPlugins: (v) => [remarkExample, ...v, remarkSections],
   rehypeCodeOptions: {
     ...rehypeCodeDefaultOptions,
     themes,
@@ -15,6 +16,8 @@ const compiler = createCompiler({
 });
 
 export async function renderDoc(doc: Doc) {
-  const { body, toc } = await compiler.compile({ source: doc.body, filePath: doc.file || 'x.md' });
-  return { Body: body, toc };
+  const { body, toc, vfile } = await compiler.compile({ source: doc.body, filePath: doc.file || 'x.md' });
+  // True when remarkSections split at least one section: the page then uses the wide two-column layout.
+  const split = vfile.data.drhSplit === true;
+  return { Body: body, toc, split };
 }

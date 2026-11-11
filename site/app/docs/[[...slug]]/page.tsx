@@ -22,9 +22,11 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function Page({ params }: Props) {
   const doc = docBySlug.get(slugOf((await params).slug));
   if (!doc) notFound();
-  const { Body, toc } = await renderDoc(doc);
+  const { Body, toc, split } = await renderDoc(doc);
+  // Pages with prose/code sections use the wide layout and drop the right-hand TOC
+  // (`full` hides it and widens the article).
   return (
-    <DocsPage toc={toc}>
+    <DocsPage toc={toc} full={split}>
       <DocsTitle>{doc.title}</DocsTitle>
       <DocsDescription>{doc.description}</DocsDescription>
       <DocsBody>
