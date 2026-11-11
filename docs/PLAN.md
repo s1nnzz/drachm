@@ -25,6 +25,7 @@ answers into `docs/SPEC.md` and the design doc, and note leftovers under that st
 | 6 | Generics, interfaces, collections | not started |
 | 7 | Modules, config, scripts, stdlib | not started |
 | 8 | Language server | not started |
+| D | Documentation site (cross-cutting) | started |
 
 Later, unscheduled: concurrency (threads, async, lambdas beyond step 6),
 C header import, `drachm fmt`, the Agora registry.
@@ -648,6 +649,31 @@ Work:
 VS Code first (decided).
 
 **Open (ask owner):** highlighting colours/theme, if they care.
+
+---
+
+## Documentation site (cross-cutting)
+
+Goal: a browsable site for people learning Drachm, separate from the design
+documents. Lives in `site/`, built with mdBook (a single Rust binary, Markdown
+sources, search built in), published to GitHub Pages by a workflow in
+`.github/workflows/`. Drachm code blocks are highlighted with a small
+highlight.js grammar for Drachm until a proper one exists.
+
+Rules:
+- Only document what the compiler accepts today. Designed-but-not-built
+  features go on one "Coming later" page, marked by step.
+- Every example on the site is a real program, checked by `cargo test`
+  (examples live in `site/examples/*.drh` with expected output beside them).
+- Update the site in the same commit as the feature it describes.
+
+Pages: introduction and install, a tour (hello world through structs and
+`match`), one reference page per area (types and numbers, strings, structs and
+methods, control flow, errors/diagnostics, the CLI), and the error index
+(generated from `src/diag/codes.rs`, matching `drachm explain`).
+
+**Open (ask owner):** domain (docs.drachm.dev?), and whether the repo/site go
+public.
 
 ---
 
