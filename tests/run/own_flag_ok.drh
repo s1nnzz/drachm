@@ -1,0 +1,4 @@
+//--!$unsafe: false
+//--!$unsfe: true
+in io;
+none main() { io::outln("ok"); }
