@@ -1465,6 +1465,10 @@ mod tests {
         assert!(d.is_empty(), "{:?}", errors(&d));
         assert!(p.funcs[0].is_unsafe.is_some());
         assert_eq!(p.funcs[1].lives.iter().map(|l| l.0.as_str()).collect::<Vec<_>>(), ["a", "b"]);
+        let (q, d) = parse_src("&string pick(&string k) lives from self or k { }");
+        assert!(d.is_empty(), "{d:?}");
+        assert!(q.funcs[0].lives_from);
+        assert_eq!(q.funcs[0].lives.iter().map(|l| l.0.as_str()).collect::<Vec<_>>(), ["self", "k"]);
         assert_eq!(p.funcs[1].ret.mods.len(), 1);
         let (_, d) = parse_src("none f() fails { }");
         assert_eq!(errors(&d), ["`fails` is not supported yet"]);
