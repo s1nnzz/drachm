@@ -28,7 +28,7 @@ pub fn generate(hir: &hir::Program, mir: &Program) -> String {
         let _ = writeln!(out, "{};", signature(hir, body));
     }
     for &body in &bodies {
-        let g = Gen { hir, mir, body, out: String::new(), skip_drop: moved_out_temps(hir, body), jumped: vec![false; body.blocks.len()] };
+        let g = Gen { hir, mir, body, out: String::new(), skip_drop: moved_out_temps(hir, body), jumped: vec![false; body.blocks.len()], branch_over: None, consts: Vec::new() };
         let _ = writeln!(out, "\n{} {{\n{}}}", signature(hir, body), g.function());
     }
     out += &main_fn(hir);
@@ -52,26 +52,17 @@ struct Gen<'a> {
     skip_drop: Vec<bool>,
     /// Blocks some emitted `goto` names.
     jumped: Vec<bool>,
+    /// `if (!c) goto els;` for the block just emitted, left for `function` to
+    /// print (or to fold into an early return).
+    branch_over: Option<(String, BlockId)>,
+    /// Scalars assigned exactly once, declared `const` where they are assigned.
+    consts: Vec<bool>,
 }
 
 impl Gen<'_> {
     fn function(mut self) -> String {
         let body = self.body;
-        let mut text = String::new();
-        for (l, d) in body.locals.iter_enumerated() {
-            if l.index() > body.arg_count && d.ty != Type::None {
-                // Strings start empty, which is what `Drop` relies on. Nothing
-                // else is read before it is assigned (validated), so nothing
-                // else is initialised: the C compiler would only have to remove it.
-                if d.ty == Type::Str {
-                    let _ = writeln!(text, "    drachm_str l{} = {{0}};", l.index());
-                } else {
-                    let _ = writeln!(text, "    {} l{};", c_type(d.ty), l.index());
-                }
-            } else if l.index() == 0 && d.ty != Type::None {
-                let _ = writeln!(text, "    {} l0;", c_type(d.ty));
-            }
-        }
+        self.consts = self.const_locals();
         let order = reverse_postorder(body);
         let mentions = mentions(body);
         let mut pieces = Vec::new();
@@ -124,14 +115,83 @@ impl Gen<'_> {
                 self.statement(&s.kind);
             }
             self.terminator(&block.terminator.kind, order.get(k + 1).copied(), cond);
-            pieces.push((b, std::mem::take(&mut self.out)));
+            pieces.push((b, std::mem::take(&mut self.out), self.branch_over.take()));
         }
-        for (b, piece) in pieces {
-            if self.jumped[b.index()] {
-                let _ = writeln!(text, "bb{}:;", b.index());
+        // `if (!c) goto bbE;` followed by a block that is just `return x;` and
+        // then by bbE is written `if (c) { return x; }`: the shape GCC's
+        // early-return heuristics were tuned on, and measurably faster on
+        // small recursive functions.
+        let n = pieces.len();
+        let mut folded = vec![false; n];
+        for k in 0..n {
+            if let Some((_, els)) = &pieces[k].2
+                && k + 2 < n
+                && pieces[k + 2].0 == *els
+                && pieces[k + 1].1.lines().count() == 1
+                && pieces[k + 1].1.trim_start().starts_with("return")
+            {
+                folded[k] = true;
             }
-            text += &piece;
         }
+        loop {
+            let mut jumped = self.jumped.clone();
+            for k in 0..n {
+                if let (Some((_, els)), false) = (&pieces[k].2, folded[k]) {
+                    jumped[els.index()] = true;
+                }
+            }
+            let mut changed = false;
+            for k in 0..n {
+                if folded[k] && jumped[pieces[k + 1].0.index()] {
+                    folded[k] = false;
+                    changed = true;
+                }
+            }
+            if !changed {
+                self.jumped = jumped;
+                break;
+            }
+        }
+        let mut body_text = String::new();
+        let mut k = 0;
+        while k < n {
+            let (b, piece, branch) = &pieces[k];
+            if self.jumped[b.index()] {
+                let _ = writeln!(body_text, "bb{}:;", b.index());
+            }
+            body_text += piece;
+            match branch {
+                Some((c, _)) if folded[k] => {
+                    let _ = writeln!(body_text, "    if ({c}) {{ {} }}", pieces[k + 1].1.trim());
+                    k += 2;
+                    continue;
+                }
+                Some((c, els)) => {
+                    let _ = writeln!(body_text, "    if (!{c}) goto bb{};", els.index());
+                }
+                None => {}
+            }
+            k += 1;
+        }
+        // Declare only the locals the code names: a flag or a return slot that
+        // was folded away would otherwise sit there unused, and GCC's choices
+        // on small recursive functions change with such declarations.
+        let named = named_locals(&body_text);
+        let mut text = String::new();
+        for (l, d) in body.locals.iter_enumerated() {
+            if !named.contains(&l.index()) || (l.index() <= body.arg_count && l.index() != 0) || d.ty == Type::None || self.consts[l.index()] {
+                continue;
+            }
+            // Strings start empty, which is what `Drop` relies on. Nothing
+            // else is read before it is assigned (validated), so nothing
+            // else is initialised: the C compiler would only have to remove it.
+            if d.ty == Type::Str {
+                let _ = writeln!(text, "    drachm_str l{} = {{0}};", l.index());
+            } else {
+                let _ = writeln!(text, "    {} l{};", c_type(d.ty), l.index());
+            }
+        }
+        text += &body_text;
         text
     }
 
@@ -146,6 +206,56 @@ impl Gen<'_> {
             self.jumped[target.index()] = true;
             self.line(format!("goto bb{};", target.index()));
         }
+    }
+
+    /// The left-hand side of an assignment to `dest`: a `const` declaration
+    /// for a scalar assigned only here. GCC treats such single-assignment
+    /// locals better than variables declared up front (measured on `fib`).
+    fn decl(&self, dest: &Place, ty: Type) -> String {
+        let lv = self.lvalue(dest);
+        if dest.proj.is_empty() && self.consts[dest.local.index()] { format!("const {} {lv}", c_type(ty)) } else { lv }
+    }
+
+    /// Locals that can be declared `const` at their one assignment.
+    fn const_locals(&self) -> Vec<bool> {
+        let body = self.body;
+        let n = body.locals.len();
+        let mut defs = vec![0usize; n];
+        let mut ok = vec![true; n];
+        for block in body.blocks.iter() {
+            for st in &block.statements {
+                if let StatementKind::Assign(d, rv) = &st.kind {
+                    defs[d.local.index()] += 1;
+                    let wide = |t: Type| matches!(t, Type::Int { bits: 128, .. });
+                    let simple = match rv {
+                        // These two can need a helper block with its own scope.
+                        Rvalue::IntPow(..) => false,
+                        Rvalue::Convert(op, to) => !wide(*to) && !wide(self.op_ty(op)),
+                        _ => true,
+                    };
+                    if !d.proj.is_empty() || !simple {
+                        ok[d.local.index()] = false;
+                    }
+                }
+            }
+            if let TerminatorKind::Call { callee, dest: Some(d), .. } = &block.terminator.kind {
+                defs[d.local.index()] += 1;
+                if !d.proj.is_empty() || !matches!(callee, Callee::Func(_) | Callee::Str(_)) {
+                    ok[d.local.index()] = false;
+                }
+            }
+        }
+        (0..n)
+            .map(|i| {
+                let d = &body.locals[Local(i as u32)];
+                i > body.arg_count
+                    && defs[i] == 1
+                    && ok[i]
+                    && !d.in_memory
+                    && matches!(d.kind, LocalKind::Temp | LocalKind::User { .. })
+                    && matches!(d.ty, Type::Int { .. } | Type::Float(_) | Type::Bool)
+            })
+            .collect()
     }
 
     // ---- places and operands -----------------------------------------------
@@ -198,7 +308,8 @@ impl Gen<'_> {
             StatementKind::Assign(dest, rv) => {
                 let ty = place_ty(self.body, self.hir, dest).expect("validated MIR");
                 if ty != Type::None {
-                    self.assign(&self.lvalue(dest), ty, rv);
+                    let lhs = self.decl(dest, ty);
+                    self.assign(&lhs, ty, rv);
                 }
             }
             StatementKind::Drop { place, flag: None, .. } => {
@@ -353,8 +464,7 @@ impl Gen<'_> {
                 if then == els {
                     self.goto(*then, next);
                 } else if Some(*then) == next {
-                    self.jumped[els.index()] = true;
-                    self.line(format!("if (!{c}) goto bb{};", els.index()));
+                    self.branch_over = Some((c, *els));
                 } else if Some(*els) == next {
                     self.jumped[then.index()] = true;
                     self.line(format!("if ({c}) goto bb{};", then.index()));
@@ -390,7 +500,10 @@ impl Gen<'_> {
                 let a: Vec<String> = args.iter().map(|a| self.operand(&a.op)).collect();
                 let call = format!("{}({})", f.symbol, a.join(", "));
                 match (&dest_lv, f.ret) {
-                    (Some(d), t) if t != Type::None => self.line(format!("{d} = {call};")),
+                    (Some(_), t) if t != Type::None => {
+                        let d = self.decl(dest.unwrap(), t);
+                        self.line(format!("{d} = {call};"))
+                    }
                     _ => self.line(format!("{call};")),
                 }
             }
@@ -485,4 +598,27 @@ fn mentions(body: &Body) -> Vec<usize> {
         }
     }
     n
+}
+
+/// The numbers N of every `lN` in `text`.
+fn named_locals(text: &str) -> std::collections::BTreeSet<usize> {
+    let bytes = text.as_bytes();
+    let mut found = std::collections::BTreeSet::new();
+    let ident = |c: u8| c.is_ascii_alphanumeric() || c == b'_';
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'l' && (i == 0 || !ident(bytes[i - 1])) {
+            let mut j = i + 1;
+            while j < bytes.len() && bytes[j].is_ascii_digit() {
+                j += 1;
+            }
+            if j > i + 1 && (j == bytes.len() || !ident(bytes[j])) {
+                found.insert(text[i + 1..j].parse().unwrap());
+            }
+            i = j;
+        } else {
+            i += 1;
+        }
+    }
+    found
 }
