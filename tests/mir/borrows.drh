@@ -32,8 +32,9 @@ none main() {
     mut uint32 count = 3;
     &uint32 view = &count;
     uint32 seen = view + 1;
-    *uint32 raw = address of count;
+    *uint32 raw;
     unsafe {
+        raw = address of count;
         uint32 v = peek(address of count);
         *raw = v + seen;
         if (raw == none) { count = 0; }

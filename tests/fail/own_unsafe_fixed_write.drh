@@ -1,0 +1,8 @@
+//--!$unsafe: true
+none main() {
+    uint32 n = 5;
+    unsafe {
+        *fixed uint32 p = address of n;
+        *p = 6;
+    }
+}

@@ -1,0 +1,1 @@
+error[E0316]: copying a raw pointer needs an `unsafe { }` block

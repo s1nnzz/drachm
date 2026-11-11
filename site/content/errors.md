@@ -542,6 +542,34 @@ amount. Subtract two points to get a `delta`, and add a `delta` to a point
 to get a point. Two points cannot be added, and a point cannot be scaled
 or negated.
 
+## E0333: cannot write through a `*fixed` pointer
+
+A `*fixed T` pointer comes from `address of` an immutable binding, so it
+can only be read. To write through a pointer, make the binding it
+points to `mut` (or `open`) and take the address again:
+
+    mut uint32 n = 5;
+    unsafe { *uint32 p = address of n; *p = 6; }
+
+## E0334: `*T` and `*fixed T` do not convert to each other
+
+A `*T` and a `*fixed T` are different kinds of pointer, and an assignment,
+argument or comparison does not change one into the other. To change
+the kind, say so inside an `unsafe { }` block:
+
+    unsafe { *fixed uint32 r = w::freeze(); }   // `*T` to `*fixed T`
+    unsafe { *uint32 w2 = r::thaw(); }          // `*fixed T` to `*T`
+
+## E0316: an operation on a raw pointer needs `unsafe`
+
+Making, reading, writing, copying, comparing, converting, moving, passing
+or returning a raw pointer, and calling an `unsafe` function, must be
+inside an `unsafe { }` block. The body of an `unsafe` function is one
+such block:
+
+    none read(*uint32 p) { unsafe { uint32 v = *p; } }
+    unsafe none bump(*uint32 p) { *p = *p + 1; }
+
 ## E0901: not supported yet
 
 This is part of Drachm's design, but this version of the compiler does
