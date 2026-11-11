@@ -1,0 +1,2 @@
+error[E0302]
+cannot change `y` while it is borrowed

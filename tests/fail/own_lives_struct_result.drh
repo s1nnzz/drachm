@@ -1,0 +1,7 @@
+struct Parser lives src { public: &string src; uint32 pos; }
+Parser start(&string a, &string b) {
+    if (a::len() > b::len()) { Parser p = a, 0; return p; }
+    Parser q = b, 0;
+    return q;
+}
+none main() { }

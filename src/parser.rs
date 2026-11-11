@@ -366,6 +366,7 @@ impl Parser<'_> {
         let span = ret.span.to(self.prev_span());
         let mut lives = Vec::new();
         let mut lives_span = None;
+        let mut lives_from = false;
         loop {
             match self.peek() {
                 Tok::Kw("lives") => {
@@ -374,7 +375,13 @@ impl Parser<'_> {
                             .label(first, "first written here"));
                     }
                     let at = self.bump().span;
-                    lives = self.name_list("a parameter name after `lives`")?;
+                    if self.peek() == &Tok::Kw("from") {
+                        self.bump();
+                        lives_from = true;
+                        lives = self.source_list()?;
+                    } else {
+                        lives = self.name_list("a parameter name after `lives`")?;
+                    }
                     lives_span = Some(at.to(self.prev_span()));
                 }
                 Tok::Kw("fails") => {
@@ -384,7 +391,24 @@ impl Parser<'_> {
             }
         }
         let body = self.block()?;
-        Ok(Func { ret, name, name_span, params, body, is_unsafe, lives, lives_span, span })
+        Ok(Func { ret, name, name_span, params, body, is_unsafe, lives, lives_span, lives_from, span })
+    }
+
+    /// `self or key or other`, after `lives from`.
+    fn source_list(&mut self) -> Parsed<Vec<(String, Span)>> {
+        let mut names = Vec::new();
+        loop {
+            if self.peek() == &Tok::Kw("self") {
+                names.push(("self".to_string(), self.bump().span));
+            } else {
+                names.push(self.ident("a parameter name or `self` after `lives from`")?);
+            }
+            if self.peek() == &Tok::Ident("or".to_string()) {
+                self.bump();
+            } else {
+                return Ok(names);
+            }
+        }
     }
 
     /// `a, b, c`
@@ -1441,6 +1465,10 @@ mod tests {
         assert!(d.is_empty(), "{:?}", errors(&d));
         assert!(p.funcs[0].is_unsafe.is_some());
         assert_eq!(p.funcs[1].lives.iter().map(|l| l.0.as_str()).collect::<Vec<_>>(), ["a", "b"]);
+        let (q, d) = parse_src("&string pick(&string k) lives from self or k { }");
+        assert!(d.is_empty(), "{d:?}");
+        assert!(q.funcs[0].lives_from);
+        assert_eq!(q.funcs[0].lives.iter().map(|l| l.0.as_str()).collect::<Vec<_>>(), ["self", "k"]);
         assert_eq!(p.funcs[1].ret.mods.len(), 1);
         let (_, d) = parse_src("none f() fails { }");
         assert_eq!(errors(&d), ["`fails` is not supported yet"]);

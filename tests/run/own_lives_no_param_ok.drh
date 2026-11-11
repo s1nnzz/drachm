@@ -1,0 +1,8 @@
+in io;
+uint64 count(&string a) { return a::len(); }
+none greet(&string a) { io::outln(a); }
+none main() {
+    string x = "fine";
+    greet(&x);
+    io::outln(count(&x)::text());
+}

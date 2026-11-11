@@ -86,10 +86,9 @@ borrowed parameters must write `lives` itself.
 
 ### Naming self as a source
 
-<!-- status: tentative -->
-
 To name `self` as a source, the form is `lives from`, with sources joined by
-`or`. This spelling is an unconfirmed reading.
+`or`. Plain `lives a, b` stays for parameters. See
+[Where a borrow comes from](reference-lives.md).
 
 ```drachm
 &string pick(&string key) lives from self or key { /* ... */ }

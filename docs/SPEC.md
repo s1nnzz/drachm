@@ -523,6 +523,10 @@ private:
   borrow could come from several parameters (otherwise E0308); it names whole
   parameters, never paths:
   `&string longest(&string a, &string b) lives a, b { }`.
+- A method names `self` with a from clause, sources joined by `or`:
+  `&string pick(&string key) lives from self or key { }`. Plain `lives a, b`
+  stays for parameters. `lives p` keeps the whole of parameter `p` borrowed
+  while the result is used (owner, WP8 Q1).
 - Struct fields may hold borrows; the struct's `lives` names the borrow fields
   themselves, each of which may borrow from a different place:
   `struct Pair lives a, b { &string a; &string b; }`,

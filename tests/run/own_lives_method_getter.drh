@@ -1,0 +1,10 @@
+in io;
+struct Person {
+    public:
+    string name;
+    &string title() { return &self.name; }
+}
+none main() {
+    Person p = "Illy";
+    io::outln(p::title());
+}

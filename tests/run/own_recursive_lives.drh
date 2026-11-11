@@ -1,0 +1,9 @@
+in io;
+&string pickA(&string a, &string b, uint32 n) {
+    if (n == 0) { return a; }
+    return pickA(a, b, n - 1);
+}
+none main() {
+    string x = "a"; string y = "b";
+    io::outln(pickA(&x, &y, 3));
+}

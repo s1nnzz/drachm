@@ -1,0 +1,14 @@
+in io;
+&string ping(&string a, uint32 n) {
+    if (n == 0) { return a; }
+    return pong(a, n - 1);
+}
+&string pong(&string a, uint32 n) {
+    if (n == 0) { return a; }
+    return ping(a, n - 1);
+}
+none main() {
+    string x = "mutual";
+    &string r = ping(&x, 5);
+    io::outln(r);
+}

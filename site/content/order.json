@@ -30,6 +30,7 @@
         "reference-strings",
         "reference-structs",
         "reference-ownership",
+        "reference-lives",
         "reference-control-flow",
         "reference-diagnostics",
         "reference-cli",

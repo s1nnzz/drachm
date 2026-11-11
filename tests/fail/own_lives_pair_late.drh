@@ -1,0 +1,12 @@
+in io;
+struct Pair lives a, b { public: &string a; &string b; }
+none main() {
+    string x = "x";
+    mut Pair p = &x, &x;
+    if (true) {
+        string y = "y";
+        Pair q = &x, &y;
+        p = q;
+    }
+    io::outln(p.a);
+}

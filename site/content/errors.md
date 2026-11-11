@@ -335,6 +335,20 @@ A `static` method is called on the struct (`Point::origin()`); every
 other method is called on a value (`p::length()`). This call used the
 wrong one.
 
+## E0308: which parameter the result borrows from is ambiguous
+
+A function that returns a borrow gets its `lives` from its body when only
+one parameter can be the source. When the result may borrow from several
+parameters, depending on the path taken, say which with `lives`:
+
+    &string longest(&string a, &string b) lives a, b {
+        if (a::len() > b::len()) { return a; }
+        return b;
+    }
+
+A method that may return a borrow of `self` or of a parameter names `self`
+after `from`: `lives from self or key`.
+
 ## E0309: `lives` does not match the body
 
 A function's `lives` clause names whole parameters that hold a borrow,
@@ -342,6 +356,24 @@ and the result may borrow from those. Naming something that is not a
 parameter holding a borrow is an error:
 
     &string pick(&string a, uint32 n) lives n { ... }   // `n` holds no borrow
+
+It is also an error when the body returns a borrow of a parameter the
+clause does not name:
+
+    &string pick(&string a, &string b) lives a { return b; }   // add `b`
+
+## E0320: a borrow stored where the caller cannot promise it
+
+A parameter that holds a borrow, such as `&mut &string a`, can only be given
+borrows that last as long as what the caller put there. Storing a borrow of
+another parameter into it is not allowed, because the caller cannot promise
+the other parameter lives that long:
+
+    none keep(&mut &string a, &string b) {
+        a = b;                   // error
+    }
+
+Store a copy of the value instead.
 
 ## E0314: struct borrows without `lives`
 

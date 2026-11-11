@@ -1,0 +1,8 @@
+in io;
+&string first(&string a, &string b) lives a, b { return a; }
+none main() {
+    string x = "one";
+    string y = "two";
+    &string r = first(&x, &y);
+    io::outln(r);
+}

@@ -1,0 +1,16 @@
+in io;
+&string longest(&string a, &string b) lives a, b {
+    if (a::len() > b::len()) { return a; }
+    return b;
+}
+&string first(&string a, uint32 n) { return a; }
+struct Parser lives src { public: &string src; uint32 pos; }
+&string rest(&Parser p) { return p.src; }
+none main() {
+    string x = "long one";
+    string y = "short";
+    io::outln(longest(&x, &y));
+    io::outln(first(&y, 3));
+    Parser p = &x, 0;
+    io::outln(rest(&p));
+}

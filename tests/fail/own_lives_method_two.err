@@ -1,0 +1,3 @@
+error[E0308]
+the result borrows from `self` or `key`
+write `lives from self or key`

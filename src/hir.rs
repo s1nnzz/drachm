@@ -142,6 +142,8 @@ pub struct Func {
     pub is_unsafe: bool,
     /// Declared `lives`: indexes of the parameters named.
     pub lives: Option<Vec<usize>>,
+    /// The written `lives` clause, from the word to the end of the list.
+    pub lives_span: Option<Span>,
 }
 
 pub struct Local {

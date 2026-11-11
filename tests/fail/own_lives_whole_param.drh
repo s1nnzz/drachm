@@ -1,0 +1,13 @@
+// Known limitation: `lives p` keeps the whole of `p` borrowed (language
+// question 1 in docs/impl/wp8.md). If the owner decides the result only holds
+// what `p` holds, this program becomes valid and the test flips.
+in io;
+struct Parser lives src { public: &string src; mut uint32 pos; }
+&string rest(&Parser p) { return p.src; }
+none main() {
+    string text = "hello";
+    mut Parser p = &text, 0;
+    &string r = rest(&p);
+    p.pos = 3;
+    io::outln(r);
+}

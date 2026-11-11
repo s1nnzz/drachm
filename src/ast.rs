@@ -139,6 +139,8 @@ pub struct Func {
     pub lives: Vec<(String, Span)>,
     /// From `lives` to the end of its list, if written.
     pub lives_span: Option<Span>,
+    /// Written `lives from a or b`, the form that may name `self`.
+    pub lives_from: bool,
     /// From the return type to the closing `)`.
     pub span: Span,
 }
