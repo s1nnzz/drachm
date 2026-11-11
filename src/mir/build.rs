@@ -606,6 +606,8 @@ impl<'a> Builder<'a> {
     /// `dest = e`. A call goes through a temp (B7). If the old value of
     /// `dest` needs dropping it is dropped after `e` is evaluated (B6).
     fn assign(&mut self, dest: Place, e: &Expr, drop_old: bool) {
+        // Where the assigned place is written (conflicts with a borrow point at it).
+        let dest_span = self.span;
         self.at(expr_span(e));
         // Only a declaration whose whole initializer is a borrow hoists (B9).
         self.decl_init = self.decl_init && matches!(e.kind, ExprKind::Borrow { .. });
@@ -630,6 +632,7 @@ impl<'a> Builder<'a> {
             if owning {
                 let t = self.new_temp(e.ty);
                 self.assign_stmt(Place::local(t), rv);
+                self.at(dest_span);
                 self.drop_before_assign(&dest);
                 self.assign_stmt(dest, Rvalue::Use(Operand::Move(Place::local(t))));
             } else {
@@ -639,7 +642,11 @@ impl<'a> Builder<'a> {
             let op = self.operand(e);
             if e.ty != Type::None {
                 if owning {
+                    self.at(dest_span);
                     self.drop_before_assign(&dest);
+                    self.at(expr_span(e));
+                } else if matches!(op, Operand::Const(_)) {
+                    self.at(dest_span);
                 }
                 self.assign_stmt(dest, Rvalue::Use(op));
             }
@@ -888,7 +895,7 @@ impl<'a> Builder<'a> {
                 let params = f.params();
                 let es: Vec<&Expr> = args.iter().collect();
                 let ops = self
-                    .operands(&es, &|i| (params.get(i) == Some(&Type::Str)).then_some((*f == StrFn::Append && i == 0, false)));
+                    .operands(&es, &|i| (params.get(i) == Some(&Type::Str)).then_some((*f == StrFn::Append && i == 0, *f == StrFn::Append && i == 0)));
                 self.call(Callee::Str(*f), ops, e.ty)
             }
             ExprKind::Out { newline, arg } => {

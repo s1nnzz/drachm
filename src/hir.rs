@@ -31,9 +31,9 @@ pub struct Program {
     pub funcs: Vec<Func>,
     pub structs: Vec<StructDef>,
     pub main: FuncId,
-    /// Uses a borrow, a pointer or another step 3 node: the type checker
-    /// accepts it, but the backends cannot build it yet.
-    pub uses_borrows: bool,
+    /// Uses a raw pointer (`*T`, `address of`, `unsafe`): the type checker
+    /// accepts it, but `build` refuses it until WP9.
+    pub uses_pointers: bool,
 }
 
 /// A struct's layout, C-style: fields in declaration order, each at the next

@@ -1,0 +1,5 @@
+error[E0304]: cannot use `r` while a part of it is lent
+`r` is lent here
+used here
+the `&mut` borrow is still used here
+help: finish using `v` first; the lend ended after the call that took it

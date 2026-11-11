@@ -147,6 +147,19 @@ impl<'a> Liveness<'a> {
         state
     }
 
+    /// Call `f` with every reachable location and the locals live on entry to it.
+    pub fn for_each_live_before(&self, mut f: impl FnMut(Location, &BitSet)) {
+        let analysis = &self.results.analysis;
+        self.results.visit(self.body, |loc, after, item| {
+            let mut before = after.clone();
+            match item {
+                super::dataflow::Item::Statement(s) => analysis.statement(&mut before, s, loc),
+                super::dataflow::Item::Terminator(t) => analysis.terminator(&mut before, t, loc),
+            }
+            f(loc, &before);
+        });
+    }
+
     /// The locals live just after `loc` (on entry to its successors).
     pub fn live_after(&self, loc: Location) -> BitSet {
         self.results.state_at(self.body, loc)

@@ -1,0 +1,4 @@
+&uint32 keep(uint32 n) {
+    return &n;
+}
+none main() { }

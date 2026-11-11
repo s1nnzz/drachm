@@ -1,0 +1,4 @@
+error[E0301]: `r` is used after it moved
+`r` (a `&mut` borrow) moved here
+used here, after the move
+help: to keep using `r` afterwards, pass it on with `lend r`

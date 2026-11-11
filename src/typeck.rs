@@ -86,8 +86,8 @@ struct Globals {
     io_imported: bool,
     /// The file flag `//--!$unsafe: true`.
     unsafe_allowed: bool,
-    /// A borrow, pointer or other step 3 node was seen (`hir::Program::uses_borrows`).
-    uses_borrows: std::cell::Cell<bool>,
+    /// A raw pointer was seen (`hir::Program::uses_pointers`).
+    uses_pointers: std::cell::Cell<bool>,
     /// Which structs copy automatically (`hir::StructDef::copy`).
     struct_copy: Vec<bool>,
     /// The units declared in the file (`typeck::units`).
@@ -123,7 +123,9 @@ impl Globals {
 
     fn resolve(&self, t: &ast::TypeName, diags: &mut Vec<Diagnostic>) -> Option<Type> {
         if let Some((_, span)) = t.mods.first() {
-            self.uses_borrows.set(true);
+            if t.mods.iter().any(|(m, _)| matches!(m, ast::TypeMod::Ptr | ast::TypeMod::FixedPtr)) {
+                self.uses_pointers.set(true);
+            }
             if !self.unsafe_allowed && let Some((_, at)) = t.mods.iter().find(|(m, _)| matches!(m, ast::TypeMod::Ptr | ast::TypeMod::FixedPtr)) {
                 diags.push(unsafe_disabled(*at, "raw pointer type here"));
             }
@@ -351,7 +353,7 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
     }
 
     let main = g.funcs_by_name.get("main").copied().unwrap_or(0);
-    let mut program = hir::Program { funcs: funcs.into_iter().map(|f| f.unwrap_or_else(placeholder)).collect(), structs, main, uses_borrows: g.uses_borrows.get() };
+    let mut program = hir::Program { funcs: funcs.into_iter().map(|f| f.unwrap_or_else(placeholder)).collect(), structs, main, uses_pointers: g.uses_pointers.get() };
     units::erase(&mut program);
     if cfg!(debug_assertions) {
         units::assert_erased(&mut program);
@@ -412,6 +414,9 @@ fn unsafe_disabled(span: Span, what: &str) -> Diagnostic {
 /// An `unsafe` function needs the file flag; `lives` names parameters that
 /// hold a borrow.
 fn check_signature_extras(g: &Globals, f: &ast::Func, params: &[Option<Type>], diags: &mut Vec<Diagnostic>) {
+    if f.is_unsafe.is_some() {
+        g.uses_pointers.set(true);
+    }
     if let Some(at) = f.is_unsafe
         && !g.unsafe_allowed
     {
@@ -1324,7 +1329,6 @@ impl Checker<'_> {
             None => match ty {
                 // `r = rhs` re-points a borrow when `rhs` is one, and writes through it otherwise (R18).
                 Some(t @ Type::Ref { to, .. }) => {
-                    self.g.uses_borrows.set(true);
                     match self.expr_raw(value) {
                         Some(Val::Expr(x)) if x.ty.is_borrow() => {
                             self.borrow_value(Val::Expr(x), value, t, None)
@@ -1444,10 +1448,10 @@ impl Checker<'_> {
                 Some(p)
             }
             ExprKind::Deref(inner) => {
-                self.g.uses_borrows.set(true);
                 let mut p = self.lvalue(inner)?;
                 match p.ty {
                     Type::Ptr { to } | Type::FixedPtr { to } => {
+                        self.g.uses_pointers.set(true);
                         if p.ty.is_fixed_ptr() {
                             p.through_fixed = true;
                             p.through_shared = true;
@@ -1595,7 +1599,7 @@ impl Checker<'_> {
     /// Check `e` and convert it to `to`, reporting a mismatch or a lossy conversion.
     fn coerce(&mut self, e: &ast::Expr, to: Type) -> Option<hir::Expr> {
         if to.is_ptr() && matches!(e.kind, ExprKind::NoneValue) {
-            self.g.uses_borrows.set(true);
+            self.g.uses_pointers.set(true);
             return Some(hir::Expr::new(hir::ExprKind::NullPtr, to).at(e.span));
         }
         if to.is_borrow() {
@@ -1608,7 +1612,6 @@ impl Checker<'_> {
     /// `e` where a borrow of type `to` is wanted: the value must be a borrow
     /// of that kind. `call` is the function being called, for E0321.
     fn coerce_borrow(&mut self, e: &ast::Expr, to: Type, call: Option<FuncId>) -> Option<hir::Expr> {
-        self.g.uses_borrows.set(true);
         let v = self.expr_raw(e)?;
         self.borrow_value(v, e, to, call)
     }
@@ -2087,11 +2090,13 @@ impl Checker<'_> {
             }
             ExprKind::Borrow { mutable, operand } => self.borrow_expr(*mutable, operand),
             ExprKind::Deref(inner) => {
-                self.g.uses_borrows.set(true);
                 let v = self.expr_raw(inner)?;
                 let x = self.materialise(v, inner.span)?;
                 match x.ty {
-                    Type::Ptr { to } | Type::FixedPtr { to } => typed(hir::ExprKind::Deref(Box::new(x)), *to),
+                    Type::Ptr { to } | Type::FixedPtr { to } => {
+                        self.g.uses_pointers.set(true);
+                        typed(hir::ExprKind::Deref(Box::new(x)), *to)
+                    }
                     t => {
                         self.deref_error(t, inner.span, e.span);
                         None
@@ -2119,7 +2124,6 @@ impl Checker<'_> {
 
     /// `&e` / `&mut e`.
     fn borrow_expr(&mut self, mutable: bool, operand: &ast::Expr) -> Option<Val> {
-        self.g.uses_borrows.set(true);
         let v = self.expr_raw(operand)?;
         let x = self.materialise(v, operand.span)?;
         let name = self.text(operand.span).to_string();
@@ -2157,7 +2161,6 @@ impl Checker<'_> {
     /// `copy e`.
     fn copy_expr(&mut self, e: &ast::Expr, inner: &ast::Expr) -> Option<Val> {
         if !ast_place(inner) {
-            self.g.uses_borrows.set(true);
             let text = self.quote(inner.span, "this value");
             self.diags.push(
                 Diagnostic::at(&codes::E0327, e.span, "`copy` needs a variable or a field, like `copy name`")
@@ -2178,7 +2181,6 @@ impl Checker<'_> {
         // borrow checker; any other needs it.
         let plain = !matches!(x_ty, Type::Ref { .. }) && !has_deref(&value);
         if !(plain && !self.copies_anyway(ty)) {
-            self.g.uses_borrows.set(true);
         }
         if self.copies_anyway(ty) {
             let at = Span::new(e.span.start, e.span.start + 4);
@@ -2235,7 +2237,6 @@ impl Checker<'_> {
 
     /// `lend r`.
     fn lend_expr(&mut self, e: &ast::Expr, inner: &ast::Expr) -> Option<Val> {
-        self.g.uses_borrows.set(true);
         let v = self.expr_raw(inner)?;
         let name = self.text(inner.span).to_string();
         match v {
@@ -2268,7 +2269,7 @@ impl Checker<'_> {
 
     /// `address of e`.
     fn address_expr(&mut self, e: &ast::Expr, inner: &ast::Expr) -> Option<Val> {
-        self.g.uses_borrows.set(true);
+        self.g.uses_pointers.set(true);
         if !self.g.unsafe_allowed {
             self.diags.push(unsafe_disabled(Span::new(e.span.start, e.span.start + 7), "needs the file flag"));
         }
@@ -2310,7 +2311,7 @@ impl Checker<'_> {
         let v = self.expr_raw(other)?;
         match v {
             Val::Expr(x) if x.ty.is_ptr() => {
-                self.g.uses_borrows.set(true);
+                self.g.uses_pointers.set(true);
                 let null = hir::Expr::new(hir::ExprKind::NullPtr, x.ty);
                 let hop = if op == BinOp::Eq { hir::BinOp::Eq } else { hir::BinOp::Ne };
                 let (a, b) = if none_left { (null, x) } else { (x, null) };
@@ -2526,7 +2527,7 @@ impl Checker<'_> {
                 return None;
             }
         };
-        self.g.uses_borrows.set(true);
+        self.g.uses_pointers.set(true);
         let ty = if want_fixed { Type::fixed_ptr(to) } else { Type::ptr(to) };
         Some(Val::Expr(hir::Expr::new(hir::ExprKind::PtrConv(Box::new(v)), ty)))
     }

@@ -1,0 +1,12 @@
+in io;
+struct Counter {
+    public:
+    uint32 n;
+    none add(uint32 k) { self.n = self.n + k; }
+    uint32 get() { return self.n; }
+}
+none main() {
+    mut Counter c = 1;
+    c::add(c::get());
+    io::outln(c.n::text());
+}

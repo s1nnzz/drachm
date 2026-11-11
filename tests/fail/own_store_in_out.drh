@@ -1,0 +1,6 @@
+struct Slot lives r { public: mut &string r; }
+none fill(&mut Slot slot) {
+    string s = "x";
+    slot.r = &s;
+}
+none main() { }

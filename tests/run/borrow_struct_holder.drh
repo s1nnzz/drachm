@@ -1,0 +1,17 @@
+in io;
+struct Parser lives src {
+    public:
+    &string src;
+    uint32 pos;
+    none advance() { self.pos += 1; }
+    uint64 left() { return self.src::len() - self.pos; }
+}
+none run(&mut Parser p) { p::advance(); p::advance(); }
+none main() {
+    string text = "hello world";
+    mut Parser p = &text, 0;
+    run(&mut p);
+    io::outln(p.pos::text());
+    io::outln(p::left()->text());
+    io::outln(text);
+}

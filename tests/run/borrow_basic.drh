@@ -1,0 +1,25 @@
+in io;
+struct Person { public: string name; uint32 age; }
+uint64 size(&string s) { return s::len(); }
+none shout(&mut string s) { s = s::upper(); }
+none birthday(&mut Person p) { p.age += 1; }
+none show(&Person p) { io::outln(p.name + " " + p.age::text()); }
+&string name_of(&Person p) { return &p.name; }
+&string longer(&string a, &string b) lives a, b {
+    if (a::len() >= b::len()) { return a; }
+    return b;
+}
+none main() {
+    mut string s = "hello";
+    io::outln(size(&s)::text());
+    shout(&mut s);
+    io::outln(s);
+    mut Person p = "Ann", 41;
+    birthday(&mut p);
+    show(&p);
+    &string n = name_of(&p);
+    io::outln(n);
+    string a = "ab";
+    string b = "abc";
+    io::outln(longer(&a, &b));
+}

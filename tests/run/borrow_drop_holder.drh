@@ -1,0 +1,16 @@
+in io;
+struct Holder lives src {
+    public:
+    &string src;
+    none drop() { io::outln("drop " + self.src); }
+}
+none main() {
+    mut string x = "a";
+    if (true) {
+        Holder h = &x;
+        io::outln("holding");
+    }
+    x = "b";
+    Holder g = &x;
+    io::outln("end");
+}

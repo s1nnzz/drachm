@@ -318,6 +318,59 @@ codes! {
          To keep both, copy: `string b = copy a;`. Moving one field out with\n\
          `take p.name` leaves `p.name` without a value until it is assigned\n\
          again; `p` as a whole cannot be used meanwhile.";
+    E0302: "cannot change while borrowed",
+        "A value cannot be changed while a borrow of it is still going to be\n\
+         used. The borrow ends after its last use, so use it first:\n\n\
+         \x20   mut string name = \"Illy\";\n\
+         \x20   &string first = &name;\n\
+         \x20   name = \"Sam\";             // error: `first` is used below\n\
+         \x20   io::outln(first);\n\n\
+         Move `io::outln(first);` above the assignment, or do not hold the\n\
+         borrow across it.";
+    E0303: "two `&mut` at once",
+        "Only one `&mut` borrow of a value can be in use at a time, so that\n\
+         nothing else can change it behind your back:\n\n\
+         \x20   &mut Player a = &mut p;\n\
+         \x20   &mut Player b = &mut p;     // error: `a` is used below\n\
+         \x20   heal(a);\n\n\
+         Finish using the first borrow before taking the second.";
+    E0304: "used while borrowed with `&mut`",
+        "While a `&mut` borrow of a value is going to be used, the value itself\n\
+         cannot be read or borrowed again, only the borrow can:\n\n\
+         \x20   &mut Player a = &mut p;\n\
+         \x20   io::outln(p.hp::text());    // error: `a` is used below\n\
+         \x20   heal(a);\n\n\
+         Read through the borrow (`a.hp`), or read before borrowing.";
+    E0305: "moved while borrowed",
+        "A value cannot be moved away while a borrow of it is still going to be\n\
+         used:\n\n\
+         \x20   string name = \"Illy\";\n\
+         \x20   &string first = &name;\n\
+         \x20   consume(name);              // error: `first` is used below\n\
+         \x20   io::outln(first);\n\n\
+         Finish with the borrow first, or move a copy: `consume(copy name)`.";
+    E0306: "does not live long enough",
+        "A value is dropped at the end of its block, or when its function\n\
+         returns, but a borrow of it is still going to be used after that:\n\n\
+         \x20   &string keep;\n\
+         \x20   if (true) {\n\
+         \x20       string local = \"x\";\n\
+         \x20       keep = &local;\n\
+         \x20   }                           // `local` is dropped here\n\
+         \x20   io::outln(keep);            // error\n\n\
+         Declare the value outside the block, so that it lives as long as the\n\
+         borrow is used.";
+    E0307: "returns a borrow of a local",
+        "A function cannot return a borrow of something it owns: the value is\n\
+         dropped when the function returns, and the borrow would point at\n\
+         nothing. This covers its own locals, its by-value parameters and\n\
+         temporaries:\n\n\
+         \x20   &string shout() {\n\
+         \x20       string s = \"hi\"::upper();\n\
+         \x20       return &s;               // error\n\
+         \x20   }\n\n\
+         Return the value itself (`string shout()` and `return s;`), or borrow\n\
+         from a parameter that is already a borrow.";
     E0310: "cannot move out of a borrow",
         "A function that only borrows a value does not own it, so it cannot\n\
          move anything out of it, `self` and raw pointers included. Return or\n\

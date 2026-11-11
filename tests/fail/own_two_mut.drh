@@ -1,0 +1,9 @@
+struct Player { public: mut uint32 hp; }
+none heal(&mut Player p) { p.hp = p.hp + 1; }
+none main() {
+    mut Player p = 1;
+    &mut Player a = &mut p;
+    &mut Player b = &mut p;
+    heal(a);
+    heal(b);
+}

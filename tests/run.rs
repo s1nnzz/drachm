@@ -358,3 +358,20 @@ fn mir_fail() {
         }
     });
 }
+
+/// `tests/borrowck/NAME.bck`: each non-blank line must occur in the output of
+/// `check --dump-borrowck` (loans with the points where they are in scope,
+/// and the universal regions with what they reach).
+#[test]
+fn borrowck() {
+    run_all(sources("tests/borrowck"), |src| {
+        let want = read(&src.with_extension("bck")).ok_or("no .bck file with the expected lines")?;
+        let out = drachm(&["check", "--dump-borrowck"], src);
+        if !out.status.success() {
+            return Err(format!("did not check:\n{}", text(&out.stderr)));
+        }
+        let dump = text(&out.stdout);
+        let missing = missing_lines(&want, &dump);
+        if missing.is_empty() { Ok(()) } else { Err(format!("missing:\n  {}\nactual dump:\n{dump}", missing.join("\n  "))) }
+    });
+}
