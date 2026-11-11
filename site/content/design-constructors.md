@@ -137,10 +137,12 @@ Player p;
 fill p with defaults { p.name = "Illy"; }
 ```
 
+### Choosing another def
+
 <!-- status: tentative -->
 
 Choosing a `def` other than the default, as in `fill p with Veteran { }`, is
-the design owner's reading of the plan and is not confirmed.
+an unconfirmed reading of the design.
 
 ```drachm
 fill p with Veteran { p.name = "Sam"; }
@@ -148,12 +150,11 @@ fill p with Veteran { p.name = "Sam"; }
 
 ## Keys for maps
 
-A struct is a map key automatically, compared field by field. A `key()` method
-says what a key is compared and hashed by instead.
-
 <!-- status: tentative -->
 
-What happens when a type has both a `key()` and its own `==` is still open.
+A struct is a map key automatically, compared field by field. A `key()` method
+says what a key is compared and hashed by instead. What happens when a type
+has both a `key()` and its own `==` is still open.
 
 ```drachm
 struct Word {

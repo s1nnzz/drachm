@@ -82,12 +82,10 @@ interface Counter {
 
 ## Your own iterables
 
-A type works with `for (T x of thing)` when it implements `Iterable<T>`, whose
-`T? next()` returns `none` when there is nothing left.
-
 <!-- status: tentative -->
 
-The `Iterable` name and its exact shape are written down in the design but the
+A type works with `for (T x of thing)` when it implements `Iterable<T>`, whose
+`T? next()` returns `none` when there is nothing left. The `Iterable` name and its exact shape are written down in the design but the
 standard library's interfaces are not fixed yet.
 
 ```drachm
@@ -103,12 +101,11 @@ struct Countdown with Iterable<uint32> {
 
 ## Units and generics
 
-A unit in a signature is fixed today (see [Units of measure](reference-units.md)).
-Once generics exist, a function can be generic over a unit:
-
 <!-- status: tentative -->
 
-The `<unit U>` spelling is the planned form, not a decided one.
+A unit in a signature is fixed today (see [Units of measure](reference-units.md)).
+Once generics exist, a function can be generic over a unit. The `<unit U>`
+spelling is the planned form, not a decided one.
 
 ```drachm
 float64<U> twice<unit U>(float64<U> x) { return x * 2; }
