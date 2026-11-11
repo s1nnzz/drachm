@@ -1,0 +1,81 @@
+in io;
+
+struct Point {
+public:
+    sint32 x;
+    sint32 y;
+
+    sint32 sum() {
+        return self.x + self.y;
+    }
+
+    Point moved(sint32 dx, sint32 dy) {
+        Point p = self.x + dx, self.y + dy;
+        return p;
+    }
+
+    static Point origin() {
+        Point p = 0, 0;
+        return p;
+    }
+}
+
+struct Counter {
+public:
+    uint32 id;
+    mut uint32 hits;
+
+    none hit() {
+        self.hits++;
+    }
+}
+
+struct Vector2 {
+public:
+    float64 x;
+    float64 y;
+
+    Vector2 +(Vector2 o) {
+        Vector2 r = self.x + o.x, self.y + o.y;
+        return r;
+    }
+
+    bool ==(Vector2 o) {
+        return self.x == o.x;
+    }
+}
+
+none show(Point p) {
+    io::outln(f"(${p.x}, ${p.y})");
+}
+
+none main() {
+    // Build a struct by listing its fields in order, or by name.
+    Point a = 1, 2;
+    Point b = y: 20, x: 10;
+    show(a);
+    show(b);
+
+    // Methods are called with `::`, then `->` for each call after.
+    io::outln(a::sum()->text());
+    show(a::moved(5, 5)->moved(1, 0));
+    show(Point::origin());
+
+    // Copies are independent.
+    mut Point c = a;
+    c.x = 100;
+    show(a);
+    show(c);
+
+    // A `mut` field changes even on an immutable binding.
+    Counter k = 7, 0;
+    k.hits++;
+    k::hit();
+    io::outln(k.hits::text());
+
+    // Operator methods, and automatic == for structs.
+    Vector2 v = 1.0, 2.0;
+    Vector2 w = v + v;
+    io::outln(w.y::text());
+    io::outln((v == w)::text());
+}

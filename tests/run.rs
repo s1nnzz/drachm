@@ -11,6 +11,9 @@
 //!   messages, not on layout.
 //! - Every file in `examples/` is run like a `tests/run` case, with its
 //!   expectations in `tests/examples/`.
+//! - Every file in `site/examples/` is built both ways, must compile without
+//!   output, and must print exactly `NAME.out`. The documentation site
+//!   includes these files, so they must stay real programs.
 //!
 //! Programs run with `DRACHM_CHECK_LEAKS=1`, and a string they leak fails
 //! the case.
@@ -183,6 +186,52 @@ fn fail() {
 fn examples() {
     let dir = root().join("tests/examples");
     run_all(sources("examples"), |f| run_case(f, &dir));
+}
+
+/// The documentation site's programs: silent to compile, both backends print `NAME.out`.
+#[test]
+fn site_examples() {
+    run_all(sources("site/examples"), site_example);
+}
+
+fn site_example(src: &Path) -> Result<(), String> {
+    let stem = src.file_stem().unwrap().to_str().unwrap();
+    let out_file = src.with_extension("out");
+    let bless = std::env::var_os("DRACHM_BLESS").is_some();
+    let want = if bless { None } else { Some(read(&out_file).ok_or_else(|| format!("no {stem}.out (write it, or run with DRACHM_BLESS=1)"))?) };
+    let mut outputs = Vec::new();
+    for flags in [&[][..], &["-O"][..]] {
+        let exe = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("site{}-{stem}", flags.len()));
+        let mut args = vec!["build", "-o", exe.to_str().unwrap()];
+        args.extend(flags);
+        let build = drachm(&args, src);
+        let compiler_output = text(&build.stderr);
+        if !build.status.success() || !compiler_output.is_empty() {
+            return Err(format!("did not compile cleanly with {flags:?}:\n{compiler_output}"));
+        }
+        let run = run_program(&exe)?;
+        let _ = fs::remove_file(&exe);
+        let stderr = text(&run.stderr);
+        if let Some(leak) = leak_report(&stderr) {
+            return Err(format!("{leak} (with {flags:?})"));
+        }
+        if run.status.code() != Some(0) {
+            return Err(format!("exit code {:?} with {flags:?}\n{stderr}", run.status.code()));
+        }
+        outputs.push(text(&run.stdout));
+    }
+    if outputs[0] != outputs[1] {
+        return Err(format!("plain build gave:\n{}\n-O build gave:\n{}", outputs[0], outputs[1]));
+    }
+    if bless {
+        fs::write(&out_file, &outputs[0]).unwrap();
+        return Ok(());
+    }
+    let want = want.unwrap();
+    if outputs[0] != want {
+        return Err(format!("stdout differs\nexpected:\n{want}\nactual:\n{}", outputs[0]));
+    }
+    Ok(())
 }
 
 /// Optimised builds must behave exactly like unoptimised ones.
