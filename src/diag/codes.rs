@@ -254,6 +254,60 @@ codes! {
          other method is called on a value (`p::length()`). This call used the\n\
          wrong one.";
 
+    E0309: "`lives` does not match the body",
+        "A function's `lives` clause names whole parameters that hold a borrow,\n\
+         and the result may borrow from those. Naming something that is not a\n\
+         parameter holding a borrow is an error:\n\n\
+         \x20   &string pick(&string a, uint32 n) lives n { ... }   // `n` holds no borrow";
+    E0314: "struct borrows without `lives`",
+        "A struct with a borrow field (`&string src;`) must say what it borrows\n\
+         from, and `lives` must name exactly the borrow fields:\n\n\
+         \x20   struct Parser lives src { &string src; uint32 pos; }";
+    E0317: "`unsafe` without the file flag",
+        "`unsafe { }`, `unsafe` functions, `*T` types and `address of` need the\n\
+         file flag `//--!$unsafe: true` at the very top of the file.";
+    E0321: "missing `&` or `&mut` at the call",
+        "A parameter of type `&T` or `&mut T` is passed by writing the borrow at\n\
+         the call, so the call says what the callee may do:\n\n\
+         \x20   none grow(&mut string s) { ... }\n\
+         \x20   grow(&mut xs);          // not `grow(xs)`";
+    W0322: "`copy` of a value that copies anyway",
+        "`copy` makes a deep copy, but numbers, bools, shared borrows and small\n\
+         plain structs always copy when used, so `copy` changes nothing.";
+    W0323: "`mut open` is redundant",
+        "`mut` already allows everything `open` does, so `mut open` says the same\n\
+         as `mut`.";
+    E0326: "`lend` needs a `&mut` you hold",
+        "`lend r` passes on a `&mut` borrow you hold and keeps it afterwards. The\n\
+         operand must be a place of type `&mut T`; to borrow a plain value, write\n\
+         `&mut x`.";
+    E0327: "not a variable or field",
+        "`take`, `copy` and `address of` work on a place: a variable or a field\n\
+         of one. A call result or other temporary value has nothing to take out\n\
+         of; use it directly.";
+    E0328: "`drop` has the wrong shape",
+        "A method named `drop` runs by itself when the value is destroyed, so it\n\
+         must be written `none drop()`: not `static`, no parameters, not `unsafe`.";
+    E0329: "borrow of a `&mut` you hold",
+        "`&mut s` where `s` is already a `&mut` binding would borrow the borrow.\n\
+         To pass the borrow on and keep it, write `lend s`.";
+    E0330: "`&mut` where `&` is wanted",
+        "A `&mut` binding passed bare where a `&T` is expected must be written\n\
+         `&m`: an explicit shared borrow through the `&mut` you hold.";
+    E0331: "calling `drop` yourself",
+        "`drop` runs by itself when a value is destroyed. To end a value now,\n\
+         write `destroy x;`.";
+
+    E0324: "field moved without `take`",
+        "Moving a field out of a struct you own leaves the struct without that\n\
+         field, so it must be said: `take p.name` moves it out and leaves `p.name`\n\
+         without a value until you give it one. To keep both, write `copy p.name`.";
+    E0325: "`take` on a struct with `drop()`",
+        "A struct with a `drop()` method must stay whole, because `drop` runs when\n\
+         it is destroyed. Take a field only with a replacement in the same\n\
+         statement:\n\n\
+         \x20   string s = take f.path leaving \"\";";
+
     E0901: "not supported yet",
         "This is part of Drachm's design, but this version of the compiler does\n\
          not implement it yet.";

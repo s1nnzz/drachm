@@ -1,0 +1,2 @@
+error[E0314]: `Parser` holds a borrow
+error[E0321]: `grow` takes `&mut uint32` here

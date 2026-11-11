@@ -27,6 +27,7 @@
 //! Structs that own no strings are plain values: any expression of such a
 //! type may be used anywhere, and using it copies its bits.
 
+use crate::diag::Span;
 use crate::types::Type;
 
 pub type FuncId = usize;
@@ -37,6 +38,9 @@ pub struct Program {
     pub funcs: Vec<Func>,
     pub structs: Vec<StructDef>,
     pub main: FuncId,
+    /// Uses a borrow, a pointer or another step 3 node: the type checker
+    /// accepts it, but the backends cannot build it yet.
+    pub uses_borrows: bool,
 }
 
 /// A struct's layout, C-style: fields in declaration order, each at the next
@@ -48,12 +52,23 @@ pub struct StructDef {
     pub align: u32,
     /// Holds a `string` somewhere inside, so its values are owned.
     pub owns: bool,
+    /// Copies automatically: not `stays`, no `drop()`, every field Copy, and
+    /// at most 32 bytes.
+    pub copy: bool,
+    /// Declared `stays`: never copied automatically.
+    pub stays: bool,
+    /// The `drop()` method, if there is one.
+    pub has_drop: Option<FuncId>,
+    /// Indexes of the borrow fields named by `lives`.
+    pub lives: Vec<usize>,
 }
 
 pub struct FieldDef {
     pub name: String,
     pub ty: Type,
     pub offset: u32,
+    /// Declared `mut`.
+    pub mutable: bool,
 }
 
 impl Program {
@@ -93,6 +108,7 @@ pub fn scalar_size(t: Type) -> Option<u32> {
     match t {
         Type::Int { bits, .. } | Type::Float(bits) => Some(bits as u32 / 8),
         Type::Bool => Some(1),
+        Type::Ref { .. } | Type::Ptr { .. } => Some(8),
         Type::None | Type::Str | Type::Struct { .. } => None,
     }
 }
@@ -124,28 +140,61 @@ pub struct Func {
     pub locals: Vec<Local>,
     pub ret: Type,
     pub body: Block,
+    pub name_span: Span,
+    /// From the return type to the closing `)`.
+    pub span: Span,
+    /// The closing `}` of the body.
+    pub body_end: Span,
+    pub is_unsafe: bool,
+    /// Declared `lives`: indexes of the parameters named.
+    pub lives: Option<Vec<usize>>,
 }
 
 pub struct Local {
     pub name: String,
     pub ty: Type,
+    pub span: Span,
+    pub mutability: Mutability,
+    pub is_param: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mutability {
+    Fixed,
+    Mut,
+    Open,
 }
 
 /// Names an `If` or a `Loop` for the jumps that target it. Unique within a function.
 pub type Label = usize;
 
-/// Something that can be assigned to: a local, or a field inside one
-/// (`fields` are field indexes, outermost first).
+/// Something that can be assigned to: a local, then a path of fields and
+/// dereferences inside it, outermost first.
 #[derive(Clone)]
 pub struct Place {
     pub local: LocalId,
-    pub fields: Vec<usize>,
+    pub proj: Vec<HirProj>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HirProj {
+    Field(usize),
+    Deref,
 }
 
 impl Place {
     /// The whole local.
     pub fn local(local: LocalId) -> Place {
-        Place { local, fields: Vec::new() }
+        Place { local, proj: Vec::new(), span: Span::new(0, 0) }
+    }
+
+    /// The field indexes along the path; the backends (which see no `Deref`) use this.
+    pub fn fields(&self) -> impl Iterator<Item = usize> + '_ {
+        self.proj.iter().map(|p| match p {
+            HirProj::Field(i) => *i,
+            HirProj::Deref => unreachable!("dereferences cannot be built yet"),
+        })
     }
 }
 
@@ -161,10 +210,17 @@ pub enum Stmt {
     If { label: Label, branches: Vec<Branch> },
     /// Each time round: if there is a `cond` and it is false, the loop ends;
     /// otherwise `body` runs, then `step`. `continue` jumps to `step`.
-    Loop { label: Label, cond: Option<Expr>, body: Block, step: Block },
+    Loop { label: Label, cond: Option<Expr>, body: Block, step: Block, end: Span },
     Jump(Jump),
     Return(Option<Expr>),
     Expr(Expr),
+    /// A user declaration of a local, before its initializer's `Assign`.
+    /// The backends ignore it.
+    Decl(LocalId),
+    /// `unsafe { }`: runs its block.
+    Unsafe(Block),
+    /// `destroy x;`: runs `drop()` now and ends the local.
+    Destroy(Place),
     /// Free what a place of an owning type owns, if anything, and leave it empty.
     Drop(Place),
 }
@@ -172,6 +228,8 @@ pub enum Stmt {
 pub struct Branch {
     pub test: Option<Expr>,
     pub body: Block,
+    /// The closing `}` of the body.
+    pub end: Span,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -189,16 +247,27 @@ pub enum Jump {
 pub struct Expr {
     pub kind: ExprKind,
     pub ty: Type,
+    pub span: Span,
 }
 
 impl Expr {
+    /// An expression with a dummy span.
+    pub fn new(kind: ExprKind, ty: Type) -> Expr {
+        Expr { kind, ty, span: Span::new(0, 0) }
+    }
+
+    pub fn at(mut self, span: Span) -> Expr {
+        self.span = span;
+        self
+    }
+
     /// A local, a temporary, or a field of one: the backends can refer to
     /// its storage directly (for `self` arguments and fields) instead of
     /// copying the value. A `Temp` is evaluated where its storage is first
     /// needed.
     pub fn is_place(&self) -> bool {
         match &self.kind {
-            ExprKind::Local(_) | ExprKind::Temp(..) => true,
+            ExprKind::Local(_) | ExprKind::Temp(..) | ExprKind::Deref(_) => true,
             ExprKind::Field(inner, _) => inner.is_place(),
             _ => false,
         }
@@ -298,6 +367,20 @@ pub enum ExprKind {
     Join(Vec<Expr>),
     /// `io::out` / `io::outln` of a `string` place.
     Out { newline: bool, arg: Box<Expr> },
+    /// `&place` / `&mut place` (the place may also be a temporary value).
+    Borrow { mutable: bool, place: Box<Expr> },
+    /// Reads through a borrow or pointer; also a place.
+    Deref(Box<Expr>),
+    /// User `copy e`: a deep copy, an owned value.
+    DeepCopy(Box<Expr>),
+    /// `take place [leaving v]`.
+    Take { place: Place, leaving: Option<Box<Expr>> },
+    /// `lend r`: passes a `&mut` on and keeps it.
+    Lend(Box<Expr>),
+    /// `address of e`
+    AddressOf(Box<Expr>),
+    /// `none` as a pointer.
+    NullPtr,
 }
 
 /// Runtime string functions with a fixed signature (`runtime/strings.h`, and

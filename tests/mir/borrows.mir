@@ -1,0 +1,9 @@
+&mut two_phase _1
+&mut (*_1)
+DeepCopy(_1.0)
+_15 = move _1.0
+&raw _6
+fn peek(_1: *uint32) -> uint32
+const 0*uint32
+_4.0 = const "gone"
+Drop(_4)

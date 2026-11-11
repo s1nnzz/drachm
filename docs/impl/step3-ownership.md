@@ -1809,6 +1809,9 @@ step needs (file flags, `mut open`), so that parallel branches adding
 | E0326 | `lend` of something that is not a `&mut` you hold | typeck |
 | E0327 | `take` / `copy` / `address of` of something that is not a variable or field | typeck |
 | E0328 | `drop` has the wrong shape | typeck (declarations) |
+| E0329 | borrow of a `&mut` you hold | typeck |
+| E0330 | `&mut` where `&` is wanted | typeck |
+| E0331 | calling `drop` yourself | typeck |
 | E0332 | assigning part of a value that has none yet | moves (`wp2.md`) |
 
 Existing codes whose reporting moves to MIR with unchanged texts: E0105,
@@ -2300,6 +2303,10 @@ the WP2 report for confirmation.
 | E0326 | `lend` passes on a `&mut` borrow you hold, and `n` is not one |
 | E0327 | `take` needs a field of a variable, like `p.name` |
 | E0328 | `drop` must be written `none drop()` |
+| E0329 | cannot borrow `s` with `&mut`: it is already a `&mut` (help: write `lend s`) |
+| E0330 | `m` is a `&mut string`, but a `&string` is wanted here (help: write `&m`) |
+| E0331 | `drop` runs by itself; write `destroy x;` to end `x` now |
+| E0901 (#9) | `address of` an immutable binding (which gives a `*fixed T`) is not supported yet |
 | E0332 | cannot give `p.hp` a value: `p` has no value yet |
 
 ---

@@ -1,0 +1,14 @@
+in io;
+
+none main() {
+    string a = "a";
+    if (true) {
+        string b = "b";
+        if (a::isEmpty()) {
+            string c = "c";
+            io::outln(c);
+        }
+        io::outln(b);
+    }
+    io::outln(a);
+}

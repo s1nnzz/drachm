@@ -34,6 +34,12 @@ struct StructInfo {
     methods: Vec<MethodInfo>,
     /// Holds a `string` somewhere inside (see `hir`'s module comment).
     owns: bool,
+    /// Declared `stays`.
+    stays: bool,
+    /// Indexes of the borrow fields named by `lives`.
+    lives: Vec<usize>,
+    /// The `drop()` method.
+    has_drop: Option<FuncId>,
 }
 
 struct FieldInfo {
@@ -100,6 +106,12 @@ struct Globals {
     /// Automatic `==` functions asked for whose bodies are not built yet.
     eq_pending: Vec<StructId>,
     io_imported: bool,
+    /// The file flag `//--!$unsafe: true`.
+    unsafe_allowed: bool,
+    /// A borrow, pointer or other step 3 node was seen (`hir::Program::uses_borrows`).
+    uses_borrows: std::cell::Cell<bool>,
+    /// Which structs copy automatically (`hir::StructDef::copy`).
+    struct_copy: Vec<bool>,
 }
 
 impl Globals {
@@ -109,14 +121,33 @@ impl Globals {
         self.sigs.len() - 1
     }
 
-    fn resolve_quiet(&self, t: &ast::TypeName) -> Option<Type> {
+    fn resolve_base_quiet(&self, t: &ast::TypeName) -> Option<Type> {
         if t.name == "none" {
             return Some(Type::None);
         }
         Type::from_name(&t.name).ok().or_else(|| self.structs_by_name.get(&t.name).map(|&id| self.structs[id].ty))
     }
 
+    /// `t` with its `&`, `&mut` and `*` marks applied to the named type.
+    fn resolve_quiet(&self, t: &ast::TypeName) -> Option<Type> {
+        let base = self.resolve_base_quiet(t)?;
+        Some(t.mods.iter().rev().fold(base, |ty, (m, _)| match m {
+            ast::TypeMod::Ref { mutable } => Type::borrow(*mutable, ty),
+            ast::TypeMod::Ptr => Type::ptr(ty),
+        }))
+    }
+
     fn resolve(&self, t: &ast::TypeName, diags: &mut Vec<Diagnostic>) -> Option<Type> {
+        if let Some((_, span)) = t.mods.first() {
+            self.uses_borrows.set(true);
+            if !self.unsafe_allowed && let Some((_, at)) = t.mods.iter().find(|(m, _)| *m == ast::TypeMod::Ptr) {
+                diags.push(unsafe_disabled(*at, "raw pointer type here"));
+            }
+            if self.resolve_base_quiet(t) == Some(Type::None) {
+                diags.push(Diagnostic::at(&codes::E0901, *span, "a borrow or pointer of `none` is not supported yet"));
+                return None;
+            }
+        }
         if let Some(ty) = self.resolve_quiet(t) {
             return Some(ty);
         }
@@ -163,6 +194,15 @@ impl Globals {
         }
     }
 
+    /// Does a value of type `t` hold a borrow (so `lives` may name it)?
+    fn holds_borrow(&self, t: Type) -> bool {
+        match t {
+            Type::Ref { .. } => true,
+            Type::Struct { id, .. } => !self.structs[id].lives.is_empty(),
+            _ => false,
+        }
+    }
+
     fn struct_of(&self, t: Type) -> Option<&StructInfo> {
         t.struct_id().map(|id| &self.structs[id])
     }
@@ -196,14 +236,14 @@ impl Globals {
             Some(m) => m.func,
             None => self.eq_func(s),
         };
-        hir::Expr { kind: hir::ExprKind::Call(f, vec![a, b]), ty: Type::Bool }
+        hir::Expr::new(hir::ExprKind::Call(f, vec![a, b]), Type::Bool)
     }
 }
 
 /// Checks the whole program. The result is only fit for codegen when no
 /// errors were reported.
 pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir::Program {
-    let mut g = Globals::default();
+    let mut g = Globals { unsafe_allowed: prog.unsafe_allowed, ..Globals::default() };
     for import in &prog.imports {
         if import.module == "io" {
             g.io_imported = true;
@@ -222,9 +262,9 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
             declare_fields(&mut g, id, s, diags);
         }
     }
+    check_struct_lives(&mut g, prog, &struct_ids, diags);
     let cyclic = report_cycles(&g, diags);
     mark_owning(&mut g, &cyclic);
-    let structs = lay_out(&g, &cyclic);
 
     // Signatures: functions, then methods.
     let mut func_ids = Vec::new();
@@ -235,6 +275,7 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
             ret: g.resolve(&f.ret, diags),
             span: f.span,
         };
+        check_signature_extras(&g, f, &sig.params, diags);
         if let Some(&first) = g.funcs_by_name.get(&f.name) {
             diags.push(
                 Diagnostic::at(&codes::E0202, f.name_span, format!("function `{}` is defined twice", f.name))
@@ -257,6 +298,10 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
             None => vec![None; s.methods.len()],
         })
         .collect();
+
+    // `copy` depends on which structs have a `drop()`, so layouts wait for the methods.
+    let structs = lay_out(&g, &cyclic);
+    g.struct_copy = structs.iter().map(|s| s.copy).collect();
 
     match g.funcs_by_name.get("main").map(|&id| &g.sigs[id]) {
         None => diags.push(
@@ -291,7 +336,7 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
             let ctx = MethodCtx { struct_id: sid, func: mid, static_span: m.is_static };
             let checked = check_body(&mut g, src, diags, &m.func, Some(ctx), symbol);
             emit(&mut funcs, mid, checked);
-            if m.is_static.is_none() && m.operator.is_none() && !g.self_use[mid].used {
+            if m.is_static.is_none() && m.operator.is_none() && !g.self_use[mid].used && m.func.name != "drop" {
                 diags.push(
                     Diagnostic::at(&codes::W0208, m.func.name_span, format!("method `{}` never uses `self`", m.func.name))
                         .note("does not use `self`")
@@ -315,13 +360,26 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
     }
 
     let main = g.funcs_by_name.get("main").copied().unwrap_or(0);
-    hir::Program { funcs: funcs.into_iter().map(|f| f.unwrap_or_else(placeholder)).collect(), structs, main }
+    hir::Program { funcs: funcs.into_iter().map(|f| f.unwrap_or_else(placeholder)).collect(), structs, main, uses_borrows: g.uses_borrows.get() }
 }
 
 /// Stands in for functions whose definition was never emitted (only ever
 /// when errors were reported, so it never reaches a backend).
 fn placeholder() -> hir::Func {
-    hir::Func { symbol: String::new(), params: 0, has_self: false, locals: Vec::new(), ret: Type::None, body: Vec::new() }
+    let none = Span::new(0, 0);
+    hir::Func {
+        symbol: String::new(),
+        params: 0,
+        has_self: false,
+        locals: Vec::new(),
+        ret: Type::None,
+        body: Vec::new(),
+        name_span: none,
+        span: none,
+        body_end: none,
+        is_unsafe: false,
+        lives: None,
+    }
 }
 
 /// The source text of `span`, for quoting a declaration in a fix-it.
@@ -349,6 +407,100 @@ fn op_word(op: BinOp) -> &'static str {
     }
 }
 
+fn unsafe_disabled(span: Span, what: &str) -> Diagnostic {
+    Diagnostic::at(&codes::E0317, span, "`unsafe` is not enabled in this file")
+        .note(what)
+        .help("add `//--!$unsafe: true` as the first line of the file")
+}
+
+/// An `unsafe` function needs the file flag; `lives` names parameters that
+/// hold a borrow.
+fn check_signature_extras(g: &Globals, f: &ast::Func, params: &[Option<Type>], diags: &mut Vec<Diagnostic>) {
+    if let Some(at) = f.is_unsafe
+        && !g.unsafe_allowed
+    {
+        diags.push(unsafe_disabled(at, "needs the file flag"));
+    }
+    for (name, span) in &f.lives {
+        let pos = f.params.iter().position(|p| p.name == *name);
+        if pos.is_some_and(|i| params[i].is_some_and(|t| g.holds_borrow(t))) {
+            continue;
+        }
+        let holders: Vec<&str> = f
+            .params
+            .iter()
+            .zip(params)
+            .filter(|(_, t)| t.is_some_and(|t| g.holds_borrow(t)))
+            .map(|(p, _)| p.name.as_str())
+            .collect();
+        let help = if holders.is_empty() {
+            format!("`{}` has no parameter that holds a borrow, so it needs no `lives`", f.name)
+        } else {
+            format!("the parameters holding a borrow are {}", list(&holders))
+        };
+        diags.push(
+            Diagnostic::at(&codes::E0309, *span, format!("`lives` names `{name}`, which is not a parameter holding a borrow"))
+                .note("not a parameter holding a borrow")
+                .help(help),
+        );
+    }
+}
+
+/// A struct's `lives` names exactly its borrow fields (E0314); fills in `StructInfo::lives`.
+fn check_struct_lives(g: &mut Globals, prog: &ast::Program, ids: &[Option<StructId>], diags: &mut Vec<Diagnostic>) {
+    let mut has_lives = vec![false; g.structs.len()];
+    for (s, id) in prog.structs.iter().zip(ids) {
+        if let Some(id) = *id {
+            has_lives[id] = !s.lives.is_empty();
+        }
+    }
+    for (s, id) in prog.structs.iter().zip(ids) {
+        let Some(id) = *id else { continue };
+        let fields = &g.structs[id].fields;
+        let borrows: Vec<usize> = (0..fields.len()).filter(|&i| fields[i].ty.is_some_and(Type::is_borrow)).collect();
+        let mut named = Vec::new();
+        for (name, span) in &s.lives {
+            match fields.iter().position(|f| f.name == *name).filter(|i| borrows.contains(i)) {
+                Some(i) => named.push(i),
+                None => diags.push(
+                    Diagnostic::at(&codes::E0314, *span, format!("`lives {name}` names nothing `{}` borrows", s.name))
+                        .note(format!("`{name}` is not a borrow field"))
+                        .help("`lives` lists the fields of the struct that are borrows"),
+                ),
+            }
+        }
+        let names: Vec<&str> = borrows.iter().map(|&i| fields[i].name.as_str()).collect();
+        if s.lives.is_empty() {
+            if let Some(&first) = borrows.first() {
+                diags.push(
+                    Diagnostic::at(&codes::E0314, s.name_span, format!("`{}` holds a borrow, so it must say what it borrows from", s.name))
+                        .label(fields[first].span, "this field is a borrow")
+                        .help(format!("add `lives {}`: `struct {} lives {} {{ ... }}`", names.join(", "), s.name, names.join(", "))),
+                );
+            }
+        } else {
+            for &i in &borrows {
+                if !named.contains(&i) && s.lives.iter().all(|(n, _)| *n != fields[i].name) {
+                    diags.push(
+                        Diagnostic::at(&codes::E0314, fields[i].span, format!("field `{}` is a borrow, but `lives` does not name it", fields[i].name))
+                            .note("a borrow field")
+                            .help(format!("add `{}` to the list: `lives {}`", fields[i].name, names.join(", "))),
+                    );
+                }
+            }
+        }
+        for f in fields {
+            let inner = f.ty.map(|t| t.target().filter(|_| t.is_borrow()).unwrap_or(t));
+            if inner.and_then(Type::struct_id).is_some_and(|o| has_lives[o]) {
+                diags.push(Diagnostic::at(&codes::E0901, f.span, "a field that borrows a struct with `lives` is not supported yet"));
+            }
+        }
+        named.sort_unstable();
+        named.dedup();
+        g.structs[id].lives = named;
+    }
+}
+
 fn declare_struct(g: &mut Globals, s: &ast::Struct, diags: &mut Vec<Diagnostic>) -> Option<StructId> {
     if s.name == "none" || !matches!(Type::from_name(&s.name), Err(TypeError::Unknown)) {
         diags.push(
@@ -368,7 +520,7 @@ fn declare_struct(g: &mut Globals, s: &ast::Struct, diags: &mut Vec<Diagnostic>)
     }
     let id = g.structs.len();
     let ty = Type::Struct { id, name: types::intern(&s.name) };
-    g.structs.push(StructInfo { name: s.name.clone(), name_span: s.name_span, ty, fields: Vec::new(), methods: Vec::new(), owns: false });
+    g.structs.push(StructInfo { name: s.name.clone(), name_span: s.name_span, ty, fields: Vec::new(), methods: Vec::new(), owns: false, stays: s.stays.is_some(), lives: Vec::new(), has_drop: None });
     g.structs_by_name.insert(s.name.clone(), id);
     Some(id)
 }
@@ -401,6 +553,19 @@ fn declare_methods(g: &mut Globals, id: StructId, s: &ast::Struct, diags: &mut V
             ret: g.resolve(&f.ret, diags),
             span: f.span,
         };
+        check_signature_extras(g, f, &sig.params, diags);
+        let mut is_drop = false;
+        if f.name == "drop" && m.operator.is_none() {
+            if m.is_static.is_some() || !f.params.is_empty() || sig.ret != Some(Type::None) || f.is_unsafe.is_some() {
+                diags.push(
+                    Diagnostic::at(&codes::E0328, f.span, "`drop` must be written `none drop()`")
+                        .note("`drop` runs by itself when the value is destroyed, so it takes nothing and returns nothing")
+                        .help("write `none drop() { ... }`, not `static`, with no parameters"),
+                );
+            } else {
+                is_drop = true;
+            }
+        }
         if let Some(op) = m.operator
             && !operator_shape_ok(op, m, &sig, self_ty, &s.name, diags)
         {
@@ -425,6 +590,9 @@ fn declare_methods(g: &mut Globals, id: StructId, s: &ast::Struct, diags: &mut V
         let func = g.add_sig(sig);
         let info = MethodInfo { name: f.name.clone(), operator: m.operator, func, is_static: m.is_static.is_some(), public: m.public };
         g.structs[id].methods.push(info);
+        if is_drop {
+            g.structs[id].has_drop = Some(func);
+        }
         ids.push(Some(func));
     }
     ids
@@ -537,6 +705,34 @@ fn mark_owning(g: &mut Globals, cyclic: &[bool]) {
     }
 }
 
+/// Which structs copy automatically, ignoring the size limit (`lay_out`
+/// adds it): not `stays`, no `drop()`, and every field Copy. Found by
+/// starting from "all" and removing, so a struct only needs its fields' answers.
+fn copy_structs(g: &Globals, cyclic: &[bool], defs: &[hir::StructDef]) -> Vec<bool> {
+    let mut copy: Vec<bool> = g.structs.iter().enumerate().map(|(i, s)| !s.stays && s.has_drop.is_none() && !cyclic[i]).collect();
+    loop {
+        let mut changed = false;
+        for (i, s) in g.structs.iter().enumerate() {
+            if !copy[i] {
+                continue;
+            }
+            let ok = defs[i].size <= 32
+                && s.fields.iter().all(|f| match f.ty {
+                    Some(Type::Int { .. } | Type::Float(_) | Type::Bool | Type::Ref { mutable: false, .. }) => true,
+                    Some(Type::Struct { id, .. }) => copy[id],
+                    _ => false,
+                });
+            if !ok {
+                copy[i] = false;
+                changed = true;
+            }
+        }
+        if !changed {
+            return copy;
+        }
+    }
+}
+
 /// Layouts for every struct. Structs in a cycle (already reported) get an empty one.
 fn lay_out(g: &Globals, cyclic: &[bool]) -> Vec<hir::StructDef> {
     fn size_of(g: &Globals, cyclic: &[bool], memo: &mut [Option<(u32, u32)>], t: Option<Type>) -> (u32, u32) {
@@ -560,7 +756,8 @@ fn lay_out(g: &Globals, cyclic: &[bool]) -> Vec<hir::StructDef> {
         (size, align)
     }
     let mut memo = vec![None; g.structs.len()];
-    g.structs
+    let mut defs: Vec<hir::StructDef> = g
+        .structs
         .iter()
         .enumerate()
         .map(|(id, s)| {
@@ -574,11 +771,26 @@ fn lay_out(g: &Globals, cyclic: &[bool]) -> Vec<hir::StructDef> {
                 .fields
                 .iter()
                 .zip(offsets.into_iter().chain(std::iter::repeat(0)))
-                .map(|(f, offset)| hir::FieldDef { name: f.name.clone(), ty: f.ty.unwrap_or(Type::None), offset })
+                .map(|(f, offset)| hir::FieldDef { name: f.name.clone(), ty: f.ty.unwrap_or(Type::None), offset, mutable: f.mutable })
                 .collect();
-            hir::StructDef { name: s.name.clone(), fields, size, align, owns: s.owns }
+            hir::StructDef {
+                name: s.name.clone(),
+                fields,
+                size,
+                align,
+                owns: s.owns,
+                copy: false,
+                stays: s.stays,
+                has_drop: s.has_drop,
+                lives: s.lives.clone(),
+            }
         })
-        .collect()
+        .collect();
+    let copy = copy_structs(g, cyclic, &defs);
+    for (d, c) in defs.iter_mut().zip(copy) {
+        d.copy = c;
+    }
+    defs
 }
 
 /// After every body is checked: which methods change `self`, and the calls
@@ -632,9 +844,8 @@ fn auto_eq(g: &mut Globals, s: StructId) -> hir::Func {
     let info = &g.structs[s];
     let (ty, name, owns) = (info.ty, info.name.clone(), info.owns);
     let fields: Vec<Type> = info.fields.iter().map(|f| f.ty.unwrap_or(Type::Bool)).collect();
-    let side = |local, i, fty| hir::Expr {
-        kind: hir::ExprKind::Field(Box::new(hir::Expr { kind: hir::ExprKind::Local(local), ty }), i),
-        ty: fty,
+    let side = |local, i, fty| {
+        hir::Expr::new(hir::ExprKind::Field(Box::new(hir::Expr::new(hir::ExprKind::Local(local), ty)), i), fty)
     };
     let mut all: Option<hir::Expr> = None;
     for (i, fty) in fields.into_iter().enumerate() {
@@ -644,23 +855,30 @@ fn auto_eq(g: &mut Globals, s: StructId) -> hir::Func {
                 let b = if g.owns(fty) { copy(b) } else { b };
                 g.struct_eq(inner, a, b)
             }
-            None if fty == Type::Str => hir::Expr { kind: hir::ExprKind::StrCall(hir::StrFn::Eq, vec![a, b]), ty: Type::Bool },
-            None => hir::Expr { kind: hir::ExprKind::Binary(hir::BinOp::Eq, Box::new(a), Box::new(b)), ty: Type::Bool },
+            None if fty == Type::Str => hir::Expr::new(hir::ExprKind::StrCall(hir::StrFn::Eq, vec![a, b]), Type::Bool),
+            None => hir::Expr::new(hir::ExprKind::Binary(hir::BinOp::Eq, Box::new(a), Box::new(b)), Type::Bool),
         };
         all = Some(match all {
             None => same,
-            Some(prev) => hir::Expr { kind: hir::ExprKind::Logic { and: true, lhs: Box::new(prev), rhs: Box::new(same) }, ty: Type::Bool },
+            Some(prev) => hir::Expr::new(hir::ExprKind::Logic { and: true, lhs: Box::new(prev), rhs: Box::new(same) }, Type::Bool),
         });
     }
-    let result = all.unwrap_or(hir::Expr { kind: hir::ExprKind::Bool(true), ty: Type::Bool });
+    let result = all.unwrap_or(hir::Expr::new(hir::ExprKind::Bool(true), Type::Bool));
     let result = if owns { scoped(result, vec![1]) } else { result };
+    let none = Span::new(0, 0);
+    let param = |n: &str| hir::Local { name: n.into(), ty, span: none, mutability: hir::Mutability::Fixed, is_param: true };
     hir::Func {
         symbol: format!("drachm_eq_{name}"),
         params: 2,
         has_self: true,
-        locals: vec![hir::Local { name: "a".into(), ty }, hir::Local { name: "b".into(), ty }],
+        locals: vec![param("a"), param("b")],
         ret: Type::Bool,
         body: vec![hir::Stmt::Return(Some(result))],
+        name_span: none,
+        span: none,
+        body_end: none,
+        is_unsafe: false,
+        lives: None,
     }
 }
 
@@ -703,6 +921,15 @@ fn check_body(g: &mut Globals, src: &str, diags: &mut Vec<Diagnostic>, f: &ast::
     for p in &f.params {
         let ty = cx.g.resolve_quiet(&p.ty).filter(|t| *t != Type::None);
         let id = cx.declare(&p.name, ty, p.mutable, p.span, true);
+        cx.locals[id].open = p.open;
+        if p.mutable && p.open {
+            let at = short(src, p.span).find("open").map_or(p.span, |i| Span::new(p.span.start + i, p.span.start + i + 4));
+            cx.diags.push(
+                Diagnostic::at(&codes::W0323, at, "`mut open` says the same as `mut`")
+                    .note("`mut` already allows everything `open` does")
+                    .help(format!("write `mut {} {}`", short(src, p.ty.span), p.name)),
+            );
+        }
         cx.flow.definite[id] = true;
         cx.flow.maybe[id] = true;
     }
@@ -719,8 +946,29 @@ fn check_body(g: &mut Globals, src: &str, diags: &mut Vec<Diagnostic>, f: &ast::
                 .help("add a `return` at the end, or to every branch"),
         );
     }
-    let locals = cx.locals.into_iter().map(|l| hir::Local { name: l.name, ty: l.ty.unwrap_or(Type::None) }).collect();
+    let locals = cx
+        .locals
+        .into_iter()
+        .map(|l| hir::Local {
+            name: l.name,
+            ty: l.ty.unwrap_or(Type::None),
+            span: l.span,
+            mutability: if l.open {
+                hir::Mutability::Open
+            } else if l.mutable {
+                hir::Mutability::Mut
+            } else {
+                hir::Mutability::Fixed
+            },
+            is_param: l.is_param,
+        })
+        .collect();
     hir::Func {
+        name_span: f.name_span,
+        span: f.span,
+        body_end: f.body.end,
+        is_unsafe: f.is_unsafe.is_some(),
+        lives: None,
         symbol,
         params: f.params.len() + has_self as usize,
         has_self,
@@ -824,15 +1072,25 @@ struct LocalInfo {
     is_param: bool,
     /// A method's `self`.
     is_self: bool,
+    /// Declared `open` (stored; checked like `mut` until WP5).
+    open: bool,
     span: Span,
     loop_depth: u32,
 }
 
-/// A local or a field inside one, resolved but not read.
+impl PlaceInfo {
+    fn hir_place(&self, span: Span) -> hir::Place {
+        hir::Place { local: self.local, proj: self.proj.clone(), span }
+    }
+}
+
+/// A local, then fields and dereferences inside it, resolved but not read.
 struct PlaceInfo {
     local: LocalId,
-    fields: Vec<usize>,
+    proj: Vec<hir::HirProj>,
     ty: Type,
+    /// Some step on the path goes through a borrow or a pointer.
+    through_deref: bool,
     /// Some field on the path is `mut`, so the place can change whatever its binding is.
     mut_field: bool,
 }
@@ -905,17 +1163,17 @@ struct Checker<'a> {
 }
 
 fn int_lit(bits: u128, ty: Type) -> hir::Expr {
-    hir::Expr { kind: hir::ExprKind::Int(bits), ty }
+    hir::Expr::new(hir::ExprKind::Int(bits), ty)
 }
 
 fn str_lit(text: String) -> hir::Expr {
-    hir::Expr { kind: hir::ExprKind::Str(text), ty: Type::Str }
+    hir::Expr::new(hir::ExprKind::Str(text), Type::Str)
 }
 
 /// A deep copy of the place `e`.
 fn copy(e: hir::Expr) -> hir::Expr {
     let ty = e.ty;
-    hir::Expr { kind: hir::ExprKind::Copy(Box::new(e)), ty }
+    hir::Expr::new(hir::ExprKind::Copy(Box::new(e)), ty)
 }
 
 /// `e`, followed by dropping `drops`.
@@ -924,7 +1182,18 @@ fn scoped(e: hir::Expr, drops: Vec<LocalId>) -> hir::Expr {
         return e;
     }
     let ty = e.ty;
-    hir::Expr { kind: hir::ExprKind::Scoped(Box::new(e), drops), ty }
+    hir::Expr::new(hir::ExprKind::Scoped(Box::new(e), drops), ty)
+}
+
+/// Is the written expression a place: a variable, `self`, a field of a
+/// place, or a dereference?
+fn ast_place(e: &ast::Expr) -> bool {
+    match &e.kind {
+        ExprKind::Var(_) | ExprKind::SelfValue => true,
+        ExprKind::Field { recv, .. } => ast_place(recv),
+        ExprKind::Deref(inner) => ast_place(inner),
+        _ => false,
+    }
 }
 
 /// A place with no effects to evaluate (no `Temp` in it): a statement that
@@ -932,7 +1201,7 @@ fn scoped(e: hir::Expr, drops: Vec<LocalId>) -> hir::Expr {
 fn plain_place(e: &hir::Expr) -> bool {
     match &e.kind {
         hir::ExprKind::Local(_) | hir::ExprKind::Str(_) => true,
-        hir::ExprKind::Field(inner, _) => plain_place(inner),
+        hir::ExprKind::Field(inner, _) | hir::ExprKind::Deref(inner) => plain_place(inner),
         _ => false,
     }
 }
@@ -944,7 +1213,7 @@ impl Checker<'_> {
 
     fn declare(&mut self, name: &str, ty: Option<Type>, mutable: bool, span: Span, is_param: bool) -> LocalId {
         let id = self.locals.len();
-        let info = LocalInfo { name: name.to_string(), ty, mutable, is_param, is_self: false, span, loop_depth: self.loop_depth };
+        let info = LocalInfo { name: name.to_string(), ty, mutable, is_param, is_self: false, open: false, span, loop_depth: self.loop_depth };
         self.locals.push(info);
         self.scopes.last_mut().unwrap().insert(name.to_string(), id);
         if ty.is_some_and(|t| self.g.owns(t)) {
@@ -965,7 +1234,7 @@ impl Checker<'_> {
     fn hidden_named(&mut self, name: &str, ty: Type) -> LocalId {
         let id = self.locals.len();
         let span = Span::new(0, 0);
-        let info = LocalInfo { name: name.to_string(), ty: Some(ty), mutable: true, is_param: false, is_self: false, span, loop_depth: self.loop_depth };
+        let info = LocalInfo { name: name.to_string(), ty: Some(ty), mutable: true, is_param: false, is_self: false, open: false, span, loop_depth: self.loop_depth };
         self.locals.push(info);
         self.flow.definite.resize(id + 1, false);
         self.flow.maybe.resize(id + 1, false);
@@ -989,7 +1258,7 @@ impl Checker<'_> {
         let id = self.hidden(e.ty);
         self.temps.push(id);
         let ty = e.ty;
-        hir::Expr { kind: hir::ExprKind::Temp(id, Box::new(e)), ty }
+        hir::Expr::new(hir::ExprKind::Temp(id, Box::new(e)), ty)
     }
 
     /// `e` as a value something else will own. Owning values are deep-copied
@@ -1065,13 +1334,23 @@ impl Checker<'_> {
 
     fn stmt(&mut self, s: &Stmt, out: &mut hir::Block) {
         match s {
-            Stmt::Let { mutable, ty, name, name_span, value, span: _ } => {
+            Stmt::Let { mutable, open, ty, name, name_span, value, span } => {
+                if *mutable && *open {
+                    let at = short(self.src, *span).find("open").map_or(*span, |i| Span::new(span.start + i, span.start + i + 4));
+                    self.diags.push(
+                        Diagnostic::at(&codes::W0323, at, "`mut open` says the same as `mut`")
+                            .note("`mut` already allows everything `open` does")
+                            .help(format!("write `mut {} {}`", short(self.src, ty.span), name)),
+                    );
+                }
                 let ty = self.g.resolve_binding_type(ty, self.diags);
                 // The value is checked before the name exists, so `uint32 x = x;`
                 // refers to an outer `x`.
                 let init = value.as_ref().map(|v| self.init(v, ty).map(|e| self.owned(e)));
                 let temps = self.take_temps();
                 let id = self.declare(name, ty, *mutable, *name_span, false);
+                self.locals[id].open = *open;
+                out.push(hir::Stmt::Decl(id));
                 if let Some(init) = init {
                     self.flow.definite[id] = true;
                     self.flow.maybe[id] = true;
@@ -1110,9 +1389,10 @@ impl Checker<'_> {
                 let c = self.cond(cond);
                 let label = self.new_label();
                 let forever = matches!(cond.kind, ExprKind::Bool(true));
+                let end = body.end;
                 let (body, step) = self.looped(label, *span, forever, body, None);
                 if let Some(c) = c {
-                    out.push(hir::Stmt::Loop { label, cond: Some(c), body, step });
+                    out.push(hir::Stmt::Loop { label, cond: Some(c), body, step, end });
                 }
             }
             Stmt::For { init, cond, step, body, span } => {
@@ -1126,13 +1406,14 @@ impl Checker<'_> {
                 let c = cond.as_ref().map(|c| self.cond(c));
                 let forever = cond.as_ref().is_none_or(|c| matches!(c.kind, ExprKind::Bool(true)));
                 let label = self.new_label();
+                let end = body.end;
                 let (body, step) = self.looped(label, *span, forever, body, step.as_deref());
                 self.scopes.pop();
                 let owned = self.owned.pop().unwrap();
                 self.flow.truncate(len);
                 match c {
                     Some(None) => {}
-                    c => out.push(hir::Stmt::Loop { label, cond: c.flatten(), body, step }),
+                    c => out.push(hir::Stmt::Loop { label, cond: c.flatten(), body, step, end }),
                 }
                 if self.flow.reachable {
                     out.extend(Self::drop_all(owned.into_iter().rev().collect()));
@@ -1192,6 +1473,38 @@ impl Checker<'_> {
                     None => {}
                 }
             }
+            Stmt::Unsafe { body, span } => {
+                if !self.g.unsafe_allowed {
+                    self.diags.push(unsafe_disabled(Span::new(span.start, span.start + 6), "needs the file flag"));
+                }
+                let block = self.block(body);
+                out.push(hir::Stmt::Unsafe(block));
+            }
+            Stmt::Destroy { target, span } => {
+                self.g.uses_borrows.set(true);
+                let local = match &target.kind {
+                    ExprKind::Var(n) => self.lookup(n),
+                    _ => None,
+                };
+                let dropper = local.and_then(|id| self.locals[id].ty).and_then(Type::struct_id).and_then(|s| self.g.structs[s].has_drop);
+                match local {
+                    Some(id) if dropper.is_some() => {
+                        self.read_local(id, target.span);
+                        out.push(hir::Stmt::Destroy(hir::Place { local: id, proj: Vec::new(), span: target.span }));
+                    }
+                    _ => {
+                        if matches!(target.kind, ExprKind::Var(_)) && local.is_none() {
+                            self.expr(target);
+                        } else {
+                            self.diags.push(Diagnostic::at(
+                                &codes::E0901,
+                                *span,
+                                "`destroy` of anything but a variable whose struct has a `drop()` is not supported yet",
+                            ));
+                        }
+                    }
+                }
+            }
             Stmt::Expr(e) => {
                 let v = self.expr(e);
                 let temps = self.take_temps();
@@ -1218,7 +1531,7 @@ impl Checker<'_> {
         match e.kind {
             // `s += t` appends in place.
             hir::ExprKind::StrCall(hir::StrFn::Concat, args) if compound => {
-                let append = hir::Expr { kind: hir::ExprKind::StrCall(hir::StrFn::Append, args), ty: Type::None };
+                let append = hir::Expr::new(hir::ExprKind::StrCall(hir::StrFn::Append, args), Type::None);
                 out.push(hir::Stmt::Expr(scoped(append, temps)));
             }
             // The new value is made before the old one is dropped, since
@@ -1228,7 +1541,7 @@ impl Checker<'_> {
                 let new = self.hidden(ty);
                 out.push(hir::Stmt::Assign(hir::Place::local(new), scoped(e, temps)));
                 out.push(hir::Stmt::Drop(place.clone()));
-                out.push(hir::Stmt::Assign(place, hir::Expr { kind: hir::ExprKind::Move(new), ty }));
+                out.push(hir::Stmt::Assign(place, hir::Expr::new(hir::ExprKind::Move(new), ty)));
             }
             _ => out.push(hir::Stmt::Assign(place, scoped(e, temps))),
         }
@@ -1243,28 +1556,55 @@ impl Checker<'_> {
             return;
         };
         let ty = self.locals[id].ty;
+        let mut place = hir::Place { local: id, proj: Vec::new(), span: name_span };
         let rhs = match op {
-            None => {
-                self.check_assignable(id, name_span, false);
-                match ty {
-                    Some(t) => self.coerce(value, t).map(|e| self.owned(e)),
-                    None => {
-                        self.expr(value);
-                        None
+            None => match ty {
+                // `r = rhs` re-points a borrow when `rhs` is one, and writes through it otherwise (R18).
+                Some(t @ Type::Ref { to, .. }) => {
+                    self.g.uses_borrows.set(true);
+                    match self.expr_raw(value) {
+                        Some(Val::Expr(x)) if x.ty.is_borrow() => {
+                            self.check_assignable(id, name_span, false);
+                            self.borrow_value(Val::Expr(x), value, t, None)
+                        }
+                        Some(v) => {
+                            place.proj.push(hir::HirProj::Deref);
+                            let to = *to;
+                            self.into(v, to, origin(value)).map(|e| self.owned(e))
+                        }
+                        None => None,
                     }
                 }
-            }
+                Some(t) => {
+                    self.check_assignable(id, name_span, false);
+                    self.coerce(value, t).map(|e| self.owned(e))
+                }
+                None => {
+                    self.check_assignable(id, name_span, false);
+                    self.expr(value);
+                    None
+                }
+            },
             Some(op) => {
                 // `x += v` is `x = x + v`: it reads `x` first.
-                self.check_assignable(id, name_span, true);
-                let current = self.read_local(id, name_span);
+                let current = if ty.is_some_and(Type::is_borrow) {
+                    // Through the borrow.
+                    place.proj.push(hir::HirProj::Deref);
+                    self.read_local(id, name_span).and_then(|x| match self.read(Val::Expr(x)) {
+                        Val::Expr(x) => Some(x),
+                        Val::Const(_) => None,
+                    })
+                } else {
+                    self.check_assignable(id, name_span, true);
+                    self.read_local(id, name_span)
+                };
                 self.compound(op, current, name_span, value, span)
             }
         };
         self.flow.definite[id] = true;
         self.flow.maybe[id] = true;
         match rhs {
-            Some(e) => self.store(hir::Place::local(id), e, op.is_some(), out),
+            Some(e) => self.store(place, e, op.is_some(), out),
             None => {
                 self.take_temps();
             }
@@ -1304,7 +1644,7 @@ impl Checker<'_> {
             }
         };
         match rhs {
-            Some(e) => self.store(hir::Place { local: place.local, fields: place.fields }, e, op.is_some(), out),
+            Some(e) => self.store(place.hir_place(target.span), e, op.is_some(), out),
             None => {
                 self.take_temps();
             }
@@ -1331,32 +1671,77 @@ impl Checker<'_> {
                     return None;
                 };
                 let ty = self.locals[id].ty?;
-                Some(PlaceInfo { local: id, fields: Vec::new(), ty, mut_field: false })
+                Some(PlaceInfo { local: id, proj: Vec::new(), ty, through_deref: false, mut_field: false })
             }
             ExprKind::SelfValue => {
                 let id = self.self_local(e.span)?;
                 let ty = self.locals[id].ty?;
-                Some(PlaceInfo { local: id, fields: Vec::new(), ty, mut_field: false })
+                Some(PlaceInfo { local: id, proj: Vec::new(), ty, through_deref: false, mut_field: false })
             }
             ExprKind::Field { recv, name, name_span } => {
                 let mut p = self.lvalue(recv)?;
+                Self::auto_deref(&mut p);
                 let (i, ty) = self.field_of(p.ty, name, *name_span, recv.span)?;
                 p.mut_field |= self.g.structs[p.ty.struct_id().unwrap()].fields[i].mutable;
-                p.fields.push(i);
+                p.proj.push(hir::HirProj::Field(i));
                 p.ty = ty;
                 Some(p)
+            }
+            ExprKind::Deref(inner) => {
+                self.g.uses_borrows.set(true);
+                let mut p = self.lvalue(inner)?;
+                match p.ty {
+                    Type::Ptr { to } => {
+                        p.proj.push(hir::HirProj::Deref);
+                        p.ty = *to;
+                        p.through_deref = true;
+                        Some(p)
+                    }
+                    t => {
+                        self.deref_error(t, inner.span, e.span);
+                        None
+                    }
+                }
             }
             _ => unreachable!("the parser only lets places be assigned"),
         }
     }
 
+    /// A borrow in the middle of a path is read through (R4).
+    fn auto_deref(p: &mut PlaceInfo) {
+        if let Type::Ref { to, .. } = p.ty {
+            p.proj.push(hir::HirProj::Deref);
+            p.ty = *to;
+            p.through_deref = true;
+        }
+    }
+
+    /// `*e` on something that is not a pointer.
+    fn deref_error(&mut self, ty: Type, inner: Span, at: Span) {
+        let d = if ty.is_borrow() {
+            Diagnostic::at(&codes::E0901, at, "`*` on a borrow is not supported yet")
+                .help("a borrow already means its target: use it without `*`")
+        } else {
+            Diagnostic::at(&codes::E0101, at, format!("`*` needs a pointer, found `{ty}`")).label(inner, format!("this is `{ty}`"))
+        };
+        self.diags.push(d);
+    }
+
     /// The current value of a place (its local must certainly be assigned).
     fn place_expr(&self, p: &PlaceInfo) -> hir::Expr {
         let mut ty = self.locals[p.local].ty.unwrap();
-        let mut e = hir::Expr { kind: hir::ExprKind::Local(p.local), ty };
-        for &i in &p.fields {
-            ty = self.g.structs[ty.struct_id().unwrap()].fields[i].ty.unwrap();
-            e = hir::Expr { kind: hir::ExprKind::Field(Box::new(e), i), ty };
+        let mut e = hir::Expr::new(hir::ExprKind::Local(p.local), ty);
+        for step in &p.proj {
+            match *step {
+                hir::HirProj::Field(i) => {
+                    ty = self.g.structs[ty.struct_id().unwrap()].fields[i].ty.unwrap();
+                    e = hir::Expr::new(hir::ExprKind::Field(Box::new(e), i), ty);
+                }
+                hir::HirProj::Deref => {
+                    ty = ty.target().unwrap();
+                    e = hir::Expr::new(hir::ExprKind::Deref(Box::new(e)), ty);
+                }
+            }
         }
         e
     }
@@ -1366,7 +1751,8 @@ impl Checker<'_> {
     /// `self` it makes the method a changing one; otherwise an error.
     fn check_field_change(&mut self, p: &PlaceInfo, at: Span, does: &str) {
         let l = &self.locals[p.local];
-        if p.mut_field || l.mutable {
+        // WP5 checks writes through borrows.
+        if p.mut_field || l.mutable || p.through_deref {
             return;
         }
         if l.is_self {
@@ -1377,11 +1763,19 @@ impl Checker<'_> {
         }
         // The last field: the one that could be made `mut` instead.
         let mut ty = l.ty.unwrap();
-        for &i in &p.fields[..p.fields.len() - 1] {
+        let fields: Vec<usize> = p
+            .proj
+            .iter()
+            .filter_map(|s| match s {
+                hir::HirProj::Field(i) => Some(*i),
+                hir::HirProj::Deref => None,
+            })
+            .collect();
+        for &i in &fields[..fields.len() - 1] {
             ty = self.g.structs[ty.struct_id().unwrap()].fields[i].ty.unwrap();
         }
         let s = &self.g.structs[ty.struct_id().unwrap()];
-        let f = &s.fields[*p.fields.last().unwrap()];
+        let f = &s.fields[*fields.last().unwrap()];
         let (name, lty) = (&l.name, l.ty.unwrap());
         let whose = if l.is_param { "parameter " } else { "" };
         let d = Diagnostic::at(&codes::E0205, at, format!("cannot change `{}`: {whose}`{name}` is not `mut`, and neither is the field", self.text(at)))
@@ -1441,7 +1835,7 @@ impl Checker<'_> {
             self.flow.definite[id] = true;
         }
         let ty = self.locals[id].ty?;
-        Some(hir::Expr { kind: hir::ExprKind::Local(id), ty })
+        Some(hir::Expr::new(hir::ExprKind::Local(id), ty))
     }
 
     /// The `self` local, or an error if there is none here.
@@ -1534,6 +1928,8 @@ impl Checker<'_> {
                     cur = inner;
                 }
                 hir::ExprKind::Local(id) => break *id,
+                // WP5 checks changes through borrows.
+                hir::ExprKind::Deref(_) => return Receiver::Changeable,
                 _ => return Receiver::Temporary,
             }
         };
@@ -1569,8 +1965,77 @@ impl Checker<'_> {
 
     /// Check `e` and convert it to `to`, reporting a mismatch or a lossy conversion.
     fn coerce(&mut self, e: &ast::Expr, to: Type) -> Option<hir::Expr> {
+        if to.is_ptr() && matches!(e.kind, ExprKind::NoneValue) {
+            self.g.uses_borrows.set(true);
+            return Some(hir::Expr::new(hir::ExprKind::NullPtr, to).at(e.span));
+        }
+        if to.is_borrow() {
+            return self.coerce_borrow(e, to, None);
+        }
         let v = self.expr(e)?;
         self.into(v, to, origin(e))
+    }
+
+    /// `e` where a borrow of type `to` is wanted: the value must be a borrow
+    /// of that kind. `call` is the function being called, for E0321.
+    fn coerce_borrow(&mut self, e: &ast::Expr, to: Type, call: Option<FuncId>) -> Option<hir::Expr> {
+        self.g.uses_borrows.set(true);
+        let v = self.expr_raw(e)?;
+        self.borrow_value(v, e, to, call)
+    }
+
+    /// `coerce_borrow` for a value already checked.
+    fn borrow_value(&mut self, v: Val, e: &ast::Expr, to: Type, call: Option<FuncId>) -> Option<hir::Expr> {
+        let to_target = to.target();
+        match v {
+            Val::Expr(x) if x.ty == to => Some(x),
+            Val::Expr(x) if matches!((x.ty, to), (Type::Ref { mutable: true, to: a }, Type::Ref { mutable: false, to: b }) if a == b) => {
+                if matches!(e.kind, ExprKind::Borrow { .. } | ExprKind::Lend(_)) || !ast_place(e) {
+                    self.diags.push(
+                        Diagnostic::at(&codes::E0901, e.span, "using a `&mut` where a `&` is expected is not supported yet")
+                            .note(format!("this is `{}`", x.ty)),
+                    );
+                } else {
+                    let name = self.text(e.span).to_string();
+                    self.diags.push(
+                        Diagnostic::at(&codes::E0330, e.span, format!("`{name}` is a `{}`, but a `{to}` is wanted here", x.ty))
+                            .note("passes the `&mut` itself")
+                            .help(format!("write `&{name}`: a shared borrow through the `&mut` you hold")),
+                    );
+                }
+                None
+            }
+            Val::Expr(x) if x.ty.is_borrow() => {
+                let o = origin(e);
+                self.into(Val::Expr(x), to, o)
+            }
+            other => {
+                let plain = match &other {
+                    Val::Const(_) => true,
+                    Val::Expr(x) => Some(x.ty) == to_target,
+                };
+                match call {
+                    Some(f) if plain => {
+                        let full = self.g.sigs[f].name.clone();
+                        let short_name = full.rsplit("::").next().unwrap_or(&full).to_string();
+                        let amp = if matches!(to, Type::Ref { mutable: true, .. }) { "&mut " } else { "&" };
+                        let arg = self.text(e.span).to_string();
+                        let help = if full.contains("::") {
+                            format!("write `{amp}{arg}` as the argument")
+                        } else {
+                            format!("write `{short_name}({amp}{arg})`")
+                        };
+                        self.diags.push(
+                            Diagnostic::at(&codes::E0321, e.span, format!("`{short_name}` takes `{to}` here, so the call must say so"))
+                                .note(format!("this passes `{arg}` itself"))
+                                .help(help),
+                        );
+                        None
+                    }
+                    _ => self.into(other, to, origin(e)),
+                }
+            }
+        }
     }
 
     /// A declaration's value, for a binding of type `ty`.
@@ -1582,8 +2047,12 @@ impl Checker<'_> {
                     return None;
                 };
                 let Some(s) = t.struct_id() else { return self.coerce(e, t) };
-                match self.expr(e)? {
+                match self.expr_raw(e)? {
                     Val::Expr(x) if x.ty == t => Some(x),
+                    Val::Expr(x) if x.ty.is_borrow() && x.ty.target() == Some(t) => match self.read(Val::Expr(x)) {
+                        Val::Expr(x) => Some(x),
+                        Val::Const(_) => None,
+                    },
                     // One value of another type builds a one-field struct.
                     Val::Expr(x) if self.g.structs[s].fields.len() != 1 && (x.ty.struct_id().is_some() || x.ty == Type::None) => {
                         self.into(Val::Expr(x), t, origin(e))
@@ -1592,7 +2061,7 @@ impl Checker<'_> {
                 }
             }
             ast::Init::Fields(values, span) => {
-                let checked: Vec<_> = values.iter().map(|fv| (fv.name.clone(), self.expr(&fv.value), origin(&fv.value))).collect();
+                let checked: Vec<_> = values.iter().map(|fv| (fv.name.clone(), self.expr_raw(&fv.value), origin(&fv.value))).collect();
                 match ty {
                     Some(t) if t.struct_id().is_some() => self.construct(t, checked, *span),
                     Some(t) => {
@@ -1694,7 +2163,7 @@ impl Checker<'_> {
                 _ => ok = false,
             }
         }
-        ok.then_some(hir::Expr { kind: hir::ExprKind::Struct(out), ty: t })
+        ok.then_some(hir::Expr::new(hir::ExprKind::Struct(out), t))
     }
 
     fn materialise(&mut self, v: Val, span: Span) -> Option<hir::Expr> {
@@ -1725,6 +2194,10 @@ impl Checker<'_> {
                 None
             }
             Val::Expr(e) if e.ty == to => Some(e),
+            Val::Expr(e) if e.ty.is_borrow() && !to.is_borrow() => {
+                let v = self.read(Val::Expr(e));
+                self.into(v, to, from)
+            }
             Val::Expr(e) if e.ty == Type::None => {
                 self.diags.push(
                     Diagnostic::at(&codes::E0104, from.span, format!("expected `{to}`, but this produces no value"))
@@ -1736,7 +2209,7 @@ impl Checker<'_> {
                 if !e.ty.converts_losslessly_to(to) {
                     self.warn_lossy(e.ty, to, from);
                 }
-                Some(hir::Expr { kind: hir::ExprKind::Convert(Box::new(e)), ty: to })
+                Some(hir::Expr::new(hir::ExprKind::Convert(Box::new(e)), to))
             }
             Val::Expr(e) => {
                 let mut d = Diagnostic::at(&codes::E0101, from.span, format!("expected `{to}`, found `{}`", e.ty))
@@ -1803,7 +2276,7 @@ impl Checker<'_> {
     fn fit_const(&mut self, c: &Const, to: Type, span: Span, explicit: bool) -> hir::Expr {
         let e = match to {
             Type::Int { .. } => int_lit(c.wrap_to_int(to), to),
-            _ => hir::Expr { kind: hir::ExprKind::Float(c.to_float(to)), ty: to },
+            _ => hir::Expr::new(hir::ExprKind::Float(c.to_float(to)), to),
         };
         if !explicit && !c.fits(to) {
             let what = self.quote(span, "this constant");
@@ -1837,8 +2310,38 @@ impl Checker<'_> {
     }
 
     /// The value of `e`, or `None` if an error was already reported inside it.
+    /// Every expression made from `e` carries its span.
     fn expr(&mut self, e: &ast::Expr) -> Option<Val> {
-        let typed = |kind, ty| Some(Val::Expr(hir::Expr { kind, ty }));
+        let v = self.expr_raw(e)?;
+        Some(self.read(v))
+    }
+
+    /// A borrow means its target (R4): reads through it. Contexts that want
+    /// the borrow itself use `expr_raw`.
+    fn read(&self, v: Val) -> Val {
+        match v {
+            Val::Expr(x) if x.ty.is_borrow() => {
+                let (ty, span) = (x.ty.target().unwrap(), x.span);
+                Val::Expr(hir::Expr::new(hir::ExprKind::Deref(Box::new(x)), ty).at(span))
+            }
+            v => v,
+        }
+    }
+
+    fn expr_raw(&mut self, e: &ast::Expr) -> Option<Val> {
+        match self.expr_inner(e)? {
+            Val::Expr(mut x) => {
+                if x.span == Span::new(0, 0) {
+                    x.span = e.span;
+                }
+                Some(Val::Expr(x))
+            }
+            c => Some(c),
+        }
+    }
+
+    fn expr_inner(&mut self, e: &ast::Expr) -> Option<Val> {
+        let typed = |kind, ty| Some(Val::Expr(hir::Expr::new(kind, ty)));
         match &e.kind {
             ExprKind::Num(n) => match n.suffix {
                 Some(ty) => Some(Val::Expr(self.fit_const(&n.value, ty, e.span, false))),
@@ -1882,6 +2385,11 @@ impl Checker<'_> {
                 let rhs = self.coerce(r, Type::Bool);
                 typed(hir::ExprKind::Logic { and: *op == BinOp::And, lhs: Box::new(lhs?), rhs: Box::new(rhs?) }, Type::Bool)
             }
+            ExprKind::Binary(op @ (BinOp::Eq | BinOp::Ne), l, r)
+                if matches!(l.kind, ExprKind::NoneValue) || matches!(r.kind, ExprKind::NoneValue) =>
+            {
+                self.none_compare(*op, l, r, e.span)
+            }
             ExprKind::Binary(op, l, r) => {
                 let lv = self.expr(l);
                 let rv = self.expr(r);
@@ -1896,7 +2404,8 @@ impl Checker<'_> {
                     );
                     return None;
                 }
-                let p = self.lvalue(target)?;
+                let mut p = self.lvalue(target)?;
+                Self::auto_deref(&mut p);
                 if !p.ty.is_numeric() {
                     self.diags.push(
                         Diagnostic::at(&codes::E0101, target.span, format!("`{sym}` needs a number, found `{}`", p.ty))
@@ -1904,14 +2413,16 @@ impl Checker<'_> {
                     );
                     return None;
                 }
-                if p.fields.is_empty() {
+                if p.through_deref {
+                    // WP5 checks writes through borrows.
+                } else if p.proj.is_empty() {
                     self.check_assignable(p.local, target.span, true);
                 } else {
                     self.check_field_change(&p, target.span, "changes");
                 }
                 self.read_local(p.local, target.span)?;
                 let ty = p.ty;
-                typed(hir::ExprKind::IncDec { place: hir::Place { local: p.local, fields: p.fields }, inc: *inc, prefix: *prefix }, ty)
+                typed(hir::ExprKind::IncDec { place: p.hir_place(e.span), inc: *inc, prefix: *prefix }, ty)
             }
             ExprKind::Call { name, args } => {
                 let Some(&id) = self.g.funcs_by_name.get(name) else {
@@ -1938,12 +2449,232 @@ impl Checker<'_> {
                 }
                 self.method(recv, name, *name_span, targs, args, e.span)
             }
+            ExprKind::Borrow { mutable, operand } => self.borrow_expr(*mutable, operand),
+            ExprKind::Deref(inner) => {
+                self.g.uses_borrows.set(true);
+                let v = self.expr_raw(inner)?;
+                let x = self.materialise(v, inner.span)?;
+                match x.ty {
+                    Type::Ptr { to } => typed(hir::ExprKind::Deref(Box::new(x)), *to),
+                    t => {
+                        self.deref_error(t, inner.span, e.span);
+                        None
+                    }
+                }
+            }
+            ExprKind::Copy(inner) => self.copy_expr(e, inner),
+            ExprKind::Take { place, leaving } => self.take_expr(e, place, leaving.as_deref()),
+            ExprKind::Lend(inner) => self.lend_expr(e, inner),
+            ExprKind::AddressOf(inner) => self.address_expr(e, inner),
+            ExprKind::NoneValue => {
+                self.diags.push(Diagnostic::at(&codes::E0901, e.span, "`none` as a value is not supported yet"));
+                None
+            }
             ExprKind::Range(..) => {
                 self.diags.push(
                     Diagnostic::at(&codes::E0010, e.span, "a range can only be used after `of` in a `for`, or as a `case` pattern")
                         .note("this is a range")
                         .help("to go through the numbers from a to b, write `for (uint32 i of a..b) { }`"),
                 );
+                None
+            }
+        }
+    }
+
+    /// `&e` / `&mut e`.
+    fn borrow_expr(&mut self, mutable: bool, operand: &ast::Expr) -> Option<Val> {
+        self.g.uses_borrows.set(true);
+        let v = self.expr_raw(operand)?;
+        let x = self.materialise(v, operand.span)?;
+        let name = self.text(operand.span).to_string();
+        match x.ty {
+            Type::None => {
+                self.diags.push(
+                    Diagnostic::at(&codes::E0104, operand.span, "cannot borrow a value of type `none`").note("`none` holds no value"),
+                );
+                None
+            }
+            Type::Ref { mutable: held, to } => {
+                if mutable && held {
+                    self.diags.push(
+                        Diagnostic::at(&codes::E0329, operand.span, format!("cannot borrow `{name}` with `&mut`: it is already a `&mut`"))
+                            .note(format!("`{name}` is `{}`", x.ty))
+                            .help(format!("write `lend {name}`")),
+                    );
+                    None
+                } else if !mutable && held {
+                    // The one allowed borrow of a borrow: a shared view through the `&mut` you hold.
+                    let place = hir::Expr::new(hir::ExprKind::Deref(Box::new(x)), *to);
+                    Some(Val::Expr(hir::Expr::new(hir::ExprKind::Borrow { mutable: false, place: Box::new(place) }, Type::borrow(false, *to))))
+                } else {
+                    self.diags.push(
+                        Diagnostic::at(&codes::E0901, operand.span, "borrowing a borrow is not supported yet")
+                            .help(format!("`{name}` is already a `&` borrow; use `{name}` itself")),
+                    );
+                    None
+                }
+            }
+            t => Some(Val::Expr(hir::Expr::new(hir::ExprKind::Borrow { mutable, place: Box::new(x) }, Type::borrow(mutable, t)))),
+        }
+    }
+
+    /// `copy e`.
+    fn copy_expr(&mut self, e: &ast::Expr, inner: &ast::Expr) -> Option<Val> {
+        self.g.uses_borrows.set(true);
+        if !ast_place(inner) {
+            let text = self.quote(inner.span, "this value");
+            self.diags.push(
+                Diagnostic::at(&codes::E0327, e.span, "`copy` needs a variable or a field, like `copy name`")
+                    .note(format!("{text} is a temporary value; there is nothing to copy it from"))
+                    .help("name the value first, then copy that"),
+            );
+            self.expr(inner);
+            return None;
+        }
+        let v = self.expr_raw(inner)?;
+        let x = self.materialise(v, inner.span)?;
+        let (value, ty) = match x.ty {
+            Type::Ref { to, .. } => (hir::Expr::new(hir::ExprKind::Deref(Box::new(x)), *to), *to),
+            t => (x, t),
+        };
+        if self.copies_anyway(ty) {
+            let at = Span::new(e.span.start, e.span.start + 4);
+            self.diags.push(
+                Diagnostic::at(&codes::W0322, at, format!("`copy` does nothing for `{ty}`"))
+                    .note("a copy happens anyway")
+                    .help(format!("remove `copy`: `{ty}` always copies")),
+            );
+        }
+        Some(Val::Expr(hir::Expr::new(hir::ExprKind::DeepCopy(Box::new(value)), ty)))
+    }
+
+    /// Does a value of type `t` copy when used (R11)?
+    fn copies_anyway(&self, t: Type) -> bool {
+        match t {
+            Type::Int { .. } | Type::Float(_) | Type::Bool | Type::Ref { mutable: false, .. } => true,
+            Type::Struct { id, .. } => self.g.struct_copy.get(id).copied().unwrap_or(false),
+            _ => false,
+        }
+    }
+
+    /// `take p.f` / `take p.f leaving v`.
+    fn take_expr(&mut self, e: &ast::Expr, place: &ast::Expr, leaving: Option<&ast::Expr>) -> Option<Val> {
+        self.g.uses_borrows.set(true);
+        let unsupported = |cx: &mut Self| {
+            cx.diags.push(Diagnostic::at(&codes::E0901, place.span, "this form of `take` is not supported yet"));
+        };
+        if !ast_place(place) {
+            let text = self.quote(place.span, "this value");
+            self.diags.push(
+                Diagnostic::at(&codes::E0327, e.span, "`take` needs a field of a variable, like `p.name`")
+                    .note(format!("{text} is a temporary value; there is nothing to take it out of"))
+                    .help("use the value directly, without `take`"),
+            );
+            self.expr(place);
+            return None;
+        }
+        if !matches!(place.kind, ExprKind::Field { .. }) {
+            unsupported(self);
+            return None;
+        }
+        let p = self.lvalue(place)?;
+        if p.through_deref || self.copies_anyway(p.ty) {
+            unsupported(self);
+            return None;
+        }
+        self.read_local(p.local, place.span)?;
+        let leaving = match leaving {
+            Some(v) => Some(Box::new(self.coerce(v, p.ty).map(|e| self.owned(e))?)),
+            None => None,
+        };
+        let ty = p.ty;
+        Some(Val::Expr(hir::Expr::new(hir::ExprKind::Take { place: p.hir_place(place.span), leaving }, ty)))
+    }
+
+    /// `lend r`.
+    fn lend_expr(&mut self, e: &ast::Expr, inner: &ast::Expr) -> Option<Val> {
+        self.g.uses_borrows.set(true);
+        let v = self.expr_raw(inner)?;
+        let name = self.text(inner.span).to_string();
+        match v {
+            Val::Expr(x) if ast_place(inner) && matches!(x.ty, Type::Ref { mutable: true, .. }) => {
+                let ty = x.ty;
+                Some(Val::Expr(hir::Expr::new(hir::ExprKind::Lend(Box::new(x)), ty)))
+            }
+            Val::Expr(x) if ast_place(inner) && x.ty.is_borrow() => {
+                self.diags.push(Diagnostic::at(&codes::E0901, inner.span, "`lend` on a `&` borrow is not supported yet"));
+                None
+            }
+            other => {
+                let found = match &other {
+                    Val::Const(_) => "a number".to_string(),
+                    Val::Expr(x) => format!("`{}`", x.ty),
+                };
+                let mut d = Diagnostic::at(&codes::E0326, e.span, format!("`lend` passes on a `&mut` borrow you hold, and `{name}` is not one"))
+                    .note("nothing to pass on");
+                if let ExprKind::Var(n) = &inner.kind
+                    && let Some(id) = self.lookup(n)
+                {
+                    let l = &self.locals[id];
+                    d = d.label(l.span, format!("`{name}` is {found}, not a `&mut`"));
+                }
+                self.diags.push(d.help(format!("to lend `{name}` itself, write `&mut {name}`")));
+                None
+            }
+        }
+    }
+
+    /// `address of e`.
+    fn address_expr(&mut self, e: &ast::Expr, inner: &ast::Expr) -> Option<Val> {
+        self.g.uses_borrows.set(true);
+        if !self.g.unsafe_allowed {
+            self.diags.push(unsafe_disabled(Span::new(e.span.start, e.span.start + 7), "needs the file flag"));
+        }
+        if !ast_place(inner) {
+            let text = self.quote(inner.span, "this value");
+            self.diags.push(
+                Diagnostic::at(&codes::E0327, e.span, "`address of` needs a variable or a field, like `address of n`")
+                    .note(format!("{text} is a temporary value; it has no address"))
+                    .help("name the value first"),
+            );
+            self.expr(inner);
+            return None;
+        }
+        let p = self.lvalue(inner)?;
+        let l = &self.locals[p.local];
+        if !p.through_deref && !p.mut_field && !l.mutable && !l.open && !l.is_self {
+            self.diags.push(Diagnostic::at(
+                &codes::E0901,
+                e.span,
+                "`address of` an immutable binding (which gives a `*fixed T`) is not supported yet",
+            ));
+            return None;
+        }
+        self.read_local(p.local, inner.span)?;
+        let ty = Type::ptr(p.ty);
+        let place = self.place_expr(&p);
+        Some(Val::Expr(hir::Expr::new(hir::ExprKind::AddressOf(Box::new(place)), ty)))
+    }
+
+    /// `p == none` / `p != none` (either side).
+    fn none_compare(&mut self, op: BinOp, l: &ast::Expr, r: &ast::Expr, span: Span) -> Option<Val> {
+        let _ = span;
+        let (other, none_left) = if matches!(l.kind, ExprKind::NoneValue) { (r, true) } else { (l, false) };
+        if matches!(other.kind, ExprKind::NoneValue) {
+            self.diags.push(Diagnostic::at(&codes::E0901, other.span, "`none` as a value is not supported yet"));
+            return None;
+        }
+        let v = self.expr_raw(other)?;
+        match v {
+            Val::Expr(x) if x.ty.is_ptr() => {
+                self.g.uses_borrows.set(true);
+                let null = hir::Expr::new(hir::ExprKind::NullPtr, x.ty);
+                let hop = if op == BinOp::Eq { hir::BinOp::Eq } else { hir::BinOp::Ne };
+                let (a, b) = if none_left { (null, x) } else { (x, null) };
+                Some(Val::Expr(hir::Expr::new(hir::ExprKind::Binary(hop, Box::new(a), Box::new(b)), Type::Bool)))
+            }
+            _ => {
+                self.diags.push(Diagnostic::at(&codes::E0901, span, "`none` as a value is not supported yet"));
                 None
             }
         }
@@ -1969,6 +2700,7 @@ impl Checker<'_> {
         for (a, p) in args.iter().zip(&params) {
             let v = match p {
                 // The callee owns its parameters.
+                Some(p) if p.is_borrow() => self.coerce_borrow(a, *p, Some(id)),
                 Some(p) => self.coerce(a, *p).map(|e| self.owned(e)),
                 None => {
                     self.expr(a);
@@ -2019,7 +2751,7 @@ impl Checker<'_> {
         if !visible {
             return None;
         }
-        Some(Val::Expr(hir::Expr { kind: hir::ExprKind::Call(func, args?), ty }))
+        Some(Val::Expr(hir::Expr::new(hir::ExprKind::Call(func, args?), ty)))
     }
 
     fn unknown_method(&mut self, s: StructId, name: &str, at: Span, shown: &str) {
@@ -2109,7 +2841,7 @@ impl Checker<'_> {
             }
         };
         let arg = self.place(arg);
-        Some(Val::Expr(hir::Expr { kind: hir::ExprKind::Out { newline, arg: Box::new(arg) }, ty: Type::None }))
+        Some(Val::Expr(hir::Expr::new(hir::ExprKind::Out { newline, arg: Box::new(arg) }, Type::None)))
     }
 
     fn method(&mut self, recv: &ast::Expr, name: &str, name_span: Span, targs: &[ast::TypeName], args: &[ast::Expr], span: Span) -> Option<Val> {
@@ -2150,7 +2882,7 @@ impl Checker<'_> {
                     );
                     return None;
                 }
-                Some(Val::Expr(hir::Expr { kind: hir::ExprKind::Text(Box::new(v)), ty: Type::Str }))
+                Some(Val::Expr(hir::Expr::new(hir::ExprKind::Text(Box::new(v)), Type::Str)))
             }
             "to" => {
                 no_args(self);
@@ -2172,7 +2904,7 @@ impl Checker<'_> {
                     Val::Const(c) => Some(Val::Expr(self.fit_const(&c, to, recv.span, true))),
                     Val::Expr(v) if v.ty == to => Some(Val::Expr(v)),
                     Val::Expr(v) if v.ty.is_numeric() => {
-                        Some(Val::Expr(hir::Expr { kind: hir::ExprKind::Convert(Box::new(v)), ty: to }))
+                        Some(Val::Expr(hir::Expr::new(hir::ExprKind::Convert(Box::new(v)), to)))
                     }
                     Val::Expr(v) => {
                         self.diags.push(
@@ -2219,6 +2951,18 @@ impl Checker<'_> {
             return None;
         };
         let sname = self.g.structs[s].name.clone();
+        if name == "drop" {
+            let shown = self.text(recv_span).to_string();
+            self.diags.push(
+                Diagnostic::at(&codes::E0331, name_span, format!("`drop` runs by itself; write `destroy {shown};` to end `{shown}` now"))
+                    .note("called here")
+                    .help(format!("write `destroy {shown};`")),
+            );
+            for a in args {
+                self.expr(a);
+            }
+            return None;
+        }
         if m.is_static {
             self.diags.push(
                 Diagnostic::at(&codes::E0213, name_span, format!("`{name}` is a static method: it is called on the struct, not on a value"))
@@ -2241,7 +2985,7 @@ impl Checker<'_> {
         self.note_receiver(&recv, recv_span, m.func, name_span);
         let mut all = vec![self.receiver_value(recv)];
         all.extend(args?);
-        Some(Val::Expr(hir::Expr { kind: hir::ExprKind::Call(m.func, all), ty }))
+        Some(Val::Expr(hir::Expr::new(hir::ExprKind::Call(m.func, all), ty)))
     }
 
     /// `lhs op rhs` where `lhs` is a struct value: the left side leads, so
@@ -2249,7 +2993,7 @@ impl Checker<'_> {
     fn struct_operator(&mut self, op: BinOp, lhs: hir::Expr, lo: Origin, rv: Val, ro: Origin, span: Span) -> Option<Val> {
         let s = lhs.ty.struct_id().unwrap();
         let t = lhs.ty;
-        let not = |e: hir::Expr| hir::Expr { kind: hir::ExprKind::Not(Box::new(e)), ty: Type::Bool };
+        let not = |e: hir::Expr| hir::Expr::new(hir::ExprKind::Not(Box::new(e)), Type::Bool);
         if let Some(m) = self.g.operator(s, op).cloned() {
             return self.operator_call(s, &m, lhs, lo, rv, ro, span).map(Val::Expr);
         }
@@ -2289,13 +3033,13 @@ impl Checker<'_> {
         let rhs = self.owned(rhs);
         self.note_receiver(&lhs, lo.span, m.func, span);
         let lhs = self.receiver_value(lhs);
-        Some(hir::Expr { kind: hir::ExprKind::Call(m.func, vec![lhs, rhs]), ty })
+        Some(hir::Expr::new(hir::ExprKind::Call(m.func, vec![lhs, rhs]), ty))
     }
 
     fn unary(&mut self, op: UnOp, inner: &ast::Expr, span: Span) -> Option<Val> {
         if op == UnOp::Not {
             let v = self.coerce(inner, Type::Bool)?;
-            return Some(Val::Expr(hir::Expr { kind: hir::ExprKind::Not(Box::new(v)), ty: Type::Bool }));
+            return Some(Val::Expr(hir::Expr::new(hir::ExprKind::Not(Box::new(v)), Type::Bool)));
         }
         let (sym, wants) = if op == UnOp::Neg { ("-", "a number") } else { ("~", "a whole number") };
         match self.expr(inner)? {
@@ -2312,7 +3056,7 @@ impl Checker<'_> {
             Val::Expr(v) if (op == UnOp::Neg && v.ty.is_numeric()) || (op == UnOp::BitNot && v.ty.is_int()) => {
                 let ty = v.ty;
                 let kind = if op == UnOp::Neg { hir::ExprKind::Neg(Box::new(v)) } else { hir::ExprKind::BitNot(Box::new(v)) };
-                Some(Val::Expr(hir::Expr { kind, ty }))
+                Some(Val::Expr(hir::Expr::new(kind, ty)))
             }
             Val::Expr(v) => {
                 let mut d = Diagnostic::at(&codes::E0101, inner.span, format!("`{sym}` needs {wants}, found `{}`", v.ty)).note(format!("this is `{}`", v.ty));
@@ -2348,7 +3092,7 @@ impl Checker<'_> {
         if let (Val::Const(a), Val::Const(b)) = (&lv, &rv) {
             return match Const::binary(op, a, b) {
                 Ok(Folded::Value(c)) => Some(Val::Const(c)),
-                Ok(Folded::Bool(b)) => Some(Val::Expr(hir::Expr { kind: hir::ExprKind::Bool(b), ty: Type::Bool })),
+                Ok(Folded::Bool(b)) => Some(Val::Expr(hir::Expr::new(hir::ExprKind::Bool(b), Type::Bool))),
                 Err(err) => {
                     self.fold_error(err, op, span, ro);
                     None
@@ -2434,7 +3178,7 @@ impl Checker<'_> {
             } else {
                 hir::ExprKind::IntPow(Box::new(lhs), Box::new(count))
             };
-            return Some(Val::Expr(hir::Expr { kind, ty: lead }));
+            return Some(Val::Expr(hir::Expr::new(kind, lead)));
         }
 
         // Everything else: the left side leads and the right side converts to it.
@@ -2486,7 +3230,7 @@ impl Checker<'_> {
             BinOp::Shl | BinOp::Shr | BinOp::And | BinOp::Or => unreachable!(),
         };
         let ty = if hop.is_comparison() { Type::Bool } else { lead };
-        Some(Val::Expr(hir::Expr { kind: hir::ExprKind::Binary(hop, Box::new(lhs), Box::new(rhs)), ty }))
+        Some(Val::Expr(hir::Expr::new(hir::ExprKind::Binary(hop, Box::new(lhs), Box::new(rhs)), ty)))
     }
 
     /// A constant shift amount outside `0..width` wraps around the width (W0106).

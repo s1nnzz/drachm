@@ -99,10 +99,6 @@ pub struct Body {
 #[derive(Debug)]
 pub struct LocalDecl {
     pub ty: Type,
-    /// PHASE A STAND-IN for `Type::Ref`, which does not exist yet: when
-    /// `Some(mutable)` the local is a `&ty` (`&mut ty`), not a `ty`. Phase B
-    /// deletes this field and uses the real reference types.
-    pub borrow: Option<bool>,
     pub kind: LocalKind,
     /// Declaration (user locals), or the expression (temps).
     pub span: Span,
@@ -163,6 +159,9 @@ pub enum DropReason {
     ScopeEnd,
     /// Precedes an assignment (checked like a write).
     Assign,
+    /// `destroy x;`: runs `drop()` now. The local is moved afterwards, so
+    /// nothing runs at scope end.
+    Destroy,
 }
 
 #[derive(Debug)]
@@ -323,24 +322,28 @@ pub fn validate(p: &Program, hir: &hir::Program) -> Result<(), Vec<String>> {
     validate::validate(p, hir)
 }
 
-/// Is a value of `ty` copied (as opposed to moved)? Phase A: numbers, bool and
-/// `none`; a struct if every field is Copy and its size is at most 32 bytes.
+/// Is a value of `ty` copied (as opposed to moved)? Numbers, bool, `none` and
+/// `&T` are; `string`, `&mut T` and `*T` are not; a struct is when
+/// `StructDef.copy` says so.
 pub fn is_copy(hir: &hir::Program, ty: Type) -> bool {
     match ty {
         Type::Str => false,
-        Type::Struct { id, .. } => {
-            let s = &hir.structs[id];
-            s.size <= 32 && s.fields.iter().all(|f| is_copy(hir, f.ty))
-        }
+        Type::Struct { id, .. } => hir.structs[id].copy,
+        Type::Ref { mutable, .. } => !mutable,
+        Type::Ptr { .. } => false,
         _ => true,
     }
 }
 
-/// Does destroying a value of `ty` do anything? Phase A: it holds a string.
+/// Does destroying a value of `ty` do anything? A string, a struct with a
+/// `drop()`, or a struct holding either. Borrows and raw pointers never.
 pub fn needs_drop(hir: &hir::Program, ty: Type) -> bool {
     match ty {
         Type::Str => true,
-        Type::Struct { id, .. } => hir.structs[id].fields.iter().any(|f| needs_drop(hir, f.ty)),
+        Type::Struct { id, .. } => {
+            let s = &hir.structs[id];
+            s.has_drop.is_some() || s.fields.iter().any(|f| needs_drop(hir, f.ty))
+        }
         _ => false,
     }
 }
@@ -380,5 +383,63 @@ none main() { }
         assert!(!is_copy(&hir, Type::Str));
         assert!(needs_drop(&hir, Type::Str) && needs_drop(&hir, struct_ty(&hir, "Named")));
         assert!(!needs_drop(&hir, big) && !needs_drop(&hir, Type::U32));
+    }
+
+    fn built(src: &str) -> (hir::Program, Program, Vec<Diagnostic>) {
+        let (hir, diags) = crate::check(src);
+        let hir = hir.unwrap_or_else(|| panic!("does not check: {diags:?}"));
+        let mut mir_diags = Vec::new();
+        let mir = build_program(&hir, &mut mir_diags);
+        (hir, mir, mir_diags)
+    }
+
+    #[test]
+    fn unsafe_destroy_and_self() {
+        let src = "//--!$unsafe: true
+struct G { public: string s; none drop() { } }
+struct P { public: uint32 n; uint32 get() { return self.n; } }
+none main() {
+    mut uint32 n = 1;
+    *uint32 p = address of n;
+    unsafe { *p = 2; }
+    G g = \"a\";
+    destroy g;
+}
+";
+        let (hir, mir, diags) = built(src);
+        assert!(diags.is_empty());
+        let find = |name: &str| mir.bodies.iter().flatten().find(|b| b.name == name).unwrap();
+        let main = find("main");
+        let all: Vec<&Statement> = main.blocks.iter().flat_map(|b| &b.statements).collect();
+        let writes: Vec<bool> = all
+            .iter()
+            .filter(|s| matches!(&s.kind, StatementKind::Assign(p, _) if p.proj == [Proj::Deref]))
+            .map(|s| s.unsafe_ctx)
+            .collect();
+        assert_eq!(writes, [true], "only the write inside `unsafe` is in an unsafe context");
+        assert!(all.iter().any(|s| matches!(s.kind, StatementKind::Drop { reason: DropReason::Destroy, .. })));
+        let get = mir.bodies.iter().flatten().find(|b| b.name.ends_with("get")).unwrap();
+        let self_ty = get.locals[Local(1)].ty;
+        assert!(matches!(self_ty, Type::Ref { mutable: true, .. }), "self is a borrow of the struct: {self_ty}");
+        assert!(validate(&mir, &hir).is_ok());
+    }
+
+    #[test]
+    fn field_moves_and_takes_report() {
+        let src = "struct P { public: string name; }
+struct F { public: string path; none drop() { } }
+none main() {
+    P p = \"a\";
+    string a = take p.name;
+    P q = \"b\";
+    string b = q.name;
+    F f = \"c\";
+    string c = take f.path;
+    string d = take f.path leaving \"x\";
+}
+";
+        let (_, _, diags) = built(src);
+        let ids: Vec<&str> = diags.iter().map(|d| d.code.id).collect();
+        assert_eq!(ids, ["E0324", "E0325"]);
     }
 }

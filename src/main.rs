@@ -48,9 +48,17 @@ fn main() {
         "check" => {
             let hir = front_end(&input);
             if dump_mir {
-                // Phase A builds no diagnostics; phase B must render them here.
                 let mut diags = Vec::new();
                 let mir = drachm::mir::build_program(&hir, &mut diags);
+                if !diags.is_empty() {
+                    let color = std::io::stderr().is_terminal() && std::env::var_os("NO_COLOR").is_none();
+                    let text = std::fs::read_to_string(&input).unwrap_or_default();
+                    let src = Source::new(input.display().to_string(), text);
+                    eprint!("{}", diag::render_all(&diags, &src, color));
+                    if diag::has_errors(&diags) {
+                        exit(1);
+                    }
+                }
                 print!("{}", drachm::mir::print_program(&mir, &hir));
             }
         }

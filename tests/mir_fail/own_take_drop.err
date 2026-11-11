@@ -1,0 +1,2 @@
+error[E0325]: cannot take `f.path` out of a `File`: it has a `drop()`
+take f.path leaving ""

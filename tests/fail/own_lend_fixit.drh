@@ -1,0 +1,9 @@
+none grow(&mut string s) { }
+none twice(&mut string s) {
+    grow(&mut s);
+}
+none show(&string s) { }
+none look(&mut string m) {
+    show(m);
+}
+none main() { }

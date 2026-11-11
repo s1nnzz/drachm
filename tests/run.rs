@@ -314,3 +314,24 @@ fn mir() {
         if problems.is_empty() { Ok(()) } else { Err(format!("{}\nactual dump:\n{dump}", problems.join("\n"))) }
     });
 }
+
+/// Ownership errors the MIR builder reports (E0324, E0325): `check --dump-mir`
+/// must fail and print each line of `NAME.err`. (They move to the fail tests
+/// when `check` itself runs the MIR.)
+#[test]
+fn mir_fail() {
+    run_all(sources("tests/mir_fail"), |src| {
+        let want = read(&src.with_extension("err")).ok_or("no .err file with the expected messages")?;
+        let out = drachm(&["check", "--dump-mir"], src);
+        let stderr = text(&out.stderr);
+        if out.status.code() != Some(1) {
+            return Err(format!("expected an error exit, got {:?}:\n{stderr}", out.status.code()));
+        }
+        let missing = missing_lines(&want, &stderr);
+        if missing.is_empty() {
+            Ok(())
+        } else {
+            Err(format!("stderr lacks:\n  {}\nactual stderr:\n{stderr}", missing.join("\n  ")))
+        }
+    });
+}

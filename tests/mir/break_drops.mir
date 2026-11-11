@@ -1,0 +1,3 @@
+Drop(_2)
+StorageDead(_2)
+Lt(copy _1, const 3u32)

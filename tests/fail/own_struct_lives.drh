@@ -1,0 +1,8 @@
+struct Pair lives a {
+    &string a;
+    &string b;
+}
+struct Q lives x {
+    uint32 n;
+}
+none main() { }

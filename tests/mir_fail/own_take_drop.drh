@@ -1,0 +1,9 @@
+struct File {
+    public:
+    string path;
+    none drop() { }
+}
+none main() {
+    File f = "a";
+    string s = take f.path;
+}

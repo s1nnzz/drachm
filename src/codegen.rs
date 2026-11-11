@@ -43,6 +43,7 @@ fn cl_type(t: Type) -> Option<ClType> {
         Type::Float(32) => Some(types::F32),
         Type::Float(_) => Some(types::F64),
         Type::Bool => Some(types::I8),
+        Type::Ref { .. } | Type::Ptr { .. } => Some(types::I64),
         Type::None | Type::Str | Type::Struct { .. } => None,
     }
 }
@@ -351,7 +352,7 @@ impl Gen<'_, '_> {
     fn place_addr(&self, place: &Place) -> (Value, u32, Type) {
         let mut ty = self.func.locals[place.local].ty;
         let mut off = 0;
-        for &i in &place.fields {
+        for i in place.fields() {
             let f = &self.prog.struct_def(ty).fields[i];
             off += f.offset;
             ty = f.ty;
@@ -496,6 +497,9 @@ impl Gen<'_, '_> {
                     }
                 }
             },
+            Stmt::Decl(_) => {}
+            Stmt::Unsafe(b) => self.block(b),
+            Stmt::Destroy(_) => unreachable!("destroy cannot be built yet"),
             Stmt::Drop(place) => {
                 let (base, off, ty) = self.place_addr(place);
                 let a = self.offset(base, off);
@@ -532,7 +536,7 @@ impl Gen<'_, '_> {
                 self.b.seal_block(end);
                 self.b.switch_to_block(end);
             }
-            Stmt::Loop { label, cond, body, step } => {
+            Stmt::Loop { label, cond, body, step, .. } => {
                 let header = self.b.create_block();
                 let body_b = self.b.create_block();
                 let cont = self.b.create_block();
@@ -757,6 +761,13 @@ impl Gen<'_, '_> {
                 }
                 if *prefix { new } else { old }
             }
+            ExprKind::Borrow { .. }
+            | ExprKind::Deref(_)
+            | ExprKind::DeepCopy(_)
+            | ExprKind::Take { .. }
+            | ExprKind::Lend(_)
+            | ExprKind::AddressOf(_)
+            | ExprKind::NullPtr => unreachable!("borrows and pointers cannot be built yet"),
             ExprKind::Out { newline, arg } => {
                 self.out(*newline, arg);
                 return None;
@@ -1085,7 +1096,7 @@ impl Gen<'_, '_> {
                         let name = if signed { "drachm_text_s64" } else { "drachm_text_u64" };
                         self.rt(name, &[ptr, i64t], &[], &[dest, wide]);
                     }
-                    Type::None | Type::Str | Type::Struct { .. } => unreachable!("checked by typeck"),
+                    Type::None | Type::Str | Type::Struct { .. } | Type::Ref { .. } | Type::Ptr { .. } => unreachable!("checked by typeck"),
                 }
             }
             ExprKind::Radix { value, base, upper } => {

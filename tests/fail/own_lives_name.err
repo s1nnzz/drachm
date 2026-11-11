@@ -1,0 +1,2 @@
+error[E0309]
+names `n`, which is not a parameter holding a borrow
