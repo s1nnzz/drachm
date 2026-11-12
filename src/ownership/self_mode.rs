@@ -263,10 +263,28 @@ impl Cx<'_> {
             | ExprKind::Deref(inner)
             | ExprKind::Discriminant(inner)
             | ExprKind::Payload { value: inner, .. }
+            | ExprKind::Len(inner)
             | ExprKind::Out { arg: inner, .. }
             | ExprKind::TryParse { text: inner, .. }
             | ExprKind::PassUp { call: inner }
             | ExprKind::Radix { value: inner, .. } => self.expr(inner, out),
+            ExprKind::Index(a, b) => {
+                self.expr(a, out);
+                self.expr(b, out);
+            }
+            ExprKind::List(items) | ExprKind::Array(items) => {
+                for i in items {
+                    self.expr(i, out);
+                }
+            }
+            ExprKind::ListPush { list, value } => {
+                // Pushing changes the list: a write to it when it is part of `self`.
+                if let Some(place) = self.place_of(list) {
+                    self.place_write(&place, out);
+                }
+                self.expr(list, out);
+                self.expr(value, out);
+            }
             ExprKind::Handled { call, arms, .. } => {
                 self.expr(call, out);
                 for a in arms {
@@ -358,9 +376,11 @@ impl Cx<'_> {
         let mut ty = self.func.locals[0].ty;
         let mut derefed = false;
         for p in &place.proj {
-            match *p {
+            match p {
                 HirProj::Downcast(_) => return false,
+                HirProj::Index(_) => ty = ty.elem().unwrap_or(ty),
                 HirProj::Field(i) => {
+                    let i = *i;
                     let pointee = if ty.is_borrow() { ty.target().unwrap_or(ty) } else { ty };
                     let Some(_) = pointee.struct_id() else { return false };
                     let f = &self.hir.struct_def(pointee).fields[i];
@@ -392,6 +412,11 @@ impl Cx<'_> {
                 p.proj.push(HirProj::Deref);
                 Some(p)
             }
+            ExprKind::Index(inner, idx) => {
+                let mut p = self.place_of(inner)?;
+                p.proj.push(HirProj::Index(idx.clone()));
+                Some(p)
+            }
             _ => None,
         }
     }
@@ -406,6 +431,7 @@ impl Cx<'_> {
                 Some(self.extend(base, inner.ty, *i))
             }
             ExprKind::Deref(inner) if !inner.ty.is_ptr() => self.self_text(inner),
+            ExprKind::Index(inner, _) => Some(format!("{}[..]", self.self_text(inner)?)),
             _ => None,
         }
     }
@@ -417,9 +443,14 @@ impl Cx<'_> {
         let mut text = "self".to_string();
         let mut ty = self.func.locals[0].ty;
         for p in &place.proj {
-            match *p {
+            match p {
                 HirProj::Downcast(_) => return None,
+                HirProj::Index(_) => {
+                    text.push_str("[..]");
+                    ty = ty.elem().unwrap_or(ty);
+                }
                 HirProj::Field(i) => {
+                    let i = *i;
                     text = self.extend(text, ty, i);
                     ty = self.field_ty(ty, i).unwrap_or(Type::None);
                 }

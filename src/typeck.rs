@@ -9,6 +9,7 @@ mod failures;
 mod fill;
 mod generics;
 mod layout;
+mod lists;
 mod optionals;
 mod overload;
 mod strings;
@@ -147,6 +148,9 @@ impl Globals {
 
     /// `t` with its `&`, `&mut` and `*` marks applied to the named type.
     fn resolve_quiet(&self, t: &ast::TypeName) -> Option<Type> {
+        if !t.dims.is_empty() {
+            return self.resolve_dims(t, &mut Vec::new());
+        }
         if let Some(spec) = &t.unit {
             return self.resolve_unit_type(t, spec, &mut Vec::new());
         }
@@ -168,16 +172,11 @@ impl Globals {
                 return None;
             }
         }
+        if !t.dims.is_empty() {
+            return self.resolve_dims(t, diags);
+        }
         if !t.args.is_empty() {
             return self.type_args_error(t, diags);
-        }
-        if let Some(dim) = t.dims.first() {
-            let (at, what) = match dim {
-                ast::Dim::List(s) => (*s, "lists"),
-                ast::Dim::Array(_, s) => (*s, "arrays"),
-            };
-            diags.push(Diagnostic::at(&codes::E0901, at, format!("{what} are not supported yet")));
-            return None;
         }
         if t.optional.is_some() {
             if let Some(ty) = self.resolve_quiet(t) {
@@ -493,7 +492,13 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
     // `copy` depends on which structs have a `drop()`; the queries answer for
     // every type that exists now, including those made while bodies were checked.
     let (structs, enum_defs) = layout::lay_out(&g);
-    let mut program = hir::Program { funcs: funcs.into_iter().map(|f| f.unwrap_or_else(placeholder)).collect(), structs, enums: enum_defs, main };
+    let mut collections: Vec<Type> = Vec::new();
+    for t in g.collections() {
+        if !collections.contains(&t.bare()) {
+            collections.push(t.bare());
+        }
+    }
+    let mut program = hir::Program { funcs: funcs.into_iter().map(|f| f.unwrap_or_else(placeholder)).collect(), structs, enums: enum_defs, main, collections };
     units::erase(&mut program);
     if cfg!(debug_assertions) {
         units::assert_erased(&mut program);
@@ -839,7 +844,12 @@ fn report_cycles(g: &Globals, diags: &mut Vec<Diagnostic>) {
         let ns = g.structs.len();
         let mut out = Vec::new();
         let mut add = |f: &FieldInfo, label: String| {
-            let to = match f.ty {
+            // An array holds its items by value; a list holds them on the heap.
+            let mut held = f.ty;
+            while let Some(Type::Array { elem, .. }) = held {
+                held = Some(*elem);
+            }
+            let to = match held {
                 Some(Type::Struct { id, .. }) => id,
                 Some(Type::Enum { id, .. }) => ns + id,
                 _ => return,
@@ -1251,7 +1261,7 @@ fn str_lit(text: String) -> hir::Expr {
 /// Does the place expression go through a `Deref`?
 fn has_deref(e: &hir::Expr) -> bool {
     match &e.kind {
-        hir::ExprKind::Deref(_) => true,
+        hir::ExprKind::Deref(_) | hir::ExprKind::Index(..) => true,
         hir::ExprKind::Field(inner, _) => has_deref(inner),
         _ => false,
     }
@@ -1262,7 +1272,7 @@ fn has_deref(e: &hir::Expr) -> bool {
 fn ast_place(e: &ast::Expr) -> bool {
     match &e.kind {
         ExprKind::Var(_) | ExprKind::SelfValue => true,
-        ExprKind::Field { recv, .. } => ast_place(recv),
+        ExprKind::Field { recv, .. } | ExprKind::Index { recv, .. } => ast_place(recv),
         ExprKind::Deref(inner) => ast_place(inner),
         _ => false,
     }
@@ -1274,6 +1284,7 @@ fn plain_place(e: &hir::Expr) -> bool {
     match &e.kind {
         hir::ExprKind::Local(_) | hir::ExprKind::Str(_) => true,
         hir::ExprKind::Field(inner, _) | hir::ExprKind::Deref(inner) => plain_place(inner),
+        hir::ExprKind::Index(inner, idx) => plain_place(inner) && matches!(idx.kind, hir::ExprKind::Int(_) | hir::ExprKind::Local(_)),
         _ => false,
     }
 }
@@ -1361,6 +1372,10 @@ impl Checker<'_> {
                     if let Some(e) = init {
                         out.push(hir::Stmt::Assign(hir::Place::local(id), e));
                     }
+                }
+                // A list declared without a value starts empty and is usable at once (Q20).
+                if value.is_none() && let Some(t) = ty && t.is_list() {
+                    out.push(hir::Stmt::Assign(hir::Place::local(id), hir::Expr::new(hir::ExprKind::List(Vec::new()), t).at(*span)));
                 }
                 // `uint32? x;` starts as `none`.
                 if value.is_none() && let Some(t) = ty && optionals::is_optional(self.g, t) {
@@ -1704,6 +1719,7 @@ impl Checker<'_> {
                     }
                 }
             }
+            ExprKind::Index { recv, index } => self.index_place(recv, index),
             _ => unreachable!("the parser only lets places be assigned"),
         }
     }
@@ -1734,9 +1750,14 @@ impl Checker<'_> {
         let mut ty = self.locals[p.local].ty.unwrap();
         let mut e = hir::Expr::new(hir::ExprKind::Local(p.local), ty);
         for step in &p.proj {
-            match *step {
+            match step {
                 hir::HirProj::Downcast(_) => unreachable!("places the program writes have no payload steps"),
+                hir::HirProj::Index(idx) => {
+                    ty = ty.elem().unwrap();
+                    e = hir::Expr::new(hir::ExprKind::Index(Box::new(e), idx.clone()), ty);
+                }
                 hir::HirProj::Field(i) => {
+                    let i = *i;
                     ty = self.g.structs[ty.struct_id().unwrap()].fields[i].ty.unwrap();
                     e = hir::Expr::new(hir::ExprKind::Field(Box::new(e), i), ty);
                 }
@@ -1852,6 +1873,9 @@ impl Checker<'_> {
         if to.is_borrow() {
             return self.coerce_borrow(e, to, None);
         }
+        if let ExprKind::ListLit(items) = &e.kind {
+            return self.list_literal(items, Some(to), e.span);
+        }
         let v = self.expr(e)?;
         self.into(v, to, origin(e))
     }
@@ -1961,9 +1985,13 @@ impl Checker<'_> {
                             }
                             .and_then(|f| f.ty)
                         });
+                        let literal = sid.and_then(|s| self.literal_for_field(s, i, &fv.name, &fv.value));
                         let v = match want.and_then(|w| self.bare_variant(&fv.value, w)) {
                             Some(made) => made.map(Val::Expr),
-                            None => self.expr_raw(&fv.value),
+                            None => match literal {
+                                Some(done) => done,
+                                None => self.expr_raw(&fv.value),
+                            },
                         };
                         (fv.name.clone(), v, origin(&fv.value))
                     })
@@ -2411,6 +2439,8 @@ impl Checker<'_> {
                 let (i, ty) = self.field_of(v.ty, name, *name_span, recv.span)?;
                 typed(hir::ExprKind::Field(Box::new(v), i), ty)
             }
+            ExprKind::ListLit(items) => self.list_literal(items, None, e.span).map(Val::Expr),
+            ExprKind::Index { recv, index } => self.index_expr(recv, index),
             ExprKind::Unary(op, inner) => self.unary(*op, inner, e.span),
             ExprKind::Binary(op @ (BinOp::And | BinOp::Or), l, r) => {
                 let lhs = self.coerce(l, Type::Bool);
@@ -2433,7 +2463,7 @@ impl Checker<'_> {
             }
             ExprKind::IncDec { inc, prefix, target } => {
                 let sym = if *inc { "++" } else { "--" };
-                if !matches!(target.kind, ExprKind::Var(_) | ExprKind::SelfValue | ExprKind::Field { .. }) {
+                if !matches!(target.kind, ExprKind::Var(_) | ExprKind::SelfValue | ExprKind::Field { .. } | ExprKind::Index { .. }) {
                     self.diags.push(
                         Diagnostic::at(&codes::E0005, target.span, format!("`{sym}` only works on a binding or a field"))
                             .note("this is not a binding"),
@@ -2623,7 +2653,7 @@ impl Checker<'_> {
         match t {
             // A number with a unit is a number (`of` is always Int or Float).
             Type::Int { .. } | Type::Float(_) | Type::Bool | Type::Unit { .. } | Type::Ref { mutable: false, .. } => true,
-            Type::Struct { .. } | Type::Enum { .. } => self.g.copy_of(t),
+            Type::Struct { .. } | Type::Enum { .. } | Type::Array { .. } => self.g.copy_of(t),
             _ => false,
         }
     }
@@ -2641,6 +2671,13 @@ impl Checker<'_> {
                     .help("use the value directly, without `take`"),
             );
             self.expr(place);
+            return None;
+        }
+        if matches!(place.kind, ExprKind::Index { .. }) {
+            self.diags.push(
+                Diagnostic::at(&codes::E0901, place.span, "`take` of an item of a list is not supported yet")
+                    .help("copy it with `copy`, or borrow it with `&`"),
+            );
             return None;
         }
         if !matches!(place.kind, ExprKind::Field { .. }) {
@@ -2945,6 +2982,7 @@ impl Checker<'_> {
                 self.pointer_convert(v, recv.span, name, name_span, args)
             }
             Some(Val::Expr(v)) if v.ty == Type::Str => self.string_method(v, name, name_span, targs, args),
+            Some(Val::Expr(v)) if v.ty.is_list() || v.ty.is_array() => self.list_method(v, recv, name, name_span, targs, args),
             Some(Val::Expr(v)) if self.is_failure_type(v.ty) => self.failure_method(v, recv.span, name, name_span, args),
             value => self.value_method(value, recv, name, name_span, targs, args),
         }
@@ -3246,6 +3284,14 @@ impl Checker<'_> {
         let sym = op.symbol();
         let class = op.class();
 
+        if let Val::Expr(x) = &lv && (x.ty.is_list() || x.ty.is_array()) && matches!(op, BinOp::Eq | BinOp::Ne) {
+            self.diags.push(
+                Diagnostic::at(&codes::E0901, lo.span, format!("comparing `{}` with `{sym}` is not supported yet", x.ty))
+                    .note(format!("this is `{}`", x.ty))
+                    .help("compare the lengths and the items one by one for now"),
+            );
+            return None;
+        }
         if let (Val::Const(a), Val::Const(b)) = (&lv, &rv) {
             return match Const::binary(op, a, b) {
                 Ok(Folded::Value(c)) => Some(Val::Const(c)),

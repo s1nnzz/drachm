@@ -6,6 +6,7 @@
 //! - `02xx` names, declarations and bindings
 //! - `03xx` ownership and borrowing (step 3)
 //! - `05xx` constructors, enums, optionals and failures (step 5)
+//! - `06xx` generics, interfaces, collections and lambdas (step 6)
 //! - `09xx` things this compiler version cannot do yet
 //!
 //! `explain` is the long text shown by `drachm explain <code>`.
@@ -689,6 +690,26 @@ codes! {
     E0609: "a unit parameter used as a type",
         "`unit U` declares a unit, so it can only be used inside the `<>` of a\n\
          number type: `float64<U>`. A type parameter would be written `<T>`.";
+    E0620: "index outside an array",
+        "An array has a fixed length, so an index written as a number can be\n\
+         checked while the program is compiled. Valid indexes run from 0 to one\n\
+         less than the length, or from -1 (the last item) back to minus the\n\
+         length.\n\n\
+         \x20   uint8[4] rgba = [255, 0, 0, 255];\n\
+         \x20   uint8 a = rgba[5];                          // error: only 0 to 3";
+    E0622: "an item cannot be moved out of a list by index",
+        "Reading `names[0]` where the item owns memory (a `string`, a struct\n\
+         holding one) would leave a hole in the list. Borrow the item with\n\
+         `&names[0]`, copy it with `copy names[0]`, or call a method on it.";
+    E0623: "a list literal mixes types",
+        "The items of `[a, b, c]` must all have one type. When the list is not\n\
+         given a type, the first item decides it.";
+    E0624: "an empty list has no type",
+        "`[]` holds nothing to take a type from, so something has to say what the\n\
+         list holds: `string[?] xs = [];`.";
+    E0625: "wrong number of items for an array",
+        "An array has a fixed length, and its literal must give exactly that many\n\
+         items: `uint8[4] a = [1, 2, 3, 4];`.";
     W0600: "generic function never used",
         "A generic function is only checked when something calls it with a\n\
          particular type, so a generic function nothing calls is not checked\n\

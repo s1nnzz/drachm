@@ -579,6 +579,10 @@ pub enum ExprKind {
     Now(Box<Expr>),
     /// `value maybe fallback`: the value of an optional, or `fallback` when it is `none`.
     Maybe { value: Box<Expr>, fallback: Box<Expr> },
+    /// `[a, b, c]`: a list or array, whichever the type wanted says.
+    ListLit(Vec<Expr>),
+    /// `recv[index]`
+    Index { recv: Box<Expr>, index: Box<Expr> },
     /// `value has value` (`has: true`) or `value is empty` (`has: false`) on an optional.
     OptionalTest { value: Box<Expr>, has: bool },
 }
