@@ -288,6 +288,7 @@ impl Checker<'_> {
                 let found = match &other {
                     Val::Const(_) | Val::UConst(..) => "a number".to_string(),
                     Val::Expr(r) => format!("`{}`", r.ty),
+                    Val::NoneLit(_) => "`none`".to_string(),
                 };
                 let message = if op == BinOp::Add {
                     format!("`+` joins strings, but the right side is {found}")
@@ -297,6 +298,7 @@ impl Checker<'_> {
                 let mut d = Diagnostic::at(&codes::E0101, ro.span, message).note(format!("this is {found}")).label(lo.span, "this is `string`");
                 let has_text = match &other {
                     Val::Const(_) | Val::UConst(..) => true,
+                    Val::NoneLit(_) => false,
                     Val::Expr(r) => match r.ty.struct_id() {
                         Some(s) => self.g.method(s, "text").is_some(),
                         None => r.ty != Type::None,

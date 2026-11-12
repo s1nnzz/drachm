@@ -1,4 +1,0 @@
-none main() {
-    string? s = "a";
-    string t = s maybe "b";
-}

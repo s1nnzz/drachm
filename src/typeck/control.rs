@@ -57,6 +57,22 @@ pub(super) enum Test<'e> {
     Pattern(Box<super::enums::PatCase<'e>>),
 }
 
+/// The test of a `case` on a number or text: its patterns (`Some(None)` when
+/// they always match, `None` after an error), then its guard if it has one.
+fn guarded_test(pattern: Option<Option<hir::Expr>>, guard: Option<hir::Expr>, guarded: bool) -> Test<'static> {
+    let guard = if guarded { guard } else { None };
+    match (pattern, guard) {
+        (None, _) => Test::Value(None),
+        (Some(None), None) if !guarded => Test::Always,
+        (Some(None), None) => Test::Value(None),
+        (Some(Some(p)), None) => Test::Value(Some(p)),
+        (Some(p), Some(g)) => Test::Value(Some(match p {
+            Some(p) => logic(true, p, g),
+            None => g,
+        })),
+    }
+}
+
 /// The constant value of a pattern, in the matched type.
 #[derive(Clone, Copy)]
 pub(super) enum Lit {
@@ -247,7 +263,7 @@ impl Coverage {
 
 /// A `case` pattern of a `string` match: exact text, or a `globbed` pattern.
 #[derive(Clone)]
-enum TextPat {
+pub(super) enum TextPat {
     Exact(String),
     Glob(String),
 }
@@ -573,6 +589,7 @@ impl Checker<'_> {
         let found = match &v {
             Val::Const(_) | Val::UConst(..) => "a number".to_string(),
             Val::Expr(e) => format!("`{}`", e.ty),
+            Val::NoneLit(_) => "`none`".to_string(),
         };
         let d = Diagnostic::at(&codes::E0101, iter.span, format!("cannot loop over {found}"))
             .note(format!("this is {found}"))
@@ -690,11 +707,6 @@ impl Checker<'_> {
         if matches!(&v, Some(x) if x.ty.enum_id().is_some()) {
             return self.enum_match(v.unwrap(), value, cases, span, out);
         }
-        for c in cases {
-            if let Some(g) = &c.guard {
-                self.diags.push(Diagnostic::at(&codes::E0901, g.span, "a guard (`if`) on a case is only supported when matching an enum yet"));
-            }
-        }
         let v = match v {
             Some(v) if v.ty == Type::Str => return self.match_text(v, cases, span, out),
             Some(v) if v.ty.is_numeric() || v.ty == Type::Bool => Some(v),
@@ -789,15 +801,30 @@ impl Checker<'_> {
                     self.diags.push(d.help("remove it, or move it above the case that handles its values"));
                 }
             }
+            // A guard (`case 3 if x > 1`) is checked after the pattern; a guarded
+            // case never counts as covering its values.
+            let guard = match &case.guard {
+                Some(g) => match self.cond(g) {
+                    Some(c) => Some(c),
+                    None => {
+                        ok = false;
+                        None
+                    }
+                },
+                None => None,
+            };
             clean &= ok;
-            for (lo, hi) in keys {
-                cover.add(lo, hi);
+            let guarded = case.guard.is_some();
+            if !guarded {
+                for (lo, hi) in keys {
+                    cover.add(lo, hi);
+                }
             }
-            if wildcard && ok && any.is_none() {
+            if wildcard && ok && !guarded && any.is_none() {
                 any = Some(case.span);
             }
-            tests.push(match (tmp, ty) {
-                _ if wildcard => Test::Always,
+            let pattern = match (tmp, ty) {
+                _ if wildcard => Some(None),
                 (Some(tmp), Some(t)) if ok => {
                     let test = values.into_iter().map(|(lo, hi)| {
                         if lo.key(t) == hi.key(t) {
@@ -806,10 +833,11 @@ impl Checker<'_> {
                             logic(true, binary(hir::BinOp::Ge, local(tmp, t), lo.expr(t)), binary(hir::BinOp::Le, local(tmp, t), hi.expr(t)))
                         }
                     });
-                    Test::Value(test.reduce(|a, b| logic(false, a, b)))
+                    Some(test.reduce(|a, b| logic(false, a, b)))
                 }
-                _ => Test::Value(None),
-            });
+                _ => None,
+            };
+            tests.push(guarded_test(pattern, guard, guarded));
         }
 
         let exhaustive = any.is_some() || ty.is_some_and(|t| !t.is_float() && cover.covers(domain(t)));
@@ -895,6 +923,17 @@ impl Checker<'_> {
                 }
             }
             wildcard |= pats.iter().any(TextPat::matches_all);
+            let guard = match &case.guard {
+                Some(g) => match self.cond(g) {
+                    Some(c) => Some(c),
+                    None => {
+                        ok = false;
+                        None
+                    }
+                },
+                None => None,
+            };
+            let guarded = case.guard.is_some();
             if ok {
                 let why = if any.is_some() {
                     Some("it comes after a case that matches every text")
@@ -910,24 +949,26 @@ impl Checker<'_> {
                     }
                     self.diags.push(d.help("remove it, or move it above the case that handles its values"));
                 }
-                if wildcard && any.is_none() {
+                if wildcard && !guarded && any.is_none() {
                     any = Some(case.span);
                 }
-                cover.extend(pats.iter().cloned());
+                if !guarded {
+                    cover.extend(pats.iter().cloned());
+                }
             }
             clean &= ok;
-            let test = if wildcard {
-                Test::Always
+            let pattern = if wildcard {
+                Some(None)
             } else if ok {
                 let ands = pats.into_iter().map(|p| match p {
                     TextPat::Exact(t) => str_fn(StrFn::Eq, vec![text_at(hidden, text_ty.clone()), str_lit(t)]),
                     TextPat::Glob(g) => str_fn(StrFn::Glob, vec![text_at(hidden, text_ty.clone()), str_lit(g)]),
                 });
-                Test::Value(ands.reduce(|a, b| logic(false, a, b)))
+                Some(ands.reduce(|a, b| logic(false, a, b)))
             } else {
-                Test::Value(None)
+                None
             };
-            tests.push(test);
+            tests.push(guarded_test(pattern, guard, guarded));
         }
 
         let exhaustive = any.is_some();
@@ -950,7 +991,7 @@ impl Checker<'_> {
     /// One `case` pattern of a `string` match: a string literal with no
     /// `${}` (`globbed` ones are globs). E0109 for interpolation and ranges,
     /// E0101 for another type.
-    fn text_pattern(&mut self, e: &ast::Expr, glob: bool) -> Option<TextPat> {
+    pub(super) fn text_pattern(&mut self, e: &ast::Expr, glob: bool) -> Option<TextPat> {
         if let ExprKind::Range(..) = e.kind {
             self.diags.push(
                 Diagnostic::at(&codes::E0109, e.span, "a range pattern needs numbers, but this `match` is on `string`")
@@ -990,6 +1031,7 @@ impl Checker<'_> {
                 let found = match &v {
                     Val::Const(_) | Val::UConst(..) => "a number".to_string(),
                     Val::Expr(h) => format!("`{}`", h.ty),
+                    Val::NoneLit(_) => "`none`".to_string(),
                 };
                 self.diags.push(
                     Diagnostic::at(&codes::E0101, e.span, "a `case` of a `string` match must be a string")
@@ -1076,6 +1118,10 @@ impl Checker<'_> {
         match v {
             Val::Const(c) => fold(self.into(Val::Const(c), ty, origin(e))?),
             v @ Val::UConst(..) => fold(self.into(v, ty, origin(e))?),
+            Val::NoneLit(s) => {
+                self.none_without_type(s);
+                None
+            }
             Val::Expr(h) => {
                 let from = h.ty;
                 let Some(lit) = fold(h) else {

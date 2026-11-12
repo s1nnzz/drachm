@@ -125,8 +125,9 @@ pub enum LocalKind {
     /// `_0`; type `none` when the function returns nothing.
     Return,
     /// `self` is a `Param` named "self".
-    Param { name: String, mutability: Mutability },
-    User { name: String, mutability: Mutability },
+    /// `written`: the declared type as the user wrote it (see `hir::Local`).
+    Param { name: String, mutability: Mutability, written: Option<String> },
+    User { name: String, mutability: Mutability, written: Option<String> },
     Temp,
     /// Bool, added by drop elaboration.
     DropFlag,

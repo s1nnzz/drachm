@@ -225,6 +225,9 @@ pub struct Local {
     pub span: Span,
     pub mutability: Mutability,
     pub is_param: bool,
+    /// The type as the user wrote it (units included), for help text: units
+    /// are erased before MIR, so `ty` alone cannot spell them.
+    pub written: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

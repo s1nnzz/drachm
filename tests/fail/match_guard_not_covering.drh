@@ -1,0 +1,12 @@
+in io;
+
+string classify(uint32 x) {
+    match (x) {
+        case 3 if x > 1 { return "three"; }
+        case _ if x > 100 { return "huge"; }
+    }
+}
+
+none main() {
+    io::outln(classify(3));
+}

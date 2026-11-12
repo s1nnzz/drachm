@@ -1,0 +1,34 @@
+in io;
+
+string classify(uint32 x) {
+    match (x) {
+        case 3 if x > 1 { return "three, big enough"; }
+        case 3 { return "three"; }
+        case 5, 6 if x == 6 { return "six"; }
+        case _ if x > 100 { return "huge"; }
+        case _ { return "other"; }
+    }
+}
+
+string word(string s, uint32 n) {
+    match (s) {
+        case "hi" if n > 2 { return "long hi"; }
+        case "hi" { return "hi"; }
+        case globbed "*.png" if n == 0 { return "no-count image"; }
+        case _ { return "other"; }
+    }
+}
+
+
+none main() {
+    io::outln(classify(3));
+    io::outln(classify(1));
+    io::outln(classify(6));
+    io::outln(classify(500));
+    io::outln(classify(7));
+    io::outln(word("hi", 5));
+    io::outln(word("hi", 1));
+    io::outln(word("a.png", 0));
+    io::outln(word("a.png", 1));
+    io::outln(word("x", 9));
+}

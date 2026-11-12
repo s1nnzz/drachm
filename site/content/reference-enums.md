@@ -83,7 +83,10 @@ Several patterns can share a body, `case Circle(float64 x), Rect(float64 x, _)`,
 as long as each binds the same names with the same types (E0529).
 
 A constant in a pattern (`case Rect(2.0, float64 h)`) must be equal to the
-value, and works for numbers and bools. A payload that is itself an enum is matched
+value, and works for numbers, bools and text: `case Text("hi")` is exact text,
+and `case Text(globbed "*.png")` is a glob, as in a `match` on `string`. A text
+constant does not take the payload out, so it leaves an owning payload in the
+value. A payload that is itself an enum is matched
 with a pattern inside the pattern: `case Some(Circle(float64 r))`.
 
 <!-- example: enum-match -->
@@ -168,11 +171,12 @@ Rules to know:
 
 - An optional that owns memory, such as `string?`, is matched like any owning
   enum: `case take string name` moves the text out, and `case copy string name`
-  copies it. A `string?` in a variable cannot be read with `maybe` yet (E0901);
-  one returned from a call can.
+  copies it. `maybe` on a `string?` variable moves the text out of the variable
+  (the variable is used up, as with `string t = s;`); a field needs `take` or
+  `copy` as usual.
 - Using an optional where its value is wanted is E0531: `uint32 n = age;` and
   `age + 1` both need `maybe` or a test first.
 - `T??` is E0901, and `Optional<T>` spelled out is E0901: write `T?`.
-- `none` as a constructor argument needs an optional type in the constructor's
-  parameter list, which the compiler does not look at yet: give the field its
-  value with an assignment (`s.item = none;`).
+- `none` as a constructor argument is fine where the constructor takes a `T?`
+  (or a pointer): `new Pair of (3, none)`. Where nothing takes an optional, it
+  is E0530.

@@ -6,10 +6,11 @@
 //! declaration. Enums are plain values like structs: Copy when every payload
 //! is and the whole is at most 32 bytes, otherwise moved.
 
+use super::control::TextPat;
 use super::{Checker, FieldInfo, Globals, Origin, Val};
 use crate::ast::{self, ExprKind};
 use crate::diag::{codes, Diagnostic, Span};
-use crate::hir::{self, EnumId};
+use crate::hir::{self, EnumId, StrFn};
 use crate::types::{self, Type, TypeError};
 
 pub(super) struct EnumInfo {
@@ -357,6 +358,18 @@ enum Ctor {
     Lit(u128),
 }
 
+/// The key of a text constant (`Pat::Lit`): equal texts get equal keys. A glob
+/// and an exact text with the same characters differ. (A FNV-1a hash: a clash
+/// could only make one pattern look redundant.)
+fn text_key(glob: bool, text: &str) -> u128 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in text.bytes() {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x0100_0000_01b3);
+    }
+    (h as u128) | ((glob as u128) << 64) | (1u128 << 127)
+}
+
 fn wilds(n: usize) -> Vec<Pat> {
     vec![Pat::Wild; n]
 }
@@ -502,7 +515,7 @@ impl Checker<'_> {
     /// A local for a pattern binding (not in any scope yet).
     fn declare_binding(&mut self, name: &str, ty: Type, span: Span) -> hir::LocalId {
         let id = self.locals.len();
-        self.locals.push(super::LocalInfo { name: name.to_string(), ty: Some(ty), mutable: false, is_param: false, is_self: false, open: false, span });
+        self.locals.push(super::LocalInfo { name: name.to_string(), ty: Some(ty), mutable: false, is_param: false, is_self: false, open: false, span, written: None });
         id
     }
 
@@ -631,14 +644,30 @@ impl Checker<'_> {
                 alt.binds.push(Binding { name: name.clone(), span: *name_span, ty: fty, source });
                 Some(Pat::Wild)
             }
+            Some(sub @ (ast::SubPat::Value(e) | ast::SubPat::Glob(e))) if fty == Type::Str => {
+                // Text: exact text (`"hi"`), or a glob (`globbed "*.png"`). The test
+                // reads the payload where it is, so an owning payload stays in the value.
+                let glob = matches!(sub, ast::SubPat::Glob(_));
+                let pat = self.text_pattern(e, glob)?;
+                if owning && let Some(p) = place {
+                    alt.leftovers.push(p);
+                }
+                let (f, text) = match pat {
+                    TextPat::Exact(t) => (StrFn::Eq, t),
+                    TextPat::Glob(g) => (StrFn::Glob, g),
+                };
+                let key = text_key(glob, &text);
+                let lit = hir::Expr::new(hir::ExprKind::Str(text), Type::Str);
+                alt.tests.push(hir::Expr::new(hir::ExprKind::StrCall(f, vec![payload.clone(), lit]), f.ret()));
+                Some(Pat::Lit(key))
+            }
+            Some(ast::SubPat::Glob(e)) => {
+                self.diags.push(Diagnostic::at(&codes::E0109, e.span, format!("`globbed` is only for text, and `{vname}` holds `{fty}`")));
+                return None;
+            }
             Some(ast::SubPat::Value(e)) => {
                 if !(fty.is_numeric() || fty == Type::Bool) {
-                    let (code, msg) = if fty == Type::Str {
-                        (&codes::E0901, format!("`{vname}` holds text, and text inside a variant pattern is not supported yet"))
-                    } else {
-                        (&codes::E0526, format!("`{vname}` holds `{fty}` here, which a constant cannot match"))
-                    };
-                    self.diags.push(Diagnostic::at(code, e.span, msg).note("this is a constant"));
+                    self.diags.push(Diagnostic::at(&codes::E0526, e.span, format!("`{vname}` holds `{fty}` here, which a constant cannot match")).note("this is a constant"));
                     return None;
                 }
                 let lit = self.pattern_value(e, Some(fty))?;

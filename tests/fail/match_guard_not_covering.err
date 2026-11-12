@@ -1,0 +1,1 @@
+error[E0105]: function `classify` can finish without returning a value

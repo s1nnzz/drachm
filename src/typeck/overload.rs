@@ -50,6 +50,9 @@ impl Checker<'_> {
                 _ => None,
             };
         }
+        if let Val::NoneLit(_) = v {
+            return (super::optionals::is_optional(self.g, to) || to.is_ptr()).then_some(Rank::Exact);
+        }
         // A `T` fits a `T?` parameter: the wrap is part of the conversion.
         if let Some(inner) = super::optionals::inner_of(self.g, to) {
             return match v {
@@ -74,6 +77,7 @@ impl Checker<'_> {
             Val::Const(Const::Dec(_)) if to.is_float() => Some(Rank::Lossy),
             Val::Const(_) => None,
             Val::UConst(..) => to.is_numeric().then_some(Rank::Lossless),
+            Val::NoneLit(_) => None,
             Val::Expr(x) => {
                 let t = x.ty;
                 if t == to || (t.is_borrow() && t.target() == Some(to)) {

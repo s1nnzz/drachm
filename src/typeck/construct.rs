@@ -225,7 +225,17 @@ impl Checker<'_> {
             return None;
         };
         let t = self.g.structs[s].ty;
-        let given: Vec<GivenValue> = values.iter().map(|fv| (fv.name.clone(), self.expr_raw(&fv.value), origin(&fv.value))).collect();
+        // `none` waits for the constructor: it may fit an optional or pointer parameter.
+        let given: Vec<GivenValue> = values
+            .iter()
+            .map(|fv| {
+                let v = match fv.value.kind {
+                    ExprKind::NoneValue => Some(Val::NoneLit(fv.value.span)),
+                    _ => self.expr_raw(&fv.value),
+                };
+                (fv.name.clone(), v, origin(&fv.value))
+            })
+            .collect();
         self.construct(t, given, span).map(Val::Expr)
     }
 }
