@@ -1632,6 +1632,7 @@ impl Checker<'_> {
         let mut e = hir::Expr::new(hir::ExprKind::Local(p.local), ty);
         for step in &p.proj {
             match *step {
+                hir::HirProj::Downcast(_) => unreachable!("places the program writes have no payload steps"),
                 hir::HirProj::Field(i) => {
                     ty = self.g.structs[ty.struct_id().unwrap()].fields[i].ty.unwrap();
                     e = hir::Expr::new(hir::ExprKind::Field(Box::new(e), i), ty);

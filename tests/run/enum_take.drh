@@ -1,0 +1,71 @@
+in io;
+
+enum Msg { Text(string body), Pair(string a, string b), Num(uint32 n), Quit, }
+enum Outer { Inner(Msg m, string tag), Bare }
+
+Msg make(uint32 i) {
+    if (i == 0) { return Text("zero"); }
+    if (i == 1) { return Pair("one-a", "one-b"); }
+    if (i == 2) { return Num(2); }
+    return Quit;
+}
+
+none show(Msg m) {
+    match (m) {
+        case Text(take string body) { io::outln(body); }
+        case Pair(take string a, _) { io::outln(a); }
+        case Num(uint32 n) { io::outln(n::text()); }
+        case Quit { io::outln("quit"); }
+    }
+}
+
+none show_copy(Msg m) {
+    match (m) {
+        case Pair(copy string a, copy string b) { io::outln(a + b); }
+        case Text(_) { io::outln("text"); }
+        case _ { io::outln("other"); }
+    }
+}
+
+none nested(Outer o) {
+    match (o) {
+        case Inner(Pair(take string a, _), _) { io::outln(f"nested pair ${a}"); }
+        case Inner(Text(copy string t), take string tag) { io::outln(f"nested text ${t} ${tag}"); }
+        case Inner(_, _) { io::outln("inner other"); }
+        case Bare { io::outln("bare"); }
+    }
+}
+
+none main() {
+    for (uint32 i of 0..3) {
+        show(make(i));
+    }
+    for (uint32 i of 0..3) {
+        match (make(i)) {
+            case Text(_) { io::outln("a text"); }
+            case Pair(take string a, take string b) { io::outln(a + "/" + b); }
+            case _ { io::outln("something else"); }
+        }
+    }
+    show_copy(Pair("x", "y"));
+    show_copy(Text("t"));
+    show_copy(Quit);
+    nested(Inner(Pair("p1", "p2"), "tag1"));
+    nested(Inner(Text("tt"), "tag2"));
+    nested(Inner(Num(4), "tag3"));
+    nested(Bare);
+    Msg m = Pair("kept-a", "kept-b");
+    match (m) {
+        case Pair(take string a, _) {
+            io::outln(a);
+        }
+        case _ { io::outln("not a pair"); }
+    }
+    Msg n = Text("only on one path");
+    if (io::ended()) {
+        match (n) {
+            case Text(take string s) { io::outln(s); }
+            case _ { }
+        }
+    }
+}

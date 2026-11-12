@@ -226,6 +226,8 @@ pub enum SkipTarget {
 #[derive(Debug)]
 pub struct Case {
     pub patterns: Vec<Pattern>,
+    /// `case P if cond { }`
+    pub guard: Option<Expr>,
     pub body: Block,
     pub span: Span,
 }
@@ -237,19 +239,35 @@ pub enum Pattern {
     /// A value or an inclusive range (`ExprKind::Range`). On an enum, a bare
     /// `Variant` or `Enum::Variant` is a pattern of that variant.
     Expr(Expr),
-    /// `Variant(Type name, _)` or `Enum::Variant(...)`.
-    Variant { enum_name: Option<(String, Span)>, name: String, name_span: Span, bindings: Vec<PatBinding>, span: Span },
+    /// `Variant(Type name, _)` or `Enum::Variant(...)`. `args` is empty
+    /// both for `Variant()` and for a bare `Variant` written with no parentheses.
+    Variant { enum_name: Option<(String, Span)>, name: String, name_span: Span, args: Vec<SubPat>, parens: bool, span: Span },
     /// `Type name`: the value of an optional, bound to `name`.
-    Bind { ty: TypeName, name: String, name_span: Span },
+    Bind { mode: BindMode, ty: TypeName, name: String, name_span: Span },
+}
+
+/// What a binding in a pattern does with a payload that owns memory.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BindMode {
+    /// `Type name`
+    Plain,
+    /// `take Type name`: moves the payload out; the matched value is used up.
+    Take,
+    /// `copy Type name`: a copy of the payload.
+    Copy,
 }
 
 /// One payload slot in a variant pattern.
 #[derive(Debug)]
-pub enum PatBinding {
+pub enum SubPat {
     /// `_`
     Any(Span),
-    /// `Type name`
-    Named { ty: TypeName, name: String, name_span: Span },
+    /// `[take | copy] Type name`
+    Bind { mode: BindMode, ty: TypeName, name: String, name_span: Span },
+    /// A constant the payload must equal: `2.0`, `true`.
+    Value(Expr),
+    /// A pattern for a payload that is itself an enum: `Circle(float64 r)`.
+    Variant(Box<Pattern>),
 }
 
 /// What follows `=` in a declaration.

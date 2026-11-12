@@ -108,7 +108,10 @@ fn operand_events(op: &Operand, span: Span, cause: MoveCause, out: &mut Vec<Even
         Operand::Copy(p) => out.push(Event::Use(Use { place: p.clone(), span, kind: UseKind::Read })),
         Operand::Move(p) => {
             out.push(Event::Use(Use { place: p.clone(), span, kind: UseKind::Read }));
-            if !has_deref(p) {
+            // A payload taken out by a `match` is not a move of the enum yet:
+            // the builder moves (forgets) the whole enum once, after every
+            // payload it wants is out.
+            if !has_deref(p) && !p.proj.iter().any(|x| matches!(x, Proj::Downcast(_))) {
                 out.push(Event::Move { place: p.clone(), span, cause });
             }
         }

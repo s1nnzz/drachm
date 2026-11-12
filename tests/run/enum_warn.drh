@@ -1,0 +1,25 @@
+enum Shape { Circle(float64 r), Rect(float64 w, float64 h), Empty }
+enum Wrap { Some(Shape s), Gap }
+
+none main() {
+    Shape s = Empty;
+    match (s) {
+        case Circle(float64 r) { }
+    }
+    match (s) {
+        case Circle(_) { }
+        case Rect(_, _) { }
+        case Empty { }
+        case Empty { }
+        case _ { }
+    }
+    Wrap w = Gap;
+    match (w) {
+        case Some(Circle(_)) { }
+        case Gap { }
+    }
+    match (s) {
+        case Circle(float64 r) if r > 1.0 { }
+        case Rect(_, _), Empty { }
+    }
+}

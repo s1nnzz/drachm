@@ -884,71 +884,103 @@ impl Parser<'_> {
                     break;
                 }
             }
+            let guard = if self.peek() == &Tok::Kw("if") {
+                self.bump();
+                Some(self.expr()?)
+            } else {
+                None
+            };
             let case_span = case_start.to(self.prev_span());
             let body = self.block()?;
-            cases.push(Case { patterns, body, span: case_span });
+            cases.push(Case { patterns, guard, body, span: case_span });
         }
         self.bump();
         Ok(Stmt::Match { value, cases, span })
     }
 
-    /// A `case` pattern that is not an expression: `Variant(Type name, _)`,
+    /// A `case` pattern that is not an expression: `Variant(..)`,
     /// `Enum::Variant(..)`, or `Type name` (the value inside an optional).
     fn enum_pattern(&mut self) -> Parsed<Option<Pattern>> {
-        if !matches!(self.peek(), Tok::Ident(_)) {
-            return Ok(None);
-        }
-        // `Type name` followed by `,` or `{`.
-        if let Some(n) = self.type_end(0)
-            && matches!(self.peek_at(n), Tok::Ident(_))
-            && matches!(self.peek_at(n + 1), Tok::Sym("," | "{"))
-        {
-            let ty = self.ty()?;
-            let (name, name_span) = self.ident("a name for the value")?;
-            return Ok(Some(Pattern::Bind { ty, name, name_span }));
-        }
-        let qualified = matches!(self.peek_at(1), Tok::Sym("::")) && matches!(self.peek_at(2), Tok::Ident(_));
-        let k = if qualified { 3 } else { 1 };
-        if self.peek_at(k) != &Tok::Sym("(") {
-            return Ok(None);
-        }
-        // Bindings look like `_` or `Type name`; anything else is a call.
-        let binding_ahead = match self.peek_at(k + 1) {
-            Tok::Sym(")") => true,
-            Tok::Ident(w) if w == "_" => matches!(self.peek_at(k + 2), Tok::Sym("," | ")")),
-            Tok::Ident(_) | Tok::Sym("&" | "*") => match self.type_end(k + 1) {
-                Some(n) => matches!(self.peek_at(n), Tok::Ident(_)) && matches!(self.peek_at(n + 1), Tok::Sym("," | ")")),
-                None => false,
-            },
-            _ => false,
+        let mode = match self.peek() {
+            Tok::Kw("take") => Some(BindMode::Take),
+            Tok::Kw("copy") => Some(BindMode::Copy),
+            _ => None,
         };
-        if !binding_ahead {
+        if mode.is_some() || matches!(self.peek(), Tok::Ident(_)) {
+            let from = mode.is_some() as usize;
+            if let Some(n) = self.type_end(from)
+                && matches!(self.peek_at(n), Tok::Ident(_))
+                && matches!(self.peek_at(n + 1), Tok::Sym("," | "{") | Tok::Kw("if"))
+            {
+                if mode.is_some() {
+                    self.bump();
+                }
+                let ty = self.ty()?;
+                let (name, name_span) = self.ident("a name for the value")?;
+                return Ok(Some(Pattern::Bind { mode: mode.unwrap_or(BindMode::Plain), ty, name, name_span }));
+            }
+        }
+        let qualified = matches!(self.peek(), Tok::Ident(_)) && self.peek_at(1) == &Tok::Sym("::") && matches!(self.peek_at(2), Tok::Ident(_));
+        let k = if qualified { 3 } else { 1 };
+        if !matches!(self.peek(), Tok::Ident(_)) || self.peek_at(k) != &Tok::Sym("(") {
             return Ok(None);
         }
+        self.variant_pattern().map(Some)
+    }
+
+    /// `Name(sub, ...)` or `Enum::Name(sub, ...)`; also a bare `Name` inside another pattern.
+    fn variant_pattern(&mut self) -> Parsed<Pattern> {
         let start = self.span();
         let mut enum_name = None;
         let (mut name, mut name_span) = self.ident("a variant name")?;
-        if qualified {
+        if self.peek() == &Tok::Sym("::") && matches!(self.peek_at(1), Tok::Ident(_)) {
             self.bump();
             enum_name = Some((name, name_span));
             (name, name_span) = self.ident("a variant name")?;
         }
-        self.expect("(")?;
-        let mut bindings = Vec::new();
-        while self.peek() != &Tok::Sym(")") {
-            if matches!(self.peek(), Tok::Ident(w) if w == "_") && matches!(self.peek_at(1), Tok::Sym("," | ")")) {
-                bindings.push(PatBinding::Any(self.bump().span));
-            } else {
-                let ty = self.ty()?;
-                let (bname, bspan) = self.ident("a name for the value")?;
-                bindings.push(PatBinding::Named { ty, name: bname, name_span: bspan });
+        let mut args = Vec::new();
+        let parens = self.eat("(");
+        if parens {
+            while self.peek() != &Tok::Sym(")") {
+                args.push(self.sub_pattern()?);
+                if !self.eat(",") {
+                    break;
+                }
             }
-            if !self.eat(",") {
-                break;
-            }
+            self.expect(")")?;
         }
-        self.expect(")")?;
-        Ok(Some(Pattern::Variant { enum_name, name, name_span, bindings, span: start.to(self.prev_span()) }))
+        Ok(Pattern::Variant { enum_name, name, name_span, args, parens, span: start.to(self.prev_span()) })
+    }
+
+    /// One slot of a variant pattern.
+    fn sub_pattern(&mut self) -> Parsed<SubPat> {
+        if matches!(self.peek(), Tok::Ident(w) if w == "_") && matches!(self.peek_at(1), Tok::Sym("," | ")")) {
+            return Ok(SubPat::Any(self.bump().span));
+        }
+        let mode = match self.peek() {
+            Tok::Kw("take") => Some(BindMode::Take),
+            Tok::Kw("copy") => Some(BindMode::Copy),
+            _ => None,
+        };
+        let from = mode.is_some() as usize;
+        if let Some(n) = self.type_end(from)
+            && matches!(self.peek_at(n), Tok::Ident(_))
+            && matches!(self.peek_at(n + 1), Tok::Sym("," | ")"))
+        {
+            if mode.is_some() {
+                self.bump();
+            }
+            let ty = self.ty()?;
+            let (name, name_span) = self.ident("a name for the value")?;
+            return Ok(SubPat::Bind { mode: mode.unwrap_or(BindMode::Plain), ty, name, name_span });
+        }
+        if mode.is_some() {
+            return Err(self.unexpected("a type and a name after `take` or `copy`"));
+        }
+        if matches!(self.peek(), Tok::Ident(_)) {
+            return Ok(SubPat::Variant(Box::new(self.variant_pattern()?)));
+        }
+        Ok(SubPat::Value(self.expr()?))
     }
 
     /// `Type name;` or `Type name = value;`, after any `mut`.
@@ -1594,10 +1626,20 @@ mod tests {
         let (s, d) = body("match (s) { case Circle(float64 r) { } case Shape::Rect(_, float64 h) { } case Empty { } case f(1) { } }");
         assert!(d.is_empty(), "{:?}", errors(&d));
         let Stmt::Match { cases, .. } = &s[0] else { panic!() };
-        assert!(matches!(&cases[0].patterns[0], Pattern::Variant { bindings, .. } if bindings.len() == 1));
-        assert!(matches!(&cases[1].patterns[0], Pattern::Variant { enum_name: Some(_), bindings, .. } if bindings.len() == 2));
+        assert!(matches!(&cases[0].patterns[0], Pattern::Variant { args, .. } if args.len() == 1));
+        assert!(matches!(&cases[1].patterns[0], Pattern::Variant { enum_name: Some(_), args, .. } if args.len() == 2));
         assert!(matches!(&cases[2].patterns[0], Pattern::Expr(_)));
-        assert!(matches!(&cases[3].patterns[0], Pattern::Expr(_)));
+        assert!(matches!(&cases[3].patterns[0], Pattern::Variant { .. }));
+        let (s, d) = body("match (s) { case Text(take string b) { } case Some(Rect(2.0, float64 h)), Other(copy string b) if h > 1.0 { } }");
+        assert!(d.is_empty(), "{:?}", errors(&d));
+        let Stmt::Match { cases, .. } = &s[0] else { panic!() };
+        assert!(matches!(&cases[0].patterns[0], Pattern::Variant { args, .. } if matches!(&args[0], SubPat::Bind { mode: BindMode::Take, .. })));
+        assert_eq!(cases[1].patterns.len(), 2);
+        assert!(cases[1].guard.is_some());
+        let Pattern::Variant { args, .. } = &cases[1].patterns[0] else { panic!() };
+        let SubPat::Variant(inner) = &args[0] else { panic!() };
+        let Pattern::Variant { args, .. } = &**inner else { panic!() };
+        assert!(matches!(&args[0], SubPat::Value(_)) && matches!(&args[1], SubPat::Bind { .. }));
     }
 
     #[test]

@@ -515,6 +515,17 @@ codes! {
         "`==` and `!=` work on enums whose variants carry no values (`d == North`).\n\
          An enum with values is taken apart with `match`.\n\n\
          \x20   if (shape == Empty) { }                      // error when some variant has values";
+    E0528: "binding that owns memory needs take or copy",
+        "A payload that owns memory (a `string`, or a struct holding one) cannot\n\
+         be bound by a plain `Type name` in a `case`: the pattern has to say\n\
+         whether it moves the payload out or copies it.\n\n\
+         \x20   case Text(take string body) { }   // moves it; the matched value is used up\n\
+         \x20   case Text(copy string body) { }   // copies it; the matched value stays whole\n\n\
+         Numbers, bools and Copy structs bind plainly: `case Circle(float64 r)`.";
+    E0529: "inconsistent bindings in a case",
+        "A name is bound twice in one pattern, or the patterns of one `case`\n\
+         (`case A(float64 x), B(float64 y)`) do not bind the same names with\n\
+         the same types, so the body could not know which one it has.";
     E0526: "wrong type in a pattern",
         "A binding in a variant pattern must name exactly the type of the\n\
          value it binds (no conversion is applied in patterns), and must\n\

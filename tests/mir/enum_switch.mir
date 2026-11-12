@@ -1,0 +1,6 @@
+_5 = Discriminant(_1)
+Switch copy _5 [0: bb1, 1: bb2, otherwise: bb3]
+_2 = copy (_1 as v0).0
+_4 = copy (_1 as v1).1
+_4 = Eq(copy _3, const 0u8)
+If copy _4 -> bb1, bb2

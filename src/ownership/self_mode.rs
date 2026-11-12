@@ -227,7 +227,7 @@ impl Cx<'_> {
             Stmt::Unsafe(b) => self.block(b, out),
             // Moving a value out through a borrow is an error later (E0310),
             // so `destroy` of a part of `self` is not evidence.
-            Stmt::Destroy(_) => {}
+            Stmt::Destroy(_) | Stmt::Forget(_) => {}
         }
     }
 
@@ -331,6 +331,7 @@ impl Cx<'_> {
         let mut derefed = false;
         for p in &place.proj {
             match *p {
+                HirProj::Downcast(_) => return false,
                 HirProj::Field(i) => {
                     let pointee = if ty.is_borrow() { ty.target().unwrap_or(ty) } else { ty };
                     let Some(_) = pointee.struct_id() else { return false };
@@ -389,6 +390,7 @@ impl Cx<'_> {
         let mut ty = self.func.locals[0].ty;
         for p in &place.proj {
             match *p {
+                HirProj::Downcast(_) => return None,
                 HirProj::Field(i) => {
                     text = self.extend(text, ty, i);
                     ty = self.field_ty(ty, i).unwrap_or(Type::None);

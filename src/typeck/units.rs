@@ -1260,7 +1260,7 @@ fn visit_stmt(s: &mut hir::Stmt, f: &mut dyn FnMut(&mut Type)) {
             }
         }
         hir::Stmt::Unsafe(body) => visit_block(body, f),
-        hir::Stmt::Jump(_) | hir::Stmt::Decl(_) | hir::Stmt::Destroy(_) => {}
+        hir::Stmt::Jump(_) | hir::Stmt::Decl(_) | hir::Stmt::Destroy(_) | hir::Stmt::Forget(_) => {}
     }
 }
 

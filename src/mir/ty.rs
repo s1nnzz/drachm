@@ -49,6 +49,26 @@ pub fn place_ty(body: &Body, hir: &hir::Program, p: &Place) -> Result<Type, Stri
     Ok(t)
 }
 
+/// The type of `p` while a body is being built (its locals are not a `Body` yet).
+pub fn place_ty_in(locals: &IndexVec<Local, LocalDecl>, hir: &hir::Program, p: &Place) -> Type {
+    let mut t = locals[p.local].ty;
+    let mut variant = None;
+    for pr in &p.proj {
+        t = match *pr {
+            Proj::Deref => t.target().unwrap_or(t),
+            Proj::Downcast(v) => {
+                variant = Some(v);
+                t
+            }
+            Proj::Field(f) => match variant.take() {
+                Some(v) => hir.enum_def(t).variants[v].fields[f].ty,
+                None => hir.struct_def(t).fields[f].ty,
+            },
+        };
+    }
+    t
+}
+
 pub fn const_ty(c: &Constant) -> Type {
     match c {
         Constant::Int(_, t) | Constant::Float(_, t) => *t,

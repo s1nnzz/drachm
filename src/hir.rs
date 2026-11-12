@@ -250,6 +250,8 @@ pub struct Place {
 pub enum HirProj {
     Field(usize),
     Deref,
+    /// The payload of variant `n` of an enum (always followed by a `Field`).
+    Downcast(usize),
 }
 
 impl Place {
@@ -262,7 +264,7 @@ impl Place {
     pub fn fields(&self) -> impl Iterator<Item = usize> + '_ {
         self.proj.iter().map(|p| match p {
             HirProj::Field(i) => *i,
-            HirProj::Deref => unreachable!("dereferences cannot be built yet"),
+            HirProj::Deref | HirProj::Downcast(_) => unreachable!("dereferences cannot be built yet"),
         })
     }
 }
@@ -290,6 +292,10 @@ pub enum Stmt {
     Unsafe(Block),
     /// `destroy x;`: runs `drop()` now and ends the local.
     Destroy(Place),
+    /// Ends the value at the place like a move whose result nobody keeps.
+    /// Made by `match` after `take` patterns have moved the parts of an enum
+    /// out: nothing is dropped for the value any more.
+    Forget(Place),
 }
 
 pub struct Branch {
@@ -311,6 +317,7 @@ pub enum Jump {
     Next(Label, usize),
 }
 
+#[derive(Clone)]
 pub struct Expr {
     pub kind: ExprKind,
     pub ty: Type,
@@ -366,6 +373,7 @@ impl BinOp {
     }
 }
 
+#[derive(Clone)]
 pub enum ExprKind {
     /// The value's bits, zero-extended; only the low `bits` of the type are set.
     Int(u128),

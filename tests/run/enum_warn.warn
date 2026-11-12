@@ -1,0 +1,7 @@
+warning[W0110]: this `match` does not handle `Rect` and `Empty`
+add `case Rect(float64 w, float64 h) { }`, `case Empty { }`, or `case _ { }`
+warning[W0111]: this case can never run
+every value it matches is handled by an earlier case
+it comes after `case _`, which matches everything
+warning[W0110]: this `match` does not handle `Some`
+warning[W0110]: this `match` does not handle `Circle`

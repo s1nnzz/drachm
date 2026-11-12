@@ -1,0 +1,10 @@
+error[E0525]: `Wall` is not a variant of `Shape`
+ help: the variants of `Shape` are `Circle`, `Rect` and `Empty`
+error[E0525]: `Other::Wall` is not a variant of `Shape`
+error[E0526]: `Rect` holds `float64` here, not `string`
+ help: write `float64 w`
+error[E0526]: `Rect` holds 2 values, but this pattern names 1
+error[E0529]: the patterns of this `case` bind different names or types
+error[E0525]: this `case` cannot match a `Shape`
+error[E0528]: binding `body` would take memory out of the matched value
+ help: write `take string body` to move it out (the matched value is used up), or `copy string body` to copy it
