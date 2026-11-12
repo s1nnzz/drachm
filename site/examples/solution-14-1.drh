@@ -1,0 +1,15 @@
+in io;
+
+failure TooBig {
+    Over "number is over 100",
+}
+
+uint32 check(uint32 n) fails TooBig {
+    if (n > 100) { fail Over; }
+    return n;
+}
+
+none main() {
+    io::outln((check(7) maybe 0)::text());
+    io::outln((check(500) maybe 0)::text());
+}

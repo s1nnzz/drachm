@@ -1,0 +1,32 @@
+in io;
+
+failure ParseError {
+    Empty "nothing to parse",
+}
+
+failure RangeError {
+    TooBig(uint32 n) f"${n} is too big",
+}
+
+uint32 parse(string s) fails ParseError {
+    if (s::len() == 0) { fail Empty; }
+    return s::len()->to<uint32>();
+}
+
+// Lists both: it can raise its own failure and pass on the callee's.
+uint32 small(string s) fails ParseError, RangeError {
+    uint32 n = parse(s) fails;
+    if (n > 3) { fail TooBig(n); }
+    return n;
+}
+
+uint32 doubled(string s) fails ParseError, RangeError {
+    uint32 n = small(s) fails;
+    return n * 2;
+}
+
+none main() {
+    io::outln((doubled("ab") maybe 0)::text());
+    io::outln((doubled("") maybe 100)::text());
+    io::outln((doubled("abcde") maybe 200)::text());
+}

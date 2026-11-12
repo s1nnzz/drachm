@@ -1,0 +1,18 @@
+in io;
+
+failure ParseError {
+    Empty "nothing to parse",
+    TooLong(string text) f"too long: ${text}" exit 3,
+}
+
+uint32 parse(string s) fails ParseError {
+    if (s::len() == 0) { fail Empty; }
+    if (s::len() > 3) { fail TooLong(s); }
+    return s::len()->to<uint32>();
+}
+
+none main() {
+    io::outln((parse("ab") maybe 0)::text());
+    io::outln((parse("") maybe 0)::text());
+    io::outln((parse("abcdef") maybe 0)::text());
+}

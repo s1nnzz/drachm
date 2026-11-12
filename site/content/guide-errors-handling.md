@@ -1,16 +1,16 @@
 ---
 title: Error handling without exceptions
 description: How failures work in Drachm and when to use maybe, a bare fails, or a handler. No Result type, no unwinding.
-status: not-implemented
 ---
 
 # Error handling without exceptions
 
-This guide is about designing code that can go wrong. Failures are designed
-but not built: the compiler does not accept `failure`, `fails`, `fail` or
-`maybe` on calls yet, so every code block here is the intended shape, not
-something you can run. Only the optional `T?` sibling of `maybe` is described
-on [Designing with enums and optionals](guide-enums-optionals.md).
+This guide is about designing code that can go wrong. `failure`, `fails`, `fail`,
+`maybe` and a bare `fails` on calls, and `because`, are built; see
+[Failures](reference-errors.md) for the rules. Handlers (`fails with`),
+`otherwise`, `any e` and `ignore failure` are designed but not built, and the
+sections about them are marked. The optional `T?` sibling of `maybe` is on
+[Designing with enums and optionals](guide-enums-optionals.md).
 
 Drachm has two kinds of things going wrong, and they are handled differently.
 
@@ -63,6 +63,8 @@ two of them have a variant called `Empty`, name the type: `fail ParseError::Empt
 
 ## Every call says what happens
 
+<!-- example: fails-maybe -->
+
 Calling a function that can fail, with nothing after the call, is a compile
 error by default. There are three answers, from least to most work.
 
@@ -82,7 +84,7 @@ uint32 c = parse(input) fails with (ParseError e) => {
 - A bare `fails` **passes the failure up**. Use it when this function cannot do
   anything useful about it. The enclosing function must list the failure in its
   own `fails` (and so must `main`, if the failure reaches it).
-- `fails with` **handles** it. Use it when you can recover, log, or turn the
+- `fails with` **handles** it (not built yet). Use it when you can recover, log, or turn the
   failure into a different one.
 
 The fallback after `maybe` is only run when the call fails. It is a single value
@@ -100,6 +102,7 @@ Save d = load(p) maybe makeDefault(); // a single call is fine too
 `parse(s) maybe 0 + 1` is an error: it is not clear which you meant.
 
 ## Handling one kind of failure
+<!-- status: not-implemented -->
 
 Write the handler for the failure type, or for one variant of it. Several
 handlers in a row each take their own kind, and a `return` inside a handler
@@ -120,6 +123,7 @@ function. For a call that returns a value, a handler ends one of those three
 ways.
 
 ## Looking at the failure you caught
+<!-- status: not-implemented -->
 
 The name in a handler (`e` above) is the failure. It prints with `${e}`, which
 gives the message and, for a failure with causes, the whole chain. It also has
@@ -148,6 +152,10 @@ Save s = load(p) fails with (FileMissing e) => { maybe Save::empty(); }
 
 ## Keeping the cause
 
+`because` works today with a failure value you hold in a variable
+(`fail LoadFailed because cause;`, see [Failures](reference-errors.md#because));
+catching one with a handler and keeping it, as below, comes with handlers.
+
 When you turn one failure into another, keep the first as the cause with
 `because`. Nothing is lost on the way up, and the report at the end shows both.
 
@@ -173,6 +181,8 @@ what *this* function was doing, and the cause says what went wrong underneath.
 
 ## Exit codes
 
+<!-- example: fails-main -->
+
 Every failure has an exit code, 0 to 255, and 1 when none is written. A program
 exits with it when a failure escapes `main`. If `main` returns a number as well
 (`sint32 main()`), the failure's code wins on failure and the number is the exit
@@ -186,6 +196,7 @@ sint32 main() fails ToolError {
 ```
 
 ## Deliberately ignoring a failure
+<!-- status: not-implemented -->
 
 Sometimes a failure really does not matter, such as closing a file you are done
 with. Say so out loud, in either spelling:

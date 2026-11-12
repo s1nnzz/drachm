@@ -405,6 +405,13 @@ A temporary, such as the `"a" + "b"` in `("a" + "b")::upper()`, dies at the
 end of the statement that made it. In the condition of a `while` that means
 every time round; in the condition of an `if` it means before either branch runs.
 
+### Failures and drops
+
+A failing function that ends with `fail` (or a `fails` that passes a failure up)
+drops what is alive exactly as a `return` does: its locals, and the temporaries
+of the statement it was in. The failure value itself moves up to the caller, or
+is dropped when the caller gives a `maybe` fallback.
+
 ### drop()
 
 A struct can name what happens when it dies by giving it a method called `drop`
