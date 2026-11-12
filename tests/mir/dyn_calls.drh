@@ -1,0 +1,43 @@
+in io;
+
+interface Positioned {
+    float64 x;
+    float64 y;
+}
+
+interface Shape {
+    float64 area();
+}
+
+// `Placed` extends both: a `&Placed` is also a `&Shape` and a `&Positioned`.
+interface Placed extends Shape and Positioned { }
+
+struct Disc with Placed {
+    public:
+    float64 r;
+    float64 x;
+    float64 y;
+    float64 area() { return 3.0 * self.r * self.r; }
+}
+
+struct Dot with Positioned {
+    public:
+    float64 x;
+    float64 y;
+}
+
+none where(&Positioned p) {
+    io::outln(f"at ${p.x}, ${p.y}");
+}
+
+none describe(&Placed p) {
+    where(p);
+    io::outln(f"area ${p::area()}");
+}
+
+none main() {
+    Disc d = new Disc of (1.0, 4.0, 5.0);
+    Dot dot = new Dot of (7.0, 8.0);
+    describe(&d);
+    where(&dot);
+}

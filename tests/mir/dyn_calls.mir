@@ -1,0 +1,3 @@
+_2 = Unsize(copy _1, &Positioned)
+_6 = call Dyn(Placed.area)(copy _5) -> bb2
+_4 = Unsize(copy _3, &Placed)
