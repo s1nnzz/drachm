@@ -121,3 +121,8 @@ Q18 lambdas that change captures: inferred like `self`: the capture becomes a `&
 Q19 `Iterable`: two levels: the type gives `iter()`, a fresh walker with `T? next() changes self`; `for` walks `c::iter()`, so the value itself isn't spent and can be walked again.
 Q20 a list or map declared without a value starts empty and is usable at once (`mut string[?] xs; xs::push("a");`).
 Q5 interfaces as types: any interface can be used as `&I` (its `static` methods and `Self` members just aren't callable through it); upcasts are automatic (`&Shape3D` passes as `&Shape`), EXCEPT where the parameter says `exclusive`: `none show(exclusive &Shape s)` accepts only a value whose interface is exactly `Shape`, not a sub-interface (owner's note; `exclusive` is a new word; details still to design: E0901 until then).
+
+# S6B follow-ups, 2026-11-12
+- Built-in interfaces: keep the set S6B chose: `Zero` (`static Self zero()`: numbers, `string` gives `""`), `Equal` (`==`: numbers, `bool`, `string`, every struct), `Ordered extends Equal` (`<` `<=` `>` `>=`: numbers only), `Text` (`string text()`: numbers, `bool`). A program's own interface of the same name replaces the built-in one.
+- `extends` takes several parents joined with `and`: `interface Solid extends Shape and Named { ... }`.
+- A separate `TYPE with I { ... }` block sees only the type's public members. `TYPE with trusted I { ... }` sees private members too (owner proposed "partner", then picked `trusted` from the offered words).
