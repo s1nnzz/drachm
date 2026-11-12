@@ -7,8 +7,6 @@ public:
     uint32 id = 5;
 }
 
-struct Stack<T> { }
-
 struct Shape with Drawable { }
 
 none main() {

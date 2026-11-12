@@ -214,6 +214,13 @@ impl Checker<'_> {
 
     /// `new Type of (values)`.
     pub(super) fn new_expr(&mut self, name: &str, name_span: Span, values: &[ast::FieldValue], span: Span) -> Option<Val> {
+        if self.g.mono.type_templates.contains_key(name) {
+            self.generic_type_alone(name, name_span);
+            for v in values {
+                self.expr(&v.value);
+            }
+            return None;
+        }
         let Some(&s) = self.g.structs_by_name.get(name) else {
             let mut d = Diagnostic::at(&codes::E0101, name_span, format!("`new` builds a struct, and `{name}` is not one"));
             let structs: Vec<&str> = self.g.structs.iter().map(|s| s.name.as_str()).collect();
@@ -226,6 +233,11 @@ impl Checker<'_> {
             }
             return None;
         };
+        self.new_struct(s, values, span)
+    }
+
+    /// `new Type of (values)` for struct `s`.
+    pub(super) fn new_struct(&mut self, s: StructId, values: &[ast::FieldValue], span: Span) -> Option<Val> {
         let t = self.g.structs[s].ty;
         // `none` waits for the constructor: it may fit an optional or pointer parameter.
         let given: Vec<GivenValue> = values

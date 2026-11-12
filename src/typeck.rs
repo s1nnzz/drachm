@@ -59,6 +59,9 @@ struct StructInfo {
     auto_ctor: bool,
     /// The default `def`, an index into `Globals::defs`.
     default_def: Option<usize>,
+    /// Written with a `lives` clause: it is a holder, even before its
+    /// fields are checked.
+    declared_lives: bool,
 }
 
 struct FieldInfo {
@@ -130,8 +133,14 @@ impl Globals {
     }
 
     fn resolve_base_quiet(&self, t: &ast::TypeName) -> Option<Type> {
-        if !t.args.is_empty() || !t.dims.is_empty() {
+        if t.self_ty && let Some(&ty) = self.tenv.get(generics::SELF) {
+            return Some(ty);
+        }
+        if !t.dims.is_empty() {
             return None;
+        }
+        if !t.args.is_empty() {
+            return self.instance_of(t);
         }
         if let Some(&ty) = self.tenv.get(&t.name) {
             return Some(ty);
@@ -143,6 +152,18 @@ impl Globals {
             .ok()
             .or_else(|| self.structs_by_name.get(&t.name).map(|&id| self.structs[id].ty))
             .or_else(|| self.enums_by_name.get(&t.name).map(|&id| self.enums[id].ty))
+    }
+
+    /// The instance a type written with arguments names (`Stack<uint32>`,
+    /// `Optional<uint32>`), if it was made.
+    fn instance_of(&self, t: &ast::TypeName) -> Option<Type> {
+        let args: Option<Vec<Type>> = t.args.iter().map(|a| if a.is_number { None } else { self.resolve_quiet(a) }).collect();
+        let args = args?;
+        if t.name == "Optional" {
+            let [inner] = args[..] else { return None };
+            return self.optional_ids.get(&inner).map(|&id| self.enums[id].ty);
+        }
+        self.mono.type_instances.get(&(t.name.clone(), args)).copied()
     }
 
     /// `t` with its `&`, `&mut` and `*` marks applied to the named type.
@@ -169,7 +190,14 @@ impl Globals {
             }
         }
         if !t.args.is_empty() {
-            return self.type_args_error(t, diags);
+            match generics::check_type_args(self, t, diags) {
+                Some(true) => {}
+                Some(false) => return None,
+                None => return self.type_args_error(t, diags),
+            }
+        } else if self.mono.type_templates.contains_key(&t.name) && !t.self_ty && !self.tenv.contains_key(&t.name) {
+            generics::type_by_name(self, t, diags);
+            return None;
         }
         if let Some(dim) = t.dims.first() {
             let (at, what) = match dim {
@@ -192,6 +220,10 @@ impl Globals {
         }
         if let Some(ty) = self.resolve_quiet(t) {
             return Some(ty);
+        }
+        if !t.args.is_empty() {
+            generics::missing_instance(self, t, diags);
+            return None;
         }
         match Type::from_name(&t.name) {
             Ok(ty) => Some(ty),
@@ -227,8 +259,6 @@ impl Globals {
                     .note("units go only on number types")
                     .help("for example `float64<m>`"),
             );
-        } else if t.name == "Optional" {
-            diags.push(Diagnostic::at(&codes::E0901, t.span, "`Optional<T>` is not supported yet").help("write `T?`, for example `uint32?`"));
         } else if matches!(t.name.as_str(), "List" | "Array" | "Map" | "OrderedMap" | "Iterable") {
             diags.push(Diagnostic::at(&codes::E0901, t.span, format!("`{}` is not supported yet", t.name)));
         } else if self.tenv.contains_key(&t.name) {
@@ -265,7 +295,7 @@ impl Globals {
     fn holds_borrow(&self, t: Type) -> bool {
         match t {
             Type::Ref { .. } => true,
-            Type::Struct { id, .. } => !self.structs[id].lives.is_empty(),
+            Type::Struct { id, .. } => self.structs[id].declared_lives || !self.structs[id].lives.is_empty(),
             _ => false,
         }
     }
@@ -343,8 +373,19 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
     units::declare_units(&mut g, &prog.units, diags);
 
     // Struct names first, so that any type can name any struct, wherever it is defined.
-    let struct_ids: Vec<Option<StructId>> = prog.structs.iter().map(|s| declare_struct(&mut g, s, diags)).collect();
-    let enum_ids: Vec<Option<hir::EnumId>> = prog.enums.iter().map(|e| enums::declare_enum(&mut g, e, diags)).collect();
+    generics::split_written(&mut g, prog);
+    let struct_ids: Vec<Option<StructId>> = prog
+        .structs
+        .iter()
+        .enumerate()
+        .map(|(i, s)| if s.tparams.is_empty() { declare_struct(&mut g, s, diags) } else { generics::declare_struct_template(&mut g, i, s, diags) })
+        .collect();
+    let enum_ids: Vec<Option<hir::EnumId>> = prog
+        .enums
+        .iter()
+        .enumerate()
+        .map(|(i, e)| if e.tparams.is_empty() { enums::declare_enum(&mut g, e, diags) } else { generics::declare_enum_template(&mut g, i, e, diags) })
+        .collect();
     // The failures every program has come first, so a program that declares
     // one of the same names is the one reported.
     let mut core_diags = Vec::new();
@@ -353,7 +394,11 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
     let all_failures: Vec<&ast::Failure> = core.failures.iter().chain(&prog.failures).collect();
     let failure_ids: Vec<Option<hir::EnumId>> = all_failures.iter().map(|f| failures::declare_failure(&mut g, f, diags)).collect();
     g.fail.convert_error = g.enums_by_name.get("ConvertError").copied();
-    optionals::declare_optionals(&mut g, &prog.optionals);
+    generics::validate_type_templates(&mut g, diags);
+    // Every `T?` and every `Name<args>` the file writes outside a template.
+    g.mono.written_optionals = prog.optionals.clone();
+    g.mono.scope = g.mono.global.clone();
+    generics::ensure_written(&mut g, diags);
     for (s, id) in prog.structs.iter().zip(&struct_ids) {
         if let Some(id) = *id {
             declare_fields(&mut g, id, s, diags);
@@ -374,7 +419,6 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
 
     // Signatures: functions, then methods.
     let mut func_ids = Vec::new();
-    g.mono.written_optionals = prog.optionals.clone();
     for (index, f) in prog.funcs.iter().enumerate() {
         if !f.tparams.is_empty() {
             generics::declare_template(&mut g, index, f, diags);
@@ -443,8 +487,7 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
     for ((s, sid), mids) in prog.structs.iter().zip(&struct_ids).zip(&method_ids) {
         for (j, (m, mid)) in s.methods.iter().zip(mids).enumerate() {
             let (Some(sid), Some(mid)) = (*sid, *mid) else { continue };
-            let word = if m.ctor { format!("new{j}") } else { m.operator.map_or(m.func.name.clone(), |op| format!("op_{}", op_word(op))) };
-            let symbol = format!("drachm_m_{}{}_{word}", s.name.len(), s.name);
+            let symbol = method_symbol(&s.name, m, j);
             let ctx = MethodCtx {
                 struct_id: sid,
                 func: mid,
@@ -455,22 +498,15 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
             let checked = check_body(&mut g, src, diags, &m.func, Some(ctx), symbol);
             emit(&mut funcs, mid, checked);
             if m.is_static.is_none() && m.operator.is_none() && !m.ctor && !g.self_use[mid].used && m.func.name != "drop" {
-                diags.push(
-                    Diagnostic::at(&codes::W0208, m.func.name_span, format!("method `{}` never uses `self`", m.func.name))
-                        .note("does not use `self`")
-                        .help(format!(
-                            "mark it `static` and call it on the struct, `{}::{}()`: write `static {}`",
-                            s.name,
-                            m.func.name,
-                            short(src, m.func.span)
-                        )),
-                );
+                diags.push(never_uses_self(src, &s.name, m));
             }
         }
     }
 
     generics::drain(&mut g, src, prog, diags, &mut |id, f| emit(&mut funcs, id, f));
     generics::warn_unused(&g, diags);
+    // Instances made while bodies were checked can hold themselves too.
+    report_cycles(&g, diags);
 
     while let Some(s) = g.eq_pending.pop() {
         let f = auto_eq(&mut g, s);
@@ -499,6 +535,26 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
         units::assert_erased(&mut program);
     }
     program
+}
+
+/// The symbol of method `j` of struct `sname`: `drachm_m_6Player_nameOf`.
+/// A name with `<`, `,` and so on (an instance) is mangled first.
+fn method_symbol(sname: &str, m: &ast::Method, j: usize) -> String {
+    let word = if m.ctor { format!("new{j}") } else { m.operator.map_or(m.func.name.clone(), |op| format!("op_{}", op_word(op))) };
+    let sname = types::mangle(sname);
+    format!("drachm_m_{}{}_{word}", sname.len(), sname)
+}
+
+/// W0208: a method that never uses `self` of the struct called `sname`.
+fn never_uses_self(src: &str, sname: &str, m: &ast::Method) -> Diagnostic {
+    Diagnostic::at(&codes::W0208, m.func.name_span, format!("method `{}` never uses `self`", m.func.name))
+        .note("does not use `self`")
+        .help(format!(
+            "mark it `static` and call it on the struct, `{}::{}()`: write `static {}`",
+            sname,
+            m.func.name,
+            short(src, m.func.span)
+        ))
 }
 
 /// Stands in for functions whose definition was never emitted (only ever
@@ -618,57 +674,58 @@ fn check_signature_extras(g: &Globals, f: &ast::Func, params: &[Option<Type>], i
 
 /// A struct's `lives` names exactly its borrow fields (E0314); fills in `StructInfo::lives`.
 fn check_struct_lives(g: &mut Globals, prog: &ast::Program, ids: &[Option<StructId>], diags: &mut Vec<Diagnostic>) {
-    let mut has_lives = vec![false; g.structs.len()];
     for (s, id) in prog.structs.iter().zip(ids) {
         if let Some(id) = *id {
-            has_lives[id] = !s.lives.is_empty();
+            check_one_struct_lives(g, id, s, diags);
         }
     }
-    for (s, id) in prog.structs.iter().zip(ids) {
-        let Some(id) = *id else { continue };
-        let fields = &g.structs[id].fields;
-        let borrows: Vec<usize> = (0..fields.len()).filter(|&i| fields[i].ty.is_some_and(Type::is_borrow)).collect();
-        let mut named = Vec::new();
-        for (name, span) in &s.lives {
-            match fields.iter().position(|f| f.name == *name).filter(|i| borrows.contains(i)) {
-                Some(i) => named.push(i),
-                None => diags.push(
-                    Diagnostic::at(&codes::E0314, *span, format!("`lives {name}` names nothing `{}` borrows", s.name))
-                        .note(format!("`{name}` is not a borrow field"))
-                        .help("`lives` lists the fields of the struct that are borrows"),
-                ),
-            }
+}
+
+/// `check_struct_lives` for one struct (or one instance of a generic struct).
+fn check_one_struct_lives(g: &mut Globals, id: StructId, s: &ast::Struct, diags: &mut Vec<Diagnostic>) {
+    let sname = g.structs[id].name.clone();
+    let fields = &g.structs[id].fields;
+    let borrows: Vec<usize> = (0..fields.len()).filter(|&i| fields[i].ty.is_some_and(Type::is_borrow)).collect();
+    let mut named = Vec::new();
+    for (name, span) in &s.lives {
+        match fields.iter().position(|f| f.name == *name).filter(|i| borrows.contains(i)) {
+            Some(i) => named.push(i),
+            None => diags.push(
+                Diagnostic::at(&codes::E0314, *span, format!("`lives {name}` names nothing `{sname}` borrows"))
+                    .note(format!("`{name}` is not a borrow field"))
+                    .help("`lives` lists the fields of the struct that are borrows"),
+            ),
         }
-        let names: Vec<&str> = borrows.iter().map(|&i| fields[i].name.as_str()).collect();
-        if s.lives.is_empty() {
-            if let Some(&first) = borrows.first() {
+    }
+    let names: Vec<&str> = borrows.iter().map(|&i| fields[i].name.as_str()).collect();
+    if s.lives.is_empty() {
+        if let Some(&first) = borrows.first() {
+            diags.push(
+                Diagnostic::at(&codes::E0314, s.name_span, format!("`{sname}` holds a borrow, so it must say what it borrows from"))
+                    .label(fields[first].span, "this field is a borrow")
+                    .help(format!("add `lives {}`: `struct {} lives {} {{ ... }}`", names.join(", "), s.name, names.join(", "))),
+            );
+        }
+    } else {
+        for &i in &borrows {
+            if !named.contains(&i) && s.lives.iter().all(|(n, _)| *n != fields[i].name) {
                 diags.push(
-                    Diagnostic::at(&codes::E0314, s.name_span, format!("`{}` holds a borrow, so it must say what it borrows from", s.name))
-                        .label(fields[first].span, "this field is a borrow")
-                        .help(format!("add `lives {}`: `struct {} lives {} {{ ... }}`", names.join(", "), s.name, names.join(", "))),
+                    Diagnostic::at(&codes::E0314, fields[i].span, format!("field `{}` is a borrow, but `lives` does not name it", fields[i].name))
+                        .note("a borrow field")
+                        .help(format!("add `{}` to the list: `lives {}`", fields[i].name, names.join(", "))),
                 );
             }
-        } else {
-            for &i in &borrows {
-                if !named.contains(&i) && s.lives.iter().all(|(n, _)| *n != fields[i].name) {
-                    diags.push(
-                        Diagnostic::at(&codes::E0314, fields[i].span, format!("field `{}` is a borrow, but `lives` does not name it", fields[i].name))
-                            .note("a borrow field")
-                            .help(format!("add `{}` to the list: `lives {}`", fields[i].name, names.join(", "))),
-                    );
-                }
-            }
         }
-        for f in fields {
-            let inner = f.ty.map(|t| t.target().filter(|_| t.is_borrow()).unwrap_or(t));
-            if inner.and_then(Type::struct_id).is_some_and(|o| has_lives[o]) {
-                diags.push(Diagnostic::at(&codes::E0901, f.span, "a field that borrows a struct with `lives` is not supported yet"));
-            }
-        }
-        named.sort_unstable();
-        named.dedup();
-        g.structs[id].lives = named;
     }
+    for f in fields {
+        let inner = f.ty.map(|t| t.target().filter(|_| t.is_borrow()).unwrap_or(t));
+        if inner.and_then(Type::struct_id).is_some_and(|o| g.structs[o].declared_lives) {
+            diags.push(Diagnostic::at(&codes::E0901, f.span, "a field that borrows a struct with `lives` is not supported yet"));
+        }
+    }
+    named.sort_unstable();
+    named.dedup();
+    g.structs[id].lives = named;
 }
 
 fn declare_struct(g: &mut Globals, s: &ast::Struct, diags: &mut Vec<Diagnostic>) -> Option<StructId> {
@@ -688,6 +745,9 @@ fn declare_struct(g: &mut Globals, s: &ast::Struct, diags: &mut Vec<Diagnostic>)
         );
         return None;
     }
+    if generics::type_name_taken(g, &s.name, s.name_span, "struct", diags) {
+        return None;
+    }
     if let Some(&first) = g.enums_by_name.get(&s.name) {
         diags.push(
             Diagnostic::at(&codes::E0202, s.name_span, format!("`{}` is both a struct and an enum", s.name))
@@ -696,11 +756,30 @@ fn declare_struct(g: &mut Globals, s: &ast::Struct, diags: &mut Vec<Diagnostic>)
         );
         return None;
     }
-    let id = g.structs.len();
-    let ty = Type::Struct { id, name: types::intern(&s.name) };
-    g.structs.push(StructInfo { name: s.name.clone(), name_span: s.name_span, ty, fields: Vec::new(), methods: Vec::new(), stays: s.stays.is_some(), lives: Vec::new(), has_drop: None, ctors: Vec::new(), auto_ctor: s.auto_ctor.is_some(), default_def: None });
+    let id = new_struct_info(g, &s.name, s);
     g.structs_by_name.insert(s.name.clone(), id);
     Some(id)
+}
+
+/// Adds a struct called `name` (its display name) with nothing declared yet.
+fn new_struct_info(g: &mut Globals, name: &str, s: &ast::Struct) -> StructId {
+    let id = g.structs.len();
+    let ty = Type::Struct { id, name: types::intern(name) };
+    g.structs.push(StructInfo {
+        name: name.to_string(),
+        name_span: s.name_span,
+        ty,
+        fields: Vec::new(),
+        methods: Vec::new(),
+        stays: s.stays.is_some(),
+        lives: Vec::new(),
+        has_drop: None,
+        ctors: Vec::new(),
+        auto_ctor: s.auto_ctor.is_some(),
+        default_def: None,
+        declared_lives: !s.lives.is_empty(),
+    });
+    id
 }
 
 fn declare_fields(g: &mut Globals, id: StructId, s: &ast::Struct, diags: &mut Vec<Diagnostic>) {
@@ -708,7 +787,7 @@ fn declare_fields(g: &mut Globals, id: StructId, s: &ast::Struct, diags: &mut Ve
         let ty = g.resolve_binding_type(&f.ty, diags);
         if let Some(first) = g.structs[id].fields.iter().find(|o| o.name == f.name) {
             diags.push(
-                Diagnostic::at(&codes::E0202, f.name_span, format!("`{}` has two fields named `{}`", s.name, f.name))
+                Diagnostic::at(&codes::E0202, f.name_span, format!("`{}` has two fields named `{}`", g.structs[id].name, f.name))
                     .note("defined again here")
                     .label(first.span, "first defined here"),
             );
@@ -722,6 +801,7 @@ fn declare_fields(g: &mut Globals, id: StructId, s: &ast::Struct, diags: &mut Ve
 /// Signatures of struct `id`'s methods, checking operator methods' shapes.
 fn declare_methods(g: &mut Globals, id: StructId, s: &ast::Struct, diags: &mut Vec<Diagnostic>) -> Vec<Option<FuncId>> {
     let self_ty = g.structs[id].ty;
+    let sname = g.structs[id].name.clone();
     let mut ids = Vec::new();
     for m in &s.methods {
         if m.ctor {
@@ -732,7 +812,7 @@ fn declare_methods(g: &mut Globals, id: StructId, s: &ast::Struct, diags: &mut V
         let params = f.params.iter().map(|p| g.resolve_binding_type(&p.ty, diags)).collect();
         let ret = g.resolve(&f.ret, diags);
         let (fails, outcome) = failures::signature(g, f, ret, true, diags);
-        let sig = Sig { name: format!("{}::{}", s.name, f.name), params, ret, span: f.span, fails, outcome };
+        let sig = Sig { name: format!("{sname}::{}", f.name), params, ret, span: f.span, fails, outcome };
         check_signature_extras(g, f, &sig.params, m.is_static.is_none(), diags);
         let mut is_drop = false;
         if f.name == "drop" && m.operator.is_none() {
@@ -747,7 +827,7 @@ fn declare_methods(g: &mut Globals, id: StructId, s: &ast::Struct, diags: &mut V
             }
         }
         if let Some(op) = m.operator
-            && !operator_shape_ok(op, m, &sig, self_ty, &s.name, diags)
+            && !operator_shape_ok(op, m, &sig, self_ty, &sname, diags)
         {
             ids.push(None);
             continue;
@@ -755,11 +835,11 @@ fn declare_methods(g: &mut Globals, id: StructId, s: &ast::Struct, diags: &mut V
         let info = &g.structs[id];
         let clash = if let Some(first) = info.methods.iter().find(|o| o.name == f.name) {
             let what = if m.operator.is_some() { format!("`{}` operators", f.name) } else { format!("methods named `{}`", f.name) };
-            Some((format!("`{}` has two {what}", s.name), g.sigs[first.func].span, "first defined here"))
+            Some((format!("`{sname}` has two {what}"), g.sigs[first.func].span, "first defined here"))
         } else {
             // Undecided by the SPEC, chosen here: a field and a method may not share a name.
             info.fields.iter().find(|o| o.name == f.name).map(|field| {
-                (format!("`{}` has a field and a method both named `{}`", s.name, f.name), field.span, "the field")
+                (format!("`{sname}` has a field and a method both named `{}`", f.name), field.span, "the field")
             })
         };
         if let Some((msg, other, what)) = clash {
@@ -773,7 +853,7 @@ fn declare_methods(g: &mut Globals, id: StructId, s: &ast::Struct, diags: &mut V
         if is_drop {
             // A `drop()` that fails is run through a function that reports the failure.
             let wrapper = if g.sigs[func].outcome.is_some() {
-                let sig = Sig { name: format!("{}::drop", s.name), params: Vec::new(), ret: Some(Type::None), span: f.span, fails: Vec::new(), outcome: None };
+                let sig = Sig { name: format!("{sname}::drop"), params: Vec::new(), ret: Some(Type::None), span: f.span, fails: Vec::new(), outcome: None };
                 let w = g.add_sig(sig);
                 g.fail.drop_wrappers.push((w, func, self_ty));
                 w
@@ -822,7 +902,7 @@ fn operator_shape_ok(op: BinOp, m: &ast::Method, sig: &Sig, self_ty: Type, sname
 fn report_cycles(g: &Globals, diags: &mut Vec<Diagnostic>) {
     let ns = g.structs.len();
     let n = ns + g.enums.len();
-    let mut cyclic = vec![false; n];
+    let mut cyclic: Vec<bool> = (0..n).map(|i| g.was_cyclic(i)).collect();
     let mut done = vec![false; n];
     /// One field (or payload value) that holds another type by value.
     struct Edge {
@@ -937,7 +1017,7 @@ fn auto_eq(g: &mut Globals, s: StructId) -> hir::Func {
     let none = Span::new(0, 0);
     let param = |n: &str| hir::Local { name: n.into(), ty, span: none, mutability: hir::Mutability::Fixed, is_param: true, written: None };
     hir::Func {
-        symbol: format!("drachm_eq_{name}"),
+        symbol: format!("drachm_eq_{}", types::mangle(&name)),
         params: 2,
         has_self: true,
         locals: vec![param("a"), param("b")],
@@ -2380,6 +2460,10 @@ impl Checker<'_> {
                     self.generic_by_name(name, e.span);
                     None
                 }
+                None if self.g.mono.type_templates.contains_key(name) => {
+                    self.generic_type_alone(name, e.span);
+                    None
+                }
                 None => {
                     let mut d = Diagnostic::at(&codes::E0201, e.span, format!("unknown name `{name}`"));
                     if name == "io" {
@@ -2486,12 +2570,22 @@ impl Checker<'_> {
                     if n == "io" {
                         return self.io_call(name, *name_span, recv.span, targs, args, e.span);
                     }
+                    if self.g.mono.type_templates.contains_key(n) {
+                        self.generic_type_alone(n, recv.span);
+                        for a in args {
+                            self.expr(a);
+                        }
+                        return None;
+                    }
                     if let Some(&s) = self.g.structs_by_name.get(n) {
                         return self.static_call(s, name, *name_span, targs, args, e.span);
                     }
                     if let Some(&en) = self.g.enums_by_name.get(n) {
                         return self.qualified_variant(en, name, *name_span, args, e.span);
                     }
+                }
+                if let ExprKind::TypeArgs { name: tn, targs: tt } = &recv.kind {
+                    return self.generic_static(tn, tt, recv.span, name, *name_span, targs, args, e.span);
                 }
                 self.method(recv, name, *name_span, targs, args, e.span)
             }
@@ -2514,6 +2608,9 @@ impl Checker<'_> {
             ExprKind::Lend(inner) => self.lend_expr(e, inner),
             ExprKind::AddressOf(inner) => self.address_expr(e, inner),
             ExprKind::New { name, name_span, targs, values } => {
+                if !targs.is_empty() && self.g.mono.type_templates.contains_key(name) {
+                    return self.new_generic(name, *name_span, targs, values, e.span);
+                }
                 if !targs.is_empty() {
                     self.not_generic(name, targs, values.iter().map(|v| &v.value).collect(), e.span);
                     return None;
@@ -2521,6 +2618,10 @@ impl Checker<'_> {
                 self.new_expr(name, *name_span, values, e.span)
             }
             ExprKind::TypeArgs { name, targs } => {
+                if self.g.mono.type_templates.contains_key(name) {
+                    self.generic_type_alone(name, e.span);
+                    return None;
+                }
                 self.not_generic(name, targs, Vec::new(), e.span);
                 None
             }

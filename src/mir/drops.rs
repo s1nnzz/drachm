@@ -69,7 +69,7 @@ fn all_types(hir: &hir::Program) -> Vec<Type> {
 /// own name, or `_enumN` (a struct cannot be called that by accident).
 pub fn glue_name(ty: Type) -> String {
     match ty {
-        Type::Struct { name, .. } => name.to_string(),
+        Type::Struct { name, .. } => crate::types::mangle(name),
         Type::Enum { id, .. } => format!("_enum{id}"),
         _ => unreachable!("only structs and enums have glue"),
     }

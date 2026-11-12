@@ -1,4 +1,4 @@
-//! Generic functions by monomorphisation (S6A.1).
+//! Generic functions, structs and enums by monomorphisation (S6A.1, S6A.2).
 //!
 //! `T max<T>(T a, T b)` is a template. It is not declared or checked where it
 //! is written: each call works out what `T` stands for (from the type
@@ -11,10 +11,24 @@
 //! with a note saying which instance it came from and a label at the call
 //! that made it. The same place is reported once, however many instances
 //! hit it.
+//!
+//! `struct Stack<T> { ... }` and `enum Maybe<T> { ... }` are templates in the
+//! same way. `Stack<uint32>` written anywhere makes (once) an instance: an
+//! ordinary struct called `Stack<uint32>` with its own fields, methods,
+//! constructors and `drop()`, whose method bodies are checked as if the type
+//! had been written out. The parser lists every type written with arguments
+//! (`Program::generics`); `ensure_written` makes the instances such a list
+//! names before anything resolves a type, because resolving only looks them
+//! up. A template's list holds the types written inside it, and is used
+//! whenever the template is instantiated, with the parameters bound.
 
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::rc::Rc;
 
-use super::{check_body, check_signature_extras, failures, optionals, origin, units, Checker, Globals, Sig, Val};
+use super::{
+    check_body, check_one_struct_lives, check_signature_extras, declare_methods, failures, method_symbol, never_uses_self, new_struct_info,
+    optionals, origin, units, Checker, Globals, MethodCtx, Sig, Val,
+};
 use crate::ast::{self, ExprKind};
 use crate::diag::{codes, Diagnostic, Span};
 use crate::hir::{self, FuncId};
@@ -22,6 +36,10 @@ use crate::types::{self, Type};
 
 /// How many instances may be nested: the body of one makes another.
 pub(super) const MAX_DEPTH: usize = 64;
+
+/// The key in a `tenv` that holds the type of the struct being instantiated:
+/// what a constructor's return type stands for.
+pub(super) const SELF: &str = "\u{0}self";
 
 pub(super) struct Template {
     /// Its index in `Program::funcs`.
@@ -34,10 +52,44 @@ pub(super) struct Template {
     pub instances: usize,
 }
 
+#[derive(Clone, Copy, PartialEq)]
+pub(super) enum Kind {
+    Struct,
+    Enum,
+}
+
+/// A generic struct or enum.
+pub(super) struct TypeTemplate {
+    pub kind: Kind,
+    /// Its index in `Program::structs` or `Program::enums`.
+    pub index: usize,
+    pub name_span: Span,
+    pub tparams: Vec<ast::TypeParam>,
+    /// False after an error or an unsupported feature in its type parameters.
+    pub usable: bool,
+    /// How many types written in the file name it.
+    pub instances: usize,
+    /// The declaration without its method bodies.
+    pub head: Head,
+}
+
+pub(super) enum Head {
+    Struct(Rc<ast::Struct>),
+    Enum(Rc<ast::Enum>),
+}
+
+/// What a pending instance checks.
+enum Body {
+    Func(usize),
+    /// Method `mi` of struct template `si`.
+    Method { si: usize, mi: usize, ctx: MethodCtx, symbol: String, id: FuncId },
+}
+
 /// An instance whose body is still to be checked.
 pub(super) struct Pending {
-    index: usize,
+    body: Body,
     id: FuncId,
+    scope: Rc<Vec<ast::TypeName>>,
     tenv: HashMap<String, Type>,
     depth: usize,
     call: Span,
@@ -48,6 +100,22 @@ pub(super) struct Pending {
 #[derive(Default)]
 pub(super) struct State {
     pub templates: HashMap<String, Template>,
+    /// Generic structs and enums by name.
+    pub type_templates: HashMap<String, TypeTemplate>,
+    /// The type each `(template, arguments)` made.
+    pub type_instances: HashMap<(String, Vec<Type>), Type>,
+    /// What an instance was made from.
+    pub origin: HashMap<Type, (String, Vec<Type>)>,
+    /// Instances that were refused (already reported).
+    refused: HashSet<(String, Vec<Type>)>,
+    /// The types written with arguments in the item being resolved or checked.
+    pub scope: Rc<Vec<ast::TypeName>>,
+    /// The ones written outside every template.
+    pub global: Rc<Vec<ast::TypeName>>,
+    /// The ones inside each template: `fn name` or `type name`.
+    scopes: HashMap<String, Rc<Vec<ast::TypeName>>>,
+    /// How many struct and enum instances are being made inside each other.
+    type_depth: usize,
     instances: HashMap<(String, Vec<Type>), FuncId>,
     pending: VecDeque<Pending>,
     /// How deep the body being checked is in instances (0: not in one).
@@ -58,19 +126,30 @@ pub(super) struct State {
     reported: HashSet<(&'static str, usize, usize)>,
 }
 
-/// Records function `f` (at `index` in the program) as a template.
-pub(super) fn declare_template(g: &mut Globals, index: usize, f: &ast::Func, diags: &mut Vec<Diagnostic>) {
-    let mut usable = true;
-    if let Some(first) = g.funcs_by_name.get(&f.name).map(|&id| g.sigs[id].span).or_else(|| g.mono.templates.get(&f.name).map(|t| t.head.span)) {
-        diags.push(
-            Diagnostic::at(&codes::E0202, f.name_span, format!("function `{}` is defined twice", f.name))
-                .note("defined again here")
-                .label(first, "first defined here"),
-        );
-        return;
+/// The declaration of `f` without its body.
+fn func_head(f: &ast::Func) -> ast::Func {
+    ast::Func {
+        ret: f.ret.clone(),
+        name: f.name.clone(),
+        name_span: f.name_span,
+        tparams: f.tparams.clone(),
+        params: f.params.clone(),
+        body: ast::Block { stmts: Vec::new(), end: f.body.end },
+        is_unsafe: f.is_unsafe,
+        lives: f.lives.clone(),
+        lives_span: f.lives_span,
+        lives_from: f.lives_from,
+        fails: f.fails.clone(),
+        fails_span: f.fails_span,
+        span: f.span,
     }
+}
+
+/// E0605 and E0901 for a type parameter list; false if the template cannot be used.
+fn check_tparams(g: &Globals, tparams: &[ast::TypeParam], diags: &mut Vec<Diagnostic>) -> bool {
+    let mut usable = true;
     let mut seen: Vec<(&str, Span)> = Vec::new();
-    for p in &f.tparams {
+    for p in tparams {
         if let Some((_, first)) = seen.iter().find(|(n, _)| *n == p.name) {
             diags.push(
                 Diagnostic::at(&codes::E0605, p.span, format!("type parameter `{}` is declared twice", p.name))
@@ -80,9 +159,9 @@ pub(super) fn declare_template(g: &mut Globals, index: usize, f: &ast::Func, dia
             );
             usable = false;
         } else {
-            let what = if g.structs_by_name.contains_key(&p.name) {
+            let what = if g.structs_by_name.contains_key(&p.name) || g.mono.type_templates.get(&p.name).is_some_and(|t| t.kind == Kind::Struct) {
                 Some("struct")
-            } else if g.enums_by_name.contains_key(&p.name) {
+            } else if g.enums_by_name.contains_key(&p.name) || g.mono.type_templates.get(&p.name).is_some_and(|t| t.kind == Kind::Enum) {
                 Some("enum")
             } else if units::is_unit_name(g, &p.name) {
                 Some("unit")
@@ -109,26 +188,26 @@ pub(super) fn declare_template(g: &mut Globals, index: usize, f: &ast::Func, dia
         if let Some(b) = p.bounds.first() {
             diags.push(
                 Diagnostic::at(&codes::E0901, b.span, "constraints (`with`) on a type parameter are not supported yet")
-                    .help("leave `with` out: the function is checked for each type it is called with"),
+                    .help("leave `with` out: it is checked for each type it is used with"),
             );
             usable = false;
         }
     }
-    let head = ast::Func {
-        ret: f.ret.clone(),
-        name: f.name.clone(),
-        name_span: f.name_span,
-        tparams: f.tparams.clone(),
-        params: f.params.clone(),
-        body: ast::Block { stmts: Vec::new(), end: f.body.end },
-        is_unsafe: f.is_unsafe,
-        lives: f.lives.clone(),
-        lives_span: f.lives_span,
-        lives_from: f.lives_from,
-        fails: f.fails.clone(),
-        fails_span: f.fails_span,
-        span: f.span,
-    };
+    usable
+}
+
+/// Records function `f` (at `index` in the program) as a template.
+pub(super) fn declare_template(g: &mut Globals, index: usize, f: &ast::Func, diags: &mut Vec<Diagnostic>) {
+    if let Some(first) = g.funcs_by_name.get(&f.name).map(|&id| g.sigs[id].span).or_else(|| g.mono.templates.get(&f.name).map(|t| t.head.span)) {
+        diags.push(
+            Diagnostic::at(&codes::E0202, f.name_span, format!("function `{}` is defined twice", f.name))
+                .note("defined again here")
+                .label(first, "first defined here"),
+        );
+        return;
+    }
+    let usable = check_tparams(g, &f.tparams, diags);
+    let head = func_head(f);
     g.mono.templates.insert(f.name.clone(), Template { index, head, usable, instances: 0 });
 }
 
@@ -137,11 +216,24 @@ pub(super) fn drain(g: &mut Globals, src: &str, prog: &ast::Program, diags: &mut
     while let Some(p) = g.mono.pending.pop_front() {
         g.tenv = p.tenv.clone();
         g.mono.depth = p.depth;
-        declare_written_optionals(g);
+        g.mono.scope = p.scope.clone();
         let mut local = Vec::new();
-        let f = check_body(g, src, &mut local, &prog.funcs[p.index], None, p.symbol.clone());
+        ensure_written(g, &mut local);
+        let mut unused_self = None;
+        let f = match &p.body {
+            Body::Func(index) => check_body(g, src, &mut local, &prog.funcs[*index], None, p.symbol.clone()),
+            Body::Method { si, mi, ctx, symbol, id } => {
+                let m = &prog.structs[*si].methods[*mi];
+                let f = check_body(g, src, &mut local, &m.func, Some(*ctx), symbol.clone());
+                if m.is_static.is_none() && m.operator.is_none() && !m.ctor && !g.self_use[*id].used && m.func.name != "drop" {
+                    unused_self = Some(never_uses_self(src, &prog.structs[*si].name, m));
+                }
+                f
+            }
+        };
         g.tenv.clear();
         g.mono.depth = 0;
+        local.extend(unused_self);
         for d in local {
             // `copy` that does nothing for this `T` is needed for another one.
             if d.code.id == "W0322" || !first_report(g, &d) {
@@ -166,6 +258,16 @@ pub(super) fn warn_unused(g: &Globals, diags: &mut Vec<Diagnostic>) {
                 .help("a generic function is only checked when it is called with a type: call it, or remove it"),
         );
     }
+    let mut unused: Vec<(&String, &TypeTemplate)> = g.mono.type_templates.iter().filter(|(_, t)| t.usable && t.instances == 0).collect();
+    unused.sort_by_key(|(_, t)| t.name_span.start);
+    for (name, t) in unused {
+        let what = if t.kind == Kind::Struct { "struct" } else { "enum" };
+        diags.push(
+            Diagnostic::at(&codes::W0600, t.name_span, format!("generic {what} `{name}` is never used"))
+                .note("no type names it")
+                .help(format!("a generic {what} is only checked when a type like `{name}<uint32>` is used: use it, or remove it")),
+        );
+    }
 }
 
 /// Makes the optional types that the written `T?` name under the current `tenv`.
@@ -173,6 +275,24 @@ fn declare_written_optionals(g: &mut Globals) {
     let written = std::mem::take(&mut g.mono.written_optionals);
     optionals::declare_optionals(g, &written);
     g.mono.written_optionals = written;
+}
+
+/// Makes the instances and optionals that the types written in the current
+/// scope name, under the current `tenv`. A name that does not resolve here
+/// (a type parameter of another template, an error) is left for `resolve` to
+/// report where it is used.
+pub(super) fn ensure_written(g: &mut Globals, diags: &mut Vec<Diagnostic>) {
+    let scope = g.mono.scope.clone();
+    loop {
+        let before = (g.structs.len(), g.enums.len());
+        for t in scope.iter() {
+            ensure_type(g, t, diags);
+        }
+        declare_written_optionals(g);
+        if (g.structs.len(), g.enums.len()) == before {
+            break;
+        }
+    }
 }
 
 /// True the first time a diagnostic's code and place are seen.
@@ -412,14 +532,17 @@ impl Checker<'_> {
         let t = self.g.mono.templates.remove(name).expect("a template");
         let tenv: HashMap<String, Type> = t.head.tparams.iter().map(|p| p.name.clone()).zip(types.iter().copied()).collect();
         let saved = std::mem::replace(&mut self.g.tenv, tenv.clone());
-        declare_written_optionals(self.g);
+        let scope = self.g.mono.scopes.get(&format!("fn {name}")).cloned().unwrap_or_default();
+        let saved_scope = std::mem::replace(&mut self.g.mono.scope, scope.clone());
         let mut local = Vec::new();
+        ensure_written(self.g, &mut local);
         let params: Vec<Option<Type>> = t.head.params.iter().map(|p| self.g.resolve_binding_type(&p.ty, &mut local)).collect();
         let ret = self.g.resolve(&t.head.ret, &mut local);
         let (fails, outcome) = failures::signature(self.g, &t.head, ret, true, &mut local);
         let sig = Sig { name: display.clone(), params, ret, span: t.head.span, fails, outcome };
         check_signature_extras(self.g, &t.head, &sig.params, false, &mut local);
         self.g.tenv = saved;
+        self.g.mono.scope = saved_scope;
         for d in local {
             if first_report(self.g, &d) {
                 self.diags.push(d.note_line(format!("while checking `{display}`, instantiated here")).label(call, "instantiated here"));
@@ -432,7 +555,7 @@ impl Checker<'_> {
         self.g.mono.instances.insert(key, id);
         if !broken {
             let symbol = format!("drachm_g_{}", types::mangle(&display));
-            self.g.mono.pending.push_back(Pending { index, id, tenv, depth, call, display, symbol });
+            self.g.mono.pending.push_back(Pending { body: Body::Func(index), id, scope, tenv, depth, call, display, symbol });
         }
         Some(id)
     }
@@ -464,5 +587,375 @@ impl Checker<'_> {
                 .label(def, format!("`{name}` is declared with type parameters here"))
                 .help(format!("call it: `{name}(...)`, or `{name}<uint32>(...)` to say what the type parameters are")),
         );
+    }
+}
+
+// ---- generic structs and enums -------------------------------------------
+
+fn push_once(g: &mut Globals, diags: &mut Vec<Diagnostic>, d: Diagnostic) {
+    if first_report(g, &d) {
+        diags.push(d);
+    }
+}
+
+/// Sorts the types written with arguments into the template that contains
+/// them (by position) or the global list.
+pub(super) fn split_written(g: &mut Globals, prog: &ast::Program) {
+    let mut ranges: Vec<(usize, usize, String)> = Vec::new();
+    for f in prog.funcs.iter().filter(|f| !f.tparams.is_empty()) {
+        ranges.push((f.span.start, f.body.end.end, format!("fn {}", f.name)));
+    }
+    for s in prog.structs.iter().filter(|s| !s.tparams.is_empty()) {
+        ranges.push((s.span.start, s.span.end, format!("type {}", s.name)));
+    }
+    for e in prog.enums.iter().filter(|e| !e.tparams.is_empty()) {
+        ranges.push((e.span.start, e.span.end, format!("type {}", e.name)));
+    }
+    let mut global = Vec::new();
+    let mut scopes: HashMap<String, Vec<ast::TypeName>> = HashMap::new();
+    for t in &prog.generics {
+        match ranges.iter().find(|(a, b, _)| t.span.start >= *a && t.span.start <= *b) {
+            Some((_, _, key)) => scopes.entry(key.clone()).or_default().push(t.clone()),
+            None => global.push(t.clone()),
+        }
+    }
+    g.mono.global = Rc::new(global);
+    g.mono.scopes = scopes.into_iter().map(|(k, v)| (k, Rc::new(v))).collect();
+}
+
+/// E0202 when a struct or enum called `name` clashes with a generic type.
+pub(super) fn type_name_taken(g: &Globals, name: &str, span: Span, _what: &str, diags: &mut Vec<Diagnostic>) -> bool {
+    if let Some(first) = g.mono.type_templates.get(name) {
+        diags.push(
+            Diagnostic::at(&codes::E0202, span, format!("`{name}` is defined twice"))
+                .note("defined again here")
+                .label(first.name_span, "first defined here"),
+        );
+        return true;
+    }
+    false
+}
+
+fn declare_type_template(g: &mut Globals, kind: Kind, index: usize, name: &str, name_span: Span, tparams: &[ast::TypeParam], head: Head, diags: &mut Vec<Diagnostic>) {
+    if name == "none" || !matches!(Type::from_name(name), Err(types::TypeError::Unknown)) {
+        diags.push(
+            Diagnostic::at(&codes::E0202, name_span, format!("`{name}` is the name of a built-in type"))
+                .note("already a type")
+                .help("give it another name"),
+        );
+        return;
+    }
+    let first = g
+        .mono
+        .type_templates
+        .get(name)
+        .map(|t| t.name_span)
+        .or_else(|| g.structs_by_name.get(name).map(|&s| g.structs[s].name_span))
+        .or_else(|| g.enums_by_name.get(name).map(|&e| g.enums[e].name_span));
+    if let Some(first) = first {
+        diags.push(Diagnostic::at(&codes::E0202, name_span, format!("`{name}` is defined twice")).note("defined again here").label(first, "first defined here"));
+        return;
+    }
+    g.mono.type_templates.insert(name.to_string(), TypeTemplate { kind, index, name_span, tparams: tparams.to_vec(), usable: true, instances: 0, head });
+}
+
+pub(super) fn declare_struct_template(g: &mut Globals, index: usize, s: &ast::Struct, diags: &mut Vec<Diagnostic>) -> Option<usize> {
+    let head = ast::Struct {
+        name: s.name.clone(),
+        name_span: s.name_span,
+        tparams: s.tparams.clone(),
+        span: s.span,
+        lives: s.lives.clone(),
+        stays: s.stays,
+        defaults: s.defaults.clone(),
+        auto_ctor: s.auto_ctor,
+        fields: s.fields.clone(),
+        methods: s
+            .methods
+            .iter()
+            .map(|m| ast::Method { public: m.public, is_static: m.is_static, operator: m.operator, ctor: m.ctor, func: func_head(&m.func) })
+            .collect(),
+    };
+    declare_type_template(g, Kind::Struct, index, &s.name, s.name_span, &s.tparams, Head::Struct(Rc::new(head)), diags);
+    None
+}
+
+pub(super) fn declare_enum_template(g: &mut Globals, index: usize, e: &ast::Enum, diags: &mut Vec<Diagnostic>) -> Option<usize> {
+    let head = ast::Enum { name: e.name.clone(), name_span: e.name_span, tparams: e.tparams.clone(), span: e.span, variants: e.variants.clone() };
+    declare_type_template(g, Kind::Enum, index, &e.name, e.name_span, &e.tparams, Head::Enum(Rc::new(head)), diags);
+    None
+}
+
+/// Checks the type parameter lists of the generic structs and enums, once
+/// every type name exists.
+pub(super) fn validate_type_templates(g: &mut Globals, diags: &mut Vec<Diagnostic>) {
+    let mut names: Vec<(usize, String)> = g.mono.type_templates.iter().map(|(n, t)| (t.name_span.start, n.clone())).collect();
+    names.sort();
+    for (_, n) in names {
+        let params = g.mono.type_templates[&n].tparams.clone();
+        let ok = check_tparams(g, &params, diags);
+        g.mono.type_templates.get_mut(&n).unwrap().usable = ok;
+    }
+}
+
+fn user_optional(g: &Globals) -> bool {
+    g.structs_by_name.contains_key("Optional") || g.enums_by_name.contains_key("Optional")
+}
+
+/// Is `t` (written with arguments) a use of a generic type? `Some(true)`:
+/// yes and the arguments fit; `Some(false)`: it was wrong and is reported;
+/// `None`: not a generic type.
+pub(super) fn check_type_args(g: &Globals, t: &ast::TypeName, diags: &mut Vec<Diagnostic>) -> Option<bool> {
+    let at = t.span.to(t.args.last().map_or(t.span, |a| a.span));
+    if t.name == "Optional" && !user_optional(g) {
+        if t.args.len() != 1 || t.args[0].is_number {
+            diags.push(Diagnostic::at(&codes::E0602, at, "`Optional` takes 1 type argument").note("type arguments written here").help("write `Optional<uint32>`, or `uint32?`"));
+            return Some(false);
+        }
+        if t.optional.is_some() {
+            diags.push(Diagnostic::at(&codes::E0901, t.span, "an optional of an optional is not supported yet"));
+            return Some(false);
+        }
+        return Some(true);
+    }
+    let tpl = g.mono.type_templates.get(&t.name)?;
+    if !tpl.usable {
+        return Some(false);
+    }
+    let n = tpl.tparams.len();
+    if t.args.len() != n {
+        diags.push(
+            Diagnostic::at(&codes::E0602, at, format!("`{}` takes {n} type argument{}, but {} given", t.name, if n == 1 { "" } else { "s" }, t.args.len()))
+                .note("type arguments written here")
+                .label(tpl.name_span, format!("`{}` is declared with {n} here", t.name)),
+        );
+        return Some(false);
+    }
+    if let Some(a) = t.args.iter().find(|a| a.is_number) {
+        diags.push(Diagnostic::at(&codes::E0901, a.span, "a number as a type argument is not supported yet"));
+        return Some(false);
+    }
+    Some(true)
+}
+
+/// E0604: a generic type written without its arguments.
+pub(super) fn type_by_name(g: &Globals, t: &ast::TypeName, diags: &mut Vec<Diagnostic>) {
+    let tpl = &g.mono.type_templates[&t.name];
+    if !tpl.usable {
+        return;
+    }
+    let params: Vec<&str> = tpl.tparams.iter().map(|p| p.name.as_str()).collect();
+    let sample: Vec<&str> = params.iter().map(|_| "uint32").collect();
+    diags.push(
+        Diagnostic::at(&codes::E0604, t.span, format!("`{}` is generic, so it needs type arguments", t.name))
+            .note(format!("`{}` alone is not a type", t.name))
+            .label(tpl.name_span, format!("`{}` is declared with `<{}>` here", t.name, params.join(", ")))
+            .help(format!("say what they are: `{}<{}>`", t.name, sample.join(", "))),
+    );
+}
+
+/// The instance `t` names was not made: report why, or say it is not supported.
+pub(super) fn missing_instance(g: &Globals, t: &ast::TypeName, diags: &mut Vec<Diagnostic>) {
+    let mut ok = true;
+    let mut types = Vec::new();
+    for a in &t.args {
+        match g.resolve(a, diags) {
+            Some(ty) => types.push(ty),
+            None => ok = false,
+        }
+    }
+    if !ok {
+        return;
+    }
+    if t.name == "Optional" && types.first().is_some_and(|x| x.is_borrow()) {
+        return;
+    }
+    if g.mono.refused.contains(&(t.name.clone(), types)) || g.mono.type_templates.get(&t.name).is_some_and(|x| !x.usable) {
+        return;
+    }
+    diags.push(Diagnostic::at(&codes::E0901, t.span, format!("`{}` cannot be made here yet", t.name)));
+}
+
+/// Makes the instance a type written with arguments names, and the ones
+/// inside its arguments.
+fn ensure_type(g: &mut Globals, t: &ast::TypeName, diags: &mut Vec<Diagnostic>) {
+    if t.args.is_empty() || t.is_number {
+        return;
+    }
+    for a in &t.args {
+        ensure_type(g, a, diags);
+    }
+    let args: Option<Vec<Type>> = t.args.iter().map(|a| if a.is_number { None } else { g.resolve_quiet(a) }).collect();
+    let Some(args) = args else { return };
+    if t.name == "Optional" && !user_optional(g) {
+        if let [inner] = args[..] {
+            if inner.is_borrow() {
+                let d = Diagnostic::at(&codes::E0901, t.span, "a type argument cannot be a borrow yet").note(format!("it is `{inner}` here")).help("use the value itself");
+                push_once(g, diags, d);
+            } else {
+                optionals::declare_optionals(g, &t.args[..1]);
+            }
+        }
+        return;
+    }
+    let Some(tpl) = g.mono.type_templates.get(&t.name) else { return };
+    if !tpl.usable || tpl.tparams.len() != args.len() || t.args.iter().any(|a| a.is_number) {
+        return;
+    }
+    let key = (t.name.clone(), args.clone());
+    if g.mono.type_instances.contains_key(&key) || g.mono.refused.contains(&key) {
+        return;
+    }
+    if let Some(bad) = args.iter().position(|a| a.is_borrow() || g.holds_borrow(*a)) {
+        let d = Diagnostic::at(&codes::E0901, t.args[bad].span, "a type argument cannot be a borrow yet")
+            .note(format!("`{}` is `{}` here", tpl.tparams[bad].name, args[bad]))
+            .help("hold the value itself, or write the borrow as a field: `&T`");
+        g.mono.refused.insert(key);
+        push_once(g, diags, d);
+        return;
+    }
+    instantiate_type(g, &t.name, args, t.span, diags);
+}
+
+/// The instance of generic struct or enum `name` for `types`, made on first use.
+pub(super) fn instantiate_type(g: &mut Globals, name: &str, types: Vec<Type>, at: Span, diags: &mut Vec<Diagnostic>) -> Option<Type> {
+    let key = (name.to_string(), types.clone());
+    if let Some(&t) = g.mono.type_instances.get(&key) {
+        return Some(t);
+    }
+    let list: Vec<String> = types.iter().map(Type::to_string).collect();
+    let display = format!("{name}<{}>", list.join(", "));
+    if g.mono.type_depth + 1 > MAX_DEPTH {
+        g.mono.refused.insert(key);
+        diags.push(
+            Diagnostic::at(&codes::E0608, at, format!("`{name}` keeps instantiating itself"))
+                .note("instantiated here again with a bigger type")
+                .note_line(format!("{MAX_DEPTH} instances deep, the last is `{display}`"))
+                .help("make the field or method use the same type parameters"),
+        );
+        return None;
+    }
+    let (index, tparams, head) = {
+        let t = g.mono.type_templates.get_mut(name)?;
+        t.instances += 1;
+        let head = match &t.head {
+            Head::Struct(s) => Head::Struct(s.clone()),
+            Head::Enum(e) => Head::Enum(e.clone()),
+        };
+        (t.index, t.tparams.clone(), head)
+    };
+    let mut tenv: HashMap<String, Type> = tparams.iter().map(|p| p.name.clone()).zip(types.iter().copied()).collect();
+    let scope = g.mono.scopes.get(&format!("type {name}")).cloned().unwrap_or_default();
+    let mut local = Vec::new();
+    let ty;
+    match &head {
+        Head::Struct(s) => {
+            let id = new_struct_info(g, &display, s);
+            ty = g.structs[id].ty;
+            tenv.insert(SELF.to_string(), ty);
+            g.mono.type_instances.insert(key.clone(), ty);
+            g.mono.origin.insert(ty, key);
+            let saved = std::mem::replace(&mut g.tenv, tenv.clone());
+            let saved_scope = std::mem::replace(&mut g.mono.scope, scope.clone());
+            g.mono.type_depth += 1;
+            ensure_written(g, &mut local);
+            super::declare_fields(g, id, s, &mut local);
+            check_one_struct_lives(g, id, s, &mut local);
+            let ids = declare_methods(g, id, s, &mut local);
+            g.mono.type_depth -= 1;
+            g.tenv = saved;
+            g.mono.scope = saved_scope;
+            for (j, mid) in ids.into_iter().enumerate() {
+                let Some(mid) = mid else { continue };
+                let m = &s.methods[j];
+                let ctx = MethodCtx { struct_id: id, func: mid, static_span: m.is_static, ctor: m.ctor, no_fails: false };
+                let symbol = method_symbol(&display, m, j);
+                g.mono.pending.push_back(Pending {
+                    body: Body::Method { si: index, mi: j, ctx, symbol: symbol.clone(), id: mid },
+                    id: mid,
+                    scope: scope.clone(),
+                    tenv: tenv.clone(),
+                    depth: 0,
+                    call: at,
+                    display: display.clone(),
+                    symbol,
+                });
+            }
+        }
+        Head::Enum(e) => {
+            let id = g.enums.len();
+            ty = Type::Enum { id, name: types::intern(&display) };
+            g.enums.push(super::enums::EnumInfo { name: display.clone(), name_span: e.name_span, ty, variants: Vec::new(), kind: hir::EnumKind::User, owns: false });
+            g.mono.type_instances.insert(key.clone(), ty);
+            g.mono.origin.insert(ty, key);
+            let saved = std::mem::replace(&mut g.tenv, tenv.clone());
+            let saved_scope = std::mem::replace(&mut g.mono.scope, scope.clone());
+            g.mono.type_depth += 1;
+            ensure_written(g, &mut local);
+            super::enums::declare_variants(g, id, e, &mut local);
+            g.mono.type_depth -= 1;
+            g.tenv = saved;
+            g.mono.scope = saved_scope;
+        }
+    }
+    for d in local {
+        if first_report(g, &d) {
+            diags.push(d.note_line(format!("while checking `{display}`, instantiated here")).label(at, "instantiated here"));
+        }
+    }
+    Some(ty)
+}
+
+impl Checker<'_> {
+    /// The name of a generic struct or enum where a type or a value is
+    /// wanted, written without arguments.
+    pub(super) fn generic_type_alone(&mut self, name: &str, span: Span) {
+        let t = ast::TypeName::plain(name.to_string(), span);
+        type_by_name(self.g, &t, self.diags);
+    }
+
+    /// The instance `name<targs>` names.
+    fn instance_for(&mut self, name: &str, targs: &[ast::TypeName], span: Span) -> Option<Type> {
+        let t = ast::TypeName { args: targs.to_vec(), ..ast::TypeName::plain(name.to_string(), span) };
+        self.g.resolve(&t, self.diags)
+    }
+
+    /// `new Stack<uint32> of (...)`.
+    pub(super) fn new_generic(&mut self, name: &str, name_span: Span, targs: &[ast::TypeName], values: &[ast::FieldValue], span: Span) -> Option<Val> {
+        let ty = self.instance_for(name, targs, name_span);
+        match ty.and_then(Type::struct_id) {
+            Some(s) => self.new_struct(s, values, span),
+            None => {
+                if let Some(t) = ty {
+                    self.diags.push(Diagnostic::at(&codes::E0101, name_span, format!("`new` builds a struct, and `{t}` is not one")));
+                }
+                for v in values {
+                    self.expr(&v.value);
+                }
+                None
+            }
+        }
+    }
+
+    /// `Stack<uint32>::name(args)`: a static method of the instance, or a
+    /// variant of a generic enum.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn generic_static(&mut self, tname: &str, ttargs: &[ast::TypeName], tspan: Span, name: &str, name_span: Span, targs: &[ast::TypeName], args: &[ast::Expr], span: Span) -> Option<Val> {
+        if !self.g.mono.type_templates.contains_key(tname) {
+            self.not_generic(tname, ttargs, args.iter().collect(), span);
+            return None;
+        }
+        let ty = self.instance_for(tname, ttargs, tspan);
+        let fail = |cx: &mut Self| {
+            for a in args {
+                cx.expr(a);
+            }
+            None
+        };
+        match ty {
+            Some(Type::Struct { id, .. }) => self.static_call(id, name, name_span, targs, args, span),
+            Some(Type::Enum { id, .. }) => self.qualified_variant(id, name, name_span, args, span),
+            _ => fail(self),
+        }
     }
 }
