@@ -542,7 +542,9 @@ private:
   copying, comparing, dereferencing) must be inside `unsafe { }`; `*p = 7;`
   dereferences. Both the file flag `//--!$unsafe: true` and an `unsafe` block are
   needed.
-- A pointer can be `none` (null), tested with `p == none`.
+- A pointer can be `none` (null), tested with `p == none`. Two pointers of one
+  pointee type (`*T` and `*fixed T` may be mixed) compare addresses with `==` and
+  `!=`, inside `unsafe`; no freeze or thaw is needed.
 - `unsafe` functions: `unsafe` before the return type; calling one needs an
   `unsafe { }` block.
 - `*T` moves (`copy p` duplicates it).

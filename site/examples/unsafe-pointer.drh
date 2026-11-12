@@ -2,13 +2,15 @@
 in io;
 none main() {
     mut uint32 n = 1;
+    *uint32 p;
     unsafe {
-        *uint32 p = address of n;
+        p = address of n;
         *p = 7;
     }
     io::outln(n::text());
     unsafe {
         *uint32 q = address of n;
         io::outln((q == none)::text());
+        io::outln((p == q)::text());
     }
 }
