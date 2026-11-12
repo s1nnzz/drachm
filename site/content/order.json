@@ -37,7 +37,8 @@
         "guide-enums-optionals",
         "guide-structs",
         "guide-projects",
-        "guide-generics"
+        "guide-generics",
+        "guide-concurrency"
       ]
     },
     {
