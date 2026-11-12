@@ -200,7 +200,7 @@ impl Checker<'_> {
             self.diags.push(
                 Diagnostic::at(&codes::E0901, at, format!("a `&{src}` cannot become a `&{iname}` yet: `{name}` is built in for `{src}`"))
                     .note("the compiler has no function to put in the table")
-                    .help(format!("write the method yourself: `{src} with {iname} {{ ... }}`")),
+                    .help(format!("until then, constrain a generic with it: `<T with {iname}>`")),
             );
             return false;
         }

@@ -724,6 +724,16 @@ impl Parser<'_> {
     /// order. Returns `(mutable, open)`.
     fn binding_words(&mut self) -> (bool, bool) {
         let (mut m, mut o) = (false, false);
+        // `exclusive &Shape s`: a parameter that takes exactly `Shape`, not a
+        // sub-interface (owner, step 6 Q5). Not designed yet.
+        if matches!(self.peek(), Tok::Ident(w) if w == "exclusive") && matches!(self.peek_at(1), Tok::Sym("&" | "&&")) {
+            let span = self.bump().span;
+            self.diags.push(
+                Diagnostic::at(&codes::E0901, span, "`exclusive` is not supported yet")
+                    .note("a parameter that accepts only exactly this interface, not one that extends it")
+                    .help("leave `exclusive` out for now: the parameter then also accepts a sub-interface"),
+            );
+        }
         loop {
             match self.peek() {
                 Tok::Kw("mut") => m = true,
