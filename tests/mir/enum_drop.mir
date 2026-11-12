@@ -1,0 +1,7 @@
+_1 = Variant Msg::Text(const "x")
+_2 = Variant Msg::Quit()
+Drop(_2) if _8
+Drop(_1) if _9
+_6 = move (_2 as v0).0
+_7 = move _2
+_8 = const false

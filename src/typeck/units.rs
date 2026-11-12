@@ -1214,6 +1214,13 @@ fn visit_types(p: &mut hir::Program, f: &mut dyn FnMut(&mut Type)) {
             f(&mut field.ty);
         }
     }
+    for e in &mut p.enums {
+        for v in &mut e.variants {
+            for field in &mut v.fields {
+                f(&mut field.ty);
+            }
+        }
+    }
     for func in &mut p.funcs {
         f(&mut func.ret);
         for local in &mut func.locals {
@@ -1253,7 +1260,7 @@ fn visit_stmt(s: &mut hir::Stmt, f: &mut dyn FnMut(&mut Type)) {
             }
         }
         hir::Stmt::Unsafe(body) => visit_block(body, f),
-        hir::Stmt::Jump(_) | hir::Stmt::Decl(_) | hir::Stmt::Destroy(_) => {}
+        hir::Stmt::Jump(_) | hir::Stmt::Decl(_) | hir::Stmt::Destroy(_) | hir::Stmt::Forget(_) => {}
     }
 }
 
@@ -1281,7 +1288,10 @@ fn children_mut(e: &mut hir::Expr) -> Vec<&mut hir::Expr> {
         | K::DeepCopy(x)
         | K::Deref(x)
         | K::Lend(x)
+        | K::Discriminant(x)
+        | K::Payload { value: x, .. }
         | K::AddressOf(x) => vec![&mut **x],
+        K::Variant { args, .. } => args.iter_mut().collect(),
         K::Radix { value, .. } => vec![&mut **value],
         K::Out { arg, .. } => vec![&mut **arg],
         K::ParseText { text, .. } => vec![&mut **text],

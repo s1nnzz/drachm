@@ -1,0 +1,5 @@
+error[E0520]: `Shape` has two variants named `Circle`
+error[E0210]: `Tree` contains itself
+ help: a variant cannot hold its own enum by value; boxes come with generics
+error[E0901]: a variant holding a borrow or a pointer is not supported yet
+error[E0202]: `Both` is both a struct and an enum

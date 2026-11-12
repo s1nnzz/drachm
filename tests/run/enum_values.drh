@@ -1,0 +1,83 @@
+in io;
+
+enum Shape { Circle(float64 r), Rect(float64 w, float64 h), Empty, }
+enum Msg { Text(string body), Pair(string a, uint32 n), Quit, }
+enum Dir { North, East, South, West }
+enum Wide { Big(uint128 x), Small(uint8 y), Nothing }
+
+struct Holder { public: Msg m; uint32 tag; }
+struct Pick { public: Shape s; }
+
+Shape make(uint32 which) {
+    if (which == 0) { return Circle(1.5); }
+    if (which == 1) { return Shape::Rect(2.0, 3.0); }
+    return Empty;
+}
+
+Msg greet(string who) {
+    Msg m = Pair(who, 7);
+    return m;
+}
+
+none take_msg(Msg m) {
+    io::outln("took a message");
+}
+
+none take_shape(Shape s) {
+    io::outln("took a shape");
+}
+
+Dir turn(Dir d) {
+    if (d == North) { return East; }
+    if (d == East) { return South; }
+    if (d != West) { return West; }
+    return North;
+}
+
+none main() {
+    Shape a = Circle(1.0);
+    Shape b = Shape::Rect(2.0, 3.0);
+    mut Shape c = Empty;
+    Shape d = make(1);
+    take_shape(a);
+    take_shape(a);
+    take_shape(Rect(1.0, 2.0));
+    c = Circle(9.0);
+    Shape e = Shape::Empty;
+
+    Msg m = Text("hello");
+    Msg n = greet("sam");
+    take_msg(m);
+    mut Msg o = Text("assigned over");
+    o = Text("the new one");
+    Msg q = Quit;
+    if (io::ended()) {
+        take_msg(n);
+    }
+
+    Holder h = Text("in a struct"), 3;
+    Holder h2 = m: Quit, tag: 4;
+    Pick p = Rect(4.0, 5.0);
+
+    mut Dir dir = North;
+    mut uint32 steps = 0;
+    while (steps < 5) {
+        dir = turn(dir);
+        steps++;
+    }
+    if (dir == East) {
+        io::outln("east");
+    }
+    io::outln(steps::text());
+
+    Wide w = Big(5);
+    Wide x = Small(3);
+    Wide y = Nothing;
+    mut Msg z = Text("maybe moved");
+    if (steps == 5) {
+        take_msg(z);
+    }
+    z = Quit;
+    Msg copy_of = z;
+    io::outln("done");
+}

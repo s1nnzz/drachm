@@ -53,11 +53,13 @@ pub(super) enum Test<'e> {
     Always,
     /// A `case`'s patterns, already checked; `None` if they had an error.
     Value(Option<hir::Expr>),
+    /// A `case` of an enum `match`: tests, bindings and a guard.
+    Pattern(Box<super::enums::PatCase<'e>>),
 }
 
 /// The constant value of a pattern, in the matched type.
 #[derive(Clone, Copy)]
-enum Lit {
+pub(super) enum Lit {
     Int(u128),
     Float(f64),
     Bool(bool),
@@ -103,7 +105,7 @@ fn mask(ty: Type) -> u128 {
 }
 
 impl Lit {
-    fn expr(self, ty: Type) -> hir::Expr {
+    pub(super) fn expr(self, ty: Type) -> hir::Expr {
         let kind = match self {
             Lit::Int(b) => hir::ExprKind::Int(b),
             Lit::Float(f) => hir::ExprKind::Float(f),
@@ -115,7 +117,7 @@ impl Lit {
     /// The value's place in an unsigned order that agrees with the type's
     /// own order, for working out which values the cases cover. Float zero
     /// and negative zero are equal, so they share a key.
-    fn key(self, ty: Type) -> u128 {
+    pub(super) fn key(self, ty: Type) -> u128 {
         match self {
             Lit::Int(b) => match ty {
                 Type::Int { bits, signed: true } => b ^ (1u128 << (bits - 1)),
@@ -325,17 +327,64 @@ impl Checker<'_> {
         let mut out = Vec::new();
         let mut ok = true;
         for (i, (test, body)) in parts.into_iter().enumerate() {
+            let mut bound = None;
             let (test, always) = match test {
                 Test::Cond(c) => (self.cond(c), false),
                 Test::Always => (None, true),
                 Test::Value(v) => (v, false),
+                Test::Pattern(pc) => {
+                    let pc = *pc;
+                    let always = pc.test.is_none();
+                    bound = Some((pc.binds, pc.pre, pc.post, pc.guard));
+                    (pc.test, always)
+                }
             };
             ok &= always || test.is_some();
             if let Some(Target::Level { branch, .. }) = self.targets.last_mut() {
                 *branch = i;
             }
             let block_end = body.end;
-            let body = self.block(body);
+            let body = match bound {
+                None => self.block(body),
+                Some((binds, pre, post, guard)) => {
+                    self.scopes.push(HashMap::new());
+                    // A guard sees what is copied out, not what is taken out afterwards.
+                    for (name, id, taken) in &binds {
+                        if !*taken || guard.is_none() {
+                            self.scopes.last_mut().unwrap().insert(name.clone(), *id);
+                        }
+                    }
+                    let guard = guard.map(|g| self.cond(g));
+                    for (name, id, taken) in &binds {
+                        if *taken {
+                            self.scopes.last_mut().unwrap().insert(name.clone(), *id);
+                        }
+                    }
+                    let user = self.block(body);
+                    self.scopes.pop();
+                    let mut all = pre;
+                    match guard {
+                        None => {
+                            all.extend(post);
+                            all.extend(user);
+                        }
+                        Some(None) => {
+                            ok = false;
+                            all.extend(user);
+                        }
+                        Some(Some(g)) => {
+                            // The guard decides after the bindings exist; if it fails the next case is tried.
+                            let inner = self.new_label();
+                            let mut taken = post;
+                            taken.extend(user);
+                            taken.push(hir::Stmt::Jump(hir::Jump::Leave(label)));
+                            all.push(hir::Stmt::If { label: inner, branches: vec![hir::Branch { test: Some(g), body: taken, end: block_end }] });
+                            all.push(hir::Stmt::Jump(hir::Jump::Next(label, i + 1)));
+                        }
+                    }
+                    all
+                }
+            };
             out.push(hir::Branch { test, body, end: block_end });
         }
         let Some(Target::Level { next_to_last, .. }) = self.targets.pop() else { unreachable!() };
@@ -638,6 +687,14 @@ impl Checker<'_> {
 
     pub(super) fn match_stmt(&mut self, value: &ast::Expr, cases: &[ast::Case], span: Span, out: &mut hir::Block) {
         let v = self.expr(value).and_then(|v| self.materialise(v, value.span));
+        if matches!(&v, Some(x) if x.ty.enum_id().is_some()) {
+            return self.enum_match(v.unwrap(), value, cases, span, out);
+        }
+        for c in cases {
+            if let Some(g) = &c.guard {
+                self.diags.push(Diagnostic::at(&codes::E0901, g.span, "a guard (`if`) on a case is only supported when matching an enum yet"));
+            }
+        }
         let v = match v {
             Some(v) if v.ty == Type::Str => return self.match_text(v, cases, span, out),
             Some(v) if v.ty.is_numeric() || v.ty == Type::Bool => Some(v),
@@ -693,6 +750,17 @@ impl Checker<'_> {
                                 .note("this is a glob")
                                 .help("write the number as a plain value, such as `case 5`"),
                         );
+                        ok = false;
+                    }
+                    Pattern::Variant { span, .. } => {
+                        self.diags.push(
+                            Diagnostic::at(&codes::E0525, *span, "this pattern is a variant, but the value is not an enum")
+                                .note("only an enum is matched with variants"),
+                        );
+                        ok = false;
+                    }
+                    Pattern::Bind { name_span, .. } => {
+                        self.diags.push(Diagnostic::at(&codes::E0901, *name_span, "this pattern is not supported yet"));
                         ok = false;
                     }
                     Pattern::Expr(e) => match self.pattern(e, ty) {
@@ -813,6 +881,17 @@ impl Checker<'_> {
                         Some(pat) => pats.push(pat),
                         None => ok = false,
                     },
+                    Pattern::Variant { span, .. } => {
+                        self.diags.push(
+                            Diagnostic::at(&codes::E0525, *span, "this pattern is a variant, but the value is not an enum")
+                                .note("only an enum is matched with variants"),
+                        );
+                        ok = false;
+                    }
+                    Pattern::Bind { name_span, .. } => {
+                        self.diags.push(Diagnostic::at(&codes::E0901, *name_span, "this pattern is not supported yet"));
+                        ok = false;
+                    }
                 }
             }
             wildcard |= pats.iter().any(TextPat::matches_all);
@@ -991,7 +1070,7 @@ impl Checker<'_> {
     }
 
     /// One constant in a pattern, converted to the matched type.
-    fn pattern_value(&mut self, e: &ast::Expr, ty: Option<Type>) -> Option<Lit> {
+    pub(super) fn pattern_value(&mut self, e: &ast::Expr, ty: Option<Type>) -> Option<Lit> {
         let v = self.expr(e)?;
         let ty = ty?;
         match v {

@@ -1,0 +1,12 @@
+enum Msg { Text(string body), Quit }
+
+none eat(Msg m) { }
+
+none main() {
+    Msg m = Text("hello");
+    match (m) {
+        case Text(take string body) { }
+        case Quit { }
+    }
+    eat(m);
+}

@@ -113,6 +113,10 @@ impl Checker<'_> {
                 self.struct_not_text(v.ty, e.span);
                 None
             }
+            Type::Enum { .. } => {
+                self.enum_not_text(v.ty, e.span);
+                None
+            }
             _ => Some(text_of(v)),
         }
     }
@@ -561,6 +565,10 @@ impl Checker<'_> {
         }
         if ty.struct_id().is_some() {
             self.struct_not_text(ty, arg.span);
+            return None;
+        }
+        if ty.enum_id().is_some() {
+            self.enum_not_text(ty, arg.span);
             return None;
         }
         let text = if let Some((base, upper)) = hole.base {

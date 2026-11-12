@@ -122,8 +122,14 @@ fn through_ptr(body: &Body, hir: &hir::Program, p: &Place) -> bool {
         Some(d) => d.ty,
         None => return false,
     };
+    let mut variant = None;
     for pr in &p.proj {
         match *pr {
+            Proj::Downcast(v) => variant = Some(v),
+            Proj::Field(f) if variant.is_some() => {
+                let Type::Enum { id, .. } = t else { return false };
+                t = hir.enums[id].variants[variant.take().unwrap()].fields[f].ty;
+            }
             Proj::Deref => {
                 if t.is_ptr() {
                     return true;
@@ -188,8 +194,8 @@ fn rvalue_op(hir: &hir::Program, body: &Body, dst: &Place, rv: &Rvalue) -> Optio
     let ops: Vec<&Operand> = match rv {
         Rvalue::Use(o) | Rvalue::Neg(o) | Rvalue::Not(o) | Rvalue::BitNot(o) | Rvalue::Convert(o, _) => vec![o],
         Rvalue::Binary(_, a, b) | Rvalue::IntPow(a, b) | Rvalue::Shift { value: a, amount: b, .. } => vec![a, b],
-        Rvalue::Aggregate(_, os) => os.iter().collect(),
-        Rvalue::Ref(..) | Rvalue::RawRef(_) | Rvalue::DeepCopy(_) => Vec::new(),
+        Rvalue::Aggregate(_, os) | Rvalue::Variant(_, _, os) => os.iter().collect(),
+        Rvalue::Ref(..) | Rvalue::RawRef(_) | Rvalue::DeepCopy(_) | Rvalue::Discriminant(_) => Vec::new(),
     };
     if let Rvalue::Binary(op, a, _) = rv {
         if matches!(op, hir::BinOp::Eq | hir::BinOp::Ne) && operand_ty(body, hir, a).is_ok_and(Type::is_ptr) {

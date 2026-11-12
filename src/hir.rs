@@ -26,10 +26,12 @@ use crate::types::Type;
 pub type FuncId = usize;
 pub type LocalId = usize;
 pub type StructId = usize;
+pub type EnumId = usize;
 
 pub struct Program {
     pub funcs: Vec<Func>,
     pub structs: Vec<StructDef>,
+    pub enums: Vec<EnumDef>,
     pub main: FuncId,
 }
 
@@ -61,6 +63,67 @@ pub struct FieldDef {
     pub mutable: bool,
 }
 
+/// An enum: a tag, then the fields of the variant the tag names. The tag is
+/// at offset 0; every variant's fields are laid out C-style from the same
+/// payload start (`enum_layout`), and each field's `offset` counts from the
+/// start of the enum.
+pub struct EnumDef {
+    pub name: String,
+    /// In declaration order; a variant's tag is its index.
+    pub variants: Vec<VariantDef>,
+    pub kind: EnumKind,
+    /// Bytes of the tag: 1, 2 or 4, the smallest that holds every variant.
+    pub tag_size: u32,
+    pub size: u32,
+    pub align: u32,
+    /// Some payload owns memory.
+    pub owns: bool,
+    /// Copies automatically: every payload is Copy and it is at most 32 bytes.
+    pub copy: bool,
+    pub name_span: Span,
+}
+
+pub struct VariantDef {
+    pub name: String,
+    pub fields: Vec<FieldDef>,
+    pub name_span: Span,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum EnumKind {
+    /// Declared with `enum`.
+    User,
+    /// `T?`: variants `none` (tag 0, no field) and `Some` (tag 1, one field of type `T`).
+    Optional(Type),
+}
+
+/// Bytes of the tag of an enum with `variants` variants.
+pub fn tag_size_for(variants: usize) -> u32 {
+    match variants {
+        0..=256 => 1,
+        257..=65536 => 2,
+        _ => 4,
+    }
+}
+
+/// The layout of an enum whose variants have fields of the given
+/// (size, alignment): each variant's field offsets from the start of the
+/// enum, then the enum's size and alignment. The tag comes first; the
+/// payload starts at the next multiple of the largest field alignment.
+pub fn enum_layout(tag_size: u32, variants: &[Vec<(u32, u32)>]) -> (Vec<Vec<u32>>, u32, u32) {
+    let payload_align = variants.iter().flatten().map(|&(_, a)| a).max().unwrap_or(1);
+    let start = tag_size.next_multiple_of(payload_align);
+    let mut offsets = Vec::new();
+    let mut payload = 0;
+    for fields in variants {
+        let (offs, size, _) = layout(fields);
+        payload = payload.max(size);
+        offsets.push(offs.into_iter().map(|o| start + o).collect());
+    }
+    let align = tag_size.max(payload_align);
+    (offsets, (start + payload).next_multiple_of(align), align)
+}
+
 impl Program {
     /// Size and alignment of a value of type `t` in memory, in bytes.
     pub fn size_align(&self, t: Type) -> (u32, u32) {
@@ -68,12 +131,24 @@ impl Program {
             return (STR_SIZE, 8);
         }
         scalar_size(t).map_or_else(
-            || {
-                let s = &self.structs[t.struct_id().expect("a value type")];
-                (s.size, s.align)
+            || match t {
+                Type::Enum { id, .. } => (self.enums[id].size, self.enums[id].align),
+                _ => {
+                    let s = &self.structs[t.struct_id().expect("a value type")];
+                    (s.size, s.align)
+                }
             },
             |n| (n, n),
         )
+    }
+
+    pub fn enum_def(&self, t: Type) -> &EnumDef {
+        &self.enums[t.enum_id().expect("an enum type")]
+    }
+
+    /// The type of enum `id`.
+    pub fn enum_type(&self, id: EnumId) -> Type {
+        Type::Enum { id, name: crate::types::intern(&self.enums[id].name) }
     }
 
     /// Is `t` an owning type (see the module comment)?
@@ -81,6 +156,7 @@ impl Program {
         match t {
             Type::Str => true,
             Type::Struct { id, .. } => self.structs[id].owns,
+            Type::Enum { id, .. } => self.enums[id].owns,
             _ => false,
         }
     }
@@ -174,6 +250,8 @@ pub struct Place {
 pub enum HirProj {
     Field(usize),
     Deref,
+    /// The payload of variant `n` of an enum (always followed by a `Field`).
+    Downcast(usize),
 }
 
 impl Place {
@@ -186,7 +264,7 @@ impl Place {
     pub fn fields(&self) -> impl Iterator<Item = usize> + '_ {
         self.proj.iter().map(|p| match p {
             HirProj::Field(i) => *i,
-            HirProj::Deref => unreachable!("dereferences cannot be built yet"),
+            HirProj::Deref | HirProj::Downcast(_) => unreachable!("dereferences cannot be built yet"),
         })
     }
 }
@@ -214,6 +292,10 @@ pub enum Stmt {
     Unsafe(Block),
     /// `destroy x;`: runs `drop()` now and ends the local.
     Destroy(Place),
+    /// Ends the value at the place like a move whose result nobody keeps.
+    /// Made by `match` after `take` patterns have moved the parts of an enum
+    /// out: nothing is dropped for the value any more.
+    Forget(Place),
 }
 
 pub struct Branch {
@@ -235,6 +317,7 @@ pub enum Jump {
     Next(Label, usize),
 }
 
+#[derive(Clone)]
 pub struct Expr {
     pub kind: ExprKind,
     pub ty: Type,
@@ -258,7 +341,7 @@ impl Expr {
     pub fn is_place(&self) -> bool {
         match &self.kind {
             ExprKind::Local(_) | ExprKind::Deref(_) => true,
-            ExprKind::Field(inner, _) => inner.is_place(),
+            ExprKind::Field(inner, _) | ExprKind::Payload { value: inner, .. } => inner.is_place(),
             _ => false,
         }
     }
@@ -290,6 +373,7 @@ impl BinOp {
     }
 }
 
+#[derive(Clone)]
 pub enum ExprKind {
     /// The value's bits, zero-extended; only the low `bits` of the type are set.
     Int(u128),
@@ -362,6 +446,15 @@ pub enum ExprKind {
     AddressOf(Box<Expr>),
     /// `none` as a pointer.
     NullPtr,
+    /// An enum value of the given variant, built from its payload values
+    /// (one for each field, in order).
+    Variant { enum_id: EnumId, variant: usize, args: Vec<Expr> },
+    /// The tag of an enum value (an unsigned integer of the tag's size). The
+    /// operand is read where it is, never moved.
+    Discriminant(Box<Expr>),
+    /// Field `field` of variant `variant` of an enum value that is known to
+    /// be that variant (the test for it came first). A place when `value` is.
+    Payload { value: Box<Expr>, variant: usize, field: usize },
     /// `p::freeze()` / `p::thaw()`: the same pointer bits under the other
     /// pointer kind (`*T` to `*fixed T` or back). Needs `unsafe`.
     PtrConv(Box<Expr>),

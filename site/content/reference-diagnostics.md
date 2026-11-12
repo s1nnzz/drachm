@@ -37,6 +37,7 @@ The first two digits say what kind of problem it is.
 | `01xx` | types, conversions, operators, `match`, `skip` |
 | `02xx` | names, declarations, bindings, structs |
 | `03xx` | ownership: moves, copies and borrows |
+| `05xx` | enums (and, as they arrive, constructors, optionals and failures) |
 | `09xx` | valid Drachm that this compiler cannot do yet |
 
 ## Explain a code

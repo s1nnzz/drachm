@@ -31,7 +31,11 @@ pub fn place_text(hir: &hir::Program, body: &Body, p: &Place) -> String {
     for pr in &p.proj {
         match pr {
             Proj::Deref => t = t.target().unwrap_or(t),
+            Proj::Downcast(_) => {}
             Proj::Field(f) => {
+                if t.enum_id().is_some() {
+                    return text;
+                }
                 let def = hir.struct_def(t);
                 text.push('.');
                 text.push_str(&def.fields[*f].name);
@@ -53,10 +57,18 @@ fn local_name(body: &Body, l: Local) -> Option<&str> {
 fn proj_types(hir: &hir::Program, body: &Body, p: &Place) -> Vec<Type> {
     let mut t = body.locals[p.local].ty;
     let mut types = vec![t];
+    let mut variant = None;
     for pr in &p.proj {
         t = match pr {
             Proj::Deref => t.target().unwrap_or(t),
-            Proj::Field(f) => hir.struct_def(t).fields[*f].ty,
+            Proj::Downcast(v) => {
+                variant = Some(*v);
+                t
+            }
+            Proj::Field(f) => match variant.take() {
+                Some(v) => hir.enum_def(t).variants[v].fields[*f].ty,
+                None => hir.struct_def(t).fields[*f].ty,
+            },
         };
         types.push(t);
     }
@@ -89,6 +101,7 @@ fn changeable(hir: &hir::Program, body: &Body, p: &Place) -> Result<(), Blocked>
                     return Ok(());
                 }
             }
+            Proj::Downcast(_) => {}
             Proj::Deref => {
                 return match types[i] {
                     Type::Ref { mutable: false, .. } => Err(Blocked::Shared(Place { local: p.local, proj: p.proj[..i].to_vec() })),
@@ -160,8 +173,8 @@ fn reads_local(rv: &Rvalue, l: Local) -> bool {
         Rvalue::Use(o) | Rvalue::Neg(o) | Rvalue::Not(o) | Rvalue::BitNot(o) | Rvalue::Convert(o, _) => vec![o],
         Rvalue::Binary(_, a, b) | Rvalue::IntPow(a, b) => vec![a, b],
         Rvalue::Shift { value, amount, .. } => vec![value, amount],
-        Rvalue::Aggregate(_, ops) => ops.iter().collect(),
-        Rvalue::Ref(..) | Rvalue::RawRef(_) | Rvalue::DeepCopy(_) => Vec::new(),
+        Rvalue::Aggregate(_, ops) | Rvalue::Variant(_, _, ops) => ops.iter().collect(),
+        Rvalue::Ref(..) | Rvalue::RawRef(_) | Rvalue::DeepCopy(_) | Rvalue::Discriminant(_) => Vec::new(),
     };
     ops.iter().any(|o| matches!(o, Operand::Copy(p) | Operand::Move(p) if p.local == l))
 }

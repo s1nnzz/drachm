@@ -112,6 +112,7 @@ fn place(pl: &Place) -> String {
     for pr in &pl.proj {
         s = match pr {
             Proj::Field(f) => format!("{s}.{f}"),
+            Proj::Downcast(v) => format!("({s} as v{v})"),
             Proj::Deref => format!("(*{s})"),
         };
     }
@@ -170,6 +171,11 @@ fn rvalue(p: &Program, hir: &hir::Program, rv: &Rvalue) -> String {
             let ops: Vec<String> = ops.iter().map(o).collect();
             format!("Aggregate {}({})", hir.structs[*sid].name, ops.join(", "))
         }
+        Rvalue::Variant(eid, v, ops) => {
+            let ops: Vec<String> = ops.iter().map(o).collect();
+            format!("Variant {}::{}({})", hir.enums[*eid].name, hir.enums[*eid].variants[*v].name, ops.join(", "))
+        }
+        Rvalue::Discriminant(pl) => format!("Discriminant({})", place(pl)),
         Rvalue::DeepCopy(pl) => format!("DeepCopy({})", place(pl)),
     }
 }

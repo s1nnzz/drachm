@@ -12,6 +12,7 @@ pub struct Program {
     pub units: Vec<UnitDecl>,
     pub funcs: Vec<Func>,
     pub structs: Vec<Struct>,
+    pub enums: Vec<Enum>,
     /// The file flag `//--!$unsafe: true` is present (set by `lib::check`).
     pub unsafe_allowed: bool,
 }
@@ -27,6 +28,22 @@ pub struct Struct {
     pub stays: Option<Span>,
     pub fields: Vec<Field>,
     pub methods: Vec<Method>,
+}
+
+/// `enum Name { Variant, Variant(Type name, ...), }`
+#[derive(Debug)]
+pub struct Enum {
+    pub name: String,
+    pub name_span: Span,
+    pub variants: Vec<Variant>,
+}
+
+#[derive(Debug)]
+pub struct Variant {
+    pub name: String,
+    pub name_span: Span,
+    /// The payload fields, in order (`public` and `mutable` are not used).
+    pub fields: Vec<Field>,
 }
 
 /// `Type name;` or `mut Type name;` inside a struct.
@@ -209,6 +226,8 @@ pub enum SkipTarget {
 #[derive(Debug)]
 pub struct Case {
     pub patterns: Vec<Pattern>,
+    /// `case P if cond { }`
+    pub guard: Option<Expr>,
     pub body: Block,
     pub span: Span,
 }
@@ -217,10 +236,40 @@ pub struct Case {
 pub enum Pattern {
     /// `_`
     Any(Span),
-    /// A value or an inclusive range (`ExprKind::Range`).
+    /// A value or an inclusive range (`ExprKind::Range`). On an enum, a bare
+    /// `Variant` or `Enum::Variant` is a pattern of that variant.
     Expr(Expr),
     /// `globbed "..."`: text in which each `*` is a wildcard (a `string` match only).
     Glob(Expr),
+    /// `Variant(Type name, _)` or `Enum::Variant(...)`. `args` is empty
+    /// both for `Variant()` and for a bare `Variant` written with no parentheses.
+    Variant { enum_name: Option<(String, Span)>, name: String, name_span: Span, args: Vec<SubPat>, parens: bool, span: Span },
+    /// `Type name`: the value of an optional, bound to `name`.
+    Bind { mode: BindMode, ty: TypeName, name: String, name_span: Span },
+}
+
+/// What a binding in a pattern does with a payload that owns memory.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BindMode {
+    /// `Type name`
+    Plain,
+    /// `take Type name`: moves the payload out; the matched value is used up.
+    Take,
+    /// `copy Type name`: a copy of the payload.
+    Copy,
+}
+
+/// One payload slot in a variant pattern.
+#[derive(Debug)]
+pub enum SubPat {
+    /// `_`
+    Any(Span),
+    /// `[take | copy] Type name`
+    Bind { mode: BindMode, ty: TypeName, name: String, name_span: Span },
+    /// A constant the payload must equal: `2.0`, `true`.
+    Value(Expr),
+    /// A pattern for a payload that is itself an enum: `Circle(float64 r)`.
+    Variant(Box<Pattern>),
 }
 
 /// What follows `=` in a declaration.
@@ -353,6 +402,8 @@ pub enum ExprKind {
     /// A string literal of any form; only `f` and backtick strings have `Interp` parts.
     Str(Vec<StrPart>),
     Var(String),
+    /// `Name::Variant` with no parentheses: a variant of an enum with no payload.
+    Path { owner: String, owner_span: Span, name: String, name_span: Span },
     /// The keyword `self`.
     SelfValue,
     /// `recv.name`

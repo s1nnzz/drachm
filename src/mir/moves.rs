@@ -108,7 +108,10 @@ fn operand_events(op: &Operand, span: Span, cause: MoveCause, out: &mut Vec<Even
         Operand::Copy(p) => out.push(Event::Use(Use { place: p.clone(), span, kind: UseKind::Read })),
         Operand::Move(p) => {
             out.push(Event::Use(Use { place: p.clone(), span, kind: UseKind::Read }));
-            if !has_deref(p) {
+            // A payload taken out by a `match` is not a move of the enum yet:
+            // the builder moves (forgets) the whole enum once, after every
+            // payload it wants is out.
+            if !has_deref(p) && !p.proj.iter().any(|x| matches!(x, Proj::Downcast(_))) {
                 out.push(Event::Move { place: p.clone(), span, cause });
             }
         }
@@ -168,8 +171,8 @@ pub fn events(body: &Body, loc: Location) -> Vec<Event> {
                         operand_events(value, s.span, cause, &mut out);
                         operand_events(amount, s.span, cause, &mut out);
                     }
-                    Rvalue::Ref(_, p) | Rvalue::RawRef(p) | Rvalue::DeepCopy(p) => read(p, s.span, &mut out),
-                    Rvalue::Aggregate(_, ops) => ops.iter().for_each(|o| operand_events(o, s.span, cause, &mut out)),
+                    Rvalue::Ref(_, p) | Rvalue::RawRef(p) | Rvalue::DeepCopy(p) | Rvalue::Discriminant(p) => read(p, s.span, &mut out),
+                    Rvalue::Aggregate(_, ops) | Rvalue::Variant(_, _, ops) => ops.iter().for_each(|o| operand_events(o, s.span, cause, &mut out)),
                 }
                 dest_events(dest, s.span, &mut out);
                 if !has_deref(dest) {
@@ -295,10 +298,10 @@ impl MoveData {
         let fields: Vec<usize> = place
             .proj
             .iter()
-            .take_while(|x| **x != Proj::Deref)
+            .take_while(|x| !matches!(x, Proj::Deref | Proj::Downcast(_)))
             .map(|x| match x {
                 Proj::Field(f) => *f,
-                Proj::Deref => unreachable!(),
+                Proj::Deref | Proj::Downcast(_) => unreachable!(),
             })
             .collect();
         self.ensure_fields(place.local, &fields)
@@ -333,9 +336,11 @@ impl MoveData {
         let fields: Vec<usize> = place
             .proj
             .iter()
+            // An enum is one path: a payload place is in the state of the whole enum.
+            .take_while(|x| !matches!(x, Proj::Downcast(_)))
             .map(|x| match x {
                 Proj::Field(f) => *f,
-                Proj::Deref => unreachable!(),
+                Proj::Deref | Proj::Downcast(_) => unreachable!(),
             })
             .collect();
         self.by_place.get(&(place.local, fields)).copied()

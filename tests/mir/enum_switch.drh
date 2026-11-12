@@ -1,0 +1,19 @@
+enum Shape { Circle(float64 r), Rect(float64 w, float64 h), Empty }
+enum Pair { A(uint32 n), B }
+
+float64 area(Shape s) {
+    match (s) {
+        case Circle(float64 r) { return r * r; }
+        case Rect(float64 w, float64 h) { return w * h; }
+        case Empty { return 0.0; }
+    }
+}
+
+uint32 two(Pair p) {
+    match (p) {
+        case A(uint32 n) { return n; }
+        case B { return 0; }
+    }
+}
+
+none main() { }

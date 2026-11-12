@@ -1,0 +1,7 @@
+error[E0521]: `Shape` has no variant `Triangle`
+ help: its variants are `Circle`, `Rect` and `Empty`
+error[E0522]: `Rect` takes 2 values, but 1 is given
+error[E0522]: `Empty` takes no values, but 1 is given
+error[E0522]: `Circle` takes 1 value, but none is given
+error[E0523]: cannot tell which enum `North` belongs to
+error[E0527]: `Shape` has variants with values, so it cannot be compared with `==`

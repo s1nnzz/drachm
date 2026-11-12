@@ -1,0 +1,7 @@
+enum Shape { Circle(float64 r), Circle, Empty }
+enum Tree { Leaf, Node(Tree left, Tree right) }
+enum Held { Ref(&uint32 r) }
+struct Both { uint32 a; }
+enum Both { A }
+
+none main() { }

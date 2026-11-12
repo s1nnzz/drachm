@@ -1,0 +1,127 @@
+in io;
+
+enum Shape { Circle(float64 r), Rect(float64 w, float64 h), Empty, }
+enum Msg { Text(string body), Pair(string a, uint32 n), Quit, }
+enum Dir { North, East, South, West }
+
+struct Person { public: string name; uint32 age; }
+enum Held { Named(Person p), Nobody }
+
+enum Wrap { Some(Shape s), Gap }
+
+float64 area(Shape s) {
+    match (s) {
+        case Circle(float64 r) { return 3.0 * r * r; }
+        case Rect(float64 w, float64 h) { return w * h; }
+        case Empty { return 0.0; }
+    }
+}
+
+Shape make(uint32 which) {
+    if (which == 0) { return Circle(2.0); }
+    if (which == 1) { return Rect(2.0, 3.5); }
+    return Empty;
+}
+
+none describe(Msg m) {
+    match (m) {
+        case Text(take string body) { io::outln(f"text: ${body}"); }
+        case Pair(take string a, uint32 n) { io::outln(f"pair: ${a} ${n}"); }
+        case Quit { io::outln("quit"); }
+    }
+}
+
+none peek(Msg m) {
+    match (m) {
+        case Text(copy string body) { io::outln(f"peek: ${body}"); }
+        case Pair(_, uint32 n) { io::outln(f"peek n=${n}"); }
+        case _ { io::outln("peek other"); }
+    }
+}
+
+none classify(Shape s) {
+    match (s) {
+        case Circle(float64 r) if r > 10.0 { io::outln("big circle"); }
+        case Circle(float64 r) { io::outln("circle"); }
+        case Rect(2.0, float64 h) { io::outln(f"rect with width 2 and height ${h}"); }
+        case Rect(float64 w, float64 h) if w == h { io::outln("square"); }
+        case Rect(_, _) { io::outln("rect"); }
+        case Empty { io::outln("empty"); }
+    }
+}
+
+none wrapped(Wrap w) {
+    match (w) {
+        case Some(Circle(float64 r)) { io::outln(f"wrapped circle ${r}"); }
+        case Some(Rect(_, _)), Some(Empty) { io::outln("wrapped other"); }
+        case Gap { io::outln("gap"); }
+    }
+}
+
+none either(Shape s) {
+    match (s) {
+        case Circle(float64 x), Rect(float64 x, _) { io::outln(f"first value ${x}"); }
+        case _ { io::outln("none"); }
+    }
+}
+
+none arrows(Dir d) {
+    match (d) {
+        case North, South { io::outln("vertical"); }
+        case East { io::outln("east"); }
+        case West { io::outln("west"); }
+    }
+}
+
+none main() {
+    Shape a = Circle(1.0);
+    io::outln(area(a)::text());
+    io::outln(area(Rect(2.0, 4.0))::text());
+    io::outln(area(a)::text());
+    for (uint32 i of 0..2) {
+        io::outln(area(make(i))::text());
+    }
+    classify(Circle(20.0));
+    classify(Circle(1.0));
+    classify(Rect(2.0, 9.0));
+    classify(Rect(3.0, 3.0));
+    classify(Rect(3.0, 4.0));
+    classify(Empty);
+    wrapped(Some(Circle(1.5)));
+    wrapped(Some(Empty));
+    wrapped(Gap);
+    either(Rect(7.0, 8.0));
+    either(Empty);
+    arrows(North);
+    arrows(East);
+    arrows(South);
+    arrows(West);
+    describe(Text("hi"));
+    describe(Pair("two", 2));
+    describe(Quit);
+    Msg m = Text("kept");
+    peek(Text("a"));
+    match (m) {
+        case Text(copy string body) { io::outln(body); }
+        case _ { }
+    }
+    io::outln("m is still usable");
+    describe(m);
+    Person ann = "Ann", 33;
+    Held h = Named(ann);
+    match (h) {
+        case Named(_) { io::outln("named"); }
+        case Nobody { io::outln("nobody"); }
+    }
+    mut uint32 count = 0;
+    for (uint32 i of 0..4) {
+        Shape s = make(i % 3);
+        match (s) {
+            case Circle(_) { continue; }
+            case Rect(_, _) { count += 10; skip; }
+            case _ { count += 1; }
+        }
+        count += 100;
+    }
+    io::outln(count::text());
+}

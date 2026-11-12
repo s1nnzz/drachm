@@ -354,8 +354,8 @@ fn operands_at(body: &Body, loc: Location) -> Vec<(&Operand, Span)> {
                     Rvalue::Use(o) | Rvalue::Neg(o) | Rvalue::Not(o) | Rvalue::BitNot(o) | Rvalue::Convert(o, _) => v.push((o, s.span)),
                     Rvalue::Binary(_, a, b) | Rvalue::IntPow(a, b) => v.extend([(a, s.span), (b, s.span)]),
                     Rvalue::Shift { value, amount, .. } => v.extend([(value, s.span), (amount, s.span)]),
-                    Rvalue::Aggregate(_, ops) => v.extend(ops.iter().map(|o| (o, s.span))),
-                    Rvalue::Ref(..) | Rvalue::RawRef(_) | Rvalue::DeepCopy(_) => {}
+                    Rvalue::Aggregate(_, ops) | Rvalue::Variant(_, _, ops) => v.extend(ops.iter().map(|o| (o, s.span))),
+                    Rvalue::Ref(..) | Rvalue::RawRef(_) | Rvalue::DeepCopy(_) | Rvalue::Discriminant(_) => {}
                 }
             }
         }

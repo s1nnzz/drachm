@@ -1,0 +1,32 @@
+enum Shape { Circle(float64 r), Rect(float64 w, float64 h), Empty }
+enum Msg { Text(string body), Quit }
+enum Other { Wall }
+
+none main() {
+    Shape s = Empty;
+    match (s) {
+        case Wall { }
+        case Other::Wall { }
+        case Rect(string w, float64 h) { }
+        case Rect(float64 w) { }
+        case Circle(float64 r), Rect(float64 a, float64 b) { }
+        case 5 { }
+        case _ { }
+    }
+    Msg m = Quit;
+    match (m) {
+        case Text(string body) { }
+        case Quit { }
+    }
+    match (m) {
+        case Text(take string body) if 1 == 2 { }
+        case _ { }
+    }
+    match (m) {
+        case Text(take string body) { }
+        case Quit { }
+    }
+    match (m) {
+        case _ { }
+    }
+}

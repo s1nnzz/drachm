@@ -28,6 +28,7 @@ fn place(p: &hir::Place) -> Place {
         .map(|pr| match pr {
             hir::HirProj::Field(f) => Proj::Field(*f),
             hir::HirProj::Deref => Proj::Deref,
+            hir::HirProj::Downcast(v) => Proj::Downcast(*v),
         })
         .collect();
     Place { local: Local::new(p.local + 1), proj }
@@ -522,6 +523,13 @@ impl<'a> Builder<'a> {
                 self.pop_frame(self.span);
                 self.unsafe_depth -= 1;
             }
+            Stmt::Forget(p) => {
+                let pl = self.hir_place(p);
+                self.at(p.span);
+                let ty = crate::mir::ty::place_ty_in(&self.locals, self.hir, &pl);
+                let gone = self.decl(ty, LocalKind::Temp);
+                self.assign_stmt(Place::local(gone), Rvalue::Use(Operand::Move(pl)));
+            }
             Stmt::Destroy(p) => {
                 let pl = self.hir_place(p);
                 self.at(p.span);
@@ -546,7 +554,116 @@ impl<'a> Builder<'a> {
         c
     }
 
+    /// A `match` on an enum with three or more variants whose cases are all
+    /// tag tests of one place becomes a single `Switch`. Returns false (and
+    /// emits nothing) when the branches are not of that shape.
+    fn switch_stmt(&mut self, label: Label, branches: &[hir::Branch]) -> bool {
+        fn tag_tests<'e>(e: &'e Expr, out: &mut Vec<(&'e Expr, u128)>) -> bool {
+            match &e.kind {
+                ExprKind::Binary(hir::BinOp::Eq, a, b) => match (&a.kind, &b.kind) {
+                    (ExprKind::Discriminant(p), ExprKind::Int(v)) => {
+                        out.push((p, *v));
+                        true
+                    }
+                    _ => false,
+                },
+                ExprKind::Logic { and: false, lhs, rhs } => tag_tests(lhs, out) && tag_tests(rhs, out),
+                _ => false,
+            }
+        }
+        fn place_key(e: &Expr) -> Option<Vec<(u8, usize)>> {
+            match &e.kind {
+                ExprKind::Local(l) => Some(vec![(0, *l)]),
+                ExprKind::Field(i, f) => place_key(i).map(|mut k| {
+                    k.push((1, *f));
+                    k
+                }),
+                ExprKind::Deref(i) => place_key(i).map(|mut k| {
+                    k.push((2, 0));
+                    k
+                }),
+                ExprKind::Payload { value, variant, field } => place_key(value).map(|mut k| {
+                    k.push((3, *variant));
+                    k.push((4, *field));
+                    k
+                }),
+                _ => None,
+            }
+        }
+        fn has_next(b: &[Stmt], label: Label) -> bool {
+            b.iter().any(|s| match s {
+                Stmt::Jump(Jump::Next(l, _)) => *l == label,
+                Stmt::If { branches, .. } => branches.iter().any(|br| has_next(&br.body, label)),
+                Stmt::Loop { body, step, .. } => has_next(body, label) || has_next(step, label),
+                Stmt::Unsafe(b) => has_next(b, label),
+                _ => false,
+            })
+        }
+        let mut place: Option<&Expr> = None;
+        let mut key = None;
+        let mut cases: Vec<(u128, usize)> = Vec::new();
+        let mut otherwise = None;
+        for (k, br) in branches.iter().enumerate() {
+            if has_next(&br.body, label) {
+                return false;
+            }
+            if otherwise.is_some() {
+                continue;
+            }
+            match &br.test {
+                None => otherwise = Some(k),
+                Some(t) => {
+                    let mut found = Vec::new();
+                    if !tag_tests(t, &mut found) {
+                        return false;
+                    }
+                    for (p, v) in found {
+                        let Some(pk) = place_key(p) else { return false };
+                        if key.get_or_insert_with(|| pk.clone()) != &pk {
+                            return false;
+                        }
+                        place.get_or_insert(p);
+                        if !cases.iter().any(|(c, _)| *c == v) {
+                            cases.push((v, k));
+                        }
+                    }
+                }
+            }
+        }
+        let Some(place) = place else { return false };
+        if cases.len() + (otherwise.is_some() as usize) < 3 {
+            return false;
+        }
+        let exit = self.new_block();
+        let bodies: Vec<BlockId> = branches.iter().map(|_| self.new_block()).collect();
+        let mut tests = bodies.clone();
+        tests.push(exit);
+        let depth = self.frames.len();
+        self.targets.insert(label, Target::If { exit, tests, depth });
+        let disc = Expr::new(ExprKind::Discriminant(Box::new(place.clone())), crate::mir::ty::tag_type(self.hir.enum_def(place.ty).tag_size)).at(place.span);
+        self.at(expr_span(&disc));
+        let d = self.operand(&disc);
+        let kind = TerminatorKind::Switch {
+            discr: d,
+            cases: cases.iter().map(|&(v, k)| (v, bodies[k])).collect(),
+            otherwise: otherwise.map_or(exit, |k| bodies[k]),
+        };
+        self.end(kind);
+        for (k, br) in branches.iter().enumerate() {
+            self.cur = bodies[k];
+            self.push_frame(ScopeKind::IfBranch, br.end);
+            self.block(&br.body);
+            self.pop_frame(br.end);
+            self.goto(exit);
+        }
+        self.cur = exit;
+        true
+    }
+
     fn if_stmt(&mut self, label: Label, branches: &[hir::Branch]) {
+        if self.switch_stmt(label, branches) {
+            return;
+        }
         let exit = self.new_block();
         let bodies: Vec<BlockId> = branches.iter().map(|_| self.new_block()).collect();
         // A branch with no test goes straight to its body.
@@ -622,6 +739,7 @@ impl<'a> Builder<'a> {
             | ExprKind::Convert(_)
             | ExprKind::PtrConv(_)
             | ExprKind::Struct(_)
+            | ExprKind::Variant { .. }
             | ExprKind::Borrow { .. }
             | ExprKind::AddressOf(_) => true,
             ExprKind::DeepCopy(_) => !is_copy(self.hir, e.ty),
@@ -677,6 +795,15 @@ impl<'a> Builder<'a> {
                 p.proj.push(Proj::Deref);
                 p
             }
+            ExprKind::Payload { value, variant, field } => {
+                let mut p = self.as_place(value);
+                if value.ty.is_borrow() {
+                    p.proj.push(Proj::Deref);
+                }
+                p.proj.push(Proj::Downcast(*variant));
+                p.proj.push(Proj::Field(*field));
+                p
+            }
             _ => match self.operand(e) {
                 Operand::Copy(p) | Operand::Move(p) => p,
                 Operand::Const(c) => {
@@ -695,6 +822,8 @@ impl<'a> Builder<'a> {
         let mut t = l.ty;
         for pr in &hp.proj {
             match pr {
+                hir::HirProj::Downcast(_) => {}
+                hir::HirProj::Field(_) if t.enum_id().is_some() => return text,
                 hir::HirProj::Field(f) => {
                     let def = self.hir.struct_def(t);
                     text.push('.');
@@ -732,6 +861,7 @@ impl<'a> Builder<'a> {
                 .map(|x| match x {
                     Proj::Field(f) => hir::HirProj::Field(*f),
                     Proj::Deref => hir::HirProj::Deref,
+                    Proj::Downcast(v) => hir::HirProj::Downcast(*v),
                 })
                 .collect(),
             span,
@@ -749,6 +879,7 @@ impl<'a> Builder<'a> {
         let mut t = self.func.locals[hp.local].ty;
         for pr in &hp.proj {
             match pr {
+                hir::HirProj::Downcast(_) => {}
                 hir::HirProj::Field(f) => {
                     let Some(id) = t.struct_id() else { return };
                     let def = &self.hir.structs[id];
@@ -791,10 +922,17 @@ impl<'a> Builder<'a> {
             ExprKind::Bool(b) => Operand::Const(Constant::Bool(*b)),
             ExprKind::Str(s) => Operand::Const(Constant::Str(self.intern(s))),
             ExprKind::NullPtr => Operand::Const(Constant::Int(0, e.ty)),
-            ExprKind::Local(_) | ExprKind::Field(..) | ExprKind::Deref(_) => {
+            ExprKind::Local(_) | ExprKind::Field(..) | ExprKind::Deref(_) | ExprKind::Payload { .. } => {
                 let p = self.as_place(e);
                 self.at(expr_span(e));
                 self.read_place(p, e)
+            }
+            ExprKind::Discriminant(inner) => {
+                let p = self.as_place(inner);
+                self.at(expr_span(e));
+                let t = self.decl(e.ty, LocalKind::Temp);
+                self.assign_stmt(Place::local(t), Rvalue::Discriminant(p));
+                Operand::Copy(Place::local(t))
             }
             ExprKind::Neg(_)
             | ExprKind::Not(_)
@@ -805,6 +943,7 @@ impl<'a> Builder<'a> {
             | ExprKind::Convert(_)
             | ExprKind::PtrConv(_)
             | ExprKind::Struct(_)
+            | ExprKind::Variant { .. }
             | ExprKind::Borrow { .. }
             | ExprKind::AddressOf(_) => {
                 let rv = self.rvalue(e);
@@ -965,6 +1104,11 @@ impl<'a> Builder<'a> {
                 }
                 Rvalue::Aggregate(sid, by_field.into_iter().map(|o| o.expect("every field is given")).collect())
             }
+            ExprKind::Variant { enum_id, variant, args } => {
+                let es: Vec<&Expr> = args.iter().collect();
+                let ops = self.operands(&es, &none);
+                Rvalue::Variant(*enum_id, *variant, ops.into_iter().map(|a| a.op).collect())
+            }
             ExprKind::Borrow { mutable, place: inner } => {
                 let is_place = inner.is_place();
                 let hoist = std::mem::take(&mut self.decl_init);
@@ -1040,8 +1184,11 @@ fn pure(e: &Expr) -> bool {
         | ExprKind::Convert(a)
         | ExprKind::PtrConv(a)
         | ExprKind::Deref(a)
+        | ExprKind::Discriminant(a)
+        | ExprKind::Payload { value: a, .. }
         | ExprKind::DeepCopy(a)
         | ExprKind::AddressOf(a) => pure(a),
+        ExprKind::Variant { args, .. } => args.iter().all(pure),
         ExprKind::Borrow { place, .. } => pure(place),
         ExprKind::Binary(_, a, b) | ExprKind::IntPow(a, b) => pure(a) && pure(b),
         ExprKind::Shift { value, amount, .. } => pure(value) && pure(amount),
@@ -1086,6 +1233,9 @@ fn kind_name(k: &ExprKind) -> &'static str {
         ExprKind::Lend(_) => "Lend",
         ExprKind::AddressOf(_) => "AddressOf",
         ExprKind::NullPtr => "NullPtr",
+        ExprKind::Variant { .. } => "Variant",
+        ExprKind::Discriminant(_) => "Discriminant",
+        ExprKind::Payload { .. } => "Payload",
     }
 }
 

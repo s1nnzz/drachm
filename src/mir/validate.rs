@@ -127,8 +127,8 @@ impl Validator<'_> {
                     Rvalue::Use(o) | Rvalue::Neg(o) | Rvalue::Not(o) | Rvalue::BitNot(o) | Rvalue::Convert(o, _) => operands.push(o),
                     Rvalue::Binary(_, a, b) | Rvalue::IntPow(a, b) => operands.extend([a, b]),
                     Rvalue::Shift { value, amount, .. } => operands.extend([value, amount]),
-                    Rvalue::Aggregate(_, ops) => operands.extend(ops),
-                    Rvalue::Ref(_, pl) | Rvalue::RawRef(pl) | Rvalue::DeepCopy(pl) => {
+                    Rvalue::Aggregate(_, ops) | Rvalue::Variant(_, _, ops) => operands.extend(ops),
+                    Rvalue::Ref(_, pl) | Rvalue::RawRef(pl) | Rvalue::DeepCopy(pl) | Rvalue::Discriminant(pl) => {
                         self.place(&at, pl);
                     }
                 }
@@ -153,8 +153,20 @@ impl Validator<'_> {
                             }
                         }
                     }
+                    Rvalue::Variant(eid, v, ops) => {
+                        let fields = &self.hir.enums[*eid].variants[*v].fields;
+                        if fields.len() != ops.len() {
+                            self.err(&at, format!("Variant {} gives {} values, expected {}", self.hir.enums[*eid].variants[*v].name, ops.len(), fields.len()));
+                        } else {
+                            for (i, (f, t)) in fields.iter().zip(&tys).enumerate() {
+                                if t.is_some() && *t != Some(f.ty) {
+                                    self.err(&at, format!("value {i} of Variant has the wrong type"));
+                                }
+                            }
+                        }
+                    }
                     Rvalue::Neg(_) | Rvalue::Not(_) | Rvalue::BitNot(_) | Rvalue::Convert(..) | Rvalue::Use(_) | Rvalue::Shift { .. } | Rvalue::IntPow(..) => {}
-                    Rvalue::Ref(..) | Rvalue::RawRef(_) | Rvalue::DeepCopy(_) => {}
+                    Rvalue::Ref(..) | Rvalue::RawRef(_) | Rvalue::DeepCopy(_) | Rvalue::Discriminant(_) => {}
                 }
                 match (dt, rvalue_ty(self.body, self.hir, rv)) {
                     // `p::freeze()` and `p::thaw()` move the same bits under the other pointer kind.
@@ -196,8 +208,19 @@ impl Validator<'_> {
                     }
                 }
             }
-            TerminatorKind::Switch { discr, .. } => {
-                self.operand(&at, discr);
+            TerminatorKind::Switch { discr, cases, .. } => {
+                if let Some(t) = self.operand(&at, discr) {
+                    match t {
+                        Type::Int { signed: false, bits } if bits <= 32 => {
+                            for (v, _) in cases {
+                                if *v >> bits != 0 {
+                                    self.err(&at, format!("Switch case {v} does not fit a `{t}`"));
+                                }
+                            }
+                        }
+                        _ => self.err(&at, format!("Switch on a `{t}`, not an enum tag")),
+                    }
+                }
             }
             TerminatorKind::Call { callee, args, dest, .. } => {
                 let tys: Vec<Option<Type>> = args.iter().map(|a| self.operand(&at, &a.op)).collect();
@@ -405,8 +428,8 @@ fn flow_statement(assigned: &mut [bool], k: &StatementKind, used: &mut dyn FnMut
                     operand_use(value, used);
                     operand_use(amount, used);
                 }
-                Rvalue::Aggregate(_, ops) => ops.iter().for_each(|o| operand_use(o, used)),
-                Rvalue::Ref(_, pl) | Rvalue::RawRef(pl) | Rvalue::DeepCopy(pl) => place_use(pl, used),
+                Rvalue::Aggregate(_, ops) | Rvalue::Variant(_, _, ops) => ops.iter().for_each(|o| operand_use(o, used)),
+                Rvalue::Ref(_, pl) | Rvalue::RawRef(pl) | Rvalue::DeepCopy(pl) | Rvalue::Discriminant(pl) => place_use(pl, used),
             }
             if dest.proj.is_empty() {
                 assigned[dest.local.index()] = true;

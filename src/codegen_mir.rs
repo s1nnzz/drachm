@@ -19,13 +19,13 @@ use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
 use cranelift_codegen::ir::{types, AbiParam, InstBuilder, StackSlotData, StackSlotKind, TrapCode, UserFuncName, Value};
 use cranelift_codegen::isa::CallConv;
 use cranelift_codegen::settings::{self, Configurable};
-use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
+use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Switch, Variable};
 use cranelift_module::{DataDescription, DataId, FuncId, Linkage, Module};
 use cranelift_object::{ObjectBuilder, ObjectModule};
 
 use crate::codegen_common::{cl_type, emit_c_main, err, in_memory, is_signed, signature, MEM, STR_CAP, STR_LEN};
 use crate::hir::{self, BinOp, STR_SIZE};
-use crate::mir::drops::{copy_glue_structs, drop_glue_structs, holds_string};
+use crate::mir::drops::{copy_glue_types, drop_glue_types, glue_name, holds_string};
 use crate::mir::traversal::reverse_postorder;
 use crate::mir::ty::operand_ty;
 use crate::mir::*;
@@ -52,17 +52,17 @@ pub fn compile(hir: &hir::Program, mir: &Program) -> Result<Vec<u8>, String> {
     }
 
     // Glue functions: declared up front so any function can call them.
-    let mut drop_ids: Vec<Option<FuncId>> = vec![None; hir.structs.len()];
-    let mut copy_ids: Vec<Option<FuncId>> = vec![None; hir.structs.len()];
-    for s in drop_glue_structs(hir) {
+    let mut drop_ids: HashMap<Type, FuncId> = HashMap::new();
+    let mut copy_ids: HashMap<Type, FuncId> = HashMap::new();
+    for t in drop_glue_types(hir) {
         let mut sig = module.make_signature();
         sig.params.push(AbiParam::new(ptr));
-        drop_ids[s] = Some(module.declare_function(&format!("drachm_drop_{}", hir.structs[s].name), Linkage::Local, &sig).map_err(err)?);
+        drop_ids.insert(t, module.declare_function(&format!("drachm_drop_{}", glue_name(t)), Linkage::Local, &sig).map_err(err)?);
     }
-    for s in copy_glue_structs(hir) {
+    for t in copy_glue_types(hir) {
         let mut sig = module.make_signature();
         sig.params.extend([AbiParam::new(ptr), AbiParam::new(ptr)]);
-        copy_ids[s] = Some(module.declare_function(&format!("drachm_copy_{}", hir.structs[s].name), Linkage::Local, &sig).map_err(err)?);
+        copy_ids.insert(t, module.declare_function(&format!("drachm_copy_{}", glue_name(t)), Linkage::Local, &sig).map_err(err)?);
     }
 
     let mut ctx = module.make_context();
@@ -117,11 +117,11 @@ pub fn compile(hir: &hir::Program, mir: &Program) -> Result<Vec<u8>, String> {
         module.clear_context(&mut ctx);
     }
 
-    for s in drop_glue_structs(hir) {
-        define_glue(&mut module, &mut ctx, &mut fctx, &mut runtime, hir, &ids, &drop_ids, &copy_ids, s, true)?;
+    for t in drop_glue_types(hir) {
+        define_glue(&mut module, &mut ctx, &mut fctx, &mut runtime, hir, &ids, &drop_ids, &copy_ids, t, true)?;
     }
-    for s in copy_glue_structs(hir) {
-        define_glue(&mut module, &mut ctx, &mut fctx, &mut runtime, hir, &ids, &drop_ids, &copy_ids, s, false)?;
+    for t in copy_glue_types(hir) {
+        define_glue(&mut module, &mut ctx, &mut fctx, &mut runtime, hir, &ids, &drop_ids, &copy_ids, t, false)?;
     }
 
     emit_c_main(&mut module, &mut ctx, &mut fctx, ids[hir.main], hir.funcs[hir.main].ret)?;
@@ -148,10 +148,31 @@ fn import_rt(
     id
 }
 
+/// The integer pieces an enum is copied in: as wide as its alignment allows.
+fn enum_chunks(hir: &hir::Program, ty: Type, at: u32, out: &mut Vec<(u32, ClType)>) {
+    let (size, align) = hir.size_align(ty);
+    let cl = match align {
+        1 => types::I8,
+        2 => types::I16,
+        4 => types::I32,
+        _ => types::I64,
+    };
+    let step = cl.bytes();
+    let mut off = 0;
+    while off < size {
+        out.push((at + off, cl));
+        off += step;
+    }
+}
+
 /// Scalar leaves of a value of type `ty` that holds no strings, relative to `at`.
 fn plain_leaves(hir: &hir::Program, ty: Type, at: u32, out: &mut Vec<(u32, ClType)>) {
     if let Some(cl) = cl_type(ty) {
         out.push((at, cl));
+        return;
+    }
+    if ty.enum_id().is_some() {
+        enum_chunks(hir, ty, at, out);
         return;
     }
     for f in &hir.struct_def(ty).fields {
@@ -159,7 +180,112 @@ fn plain_leaves(hir: &hir::Program, ty: Type, at: u32, out: &mut Vec<(u32, ClTyp
     }
 }
 
-/// Define the drop (`drop == true`) or copy glue function of struct `s`.
+/// Everything a glue function needs to call others.
+struct GlueEnv<'a> {
+    hir: &'a hir::Program,
+    ids: &'a [FuncId],
+    drop_ids: &'a HashMap<Type, FuncId>,
+    copy_ids: &'a HashMap<Type, FuncId>,
+}
+
+/// Drop the field of type `ty` at `base + off`.
+fn glue_drop_field(
+    module: &mut ObjectModule,
+    runtime: &mut HashMap<&'static str, FuncId>,
+    env: &GlueEnv,
+    b: &mut FunctionBuilder,
+    base: Value,
+    off: u32,
+    ty: Type,
+) {
+    let ptr = module.target_config().pointer_type();
+    let a = if off == 0 { base } else { b.ins().iadd_imm_u(base, off as i64) };
+    match ty {
+        Type::Str => {
+            let cap = b.ins().load(types::I64, MEM, a, STR_CAP);
+            let drop_b = b.create_block();
+            let after = b.create_block();
+            b.ins().brif(cap, drop_b, &[], after, &[]);
+            b.switch_to_block(drop_b);
+            let rt = import_rt(module, runtime, "drachm_str_drop", &[ptr], &[]);
+            let callee = module.declare_func_in_func(rt, b.func);
+            b.ins().call(callee, &[a]);
+            b.ins().jump(after, &[]);
+            b.switch_to_block(after);
+        }
+        Type::Struct { .. } | Type::Enum { .. } if crate::mir::needs_drop(env.hir, ty) => {
+            let callee = module.declare_func_in_func(env.drop_ids[&ty], b.func);
+            b.ins().call(callee, &[a]);
+        }
+        _ => {}
+    }
+}
+
+/// Deep-copy (or bit-copy) the field of type `ty` at `off` from `src` to `dst`.
+fn glue_copy_field(
+    module: &mut ObjectModule,
+    runtime: &mut HashMap<&'static str, FuncId>,
+    env: &GlueEnv,
+    b: &mut FunctionBuilder,
+    dst: Value,
+    src: Value,
+    off: u32,
+    ty: Type,
+) {
+    let ptr = module.target_config().pointer_type();
+    let at = |b: &mut FunctionBuilder, base: Value| if off == 0 { base } else { b.ins().iadd_imm_u(base, off as i64) };
+    match ty {
+        Type::Str => {
+            let (d, s) = (at(b, dst), at(b, src));
+            let rt = import_rt(module, runtime, "drachm_str_copy", &[ptr, ptr], &[]);
+            let callee = module.declare_func_in_func(rt, b.func);
+            b.ins().call(callee, &[d, s]);
+        }
+        Type::Struct { .. } | Type::Enum { .. } if holds_string(env.hir, ty) => {
+            let (d, s) = (at(b, dst), at(b, src));
+            let callee = module.declare_func_in_func(env.copy_ids[&ty], b.func);
+            b.ins().call(callee, &[d, s]);
+        }
+        t => {
+            let mut leaves = Vec::new();
+            plain_leaves(env.hir, t, off, &mut leaves);
+            for (o, cl) in leaves {
+                let v = b.ins().load(cl, MEM, src, o as i32);
+                b.ins().store(MEM, v, dst, o as i32);
+            }
+        }
+    }
+}
+
+/// Run `body` for each variant of enum `ty` for which `wanted` holds, with
+/// the code for the others skipped: `if tag == v { body }` in turn.
+fn for_variants(
+    b: &mut FunctionBuilder,
+    hir: &hir::Program,
+    ty: Type,
+    base: Value,
+    wanted: &dyn Fn(&hir::VariantDef) -> bool,
+    body: &mut dyn FnMut(&mut FunctionBuilder, usize, &hir::VariantDef),
+) {
+    let def = hir.enum_def(ty);
+    let tag_ty = cl_type(crate::mir::ty::tag_type(def.tag_size)).unwrap();
+    let tag = b.ins().load(tag_ty, MEM, base, 0);
+    for (vi, v) in def.variants.iter().enumerate() {
+        if !wanted(v) {
+            continue;
+        }
+        let here = b.create_block();
+        let next = b.create_block();
+        let is = b.ins().icmp_imm(IntCC::Equal, tag, vi as i64);
+        b.ins().brif(is, here, &[], next, &[]);
+        b.switch_to_block(here);
+        body(b, vi, v);
+        b.ins().jump(next, &[]);
+        b.switch_to_block(next);
+    }
+}
+
+/// Define the drop (`drop == true`) or copy glue function of struct or enum `ty`.
 #[allow(clippy::too_many_arguments)]
 fn define_glue(
     module: &mut ObjectModule,
@@ -168,76 +294,68 @@ fn define_glue(
     runtime: &mut HashMap<&'static str, FuncId>,
     hir: &hir::Program,
     ids: &[FuncId],
-    drop_ids: &[Option<FuncId>],
-    copy_ids: &[Option<FuncId>],
-    s: hir::StructId,
+    drop_ids: &HashMap<Type, FuncId>,
+    copy_ids: &HashMap<Type, FuncId>,
+    ty: Type,
     drop: bool,
 ) -> Result<(), String> {
-    let ptr = module.target_config().pointer_type();
-    let id = if drop { drop_ids[s] } else { copy_ids[s] }.expect("declared glue");
+    let id = if drop { drop_ids[&ty] } else { copy_ids[&ty] };
     ctx.func.signature = module.declarations().get_function_decl(id).signature.clone();
     ctx.func.name = UserFuncName::user(0, id.as_u32());
     let cfg = module.isa().frontend_config();
-    let def = &hir.structs[s];
+    let env = GlueEnv { hir, ids, drop_ids, copy_ids };
     {
         let mut b = FunctionBuilder::new(&mut ctx.func, fctx);
         let entry = b.create_block();
         b.append_block_params_for_function_params(entry);
         b.switch_to_block(entry);
         let params = b.block_params(entry).to_vec();
-        let at = |b: &mut FunctionBuilder, base: Value, off: u32| if off == 0 { base } else { b.ins().iadd_imm_u(base, off as i64) };
         if drop {
             let p = params[0];
-            if let Some(f) = def.has_drop {
-                let callee = module.declare_func_in_func(ids[f], b.func);
-                b.ins().call(callee, &[p]);
-            }
-            for f in &def.fields {
-                match f.ty {
-                    Type::Str => {
-                        let a = at(&mut b, p, f.offset);
-                        let cap = b.ins().load(types::I64, MEM, a, STR_CAP);
-                        let drop_b = b.create_block();
-                        let after = b.create_block();
-                        b.ins().brif(cap, drop_b, &[], after, &[]);
-                        b.switch_to_block(drop_b);
-                        let rt = import_rt(module, runtime, "drachm_str_drop", &[ptr], &[]);
-                        let callee = module.declare_func_in_func(rt, b.func);
-                        b.ins().call(callee, &[a]);
-                        b.ins().jump(after, &[]);
-                        b.switch_to_block(after);
+            match ty {
+                Type::Struct { id: sid, .. } => {
+                    let def = &hir.structs[sid];
+                    if let Some(f) = def.has_drop {
+                        let callee = module.declare_func_in_func(ids[f], b.func);
+                        b.ins().call(callee, &[p]);
                     }
-                    Type::Struct { id: inner, .. } if crate::mir::needs_drop(hir, f.ty) => {
-                        let a = at(&mut b, p, f.offset);
-                        let callee = module.declare_func_in_func(drop_ids[inner].expect("declared glue"), b.func);
-                        b.ins().call(callee, &[a]);
+                    for f in &def.fields {
+                        glue_drop_field(module, runtime, &env, &mut b, p, f.offset, f.ty);
                     }
-                    _ => {}
+                }
+                _ => {
+                    let owning = |v: &hir::VariantDef| v.fields.iter().any(|f| crate::mir::needs_drop(hir, f.ty));
+                    for_variants(&mut b, hir, ty, p, &owning, &mut |b, _, v| {
+                        for f in &v.fields {
+                            glue_drop_field(module, runtime, &env, b, p, f.offset, f.ty);
+                        }
+                    });
                 }
             }
         } else {
             let (dst, src) = (params[0], params[1]);
-            for f in &def.fields {
-                match f.ty {
-                    Type::Str => {
-                        let (d, s) = (at(&mut b, dst, f.offset), at(&mut b, src, f.offset));
-                        let rt = import_rt(module, runtime, "drachm_str_copy", &[ptr, ptr], &[]);
-                        let callee = module.declare_func_in_func(rt, b.func);
-                        b.ins().call(callee, &[d, s]);
+            match ty {
+                Type::Struct { id: sid, .. } => {
+                    for f in &hir.structs[sid].fields {
+                        glue_copy_field(module, runtime, &env, &mut b, dst, src, f.offset, f.ty);
                     }
-                    Type::Struct { id: inner, .. } if holds_string(hir, f.ty) => {
-                        let (d, s) = (at(&mut b, dst, f.offset), at(&mut b, src, f.offset));
-                        let callee = module.declare_func_in_func(copy_ids[inner].expect("declared glue"), b.func);
-                        b.ins().call(callee, &[d, s]);
+                }
+                _ => {
+                    // Every bit first, then the owning fields of the variant the tag names, deeply.
+                    let mut chunks = Vec::new();
+                    enum_chunks(hir, ty, 0, &mut chunks);
+                    for (off, cl) in chunks {
+                        let v = b.ins().load(cl, MEM, src, off as i32);
+                        b.ins().store(MEM, v, dst, off as i32);
                     }
-                    t => {
-                        let mut leaves = Vec::new();
-                        plain_leaves(hir, t, f.offset, &mut leaves);
-                        for (off, cl) in leaves {
-                            let v = b.ins().load(cl, MEM, src, off as i32);
-                            b.ins().store(MEM, v, dst, off as i32);
+                    let owning = |v: &hir::VariantDef| v.fields.iter().any(|f| holds_string(hir, f.ty));
+                    for_variants(&mut b, hir, ty, src, &owning, &mut |b, _, v| {
+                        for f in &v.fields {
+                            if holds_string(hir, f.ty) {
+                                glue_copy_field(module, runtime, &env, b, dst, src, f.offset, f.ty);
+                            }
                         }
-                    }
+                    });
                 }
             }
         }
@@ -245,7 +363,7 @@ fn define_glue(
         b.seal_all_blocks();
         b.finalize(cfg);
     }
-    module.define_function(id, ctx).map_err(|e| format!("in the glue of `{}`: {e:?}", def.name))?;
+    module.define_function(id, ctx).map_err(|e| format!("in the glue of `{ty}`: {e:?}"))?;
     module.clear_context(ctx);
     Ok(())
 }
@@ -288,8 +406,8 @@ struct Cg<'a, 'b> {
     /// Where a function that returns a string or struct writes it.
     ret_ptr: Option<Value>,
     /// The drop and copy glue functions, by `StructId`.
-    drop_ids: &'a [Option<FuncId>],
-    copy_ids: &'a [Option<FuncId>],
+    drop_ids: &'a HashMap<Type, FuncId>,
+    copy_ids: &'a HashMap<Type, FuncId>,
 }
 
 impl Cg<'_, '_> {
@@ -336,7 +454,7 @@ impl Cg<'_, '_> {
                         Slot::Mem(addr)
                     }
                     // A struct parameter's memory is the callee's own.
-                    None if ty.struct_id().is_some() => match incoming {
+                    None if ty.struct_id().is_some() || ty.enum_id().is_some() => match incoming {
                         Some(p) => Slot::Mem(p),
                         None => Slot::Mem(self.mem(ty)),
                     },
@@ -367,11 +485,16 @@ impl Cg<'_, '_> {
             Slot::Mem(a) => Loc::Mem(a, 0),
             Slot::Nothing => unreachable!("{} has no storage", p.local),
         };
+        let mut variant = None;
         for pr in &p.proj {
             match *pr {
+                Proj::Downcast(v) => variant = Some(v),
                 Proj::Field(i) => {
                     let Loc::Mem(base, off) = loc else { unreachable!("a field of a register") };
-                    let f = &self.hir.struct_def(ty).fields[i];
+                    let f = match variant.take() {
+                        Some(v) => &self.hir.enum_def(ty).variants[v].fields[i],
+                        None => &self.hir.struct_def(ty).fields[i],
+                    };
                     loc = Loc::Mem(base, off + f.offset);
                     ty = f.ty;
                 }
@@ -456,6 +579,12 @@ impl Cg<'_, '_> {
         }
         if let Some(cl) = cl_type(ty) {
             out.push((at, Leaf::Scalar(cl)));
+            return;
+        }
+        if ty.enum_id().is_some() {
+            let mut chunks = Vec::new();
+            enum_chunks(self.hir, ty, at, &mut chunks);
+            out.extend(chunks.into_iter().map(|(o, cl)| (o, Leaf::Scalar(cl))));
             return;
         }
         for f in &self.hir.struct_def(ty).fields {
@@ -561,7 +690,7 @@ impl Cg<'_, '_> {
                         self.b.ins().jump(after, &[]);
                     }
                     _ => {
-                        let id = self.drop_ids[ty.struct_id().expect("a struct")].expect("declared glue");
+                        let id = self.drop_ids[&ty];
                         let callee = self.module.declare_func_in_func(id, self.b.func);
                         self.b.ins().call(callee, &[a]);
                         self.b.ins().jump(after, &[]);
@@ -596,7 +725,16 @@ impl Cg<'_, '_> {
                 let d = self.addr_of(dest);
                 self.copy_bits(ty, d, src);
             }
-            Rvalue::Aggregate(sid, ops) => self.aggregate(dest, ty, *sid, ops),
+            Rvalue::Aggregate(sid, ops) => {
+                let offs: Vec<u32> = self.hir.structs[*sid].fields.iter().map(|f| f.offset).collect();
+                self.aggregate(dest, ty, &offs, ops, None)
+            }
+            Rvalue::Variant(eid, vi, ops) => {
+                let def = &self.hir.enums[*eid];
+                let offs: Vec<u32> = def.variants[*vi].fields.iter().map(|f| f.offset).collect();
+                let tag_ty = cl_type(crate::mir::ty::tag_type(def.tag_size)).unwrap();
+                self.aggregate(dest, ty, &offs, ops, Some((tag_ty, *vi as i64)))
+            }
             Rvalue::DeepCopy(src) => {
                 let s = self.addr_of(src);
                 let d = self.addr_of(dest);
@@ -604,8 +742,8 @@ impl Cg<'_, '_> {
                     Type::Str => {
                         self.rt("drachm_str_copy", &[self.ptr, self.ptr], &[], &[d, s]);
                     }
-                    Type::Struct { id, .. } if holds_string(self.hir, ty) => {
-                        let callee = self.module.declare_func_in_func(self.copy_ids[id].expect("declared glue"), self.b.func);
+                    Type::Struct { .. } | Type::Enum { .. } if holds_string(self.hir, ty) => {
+                        let callee = self.module.declare_func_in_func(self.copy_ids[&ty], self.b.func);
                         self.b.ins().call(callee, &[d, s]);
                     }
                     _ => self.copy_bits(ty, d, s),
@@ -615,7 +753,7 @@ impl Cg<'_, '_> {
         }
     }
 
-    fn aggregate(&mut self, dest: &Place, ty: Type, sid: hir::StructId, ops: &[Operand]) {
+    fn aggregate(&mut self, dest: &Place, ty: Type, offsets: &[u32], ops: &[Operand], tag: Option<(ClType, i64)>) {
         // Read every scalar operand before writing anything: an operand may
         // be part of the destination (`p = P(p.y, p.x)`).
         enum Part {
@@ -636,8 +774,12 @@ impl Cg<'_, '_> {
             }
         }
         let target = if overlaps { self.mem(ty) } else { self.addr_of(dest) };
+        if let Some((tag_ty, v)) = tag {
+            let t = self.b.ins().iconst(tag_ty, v);
+            self.b.ins().store(MEM, t, target, 0);
+        }
         for (i, part) in parts.into_iter().enumerate() {
-            let off = self.hir.structs[sid].fields[i].offset;
+            let off = offsets[i];
             match part {
                 Part::Scalar(v) => {
                     self.b.ins().store(MEM, v, target, off as i32);
@@ -732,10 +874,16 @@ impl Cg<'_, '_> {
                 let v = self.operand(op);
                 self.convert(v, from, *to)
             }
+            Rvalue::Discriminant(p) => {
+                let (loc, ty) = self.locate(p);
+                let Loc::Mem(base, off) = loc else { unreachable!("an enum is in memory") };
+                let tag_ty = cl_type(crate::mir::ty::tag_type(self.hir.enum_def(ty).tag_size)).unwrap();
+                self.b.ins().load(tag_ty, MEM, base, off as i32)
+            }
             Rvalue::Ref(_, p) | Rvalue::RawRef(p) => self.addr_of(p),
             // `copy p` of a raw pointer: the bits.
             Rvalue::DeepCopy(p) if self.op_ty(&Operand::Copy(p.clone())).is_ptr() => self.operand(&Operand::Copy(p.clone())),
-            Rvalue::DeepCopy(_) | Rvalue::Aggregate(..) => unreachable!("not a scalar rvalue: {rv:?}"),
+            Rvalue::DeepCopy(_) | Rvalue::Aggregate(..) | Rvalue::Variant(..) => unreachable!("not a scalar rvalue: {rv:?}"),
         }
     }
 
@@ -770,8 +918,16 @@ impl Cg<'_, '_> {
                 self.call(*callee, args, dest.as_ref());
                 self.b.ins().jump(self.blocks[target.index()], &[]);
             }
-            // The builder never emits `Switch`, and `PanicKind` has no values.
-            TerminatorKind::Switch { .. } | TerminatorKind::Panic(_) => unreachable!("the builder never emits {k:?}"),
+            TerminatorKind::Switch { discr, cases, otherwise } => {
+                let v = self.operand(discr);
+                let mut sw = Switch::new();
+                for (val, t) in cases {
+                    sw.set_entry(*val, self.blocks[t.index()]);
+                }
+                sw.emit(&mut self.b, v, self.blocks[otherwise.index()]);
+            }
+            // `PanicKind` has no values.
+            TerminatorKind::Panic(_) => unreachable!("the builder never emits {k:?}"),
         }
     }
 

@@ -25,25 +25,59 @@ pub(crate) fn prelude() -> String {
     out
 }
 
-/// Every struct's definition (and, for owning ones, its copy and drop
-/// functions). With `asserts`, each definition is followed by a
+/// Every struct's and enum's definition (and, for owning ones, its copy and
+/// drop functions). With `asserts`, each definition is followed by a
 /// `_Static_assert` that the C compiler lays it out as `hir::layout` did.
+/// An enum is a tag and a union of one struct per variant that has values.
 pub(crate) fn struct_defs(prog: &Program, asserts: bool) -> String {
     let mut out = String::new();
-    for s in struct_order(prog) {
-        let def = &prog.structs[s];
-        let name = struct_name(&def.name);
-        let _ = writeln!(out, "typedef struct {{");
-        for f in &def.fields {
-            let _ = writeln!(out, "    {} f_{};", c_type(f.ty), f.name);
-        }
-        let _ = writeln!(out, "}} {name};\n");
-        if asserts {
-            let mut checks = format!("sizeof({name}) == {}", def.size);
-            for f in &def.fields {
-                let _ = write!(checks, " && __builtin_offsetof({name}, f_{}) == {}", f.name, f.offset);
+    for item in type_order(prog) {
+        match item {
+            Item::Struct(s) => {
+                let def = &prog.structs[s];
+                let name = struct_name(&def.name);
+                let _ = writeln!(out, "typedef struct {{");
+                for f in &def.fields {
+                    let _ = writeln!(out, "    {} f_{};", c_type(f.ty), f.name);
+                }
+                let _ = writeln!(out, "}} {name};\n");
+                if asserts {
+                    let mut checks = format!("sizeof({name}) == {}", def.size);
+                    for f in &def.fields {
+                        let _ = write!(checks, " && __builtin_offsetof({name}, f_{}) == {}", f.name, f.offset);
+                    }
+                    let _ = writeln!(out, "_Static_assert({checks}, \"layout\");\n");
+                }
             }
-            let _ = writeln!(out, "_Static_assert({checks}, \"layout\");\n");
+            Item::Enum(e) => {
+                let def = &prog.enums[e];
+                let name = enum_name(e);
+                let _ = writeln!(out, "typedef struct {{\n    {} tag;", c_type(crate::mir::ty::tag_type(def.tag_size)));
+                if def.variants.iter().any(|v| !v.fields.is_empty()) {
+                    let _ = writeln!(out, "    union {{");
+                    for (vi, v) in def.variants.iter().enumerate() {
+                        if v.fields.is_empty() {
+                            continue;
+                        }
+                        let _ = write!(out, "        struct {{");
+                        for f in &v.fields {
+                            let _ = write!(out, " {} f_{};", c_type(f.ty), f.name);
+                        }
+                        let _ = writeln!(out, " }} v{vi};");
+                    }
+                    let _ = writeln!(out, "    }} u;");
+                }
+                let _ = writeln!(out, "}} {name};\n");
+                if asserts {
+                    let mut checks = format!("sizeof({name}) == {} && _Alignof({name}) == {}", def.size, def.align);
+                    for (vi, v) in def.variants.iter().enumerate() {
+                        for f in &v.fields {
+                            let _ = write!(checks, " && __builtin_offsetof({name}, u.v{vi}.f_{}) == {}", f.name, f.offset);
+                        }
+                    }
+                    let _ = writeln!(out, "_Static_assert({checks}, \"layout\");\n");
+                }
+            }
         }
     }
     out
@@ -57,29 +91,60 @@ pub(crate) fn main_fn(prog: &Program) -> String {
     format!("\nint main(void) {{ {body} }}\n")
 }
 
+/// The C type of enum `id`.
+pub(crate) fn enum_name(id: usize) -> String {
+    format!("drachm_e{id}")
+}
+
 pub(crate) fn struct_name(name: &str) -> String {
     format!("drachm_s_{name}")
 }
 
-/// Every struct, each after the structs it contains (C needs a struct's
+/// A struct or an enum, for ordering definitions.
+#[derive(Clone, Copy)]
+enum Item {
+    Struct(StructId),
+    Enum(EnumId),
+}
+
+/// Every struct and enum, each after the ones it contains (C needs a
 /// definition before it is used as a field).
-fn struct_order(prog: &Program) -> Vec<StructId> {
-    fn visit(prog: &Program, s: StructId, done: &mut [bool], order: &mut Vec<StructId>) {
-        if done[s] {
-            return;
+fn type_order(prog: &Program) -> Vec<Item> {
+    fn visit_type(prog: &Program, t: Type, done: &mut (Vec<bool>, Vec<bool>), order: &mut Vec<Item>) {
+        match t {
+            Type::Struct { id, .. } => visit(prog, Item::Struct(id), done, order),
+            Type::Enum { id, .. } => visit(prog, Item::Enum(id), done, order),
+            _ => {}
         }
-        done[s] = true;
-        for f in &prog.structs[s].fields {
-            if let Some(inner) = f.ty.struct_id() {
-                visit(prog, inner, done, order);
+    }
+    fn visit(prog: &Program, item: Item, done: &mut (Vec<bool>, Vec<bool>), order: &mut Vec<Item>) {
+        match item {
+            Item::Struct(s) => {
+                if std::mem::replace(&mut done.0[s], true) {
+                    return;
+                }
+                for f in &prog.structs[s].fields {
+                    visit_type(prog, f.ty, done, order);
+                }
+            }
+            Item::Enum(e) => {
+                if std::mem::replace(&mut done.1[e], true) {
+                    return;
+                }
+                for f in prog.enums[e].variants.iter().flat_map(|v| &v.fields) {
+                    visit_type(prog, f.ty, done, order);
+                }
             }
         }
-        order.push(s);
+        order.push(item);
     }
-    let mut done = vec![false; prog.structs.len()];
+    let mut done = (vec![false; prog.structs.len()], vec![false; prog.enums.len()]);
     let mut order = Vec::new();
     for s in 0..prog.structs.len() {
-        visit(prog, s, &mut done, &mut order);
+        visit(prog, Item::Struct(s), &mut done, &mut order);
+    }
+    for e in 0..prog.enums.len() {
+        visit(prog, Item::Enum(e), &mut done, &mut order);
     }
     order
 }
@@ -103,6 +168,7 @@ pub(crate) fn c_type(t: Type) -> String {
         Type::None => "void",
         Type::Unit { .. } => unreachable!("units are erased before the backends"),
         Type::Struct { name, .. } => return struct_name(name),
+        Type::Enum { id, .. } => return enum_name(id),
         Type::Ref { to, .. } | Type::Ptr { to } | Type::FixedPtr { to } => return format!("{} *", c_type(*to)),
     };
     name.to_string()

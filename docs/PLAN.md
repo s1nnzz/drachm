@@ -23,7 +23,7 @@ answers into `docs/SPEC.md` and the design doc, and note leftovers under that st
 | 4 | `for`, `skip`, `match` | done: `match` on text (exact patterns, `globbed` globs), `for` over characters (`string` copies, `&string` views), lists in step 6 |
 | 4.5 | Units of measure | done (`in si;`, points and deltas, scaled integers wrap; decisions in `docs/impl/step4.5-units.md`) |
 | 4.6 | Input: `io::inln()`, `io::ended()`, text `::to<T>()` | done (interim: bad text stops the program with exit 101; forgiving number text (spaces, `+`, `.5`); `\r\n` lines; invalid UTF-8 becomes U+FFFD) |
-| 5 | Constructors, enums, `fails` / `maybe` | not started |
+| 5 | Constructors, enums, `fails` / `maybe` | in progress: S5A.1 done (enums with data, `match` with bindings/`take`/`copy`/guards/nesting/alternatives/values, exhaustiveness, `Switch`; `==` for payload-free enums); optionals, constructors, failures not started |
 | 6 | Generics, interfaces, collections | not started |
 | 7 | Modules, config, scripts, stdlib | not started |
 | 7.5 | MIR optimiser: SSA, inlining, scalar replacement, constant folding, loop opts, check elimination, alias info from borrows | not started |
@@ -112,6 +112,13 @@ Work:
 
 **Done when:** `cargo test` runs the existing v0.1 examples as golden tests, and
 errors render with codes and labels.
+
+**Step 5 progress, S5A.1 (enums):** `enum` declarations, bare and `Enum::Variant` values (expected type first), `match` with typed bindings,
+`take`/`copy` for owning payloads, guards, `case A, B` with agreeing bindings, constants and nested patterns, W0110/W0111 over the
+pattern matrix (guarded cases never cover), `Switch` for three or more variants in both backends, drop and copy glue per owning enum.
+Interims taken: a guard sees copied bindings but not `take`n ones (they exist after the guard); text constants inside variant patterns
+are E0901; a variant cannot hold a borrow or pointer (E0901); no niche optimisation (a `string?` will be bigger than a `string`,
+later item under Performance); E0210 reads "`Tree` contains itself" when an enum is in the cycle.
 
 **Open (ask owner):** none.
 

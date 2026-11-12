@@ -1,0 +1,49 @@
+in io;
+
+enum Shape {
+    Circle(float64 r),
+    Rect(float64 w, float64 h),
+    Empty,
+}
+
+enum Wrapped { Some(Shape s), Gap }
+
+none classify(Shape s) {
+    match (s) {
+        case Circle(float64 r) if r > 10.0 { io::outln("a big circle"); }
+        case Circle(_)                     { io::outln("a circle"); }
+        case Rect(2.0, float64 h)          { io::outln(f"a rectangle two wide and ${h} tall"); }
+        case Rect(float64 w, float64 h) if w == h { io::outln("a square"); }
+        case Rect(_, _)                    { io::outln("a rectangle"); }
+        case Empty                         { io::outln("nothing"); }
+    }
+}
+
+none inside(Wrapped w) {
+    match (w) {
+        case Some(Circle(float64 r))       { io::outln(f"wrapped circle, radius ${r}"); }
+        case Some(Rect(_, _)), Some(Empty) { io::outln("wrapped something else"); }
+        case Gap                           { io::outln("gap"); }
+    }
+}
+
+none first_side(Shape s) {
+    match (s) {
+        case Circle(float64 x), Rect(float64 x, _) { io::outln(f"first number: ${x}"); }
+        case Empty                                 { io::outln("no numbers"); }
+    }
+}
+
+none main() {
+    classify(Circle(20.0));
+    classify(Circle(1.0));
+    classify(Rect(2.0, 9.0));
+    classify(Rect(3.0, 3.0));
+    classify(Rect(3.0, 4.0));
+    classify(Empty);
+    inside(Some(Circle(1.5)));
+    inside(Some(Empty));
+    inside(Gap);
+    first_side(Rect(7.0, 8.0));
+    first_side(Empty);
+}

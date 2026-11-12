@@ -719,7 +719,7 @@ Diagnostics: detailed Rust/Elm style (labelled source lines, explanation,
 `help:` fix). `E` codes for errors, `W` for warnings, `drachm explain E0301`.
 Red errors, yellow warnings, colour auto-off when piped. Report all errors.
 `E` and `W` share one number space: `00xx` syntax, `01xx` types and
-conversions, `02xx` names and bindings, `03xx` ownership, `04xx` units, `09xx` not supported
+conversions, `02xx` names and bindings, `03xx` ownership, `04xx` units, `05xx` constructors, enums, optionals and failures (enums built: E052x), `09xx` not supported
 yet. The table is `src/diag/codes.rs`. W0102 looks like this:
 
 ```text

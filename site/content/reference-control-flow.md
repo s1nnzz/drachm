@@ -74,7 +74,7 @@ it is in. A `skip` with no level to leave is error E0012.
 
 ## match
 
-`match` works on whole numbers, `bool`, floats and `string`. Each `case` gives one value, a
+`match` works on whole numbers, `bool`, floats, `string` and [enums](reference-enums.md). Each `case` gives one value, a
 list separated by commas, or an inclusive range `a..b`, and `case _` matches
 anything. The first case that matches runs and cases never fall through. A value
 may be a constant expression such as `case 2 + 1`, and the matched value is
@@ -85,6 +85,9 @@ A `match` must handle every value, or the compiler gives warning W0110; add
 after one that already matches every value it could match is warning W0111.
 `break`, `continue` and `skip` inside a case act on the enclosing loop or `if`,
 and a `skip` inside a `match` leaves the `match`, not a loop.
+
+On an enum, a `case` names a variant and can bind, test and nest its values, and a
+missing variant is W0110 with the variants listed; see [Enums](reference-enums.md#missing-and-unreachable-cases).
 
 <!-- example: match-basic -->
 
