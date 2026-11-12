@@ -784,6 +784,8 @@ Benchmark baseline (`bench/fails.*`): see the Performance section.
 
 ## Performance (cross-cutting)
 
+S5C baseline (`bench/fails.*`, four loops in one program: failing leaf 100M calls, 3-level chain 20M, string outcome 2M, plain control 100M; best of 5): drachm -O 609 ms, C struct-by-value 450 ms (135%), Rust Result 305 ms (199%), plain Cranelift build 891 ms. No gate; S5E may improve it.
+
 Goal from the owner: benchmark speed on par with Rust. Measure with
 `bench/run.sh` after every step that touches codegen, and add a benchmark
 whenever a step adds something worth measuring (strings, structs, lists).
