@@ -1,0 +1,34 @@
+in io;
+
+none describe(uint32 n, bool verbose) {
+    match (n) {
+        case 0 {
+            io::outln("zero");
+            if (!verbose) {
+                // Leave this case early.
+                skip;
+            }
+            io::outln("(that is nothing at all)");
+        }
+        case 1..9 {
+            io::outln("small");
+            // Carry on testing the cases below this one.
+            skip to next;
+        }
+        case 5, 10 {
+            io::outln("five or ten");
+        }
+        case _ {
+            io::outln("big");
+        }
+    }
+    io::outln("--");
+}
+
+none main() {
+    describe(0, true);
+    describe(0, false);
+    describe(3, false);
+    describe(5, false);
+    describe(10, false);
+}

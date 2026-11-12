@@ -1,0 +1,73 @@
+in io;
+
+enum Shape {
+    Circle(float64 r),
+    Rect(float64 w, float64 h),
+    Empty,
+}
+
+enum Boxed { Some(Shape s), Nothing }
+
+enum Msg {
+    Text(string body),
+    Pair(string a, string b),
+    Quit,
+}
+
+none describe(Shape s) {
+    match (s) {
+        // A guard adds a condition after the pattern.
+        case Circle(float64 r) if r > 10.0 { io::outln("a big circle"); }
+        case Circle(_)                     { io::outln("a circle"); }
+        // A value inside a pattern must be equal.
+        case Rect(2.0, float64 h)          { io::outln(f"two wide, ${h} tall"); }
+        case Rect(float64 w, float64 h) if w == h { io::outln("a square"); }
+        case Rect(_, _)                    { io::outln("a rectangle"); }
+        case Empty                         { io::outln("nothing"); }
+    }
+}
+
+none inside(Boxed b) {
+    match (b) {
+        // Patterns nest.
+        case Some(Circle(float64 r))       { io::outln(f"boxed circle, radius ${r}"); }
+        // Several patterns can share one body.
+        case Some(Rect(_, _)), Some(Empty) { io::outln("boxed something else"); }
+        case Nothing                       { io::outln("empty box"); }
+    }
+}
+
+none read(Msg m) {
+    match (m) {
+        // take moves the text out. The message is used up.
+        case Text(take string body) { io::outln(f"text: ${body}"); }
+        case Pair(take string a, _) { io::outln(f"pair starting ${a}"); }
+        case Quit                   { io::outln("quit"); }
+    }
+}
+
+none peek(&Msg m) {
+    match (m) {
+        // copy makes a copy and leaves the message alone.
+        case Text(copy string body) { io::outln(f"a copy of ${body}"); }
+        case _                      { io::outln("not text"); }
+    }
+}
+
+none main() {
+    describe(Circle(20.0));
+    describe(Circle(1.0));
+    describe(Rect(2.0, 9.0));
+    describe(Rect(3.0, 3.0));
+    describe(Rect(3.0, 4.0));
+    describe(Empty);
+    inside(Some(Circle(1.5)));
+    inside(Some(Empty));
+    inside(Nothing);
+
+    Msg m = Text("hello");
+    peek(&m);
+    peek(&m);
+    read(m);
+    read(Pair("one", "two"));
+}

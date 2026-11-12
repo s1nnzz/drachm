@@ -1,0 +1,50 @@
+in io;
+
+string grade(uint32 score) {
+    match (score) {
+        case 90..100 { return "A"; }
+        case 80..89  { return "B"; }
+        case 70..79  { return "C"; }
+        case _       { return "F"; }
+    }
+}
+
+string weekday(uint32 day) {
+    match (day) {
+        case 1, 2, 3, 4, 5 { return "weekday"; }
+        case 6, 7          { return "weekend"; }
+        case _             { return "not a day"; }
+    }
+}
+
+string answer(bool ok) {
+    // bool is covered by true and false, so no case _ is needed.
+    match (ok) {
+        case true  { return "yes"; }
+        case false { return "no"; }
+    }
+}
+
+string command(string line) {
+    match (line) {
+        case "go", "run"      { return "moving"; }
+        case "quit"           { return "bye"; }
+        case globbed "say *"  { return "talking"; }
+        case _                { return "unknown"; }
+    }
+}
+
+none main() {
+    io::outln(grade(95) + grade(82) + grade(71) + grade(40));
+    io::outln(weekday(3) + ", " + weekday(7) + ", " + weekday(9));
+    io::outln(answer(true) + answer(false));
+    io::outln(command("run") + ", " + command("say hi there") + ", " + command("dance"));
+
+    // The matched value can be any expression. It is worked out once.
+    uint32 hp = 15;
+    match (hp * 2) {
+        case 0..9   { io::outln("nearly dead"); }
+        case 10 + 20 { io::outln("exactly thirty"); }
+        case _      { io::outln("fine"); }
+    }
+}

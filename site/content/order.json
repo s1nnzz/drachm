@@ -36,7 +36,8 @@
         "guide-errors",
         "guide-numbers",
         "guide-units",
-        "guide-text"
+        "guide-text",
+        "guide-match"
       ]
     },
     {
