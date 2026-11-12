@@ -79,3 +79,23 @@ Units Q12b (2026-11-11): assigning or declaring a unit variable with a plain val
 - WP9 Q1 (#8): everything that touches a pointer value needs `unsafe`, moving/passing/returning/storing included; the body of an `unsafe` function counts as one unsafe block (no inner block needed).
 - WP9 Q2: converting between `*T` and `*fixed T` is explicit both ways, inside `unsafe`: `p::freeze()` (`*T` -> `*fixed T`) and `p::thaw()` (`*fixed T` -> `*T`).
 - Input Q1 (2026-11-11): text to number is forgiving: surrounding spaces ignored, a leading `+` allowed, `.5` and `5.` fine for floats; out-of-range is still bad text. (Line endings, invalid UTF-8 and `to<bool>`/units keep the interim behaviour until asked.)
+
+# Step 4 rest / step 5 questions (step5-overview.md section 8), 2026-11-12
+Q1 text patterns: the opposite of `case literal`: a plain `case "a*b"` matches the text exactly (a `*` is just a star); globs are written `case globbed "*.png"`, where `*` is a wildcard.
+Q2 for-each over a string: both, by the type written: `for (string c of s)` gives an owned copy per character (may be kept), `for (&string c of s)` a borrowed view; the compiler skips the copy when the body never keeps `c`.
+Q3 owning payloads in a `case`: the pattern says `take` or `copy`: `case Text(take string body)` moves the payload out (the matched value is used up), `case Text(copy string body)` copies it; a bare `string body` for an owning payload is an error with both fix-its. Copy payloads (numbers, bools, Copy structs) bind plainly.
+Q4 patterns: all of them: guards (`case Circle(float64 r) if r > 10.0`), several patterns per body (`case A(..), B(..)`), nesting (`case Some(Circle(float64 r))`), and values inside patterns (`case Rect(2.0, float64 h)`).
+Q5 optionals: `T` wraps to `T?` automatically wherever a `T?` is expected (`uint32? x = 5;`, `return 5;`); the test is wordy: `if (x has value)`, `if (x is empty)` (`has value` / `is empty` after an optional expression). `x == none` is not the test (my reading: error with the `is empty` fix-it).
+Q6 enums: `==` / `!=` only for enums without payloads (`if (d == North)`); no methods inside enums: behaviour is plain functions taking the enum.
+Q7 variant names: the expected type decides first; with no expected type, the struct/function of that name wins; `Shape::Circle(1.0)` names the variant explicitly. A variant may share a name with a struct.
+Q8 constructors: writing a constructor removes the automatic field-order one, unless the struct says `Person(auto);`, which keeps it alongside the written ones. (Named values and delegation: my reading, unasked: named values match the parameter names of the chosen overload; delegation stays E0901.)
+Q9 reading set fields while filling: allowed only with the word `now`: `fill p { p.hp = 5; p.max = now p.hp * 2; }` (same in constructors: `now self.r`). A plain read of an incomplete value stays an error with the `now` fix-it; methods on the incomplete value are not allowed.
+Q10 defs: named defs can be used (`fill p with Veteran { }`), def values are any expression that doesn't read fields, AND a def may extend another: `def Veteran of Player from PlayerStart { hp = 200; }`.
+Q11 failure messages are ordinary strings: write `f"bad config key ${k}"` to interpolate (the SPEC example changes).
+Q12 escaping failures print to stderr with an `error: ` prefix, then one `because:` line per cause: `error: couldn't load save` / `  because: no such file "save.dat"`; `${e}` prints the whole chain.
+Q13 `::to<T>()` on text fails with a built-in `ConvertError` with one variant per cause: `Empty`, `NotANumber`, `OutOfRange` (replaces step 4.6's exit-101 interim once failures exist).
+Q14 handlers: may name a single variant (`fails with (BadConfig e) => {}`), `any e` can be re-raised with `fail e;` (when the enclosing function lists it), AND `e` has members (owner's note "and members"): `e::message()`, `e::exit()`, `e::cause()`.
+Q15 `maybe` fallback: a single value or a parenthesised expression; anything longer is an error asking for parentheses (`(parse(s) maybe 0) + 1`, `parse(s) maybe (n * 2)`).
+Q16 ignoring a failure: both spellings: `fs::close(f) fails with none;` and `fs::close(f) ignore failure;`.
+Q17 failing functions may be anything, operator methods and `drop()` included (`bool ==(Port o) fails X`, `(p == q) maybe false`). (My note: a failing `drop()` that runs at scope end has no caller to handle it; until asked, a failure escaping an automatic drop is reported like an escape from `main`.)
+Q18 exit codes 0-255; the failure's code wins over a number `main` returns.
