@@ -1,0 +1,23 @@
+in io;
+
+none main() {
+    // Constant arithmetic is exact and has no size until it is stored.
+    io::outln((2 ** 100)::text());
+    io::outln((2 ** 100 - 2 ** 100 + 7)::text());
+    uint8 small = (2 ** 100 / 2 ** 95)::to<uint8>();
+    io::outln(small::text());
+
+    // 0.1 + 0.2 equals 0.3 for constants, so this is true.
+    bool same = 0.1 + 0.2 == 0.3;
+    io::outln(same::text());
+
+    // Once they are in variables, they are ordinary float64 numbers.
+    float64 a = 0.1;
+    float64 b = 0.2;
+    bool runtime = a + b == 0.3;
+    io::outln(runtime::text());
+
+    // Remainder takes the sign of the left side.
+    io::outln((-7 % 3)::text());
+    io::outln((7 % -3)::text());
+}

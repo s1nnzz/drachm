@@ -1,0 +1,36 @@
+in io;
+
+none main() {
+    // Constants are exact, so this is tidy.
+    io::outln((0.1 + 0.2)::text());
+
+    // Values in float64 variables are not: 0.1 has no exact binary form.
+    float64 x = 0.1;
+    float64 y = 0.2;
+    io::outln((x + y)::text());
+
+    // Shortest text that reads back as the same number, always with a point.
+    io::outln(1.0::text());
+    io::outln((1.0 / 3.0)::text());
+    io::outln(1e-7::text());
+    io::outln(1e21::text());
+
+    // float32 has fewer digits. Widening it shows what it really holds.
+    float32 f = 0.1;
+    float64 g = f;
+    io::outln(f::text());
+    io::outln(g::text());
+
+    // Whole-number division drops the fraction. Decimal division does not.
+    uint32 q = 42;
+    io::outln((q / 4)::text());
+    io::outln((q::to<float64>() / 4.0)::text());
+
+    // io::outf rounds for display.
+    io::outf("%.2|%8.3|%-8.1|\n", 3.14159, 2.71828, 9.99);
+
+    // Decimals follow IEEE: no panic on division by zero.
+    float64 zero = 0.0;
+    io::outln((1.0 / zero)::text());
+    io::outln((zero / zero)::text());
+}
