@@ -126,3 +126,8 @@ Q5 interfaces as types: any interface can be used as `&I` (its `static` methods 
 - Built-in interfaces: keep the set S6B chose: `Zero` (`static Self zero()`: numbers, `string` gives `""`), `Equal` (`==`: numbers, `bool`, `string`, every struct), `Ordered extends Equal` (`<` `<=` `>` `>=`: numbers only), `Text` (`string text()`: numbers, `bool`). A program's own interface of the same name replaces the built-in one.
 - `extends` takes several parents joined with `and`: `interface Solid extends Shape and Named { ... }`.
 - A separate `TYPE with I { ... }` block sees only the type's public members. `TYPE with trusted I { ... }` sees private members too (owner proposed "partner", then picked `trusted` from the offered words).
+
+# S6C.2 follow-ups, 2026-11-12
+- `get(i)`, `first()`, `last()` on owning items give a view `&T?` (borrows the list); `copy names::first()` gives an owned `T?`. Mirrors `&xs[i]` / `copy xs[i]`.
+- `contains` on owning items takes the value written with `&`: `names::contains(&name)`; without `&` it would move.
+- Split edges: `""::split(",")` is `[""]`; `lines()` drops one trailing line end and `""::lines()` is `[]`; `split("")` gives the characters like `chars()` (does not stop the program).
