@@ -684,6 +684,12 @@ pub enum StrFn {
     Glob,
     /// Number text padded with zeros after the sign (`io::outf`'s `%0N`).
     ZeroPad,
+    /// The pieces between the occurrences of a separator: a `string[?]`.
+    Split,
+    /// The lines of a text, without their line ends: a `string[?]`.
+    Lines,
+    /// The characters of a text, one owned string each: a `string[?]`.
+    Chars,
 }
 
 const S: Type = Type::Str;
@@ -724,6 +730,9 @@ impl StrFn {
             NextChar => "drachm_str_next_char",
             CharView => "drachm_str_char_view",
             Glob => "drachm_str_glob",
+            Split => "drachm_str_split",
+            Lines => "drachm_str_lines",
+            Chars => "drachm_str_chars",
         }
     }
 
@@ -731,7 +740,8 @@ impl StrFn {
         use StrFn::*;
         match self {
             Len | IsEmpty | Reverse | Upper | Lower | Trim => &[S],
-            Concat | Append | Eq | Cmp | Find | Contains | StartsWith | EndsWith | Count | Glob => &[S, S],
+            Concat | Append | Eq | Cmp | Find | Contains | StartsWith | EndsWith | Count | Glob | Split => &[S, S],
+            Lines | Chars => &[S],
             Sub | Remove => &[S, S64, S64],
             Insert => &[S, S64, S],
             Replace => &[S, S, S],
@@ -752,6 +762,7 @@ impl StrFn {
             Cmp => Type::S32,
             Len | Count | ByteLen => U64,
             Find => S64,
+            Split | Lines | Chars => Type::list(S),
             _ => S,
         }
     }

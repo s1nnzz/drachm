@@ -712,7 +712,7 @@ impl Gen<'_> {
                     .collect();
                 let a = a.join(", ");
                 match (&dest_lv, f.ret()) {
-                    (Some(d), Type::Str) => self.line(format!("{}(&{d}, {a});", f.name())),
+                    (Some(d), t) if crate::codegen_common::in_memory(t) => self.line(format!("{}(&{d}, {a});", f.name())),
                     (Some(_), t) if t != Type::None => {
                         let d = self.decl(dest.unwrap(), t);
                         self.line(format!("{d} = {}({a});", f.name()))

@@ -8,7 +8,7 @@ use crate::hir::StrFn;
 /// What `string` methods exist, for "no method" errors.
 const METHODS: &str = "`len`, `isEmpty`, `reverse`, `sub`, `upper`, `lower`, `trim`, `find`, `contains`, \
     `startsWith`, `endsWith`, `count`, `join`, `replace`, `replaceLimit`, `insert`, `remove`, `repeat`, \
-    `padLeft`, `padRight`, `text` and `to`";
+    `padLeft`, `padRight`, `split`, `lines`, `chars`, `text` and `to`";
 
 /// Names other languages use for these methods.
 fn method_hint(name: &str) -> Option<&'static str> {
@@ -188,16 +188,9 @@ impl Checker<'_> {
             "repeat" => StrFn::Repeat,
             "padLeft" => StrFn::PadLeft,
             "padRight" => StrFn::PadRight,
-            "split" | "lines" | "chars" => {
-                self.diags.push(
-                    Diagnostic::at(&codes::E0901, name_span, format!("`{name}` returns a list of strings, and lists are not supported yet"))
-                        .note("needs lists"),
-                );
-                for a in args {
-                    self.expr(a);
-                }
-                return None;
-            }
+            "split" => StrFn::Split,
+            "lines" => StrFn::Lines,
+            "chars" => StrFn::Chars,
             _ => {
                 let help = match method_hint(name) {
                     Some(m) => format!("Drachm calls this `{m}`"),

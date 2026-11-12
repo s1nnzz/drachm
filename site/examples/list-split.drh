@@ -1,0 +1,53 @@
+in io;
+
+string[?] pieces() {
+    string source = "p-q";
+    return source::split("-");
+}
+
+none main() {
+    string[?] parts = "a,b,c"::split(",");
+    io::outln(parts::len()->text());
+    for (&string p of parts) {
+        io::outln(p);
+    }
+    io::outln(parts::join("-"));
+
+    // Empty pieces are kept; an empty text has one empty piece.
+    string[?] gaps = ",a,,b,"::split(",");
+    io::outln(gaps::len()->text());
+    io::outln(gaps::join("|"));
+    string[?] blank = ""::split(",");
+    io::outln(blank::len()->text());
+
+    // A separator of more than one character.
+    string text = "ab::cd::e";
+    string[?] words = text::split("::");
+    io::outln(words::join(" "));
+
+    // Lines end at \n or \r\n; the last line needs no line end.
+    string[?] lines = "one\ntwo\r\n\nthree\n"::lines();
+    io::outln(lines::len()->text());
+    io::outln(lines::join("/"));
+    string[?] tail = "x\ny"::lines();
+    io::outln(tail::join("/"));
+    string[?] no_lines = ""::lines();
+    io::outln(no_lines::len()->text());
+
+    // Characters are grapheme clusters, as len counts them.
+    string[?] letters = "héllo"::chars();
+    io::outln(letters::len()->text());
+    io::outln(letters[1]);
+    string[?] flags = "🇫🇷a"::chars();
+    io::outln(flags::len()->text());
+    io::outln(flags[0]);
+    string[?] nothing = ""::chars();
+    io::outln(nothing::len()->text());
+
+    // The pieces are owned copies: they outlive the text they came from.
+    string[?] kept = pieces();
+    io::outln(kept::join("+"));
+
+    // Equality of a split result with a literal list.
+    io::outln(("a,b"::split(",") == ["a", "b"])::text());
+}

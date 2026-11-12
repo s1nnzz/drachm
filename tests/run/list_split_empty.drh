@@ -1,0 +1,7 @@
+in io;
+
+none main() {
+    io::outln("before");
+    string[?] p = "ab"::split("");
+    io::outln(p::len()->text());
+}

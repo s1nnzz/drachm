@@ -22,6 +22,7 @@ use unicode_segmentation::UnicodeSegmentation;
 mod hash;
 mod lists;
 mod maps;
+mod strings_split;
 
 #[repr(C)]
 pub struct DrachmStr {

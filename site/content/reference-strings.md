@@ -42,6 +42,8 @@ Searching uses `find(text)` (the index, or -1), `contains`, `startsWith`,
 `replace(from, to)`, `replaceLimit(from, to, n)`, `insert(index, text)`,
 `remove(from, to)`, `repeat(n)` and `join(text)`. For layout there are
 `padLeft(width)` and `padRight(width)`, each with an optional fill string.
+`split(sep)`, `lines()` and `chars()` give a `string[?]` of owned pieces, see
+[Arrays and lists](reference-collections.md#splitting-strings).
 `text()` returns the string itself. `to<T>()` reads the text as a number of type
 `T`, and [Input and output](reference-io.md) has the rules. To go through the
 characters, use [`for` over text](reference-control-flow.md#looping-over-characters),

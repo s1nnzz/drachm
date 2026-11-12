@@ -1118,7 +1118,7 @@ impl Cg<'_, '_> {
             Callee::Str(f) => {
                 let mut params = Vec::new();
                 let mut vals = Vec::new();
-                if f.ret() == Type::Str {
+                if in_memory(f.ret()) {
                     params.push(ptr);
                     vals.push(self.dest_addr(dest));
                 }

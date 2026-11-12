@@ -1,6 +1,6 @@
 ---
 title: Arrays and lists
-description: Array and list types, literals, indexing with bounds checks, changing a list, and copying. Methods beyond push and len, for over lists, maps and string splitting are marked as not built yet.
+description: Array and list types, literals, indexing with bounds checks, changing a list, its methods, comparing, for loops, and splitting strings into lists. Maps are marked as not built yet.
 ---
 
 # Arrays and lists
@@ -118,13 +118,28 @@ enum with values is E0527). `contains` needs items that copy: on a list of
 `&mut T x` for a changeable view; the [loops page](reference-control-flow.md#looping-over-a-list)
 has the rules and the example.
 
+## Splitting strings
+
+`text::split(sep)` gives the pieces between the occurrences of `sep`, in order,
+as a `string[?]`. Empty pieces are kept, so `",a,,b,"` gives five pieces and
+`""` gives one empty piece. `text::lines()` gives the lines without their line
+ends (`\n` or `\r\n`); a last line without a line end counts, and an empty text
+has no lines. `text::chars()` gives the characters, one owned string each, counted
+the way `len()` counts them. Every piece is a copy, so the list keeps working
+after the text is gone. A separator that is empty stops the program.
+
+<!-- example: list-split -->
+
+`join` goes back: `parts::join(sep)` puts the items of a `string[?]` together.
+
 ## Not built yet
 
 <!-- status: not-implemented -->
 
-`split`, `lines` and `chars` returning lists are designed (see
-[Collections](design-collections.md)) and not accepted yet: they say E0901. Generic structs holding a list (`Stack<T>`) wait for generic structs;
-generic functions over lists already work:
+Maps (`Map<K, V>`, see [Collections](design-collections.md)) are designed and
+not accepted yet.
+
+Generic functions over lists already work:
 
 ```drachm
 T add_first<T>(&T[?] xs) { return xs[0] + xs[1]; }

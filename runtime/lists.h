@@ -83,6 +83,12 @@ void drachm_list_drop(drachm_list *l, uint64_t size, drachm_drop_fn drop_elem);
 // list gives the empty string.
 void drachm_list_join(drachm_str *out, const drachm_list *l, const drachm_str *sep);
 
+// ---- string splitting (runtime/strings/src/strings_split.rs) ----
+// Each gives a new list of owned strings, replacing whatever `out` held.
+void drachm_str_split(drachm_list *out, const drachm_str *s, const drachm_str *sep); // empty sep stops the program
+void drachm_str_lines(drachm_list *out, const drachm_str *s);
+void drachm_str_chars(drachm_list *out, const drachm_str *s);
+
 // ---- maps: insertion-ordered table, type-erased ----
 // `entries` holds one slot per insertion (dead slots included until a rebuild),
 // `index` maps hash positions to slots. A zero map is an empty map.
