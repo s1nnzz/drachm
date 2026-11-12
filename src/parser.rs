@@ -1466,7 +1466,7 @@ impl Parser<'_> {
         let mut calls = 0;
         loop {
             let ignore = self.peek() == &Tok::Ident("ignore".to_string()) && self.peek_at(1) == &Tok::Kw("failure");
-            if (ignore || matches!(self.peek(), Tok::Kw("fails"))) && (e.paren || matches!(e.kind, ExprKind::Call { .. } | ExprKind::Method { .. } | ExprKind::New { .. })) {
+            if ignore || matches!(self.peek(), Tok::Kw("fails")) {
                 return self.call_suffix(e);
             }
             let sym = match self.peek() {

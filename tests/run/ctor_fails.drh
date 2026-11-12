@@ -1,0 +1,52 @@
+// A constructor may fail. The shorthand takes `maybe`, `fails` or handlers
+// after the value, `new` takes them after the value list. When it fails after
+// setting a string field, nothing leaks.
+in io;
+
+failure PortError {
+    Zero "port zero is not allowed",
+    Reserved(uint32 n) f"port ${n} is reserved" exit 3,
+}
+
+struct Port {
+public:
+    uint32 n;
+    string label;
+
+    Port(uint32 n) fails PortError {
+        self.label = f"port ${n}";
+        if (n == 0) { fail Zero; }
+        if (n < 1024) { fail Reserved(n); }
+        self.n = n;
+    }
+
+    Port(string text) {
+        self.n = 1;
+        self.label = text;
+    }
+}
+
+Port make(uint32 n) fails PortError {
+    Port p = n fails;
+    return p;
+}
+
+none main() {
+    Port a = 8080 maybe new Port of ("default");
+    io::outln(f"${a.label} ${a.n}");
+    Port b = 0 maybe new Port of ("fallback");
+    io::outln(f"${b.label} ${b.n}");
+    Port c = new Port of (22) maybe new Port of ("fallback");
+    io::outln(f"${c.label}");
+    Port d = 80 fails with (PortError e) => {
+        io::outln(f"cannot: ${e}");
+        maybe new Port of ("handled");
+    };
+    io::outln(f"${d.label}");
+    Port e2 = make(0) fails with (any e) => { maybe new Port of ("from make"); };
+    io::outln(f"${e2.label}");
+    Port f = make(9000) maybe new Port of ("no");
+    io::outln(f"${f.label}");
+    Port g = new Port of (1) fails with (PortError e) => { io::outln(f"${e::exit()}"); maybe new Port of ("g"); };
+    io::outln(g.label);
+}

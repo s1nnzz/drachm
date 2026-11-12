@@ -399,7 +399,7 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
                 func: mid,
                 static_span: m.is_static,
                 ctor: m.ctor,
-                no_fails: m.ctor || (m.operator.is_none() && m.func.name == "drop"),
+                no_fails: m.operator.is_none() && m.func.name == "drop",
             };
             let checked = check_body(&mut g, src, diags, &m.func, Some(ctx), symbol);
             emit(&mut funcs, mid, checked);
@@ -1111,13 +1111,19 @@ fn check_body(g: &mut Globals, src: &str, diags: &mut Vec<Diagnostic>, f: &ast::
         (id, ty)
     });
     let mut body = cx.block(&f.body);
+    // A constructor that can fail leaves `self` half built on a `fail`: it owns what it has.
+    if let Some((id, _)) = ctor_self
+        && cx.outcome.is_some()
+    {
+        body.insert(0, hir::Stmt::Decl(id));
+    }
     // A failing function that returns nothing succeeds when it reaches its end.
     if cx.outcome.is_some() && cx.ret == Some(Type::None) {
         body.push(hir::Stmt::Return(cx.wrap_ok(None)));
     }
     if let Some((id, ty)) = ctor_self {
         body.push(hir::Stmt::Check { local: id, kind: hir::CheckKind::CtorEnd, span: f.body.end });
-        body.push(hir::Stmt::Return(Some(hir::Expr::new(hir::ExprKind::Local(id), ty))));
+        body.push(hir::Stmt::Return(cx.wrap_ok(Some(hir::Expr::new(hir::ExprKind::Local(id), ty)))));
     }
     let locals = cx
         .locals
@@ -1537,7 +1543,7 @@ impl Checker<'_> {
                 }
                 let ty = self.locals[id].ty.unwrap_or(Type::None);
                 out.push(hir::Stmt::Check { local: id, kind: hir::CheckKind::CtorEnd, span: *span });
-                out.push(hir::Stmt::Return(Some(hir::Expr::new(hir::ExprKind::Local(id), ty))));
+                out.push(hir::Stmt::Return(self.wrap_ok(Some(hir::Expr::new(hir::ExprKind::Local(id), ty)))));
             }
             Stmt::Fill { partial, target, with, body, span } => self.fill(*partial, target, with.as_ref(), body, *span, out),
             Stmt::Return { value, span } => {
@@ -2007,7 +2013,7 @@ impl Checker<'_> {
     }
 
     /// A declaration's value, for a binding of type `ty`.
-    fn init(&mut self, v: &ast::Init, ty: Option<Type>) -> Option<hir::Expr> {
+    fn init_inner(&mut self, v: &ast::Init, ty: Option<Type>) -> Option<hir::Expr> {
         match v {
             ast::Init::Expr(e) => {
                 let Some(t) = ty else {
@@ -2069,6 +2075,74 @@ impl Checker<'_> {
                 }
             }
         }
+    }
+
+    /// What follows `=` in a declaration of type `ty`.
+    fn init(&mut self, v: &ast::Init, ty: Option<Type>) -> Option<hir::Expr> {
+        if let (ast::Init::Expr(e), Some(t)) = (v, ty)
+            && let Some(done) = self.failing_shorthand(e, t)
+        {
+            return done;
+        }
+        let before = self.diags.len();
+        let x = self.init_inner(v, ty)?;
+        // A constructor that can fail, chosen by the shorthand, with nothing after it.
+        if matches!(&x.kind, hir::ExprKind::Call(fid, _) if !self.g.sigs[*fid].fails.is_empty())
+            && !self.diags[before..].iter().any(|d| d.code.id == "E0544")
+        {
+            let span = match v {
+                ast::Init::Expr(e) => e.span,
+                ast::Init::Fields(_, span) => *span,
+            };
+            self.report_unhandled(span, &x);
+            return None;
+        }
+        Some(x)
+    }
+
+    /// `Port p = 8080 maybe fallback;` (also `fails` and `fails with`): the
+    /// shorthand builds the struct with a constructor that can fail, and the
+    /// suffix says what happens when it does. `None` when `e` is not that.
+    fn failing_shorthand(&mut self, e: &ast::Expr, t: Type) -> Option<Option<hir::Expr>> {
+        let s = t.struct_id()?;
+        if !self.g.structs[s].ctors.iter().any(|c| !self.g.sigs[c.func].fails.is_empty()) {
+            return None;
+        }
+        let value = match &e.kind {
+            ExprKind::Maybe { value, .. } | ExprKind::PassUp(value) => value,
+            ExprKind::Handled { call, .. } => call,
+            _ => return None,
+        };
+        match &value.kind {
+            ExprKind::Call { .. } | ExprKind::Method { .. } | ExprKind::New { .. } | ExprKind::Path { .. } => return None,
+            ExprKind::Var(n) => {
+                let own = self.lookup(n).and_then(|id| self.locals[id].ty);
+                if own.is_none_or(|lt| lt == t || optionals::is_optional(self.g, lt)) {
+                    return None;
+                }
+            }
+            _ => {}
+        }
+        let v = self.expr_raw(value);
+        let Some(made) = self.construct(t, vec![(None, v, origin(value))], value.span) else { return Some(None) };
+        let word = if matches!(e.kind, ExprKind::Maybe { .. }) { "maybe" } else { "fails" };
+        let f = match self.classify(made) {
+            Ok(f) => f,
+            Err(_) => {
+                self.cannot_fail(value, word);
+                return Some(None);
+            }
+        };
+        let done = match &e.kind {
+            ExprKind::Maybe { fallback, .. } => self.maybe_failing(f, fallback),
+            ExprKind::PassUp(_) => self.pass_up_failing(e, f),
+            ExprKind::Handled { handlers, .. } => self.handled_failing(e, f, handlers),
+            _ => unreachable!(),
+        };
+        Some(match done {
+            Some(Val::Expr(x)) => Some(x),
+            _ => None,
+        })
     }
 
     /// The construction shorthand: struct `t` from values given in field

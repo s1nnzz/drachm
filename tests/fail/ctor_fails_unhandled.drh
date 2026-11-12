@@ -1,0 +1,19 @@
+failure PortError {
+    Zero "port zero is not allowed",
+}
+
+struct Port {
+public:
+    uint32 n;
+
+    Port(uint32 n) fails PortError {
+        if (n == 0) { fail Zero; }
+        self.n = n;
+    }
+}
+
+none main() {
+    // E0544: the constructor can fail and nothing says what then
+    Port a = 8080;
+    Port b = new Port of (1);
+}

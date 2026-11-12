@@ -693,7 +693,7 @@ impl Checker<'_> {
         }
     }
 
-    fn cannot_fail(&mut self, call: &ast::Expr, word: &str) {
+    pub(super) fn cannot_fail(&mut self, call: &ast::Expr, word: &str) {
         self.diags.push(
             Diagnostic::at(&codes::E0003, call.span, format!("`{word}` needs a call that can fail"))
                 .note("this cannot fail")
@@ -724,6 +724,11 @@ impl Checker<'_> {
     /// `call fails`: every failure of the call must be in this function's list.
     pub(super) fn pass_up_expr(&mut self, e: &ast::Expr, call: &ast::Expr) -> Option<Val> {
         let f = self.failing_call(call, "fails")?;
+        self.pass_up_failing(e, f)
+    }
+
+    /// `call fails` for the failing call `f` (`e` is the whole expression).
+    pub(super) fn pass_up_failing(&mut self, e: &ast::Expr, f: Failing) -> Option<Val> {
         if let Some(&missing) = f.fails.iter().find(|id| !self.fails.contains(id)) {
             let name = self.g.enums[missing].name.clone();
             let mut d = Diagnostic::at(&codes::E0548, e.span, format!("`{}` can fail with `{name}`, but this function does not list it", f.name))
@@ -752,6 +757,11 @@ impl Checker<'_> {
             }
             return None;
         };
+        self.handled_failing(e, f, handlers)
+    }
+
+    /// `f fails with ...` for the failing call `f` (`e` is the whole expression).
+    pub(super) fn handled_failing(&mut self, e: &ast::Expr, f: Failing, handlers: &[ast::Handler]) -> Option<Val> {
         if f.negated {
             self.diags.push(
                 Diagnostic::at(&codes::E0901, e.span, "a handler after `!=` with an `==` that can fail is not supported yet")

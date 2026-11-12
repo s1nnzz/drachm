@@ -51,14 +51,9 @@ pub(super) fn declare_ctor(g: &mut Globals, id: StructId, m: &ast::Method, diags
         );
         return None;
     }
-    if !f.fails.is_empty() {
-        diags.push(
-            Diagnostic::at(&codes::E0901, f.fails_span.unwrap_or(f.span), "a constructor that fails is not supported yet")
-                .note("`fails` on a constructor")
-                .help("check the values before building the struct, in a function that fails"),
-        );
-    }
-    let sig = Sig { name: f.name.clone(), params, ret: Some(g.structs[id].ty), span: f.span, fails: Vec::new(), outcome: None };
+    let ret = Some(g.structs[id].ty);
+    let (fails, outcome) = failures::signature(g, f, ret, true, diags);
+    let sig = Sig { name: f.name.clone(), params, ret, span: f.span, fails, outcome };
     let func = g.add_sig(sig);
     let names = f.params.iter().map(|p| p.name.clone()).collect();
     g.structs[id].ctors.push(CtorInfo { func, names, public: m.public, span: f.name_span });
