@@ -1,0 +1,21 @@
+//--!$unsafe: true
+in io;
+
+// C: void bump(int *p) { if (p) *p += 1; }
+// The same needs `unsafe`, because the compiler cannot check a raw pointer.
+unsafe none bump(*uint32 p) {
+    if (p == none) {
+        return;
+    }
+    *p = *p + 1;
+}
+
+none main() {
+    mut uint32 count = 41;
+    unsafe {
+        bump(address of count);
+        *uint32 nothing = none;
+        bump(nothing);
+    }
+    io::outln(count::text());
+}

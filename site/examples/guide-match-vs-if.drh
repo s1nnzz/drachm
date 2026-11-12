@@ -1,0 +1,40 @@
+in io;
+
+// The same decision twice. The if chain repeats `code` on every line.
+string nameIf(uint32 code) {
+    if (code == 200 || code == 201 || code == 204) {
+        return "ok";
+    } else if (code == 301 || code == 302) {
+        return "moved";
+    } else if (code >= 400 && code <= 499) {
+        return "client error";
+    } else {
+        return "other";
+    }
+}
+
+// With match the value is named once, and ranges and lists read directly.
+string nameMatch(uint32 code) {
+    match (code) {
+        case 200, 201, 204 { return "ok"; }
+        case 301, 302      { return "moved"; }
+        case 400..499      { return "client error"; }
+        case _             { return "other"; }
+    }
+}
+
+none main() {
+    for (uint32 code of 199..201) {
+        io::outln(f"${code}: ${nameIf(code)} ${nameMatch(code)}");
+    }
+    io::outln(f"302: ${nameIf(302)} ${nameMatch(302)}");
+    io::outln(f"404: ${nameIf(404)} ${nameMatch(404)}");
+    io::outln(f"500: ${nameIf(500)} ${nameMatch(500)}");
+
+    // An if is still the right tool for a condition that is not a value.
+    uint32 hp = 3;
+    bool poisoned = true;
+    if (hp < 5 && poisoned) {
+        io::outln("drink the antidote");
+    }
+}

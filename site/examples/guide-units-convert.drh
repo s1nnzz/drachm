@@ -1,0 +1,35 @@
+in io;
+in si;
+
+none main() {
+    float64<m/s> v = 10.0<m/s>;
+
+    // ::in changes the unit and keeps the number type.
+    float64<km/h> kmh = v::in<km/h>();
+    io::outln(kmh::text() + " " + kmh::unitText());
+
+    // ::to changes the number type and keeps the unit.
+    float32<m/s> small = v::to<float32>();
+    io::outln(small::text() + " " + small::unitText());
+
+    // A plain number going in gets the unit of the place it lands.
+    mut float64<m> d = 5;
+    io::outln(d::text());
+    d = 0;
+    d++;
+    io::outln(d::text());
+
+    // A measure going to a plain number becomes its amount in the base unit.
+    float64 grams_as_kg = 250.0<g>;
+    uint32 metres = 3<km>;
+    io::outln(grams_as_kg::text());
+    io::outln(metres::text());
+
+    // * and / take plain numbers. + - % and comparisons need units.
+    float64<m> twice = d * 2.0;
+    float64<m> more = d + 5.0<m>;
+    bool far = more > 0<m>;
+    io::outln(twice::text());
+    io::outln(more::text());
+    io::outln(far::text());
+}

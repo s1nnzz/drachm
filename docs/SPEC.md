@@ -1,6 +1,7 @@
 # Drachm Language Specification (design snapshot)
 
-Snapshot of every design decision as of 2026-11-10. The living version is the
+Snapshot of every design decision as of 2026-11-12. Things marked *(implementer's reading)* are
+not the owner's explicit choice (see `docs/impl/owner-answers.md`). The living version is the
 design doc: https://claude.ai/artifact/DxosrpAV2x2TzpfNbaFw8i. If the two disagree,
 ask the language's owner which is current; update both when a decision changes.
 
@@ -23,14 +24,17 @@ Items marked **OPEN** are undecided. Do not invent answers for them: ask the own
 - Conditions are always parenthesised: `if (x)`, `while (x)`, `match (x)`, `for (...)`.
 - Keywords so far: `otherwise any failure because exit extends Self none mut if else while for of match case return skip to
   struct interface with static public private new in out from as fails fail maybe
-  copy lives open break continue unsafe async await move test true false lend take leaving address
-  stays changes by asm`. Always reserved: `lend`, `take`. Context-only (ordinary names elsewhere):
+  copy lives open break continue unsafe async await move test true false lend take destroy leaving address
+  stays changes by asm`. Always reserved: `lend`, `take`, `destroy`. Context-only (ordinary names elsewhere):
   `to` directly after `skip`; `by` directly after a range in `for (... of a..b by n)`;
   `unit` at the start of a top-level item, followed by a name and `;` or `=` (a unit
   declaration; elsewhere an ordinary name, so `static Circle unit()` is fine);
   `leaving` directly after `take <place>`; `address` directly before `of`; `stays` directly after a
   struct's name (and `lives` list); `changes` directly before `self` after an interface method's
-  parameters; `asm` directly after an `unsafe` function's signature. `drop` is a reserved method name,
+  parameters; `asm` directly after an `unsafe` function's signature; `globbed` directly after `case`;
+  `now` before a field read inside `fill` or a constructor; `fill`, `def`, `defaults`, `auto` in their
+  declarations; `has value` / `is empty` after an optional; `ignore failure` after a call
+  *(implementer's reading of which are context-only)*. `drop` is a reserved method name,
   not a keyword. **OPEN:** owner to confirm which of these are reserved everywhere.
 - File flags: `//--!$key: value` lines, allowed only at the very top of a file
   (they override `drachm.toml` settings for that file).
@@ -104,6 +108,8 @@ if (a) { } else if (b) { } else { }
 while (cond) { }
 for (mut uint32 i = 0; i < 10; i++) { }     // C-style
 for (string name of names) { }             // for-each uses `of`
+for (string c of text) { }                 // text: an owned copy of each character
+for (&string c of text) { }                // or a borrowed view (no copy)
 for (uint32 i of 0..9) { }                 // ranges are inclusive: 0 to 9
 for (uint32 i of 0..10 by 3) { }           // 0, 3, 6, 9
 for (float64 x of 0.0..1.0 by 0.25) { }    // float ranges must say `by`
@@ -288,6 +294,10 @@ uint32? age = ages["Bob"];                 // missing key -> none
 - `T?` = `Optional<T>`, an ordinary stdlib enum: `enum Optional<T> { Some(T value), none, }`.
 - `none` is both the empty return type and the empty optional value.
 - `uint32? age;` starts as `none`. `maybe` unwraps with a fallback: `ages["Bob"] maybe 0`.
+- Built (S5A.2): `T?` is one enum per distinct `T` (variants `none`, `Some`). A `T`
+  wraps to a `T?` wherever a `T?` is wanted. `x has value` / `x is empty` test it
+  (`x == none` is E0533). The fallback of `maybe` is one value or a parenthesised
+  expression (E0534). Matching: `case uint32 a` and `case none`.
 
 ### Generics
 
@@ -323,6 +333,24 @@ match (s) {
 
 Bare variants require the language server to complete them.
 
+```cpp
+case Text(take string body)  { }    // moves the payload out; the matched value is used up
+case Text(copy string body)  { }    // copies it
+case Circle(float64 r) if r > 10.0 { }            // guard
+case Rect(2.0, float64 h)    { }    // a value inside a pattern
+case Some(Circle(float64 r)) { }    // nesting
+case A(..), B(..)            { }    // several patterns, one body
+```
+
+- A payload that owns memory must say `take` or `copy` in the pattern; a bare `string body` is an
+  error with both fix-its. Copy payloads (numbers, bools, Copy structs) bind plainly.
+- All pattern forms work: guards, several patterns per body, nesting, values inside patterns.
+- `==` / `!=` only for enums without payloads (`if (d == North)`). No methods inside enums:
+  behaviour is plain functions taking the enum.
+- Variant names: the expected type decides first; with no expected type the struct or function of
+  that name wins; `Shape::Circle(1.0)` names the variant explicitly. A variant may share a name
+  with a struct.
+
 ## 4b. Maths
 
 - `math` module: `sqrt pow abs min max clamp floor ceil round sin cos tan log`,
@@ -336,7 +364,7 @@ Bare variants require the language server to complete them.
 unit m;  unit s;  unit kg;            // base units
 unit N = kg * m / s^2;                // derived (^ is power inside unit expressions)
 unit km = 1000 m;                     // scaled
-unit pct = 0.01;                      // a named ratio, no base unit
+unit pct = 0.01;                      // a named ratio, no base unit (implementer's choice)
 unit degC = K offset -273.15;         // a point on a scale
 
 float64<m> dist = 100.0<m>;
@@ -357,7 +385,7 @@ float64<m/s> speed = dist / time;     // dist + time is a compile error
     a name the SI set has is E0403.
   - Unit into a plain slot strips to the base amount: `uint8 s = 3<m>;` is 3,
     `uint32 t = 3<km>;` is 3000. Whole numbers truncate toward zero when a unit
-    shrinks (W0102).
+    shrinks (W0102 is the implementer's reading).
   - Plain into a slot with a unit attaches it: declaring or assigning
     (`float64<m> d = 5;` is 5 m, `d = 0;` is 0 m), passing an argument, returning
     and fields. `d++` adds one of `d`'s own unit. Only operators are strict.
@@ -381,7 +409,8 @@ float64<m/s> speed = dist / time;     // dist + time is a compile error
   - Points and deltas: point `-` point is a delta (`delta degC`), point `+`
     delta is a point. Point `+` point, a point times anything and unary `-` on a
     point are E0409. `delta degC` is the same type as `K` (same size, converts
-    freely), and `::unitText()` of a delta prints `delta degC`.
+    freely), and `::unitText()` of a delta prints `delta degC`
+    *(implementer's choice, as is a bare `0` not being unit-free beside a point: write `0<degC>`)*.
   - No unit-generic functions until generics (step 6); a unit in a signature is
     a fixed unit.
   - Diagnostics: E0401 to E0409 (section 10), and W0102 for lossy scaling.
@@ -440,7 +469,25 @@ private:
   can be overloaded by the right-hand type; the overload is chosen like a
   constructor's (exact, then lossless, then lossy with a warning). A dot
   product would be a named method, not `*`.
-- A struct with no constructor gets an automatic one taking its fields in order.
+- A struct with no constructor gets an automatic one taking its fields in order. Writing any
+  constructor removes it, unless the struct says `Person(auto);`, which keeps it alongside the
+  written ones. *(Implementer's reading, unasked: named values match the parameter names of the
+  chosen overload; one constructor calling another stays E0901.)*
+- Field-by-field filling: a struct declared without a value is filled through `fill p { p.name = "a";
+  p.hp = 5; }`, which must give every field a value by its `}`. `fill partial p { ... }` sets some
+  fields and leaves `p` incomplete. Until `p` is complete, `fill` / `fill partial` are the only ways
+  to touch it.
+- Defaults: a `def` is a named template of field values, decoupled from the struct, and a struct may
+  have several: `def PlayerStart of Player { hp = 100; title = "none"; }`. The struct names its
+  default in its head: `struct Player defaults PlayerStart { ... }`. Shorthand: `def Player { ... }`
+  and `struct default Player { ... }`. `fill p with defaults { }` starts from the default def;
+  `fill p with Veteran { }` picks a named one. Def values are any expression that does not read
+  fields, and a def may extend another: `def Veteran of Player from PlayerStart { hp = 200; }`.
+- Reading a field set earlier in a `fill` or constructor needs `now`: `p.max = now p.hp * 2;`,
+  `now self.r`. A plain read of an incomplete value is an error with the `now` fix-it; methods on an
+  incomplete value are not allowed.
+- Scheduled with step 5. In step 3, assigning a field of a struct with no value is E0332 and `fill`
+  is E0901.
 - `.new()` is not special; it can exist as an ordinary user function.
 
 ## 6. Memory: ownership and borrowing
@@ -466,7 +513,11 @@ private:
   through `r`. `r = &mut other;` re-points `r`: allowed because the right side is
   a reference (a borrowed thing can never be assigned a pointer, so the right
   side's type decides).
-- Passing on a borrow you already hold: `add(lend s);`.
+- Passing on a borrow you already hold: `add(lend s);`. `&mut s` where `s` is already a `&mut`
+  binding is an error with the fix-it "write `lend s`"; there are no `&&T` types.
+- A `&mut` where `&` is expected is written `show(&m)` (an explicit shared borrow through the
+  `&mut` you hold, the one allowed borrow of a borrow); bare `show(m)` is an error with the fix-it
+  "write `&m`".
 - `&T` copies. `&mut T` moves: `&mut string r2 = r;` uses `r` up.
 - Two-phase receivers: `s::append(s::len()::text())` is fine. Only borrows still
   alive when the receiver changes are errors: `xs::push(xs::first())`.
@@ -518,6 +569,8 @@ private:
   destroyed.
 - On a struct with `drop()`, plain `take x.f` is an error; `take x.f leaving v` is
   allowed (the struct stays complete).
+- Calling it yourself, `x::drop()`, is an error. `destroy x;` runs `drop()` now and ends `x` like a
+  move (nothing runs at scope end); `destroy` is a keyword.
 
 ### Lifetimes
 
@@ -525,7 +578,7 @@ private:
   borrow could come from several parameters (otherwise E0308); it names whole
   parameters, never paths:
   `&string longest(&string a, &string b) lives a, b { }`.
-- A method names `self` with a from clause, sources joined by `or`:
+- A method names `self` with a from clause, sources joined by `or` *(implementer's reading)*:
   `&string pick(&string key) lives from self or key { }`. Plain `lives a, b`
   stays for parameters. `lives p` keeps the whole of parameter `p` borrowed
   while the result is used (owner, WP8 Q1).
@@ -539,9 +592,12 @@ private:
 
 ### Unsafe and raw pointers
 
-- One pointer kind, `*T`; it may be written through (no `*mut T`).
+- Pointer kinds: `*T` may be written through (no `*mut T`); `*fixed T` is read-only. `address of` a
+  `mut`/`open` binding gives `*T`, `address of` an immutable binding gives `*fixed T`. Conversion is
+  explicit both ways, inside `unsafe`: `p::freeze()` (`*T` to `*fixed T`), `p::thaw()` (back).
 - `address of n` makes a pointer. Everything touching a pointer value (making,
-  copying, comparing, dereferencing) must be inside `unsafe { }`; `*p = 7;`
+  copying, comparing, dereferencing, moving, passing, returning, storing) must be inside
+  `unsafe { }`, and the body of an `unsafe` function counts as one unsafe block; `*p = 7;`
   dereferences. Both the file flag `//--!$unsafe: true` and an `unsafe` block are
   needed.
 - A pointer can be `none` (null), tested with `p == none`. Two pointers of one
@@ -550,6 +606,8 @@ private:
 - `unsafe` functions: `unsafe` before the return type; calling one needs an
   `unsafe { }` block.
 - `*T` moves (`copy p` duplicates it).
+- Writing through a raw pointer field (`unsafe { *self.counter += 1; }`) does not change `self`: the
+  method stays `&self`.
 - No garbage collector.
 
 ## 7. Error handling (replaces Result/`?`; there is no Result type)
@@ -585,7 +643,7 @@ default 1):
 ```cpp
 failure ToolError {
     NoInput              "no input file"          exit 2,
-    BadConfig(string k)  "bad config key ${k}"    exit 3,
+    BadConfig(string k)  f"bad config key ${k}"   exit 3,
     LoadFailed           "couldn't load save",
 }
 
@@ -600,6 +658,21 @@ string t = fs::read(p) fails with (FileMissing e) => {
   has `Empty`, write `fail ParseError::Empty;`.
 - `maybe` takes any expression and evaluates it only when needed:
   `load(p) maybe makeDefault()`.
+- Failure messages are ordinary strings; write `f"..."` to interpolate.
+- An escaping failure prints to stderr with an `error: ` prefix, then one `because:` line per cause;
+  `${e}` prints the whole chain. Exit codes are 0-255; the failure's code wins over a number `main`
+  returns.
+- `::to<T>()` on text fails with the built-in `ConvertError` (variants `Empty`, `NotANumber`,
+  `OutOfRange`).
+- Handlers may name a single variant (`fails with (BadConfig e) => { }`); `any e` can be re-raised
+  with `fail e;` when the enclosing function lists it; `e` has members `e::message()`, `e::exit()`,
+  `e::cause()`.
+- A `maybe` fallback is one value or a parenthesised expression; anything longer is an error asking
+  for parentheses: `(parse(s) maybe 0) + 1`, `parse(s) maybe (n * 2)`.
+- Ignoring a failure: `fs::close(f) fails with none;` or `fs::close(f) ignore failure;`.
+- Failing functions may be anything, operator methods and `drop()` included (`bool ==(Port o) fails X`,
+  then `(p == q) maybe false`). *(Implementer's note: a failure escaping an automatic `drop()` at scope
+  end is reported like an escape from `main` until the owner says otherwise.)*
 - Constructors can fail: `Port(uint32 n) fails BadPort { ... }`, then
   `Port p = 8080 maybe Port::default();`.
 - Optionals in `match`: `case uint32 a { }` (has a value) and `case none { }`.
@@ -719,7 +792,7 @@ Diagnostics: detailed Rust/Elm style (labelled source lines, explanation,
 `help:` fix). `E` codes for errors, `W` for warnings, `drachm explain E0301`.
 Red errors, yellow warnings, colour auto-off when piped. Report all errors.
 `E` and `W` share one number space: `00xx` syntax, `01xx` types and
-conversions, `02xx` names and bindings, `03xx` ownership, `04xx` units, `05xx` constructors, enums, optionals and failures (enums built: E052x), `09xx` not supported
+conversions, `02xx` names and bindings, `03xx` ownership, `04xx` units, `05xx` constructors, enums, optionals and failures (enums built: E052x; optionals: E053x), `09xx` not supported
 yet. The table is `src/diag/codes.rs`. W0102 looks like this:
 
 ```text
@@ -739,8 +812,9 @@ system `fs time env process`; concurrency/network `thread async net http`.
 `io::out` (no newline), `io::outln` (newline), `io::outf` (printf-style),
 `io::inln()` (the next line of standard input as a `string`, without its line
 ending; `""` at the end) and `io::ended()` (no input left). Text reads as a
-number with `text::to<T>()`; until failing calls exist, bad text stops the
-program (exit 101). Rules: `site/content/reference-io.md`.
+number with `text::to<T>()`, forgivingly: surrounding spaces are ignored, a leading `+` is allowed,
+`.5` and `5.` are fine for floats, out-of-range is still bad text. Bad text fails with `ConvertError`;
+until failing calls exist it stops the program (exit 101) *(implementer's interim choice, not asked)*. Rules: `site/content/reference-io.md`.
 
 ## Later
 

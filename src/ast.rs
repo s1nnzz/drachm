@@ -19,6 +19,9 @@ pub struct Program {
     pub defs: Vec<DefDecl>,
     /// The file flag `//--!$unsafe: true` is present (set by `lib::check`).
     pub unsafe_allowed: bool,
+    /// Every `T?` written in the file, with `T` as written (no marks, no `?`).
+    /// The checker makes one optional type for each distinct `T` (S5A.2).
+    pub optionals: Vec<TypeName>,
 }
 
 /// `struct Name { fields and methods }`
@@ -133,6 +136,9 @@ pub struct TypeName {
     pub mods: Vec<(TypeMod, Span)>,
     /// The unit in angle brackets: `float64<m/s>`, `float64<delta degC>`.
     pub unit: Option<UnitSpec>,
+    /// The `?` after the name: `uint32?` is an optional `uint32`. Marks written
+    /// before the name apply to the optional (`*uint32?` is a pointer to one).
+    pub optional: Option<Span>,
 }
 
 /// A unit written in angle brackets after a number type or a number literal,
@@ -501,10 +507,12 @@ pub enum ExprKind {
     NoneValue,
     /// `new Type of (values)`: a constructor call, with the values as written.
     New { name: String, name_span: Span, values: Vec<FieldValue> },
-    /// `call maybe fallback`: the call's value, or the fallback when it fails.
-    Maybe { call: Box<Expr>, fallback: Box<Expr> },
     /// `call fails`: pass a failure of the call up to the caller.
     PassUp(Box<Expr>),
     /// `now e`: a field already set may be read inside a constructor or `fill`.
     Now(Box<Expr>),
+    /// `value maybe fallback`: the value of an optional, or `fallback` when it is `none`.
+    Maybe { value: Box<Expr>, fallback: Box<Expr> },
+    /// `value has value` (`has: true`) or `value is empty` (`has: false`) on an optional.
+    OptionalTest { value: Box<Expr>, has: bool },
 }

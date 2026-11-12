@@ -7,6 +7,7 @@ mod control;
 mod enums;
 mod failures;
 mod fill;
+mod optionals;
 mod overload;
 mod strings;
 mod units;
@@ -95,6 +96,8 @@ struct Globals {
     structs_by_name: HashMap<String, StructId>,
     enums: Vec<EnumInfo>,
     enums_by_name: HashMap<String, hir::EnumId>,
+    /// The optional enum of each `T`, for `T?` (`optionals.rs`).
+    optional_ids: HashMap<Type, hir::EnumId>,
     /// Indexed by `FuncId`; only filled in for methods.
     self_use: Vec<SelfUse>,
     /// The automatic `==` function of each struct that needs one.
@@ -138,7 +141,7 @@ impl Globals {
         if let Some(spec) = &t.unit {
             return self.resolve_unit_type(t, spec, &mut Vec::new());
         }
-        let base = self.resolve_base_quiet(t)?;
+        let base = optionals::wrap(self, t, self.resolve_base_quiet(t)?)?;
         Some(t.mods.iter().rev().fold(base, |ty, (m, _)| match m {
             ast::TypeMod::Ref { mutable } => Type::borrow(*mutable, ty),
             ast::TypeMod::Ptr => Type::ptr(ty),
@@ -155,6 +158,19 @@ impl Globals {
                 diags.push(Diagnostic::at(&codes::E0901, *span, "a borrow or pointer of `none` is not supported yet"));
                 return None;
             }
+        }
+        // `Optional<T>` is written `T?`; the spelled-out form waits for generics.
+        if t.name == "Optional" && t.unit.is_some() && t.optional.is_none() {
+            diags.push(Diagnostic::at(&codes::E0901, t.span, "`Optional<T>` is not supported yet").help("write `T?`, for example `uint32?`"));
+            return None;
+        }
+        if t.optional.is_some() {
+            if let Some(ty) = self.resolve_quiet(t) {
+                return Some(ty);
+            }
+            // The optional was not made, so its `T` is unknown: report that name.
+            self.resolve(&ast::TypeName { mods: Vec::new(), optional: None, ..t.clone() }, diags);
+            return None;
         }
         if let Some(spec) = &t.unit {
             return self.resolve_unit_type(t, spec, diags);
@@ -287,6 +303,7 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
     let all_failures: Vec<&ast::Failure> = core.failures.iter().chain(&prog.failures).collect();
     let failure_ids: Vec<Option<hir::EnumId>> = all_failures.iter().map(|f| failures::declare_failure(&mut g, f, diags)).collect();
     g.fail.convert_error = g.enums_by_name.get("ConvertError").copied();
+    optionals::declare_optionals(&mut g, &prog.optionals);
     for (s, id) in prog.structs.iter().zip(&struct_ids) {
         if let Some(id) = *id {
             declare_fields(&mut g, id, s, diags);
@@ -1406,6 +1423,10 @@ impl Checker<'_> {
                         out.push(hir::Stmt::Assign(hir::Place::local(id), e));
                     }
                 }
+                // `uint32? x;` starts as `none`.
+                if value.is_none() && let Some(t) = ty && optionals::is_optional(self.g, t) {
+                    out.push(hir::Stmt::Assign(hir::Place::local(id), optionals::none_value(t, *span)));
+                }
             }
             Stmt::Assign { target, op, value, span } => match &target.kind {
                 ExprKind::Var(name) => self.assign_local(name, target.span, *op, value, *span, out),
@@ -1882,6 +1903,9 @@ impl Checker<'_> {
         if let Some(made) = self.bare_variant(e, to) {
             return made;
         }
+        if matches!(e.kind, ExprKind::NoneValue) && optionals::is_optional(self.g, to) {
+            return Some(optionals::none_value(to, e.span));
+        }
         if to.is_ptr() && matches!(e.kind, ExprKind::NoneValue) {
             return Some(hir::Expr::new(hir::ExprKind::NullPtr, to).at(e.span));
         }
@@ -2127,6 +2151,20 @@ impl Checker<'_> {
     }
 
     fn into(&mut self, v: Val, to: Type, from: Origin) -> Option<hir::Expr> {
+        // A `T` goes to a `T?` by itself (`uint32? x = 5;`, `return 5;`).
+        if let Some(inner) = optionals::inner_of(self.g, to) && !matches!(&v, Val::Expr(e) if e.ty == to) {
+            let x = self.into(v, inner, from)?;
+            return Some(optionals::some_value(to, x, from.span));
+        }
+        // An optional where its value is wanted is E0531.
+        if let Val::Expr(e) = &v
+            && optionals::is_optional(self.g, e.ty)
+            && !optionals::is_optional(self.g, to)
+        {
+            let ty = e.ty;
+            self.optional_as_value(ty, Some(to), from);
+            return None;
+        }
         if to.mentions_unit() || units::has_unit(&v) {
             return self.unit_into(v, to, from);
         }
@@ -2302,7 +2340,6 @@ impl Checker<'_> {
     fn expr_inner(&mut self, e: &ast::Expr) -> Option<Val> {
         let typed = |kind, ty| Some(Val::Expr(hir::Expr::new(kind, ty)));
         match &e.kind {
-            ExprKind::Maybe { call, fallback } => self.maybe_expr(call, fallback),
             ExprKind::PassUp(call) => self.pass_up_expr(e, call),
             ExprKind::Num(n) if n.unit.is_some() => self.unit_literal(n, e.span),
             ExprKind::Num(n) => match n.suffix {
@@ -2444,9 +2481,11 @@ impl Checker<'_> {
                 v
             }
             ExprKind::NoneValue => {
-                self.diags.push(Diagnostic::at(&codes::E0901, e.span, "`none` as a value is not supported yet"));
+                self.none_without_type(e.span);
                 None
             }
+            ExprKind::Maybe { value, fallback } => self.maybe_expr(value, fallback),
+            ExprKind::OptionalTest { value, has } => self.optional_test(value, *has),
             ExprKind::Range(..) => {
                 self.diags.push(
                     Diagnostic::at(&codes::E0010, e.span, "a range can only be used after `of` in a `for`, or as a `case` pattern")
@@ -2532,7 +2571,8 @@ impl Checker<'_> {
     /// Does a value of type `t` copy when used (R11)?
     fn copies_anyway(&self, t: Type) -> bool {
         match t {
-            Type::Int { .. } | Type::Float(_) | Type::Bool | Type::Ref { mutable: false, .. } => true,
+            // A number with a unit is a number (`of` is always Int or Float).
+            Type::Int { .. } | Type::Float(_) | Type::Bool | Type::Unit { .. } | Type::Ref { mutable: false, .. } => true,
             Type::Struct { id, .. } => self.g.struct_copy.get(id).copied().unwrap_or(false),
             Type::Enum { id, .. } => self.g.enum_copy.get(id).copied().unwrap_or(false),
             _ => false,
@@ -2641,7 +2681,7 @@ impl Checker<'_> {
         let _ = span;
         let (other, none_left) = if matches!(l.kind, ExprKind::NoneValue) { (r, true) } else { (l, false) };
         if matches!(other.kind, ExprKind::NoneValue) {
-            self.diags.push(Diagnostic::at(&codes::E0901, other.span, "`none` as a value is not supported yet"));
+            self.none_without_type(span);
             return None;
         }
         let v = self.expr_raw(other)?;
@@ -2652,8 +2692,12 @@ impl Checker<'_> {
                 let (a, b) = if none_left { (null, x) } else { (x, null) };
                 Some(Val::Expr(hir::Expr::new(hir::ExprKind::Binary(hop, Box::new(a), Box::new(b)), Type::Bool)))
             }
+            Val::Expr(x) if optionals::is_optional(self.g, x.ty) => {
+                self.optional_vs_none(op, other, span);
+                None
+            }
             _ => {
-                self.diags.push(Diagnostic::at(&codes::E0901, span, "`none` as a value is not supported yet"));
+                self.none_without_type(span);
                 None
             }
         }
@@ -3176,6 +3220,19 @@ impl Checker<'_> {
         };
         let Val::Expr(lhs) = lv else { unreachable!() };
         let lead = lhs.ty;
+        // An optional is not an operand: its value may be missing (E0531).
+        let rhs_ty = match &rv {
+            Val::Expr(r) => Some(r.ty),
+            _ => None,
+        };
+        if optionals::is_optional(self.g, lead) {
+            self.optional_as_value(lead, None, lo);
+            return None;
+        }
+        if let Some(r) = rhs_ty.filter(|&r| optionals::is_optional(self.g, r)) {
+            self.optional_as_value(r, None, ro);
+            return None;
+        }
 
         if lead == Type::Str {
             return self.string_binary(op, lhs, lo, rv, ro);

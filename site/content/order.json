@@ -31,6 +31,27 @@
       ]
     },
     {
+      "title": "Guides",
+      "pages": [
+        "guide-from-python-js",
+        "guide-from-c",
+        "guide-errors",
+        "guide-numbers",
+        "guide-units",
+        "guide-text",
+        "guide-match",
+        "guide-ownership",
+        "guide-enums-optionals",
+        "guide-structs",
+        "guide-errors-handling",
+        "guide-generics",
+        "guide-projects",
+        "guide-performance",
+        "guide-testing",
+        "guide-concurrency"
+      ]
+    },
+    {
       "title": "Reference",
       "pages": [
         "reference-types",

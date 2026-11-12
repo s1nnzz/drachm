@@ -1,0 +1,12 @@
+in io;
+
+struct Holder lives text {
+public:
+    &string text;
+}
+
+none main() {
+    string s = "borrowed text";
+    Holder h = &s;
+    io::outln(h.text);
+}

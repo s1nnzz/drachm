@@ -1,0 +1,20 @@
+in io;
+
+struct Guard {
+    string name;
+
+    none drop() {
+        io::outln("drop " + self.name);
+    }
+}
+
+none main() {
+    Guard a = "a";
+    io::outln("made a");
+    if (true) {
+        Guard b = "b";
+        io::outln("made b");
+    }
+    Guard c = "c";
+    io::outln("end of main");
+}

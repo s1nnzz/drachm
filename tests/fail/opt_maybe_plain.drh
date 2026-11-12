@@ -1,0 +1,4 @@
+none main() {
+    uint32 n = 5;
+    uint32 m = n maybe 0;
+}

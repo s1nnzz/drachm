@@ -1,0 +1,10 @@
+in io;
+
+string shout() {
+    string s = "hi"::upper();
+    return s;
+}
+
+none main() {
+    io::outln(shout());
+}

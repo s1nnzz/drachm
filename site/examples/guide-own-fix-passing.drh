@@ -1,0 +1,29 @@
+in io;
+
+none shout(&mut string s) {
+    s = s::upper();
+}
+
+none show(&string s) {
+    io::outln(s);
+}
+
+none grow(&mut string s) {
+    s += "!";
+}
+
+none twice(&mut string s) {
+    grow(lend s);
+    grow(lend s);
+}
+
+none main() {
+    mut string word = "quiet";
+    shout(&mut word);
+    twice(&mut word);
+    show(&word);
+
+    uint32 n = 5;
+    uint32 m = n;
+    io::outln(m::text());
+}

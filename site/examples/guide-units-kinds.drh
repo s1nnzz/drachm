@@ -1,0 +1,35 @@
+in io;
+in si;
+
+// A base unit, a scaled unit and a derived unit of our own.
+unit ft = 0.3048 m;
+unit mi = 5280 ft;
+unit mph = mi / h;
+
+none main() {
+    // Derived units come from multiplying and dividing.
+    float64<m> dist = 100.0<m>;
+    float64<s> time = 9.58<s>;
+    float64<m/s> speed = dist / time;
+    io::outln(speed::text() + " " + speed::unitText());
+
+    // A force is mass times acceleration. N is the same unit as kg*m/s^2.
+    float64<N> force = 70.0<kg> * 9.8<m/s^2>;
+    io::outln(force::text() + " " + force::unitText());
+
+    // Work is force times distance.
+    float64<J> work = force * dist;
+    io::outln(work::in<kJ>()->text() + " " + work::in<kJ>()->unitText());
+
+    // Scaled units convert to the unit of the left side.
+    float64<mi> run = 2.0<mi> + 528.0<ft>;
+    io::outln(run::text() + " " + run::unitText());
+
+    // The units we declared relate to metres too.
+    float64<m> track = 400.0<ft>::in<m>();
+    io::outln(track::text() + " " + track::unitText());
+
+    // A speed in our own unit.
+    float64<mph> drive = 60.0<mph>;
+    io::outln(drive::in<m/s>()->text() + " m/s");
+}

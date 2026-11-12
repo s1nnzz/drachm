@@ -1,0 +1,34 @@
+in io;
+
+// C: a struct you must remember to release with free() or a destructor call.
+// Drachm: `drop()` runs by itself when the value goes out of scope.
+struct Buffer {
+    string label;
+
+    none drop() {
+        io::outln("released " + self.label);
+    }
+}
+
+Buffer make(string label) {
+    Buffer b = label;
+    return b;
+}
+
+uint32 find(uint32 limit) {
+    Buffer scratch = "scratch";
+    for (uint32 i of 1..limit) {
+        if (i * i > 50) {
+            // Leaving early still releases `scratch`.
+            return i;
+        }
+    }
+    return 0;
+}
+
+none main() {
+    Buffer a = make("a");
+    Buffer b = make("b");
+    io::outln("found " + find(100)::text());
+    io::outln("end of main");
+}

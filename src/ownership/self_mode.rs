@@ -261,7 +261,7 @@ impl Cx<'_> {
             | ExprKind::TryParse { text: inner, .. }
             | ExprKind::PassUp { call: inner }
             | ExprKind::Radix { value: inner, .. } => self.expr(inner, out),
-            ExprKind::Maybe { call: a, fallback: b } | ExprKind::CauseWrap { msg: a, slot: b } | ExprKind::Report { msg: a, slot: b } => {
+            ExprKind::FailMaybe { call: a, fallback: b } | ExprKind::CauseWrap { msg: a, slot: b } | ExprKind::Report { msg: a, slot: b } => {
                 self.expr(a, out);
                 self.expr(b, out);
             }
@@ -270,7 +270,7 @@ impl Cx<'_> {
                     self.expr(v, out);
                 }
             }
-            ExprKind::Binary(_, a, b) | ExprKind::IntPow(a, b) | ExprKind::Logic { lhs: a, rhs: b, .. } => {
+            ExprKind::Binary(_, a, b) | ExprKind::IntPow(a, b) | ExprKind::Logic { lhs: a, rhs: b, .. } | ExprKind::Maybe { value: a, fallback: b } => {
                 self.expr(a, out);
                 self.expr(b, out);
             }

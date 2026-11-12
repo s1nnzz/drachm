@@ -1039,6 +1039,42 @@ impl<'a> Builder<'a> {
                 self.cur = join;
                 Operand::Copy(Place::local(t))
             }
+            ExprKind::Maybe { value, fallback } => {
+                // The optional goes in a temp: a place is read where it is (only
+                // Copy ones get here), an owned value is moved in. Its tag picks
+                // the payload (`Some`) or the fallback (`none`).
+                let opt = value.ty;
+                let tag_ty = crate::mir::ty::tag_type(self.hir.enum_def(opt).tag_size);
+                let held = self.decl(opt, LocalKind::Temp);
+                let v = self.operand(value);
+                self.assign_stmt(Place::local(held), Rvalue::Use(v));
+                let tag = self.new_temp(tag_ty);
+                self.assign_stmt(Place::local(tag), Rvalue::Discriminant(Place::local(held)));
+                let is_some = self.new_temp(Type::Bool);
+                let some_tag = Operand::Const(Constant::Int(1, tag_ty));
+                self.assign_stmt(Place::local(is_some), Rvalue::Binary(hir::BinOp::Eq, Operand::Copy(Place::local(tag)), some_tag));
+                let res = self.decl(e.ty, LocalKind::Temp);
+                let some = self.new_block();
+                let none = self.new_block();
+                let join = self.new_block();
+                self.end(TerminatorKind::If { cond: Operand::Copy(Place::local(is_some)), then: some, els: none });
+                self.cur = some;
+                let mut payload = Place::local(held);
+                payload.proj.push(Proj::Downcast(1));
+                payload.proj.push(Proj::Field(0));
+                let got = self.read(payload, e.ty);
+                self.assign_stmt(Place::local(res), Rvalue::Use(got));
+                self.goto(join);
+                self.cur = none;
+                // The fallback may not run: its temps die inside it.
+                self.push_frame(ScopeKind::Block, self.span);
+                let f = self.operand(fallback);
+                self.assign_stmt(Place::local(res), Rvalue::Use(f));
+                self.pop_frame(self.span);
+                self.goto(join);
+                self.cur = join;
+                self.read(Place::local(res), e.ty)
+            }
             ExprKind::IncDec { place: p, inc, prefix } => {
                 let p = self.hir_place(p);
                 let one = match e.ty {
@@ -1082,7 +1118,7 @@ impl<'a> Builder<'a> {
             ExprKind::InLine => self.call(Callee::InLine, Vec::new(), Type::Str),
             ExprKind::InEnded => self.call(Callee::InEnded, Vec::new(), Type::Bool),
             ExprKind::TryParse { .. } => unreachable!("a text parse is always under `maybe` or `fails`"),
-            ExprKind::Maybe { call, fallback } => self.maybe(e, call, fallback),
+            ExprKind::FailMaybe { call, fallback } => self.maybe(e, call, fallback),
             ExprKind::PassUp { call } => self.pass_up(e, call),
             ExprKind::CauseWrap { msg, slot } => {
                 let ops = self.operands(&[&**msg, &**slot], &|i| Some((i == 1, false)));
@@ -1437,6 +1473,7 @@ fn kind_name(k: &ExprKind) -> &'static str {
         ExprKind::Shift { .. } => "Shift",
         ExprKind::IntPow(..) => "IntPow",
         ExprKind::Logic { .. } => "Logic",
+        ExprKind::Maybe { .. } => "Maybe",
         ExprKind::Convert(_) => "Convert",
         ExprKind::PtrConv(_) => "PtrConv",
         ExprKind::Call(..) => "Call",
@@ -1449,7 +1486,7 @@ fn kind_name(k: &ExprKind) -> &'static str {
         ExprKind::InLine => "InLine",
         ExprKind::InEnded => "InEnded",
         ExprKind::TryParse { .. } => "TryParse",
-        ExprKind::Maybe { .. } => "Maybe",
+        ExprKind::FailMaybe { .. } => "FailMaybe",
         ExprKind::PassUp { .. } => "PassUp",
         ExprKind::CauseWrap { .. } => "CauseWrap",
         ExprKind::Report { .. } => "Report",

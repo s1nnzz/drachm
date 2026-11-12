@@ -93,7 +93,7 @@ pub struct VariantDef {
 pub enum EnumKind {
     /// Declared with `enum`.
     User,
-    /// `T?`: variants `none` (tag 0, no field) and `Some` (tag 1, one field of type `T`).
+    /// `T?` (S5A.2): variants `none` (tag 0, no field) and `Some` (tag 1, one field of type `T`).
     Optional(Type),
     /// Declared with `failure`. Field 0 of every variant is the hidden cause
     /// word (`CAUSE_FIELD`), so it sits at the same offset in all of them.
@@ -493,7 +493,7 @@ pub enum ExprKind {
     /// `call maybe fallback`, `call` being a call of a function that fails
     /// (its type is the outcome): the call's value, or the fallback when it
     /// failed. The fallback runs only on failure. Typed with the value's type.
-    Maybe { call: Box<Expr>, fallback: Box<Expr> },
+    FailMaybe { call: Box<Expr>, fallback: Box<Expr> },
     /// `call fails`: the call's value, or a return of its failure from the
     /// caller. Typed with the value's type.
     PassUp { call: Box<Expr> },
@@ -512,6 +512,10 @@ pub enum ExprKind {
     /// `p::freeze()` / `p::thaw()`: the same pointer bits under the other
     /// pointer kind (`*T` to `*fixed T` or back). Needs `unsafe`.
     PtrConv(Box<Expr>),
+    /// `value maybe fallback` (S5A.2): the payload of the optional `value`
+    /// (of tag `Some`), or `fallback` when it is `none`. `value` is a place
+    /// (read where it is; only for Copy optionals) or an owned temporary.
+    Maybe { value: Box<Expr>, fallback: Box<Expr> },
 }
 
 /// Runtime string functions with a fixed signature (`runtime/strings.h`, and

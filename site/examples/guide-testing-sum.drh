@@ -1,0 +1,24 @@
+in io;
+
+// The function under test.
+uint32 clampedSum(uint32 a, uint32 b, uint32 limit) {
+    uint32 total = a + b;
+    if (total > limit) {
+        return limit;
+    }
+    return total;
+}
+
+// A test program prints what it computes. The .out file next to it holds
+// what it must print, and the test passes when the two match exactly.
+none main() fails ConvertError {
+    io::outln("clampedSum(2, 3, 10) = " + clampedSum(2, 3, 10)::text());
+    io::outln("clampedSum(8, 9, 10) = " + clampedSum(8, 9, 10)::text());
+
+    // Input comes from the .in file, one number per line.
+    mut uint32 sum = 0;
+    while (!io::ended()) {
+        sum += io::inln()->to<uint32>() fails;
+    }
+    io::outln("sum of input = " + sum::text());
+}

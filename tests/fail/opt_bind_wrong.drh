@@ -1,0 +1,9 @@
+in io;
+
+none main() {
+    uint32? r = 3;
+    match (r) {
+        case string v { }
+        case none { }
+    }
+}

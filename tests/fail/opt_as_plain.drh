@@ -1,0 +1,4 @@
+none main() {
+    uint32? age = 5;
+    uint32 m = age;
+}

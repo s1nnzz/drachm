@@ -222,6 +222,9 @@ none main() {
 }
 ```
 
+For a slower, picture-based walk through the same ideas, read the
+[ownership and borrowing guide](guide-ownership.md).
+
 A value that still has an owner when its scope ends is destroyed there, and a
 struct can run its own code at that moment with a `drop()` method. The
 [Moves and copies](reference-ownership.md) reference has the rules for when a

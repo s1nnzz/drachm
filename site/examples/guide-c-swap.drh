@@ -1,0 +1,24 @@
+in io;
+
+// C: void divmod(int a, int b, int *q, int *r) { *q = a / b; *r = a % b; }
+// Drachm: a `&mut` borrow is an out-parameter with no pointer to misuse.
+// `q = ...` writes through the borrow; reads need no `*`.
+none divmod(uint32 a, uint32 b, &mut uint32 q, &mut uint32 r) {
+    q = a / b;
+    r = a % b;
+}
+
+none main() {
+    mut uint32 quotient = 0;
+    mut uint32 remainder = 0;
+    divmod(17, 5, &mut quotient, &mut remainder);
+    io::outln(f"${quotient} remainder ${remainder}");
+
+    // C: unsigned overflow wraps, signed overflow is undefined behaviour.
+    // Drachm: both wrap, always.
+    mut uint8 small = 250;
+    small += 10;
+    sint8 low = -128;
+    io::outln(small::text());
+    io::outln((low - 1)::text());
+}

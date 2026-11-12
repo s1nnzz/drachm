@@ -1,0 +1,20 @@
+in io;
+
+none kind(string file) {
+    match (file) {
+        case "README"                          { io::outln(file + ": the readme"); }
+        case globbed "*.png", globbed "*.jpg"  { io::outln(file + ": an image"); }
+        case globbed "src/*.drh"               { io::outln(file + ": source code"); }
+        case "a*b"                             { io::outln(file + ": exactly a*b"); }
+        case _                                 { io::outln(file + ": something else"); }
+    }
+}
+
+none main() {
+    kind("README");
+    kind("cat.jpg");
+    kind("src/main.drh");
+    kind("src/deep/main.drh");
+    kind("a*b");
+    kind("axb");
+}

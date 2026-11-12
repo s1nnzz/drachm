@@ -1,0 +1,31 @@
+in io;
+
+struct Account {
+public:
+    string owner;
+    mut uint32 balance;
+}
+
+// & : look only
+none show(&Account a) {
+    io::outln(a.owner + " has " + a.balance::text());
+}
+
+// &mut : look and change
+none deposit(&mut Account a, uint32 amount) {
+    a.balance += amount;
+}
+
+// lend : pass on a &mut you already hold, and keep using it
+none pay_bonus(&mut Account a) {
+    deposit(lend a, 5);
+    deposit(lend a, 5);
+}
+
+none main() {
+    mut Account acc = "Illy", 100;
+    show(&acc);
+    deposit(&mut acc, 20);
+    pay_bonus(&mut acc);
+    show(&acc);
+}

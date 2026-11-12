@@ -1,0 +1,34 @@
+in io;
+
+// An optional starts as `none`; a `T` goes to a `T?` by itself.
+uint32? find(uint32 n) {
+    if (n > 2) { return n * 10; }
+    return none;
+}
+
+none main() {
+    mut uint32? age;
+    if (age is empty) { io::outln("no age yet"); }
+    age = 5;
+    if (age has value) { io::outln("age set"); }
+    age = none;
+    match (age) {
+        case uint32 a { io::outln(a::text()); }
+        case none     { io::outln("none again"); }
+    }
+    uint32? k = find(4);
+    match (k) {
+        case uint32 a { io::outln(a::text()); }
+        case none     { io::outln("no value"); }
+    }
+    uint32? j = find(1);
+    match (j) {
+        case uint32 a { io::outln(a::text()); }
+        case none     { io::outln("no value"); }
+    }
+    uint32? w = 7;
+    match (w) {
+        case Some(uint32 v) { io::outln(v::text()); }
+        case none           { io::outln("none"); }
+    }
+}

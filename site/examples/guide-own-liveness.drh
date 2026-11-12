@@ -1,0 +1,23 @@
+in io;
+
+// A borrow ends at its last use, not at the end of the block.
+none main() {
+    mut string name = "Illy";
+
+    &string first = &name;
+    io::outln(first);
+    // `first` is never used again, so name may change here
+    name = "Sam";
+    io::outln(name);
+
+    // two shared borrows at once are fine
+    &string a = &name;
+    &string b = &name;
+    io::outln(a + b);
+
+    // a &mut borrow is alone while it is used
+    &mut string m = &mut name;
+    m += "!";
+    // m is finished; name is usable again
+    io::outln(name);
+}

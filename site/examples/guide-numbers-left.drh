@@ -1,0 +1,26 @@
+in io;
+
+none main() {
+    uint32 hp = 10;
+
+    // The left side leads: this is a decimal sum, done in float64.
+    float64 a = 1.5 * hp;
+    io::outln(a::text());
+
+    // Or convert first, then the whole calculation is decimal.
+    float64 b = hp::to<float64>() * 1.5;
+    io::outln(b::text());
+
+    // To get a whole number back, say so. The fraction is dropped.
+    uint32 c = (1.5 * hp)::to<uint32>();
+    io::outln(c::text());
+
+    // A whole-number way to take half again: 3 / 2 is exact here.
+    uint32 d = hp * 3 / 2;
+    io::outln(d::text());
+
+    // A big constant on the left cannot fit in a uint8, so it leads.
+    uint8 small = 200;
+    uint32 e = 300 + small;
+    io::outln(e::text());
+}

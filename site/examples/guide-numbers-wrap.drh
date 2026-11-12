@@ -1,0 +1,30 @@
+in io;
+
+none main() {
+    // Arithmetic that goes past the end of a type wraps around.
+    mut uint8 hearts = 250;
+    for (uint32 i of 1..10) {
+        hearts = hearts + 1;
+    }
+    io::outln(hearts::text());
+
+    mut sint8 temp = 127;
+    temp = temp + 1;
+    io::outln(temp::text());
+
+    uint32 zero = 0;
+    io::outln((zero - 1)::text());
+
+    // The sum happens in the left side's type, then it is widened.
+    uint8 big = 200;
+    uint32 wrapped = big + big;
+    uint32 wide = big::to<uint32>() + big;
+    io::outln(wrapped::text());
+    io::outln(wide::text());
+
+    // ::to<T>() on a value that does not fit keeps the low bits.
+    sint64 huge = 1000;
+    io::outln(huge::to<uint8>()->text());
+    io::outln((-1)::to<uint32>()->text());
+    io::outln(3.99::to<sint32>()->text());
+}

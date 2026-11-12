@@ -1,0 +1,10 @@
+in io;
+
+none main() {
+    string local = "x";
+    mut &string keep = &"a";
+    if (true) {
+        keep = &local;
+    }
+    io::outln(keep);
+}

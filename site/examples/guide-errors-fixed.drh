@@ -1,0 +1,14 @@
+in io;
+
+none main() {
+    string a = "hi";
+    string b = copy a;
+    io::outln(a);
+    io::outln(b);
+
+    mut string c = "x";
+    &string q = &c;
+    io::outln(q);
+    c = "y";
+    io::outln(c);
+}

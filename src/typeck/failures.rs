@@ -468,7 +468,7 @@ pub(super) fn main_wrapper(g: &mut Globals, main: FuncId) -> Option<(FuncId, hir
 // ---- in function bodies ---------------------------------------------------------
 
 /// A failing call, found under `maybe` or `fails`.
-struct Failing {
+pub(super) struct Failing {
     /// The call, typed with its outcome (or the text parse, typed with its number).
     call: hir::Expr,
     /// The type of the call's value.
@@ -622,32 +622,40 @@ impl Checker<'_> {
         Some(expr(hir::ExprKind::CauseWrap { msg: Box::new(msg), slot: Box::new(slot) }, Type::U64))
     }
 
-    /// The call under a `maybe` or `fails`, with what it can fail with.
+    /// The call under a `fails`, with what it can fail with.
     fn failing_call(&mut self, call: &ast::Expr, word: &str) -> Option<Failing> {
         let saved = self.suffix_ok.replace(call as *const ast::Expr as usize);
         let v = self.expr_raw(call);
         self.suffix_ok = saved;
         let v = self.read(v?);
-        let Val::Expr(mut x) = v else {
+        let Val::Expr(x) = v else {
             self.cannot_fail(call, word);
             return None;
         };
+        match self.classify(x) {
+            Ok(f) => Some(f),
+            Err(_) => {
+                self.cannot_fail(call, word);
+                None
+            }
+        }
+    }
+
+    /// `x` as a failing call, or itself back.
+    pub(super) fn classify(&self, mut x: hir::Expr) -> Result<Failing, hir::Expr> {
         match x.kind {
             hir::ExprKind::Call(fid, _) if !self.g.sigs[fid].fails.is_empty() => {
                 let sig = &self.g.sigs[fid];
                 let (fails, name, outcome) = (sig.fails.clone(), sig.name.clone(), sig.outcome.unwrap());
                 let ok = x.ty;
                 x.ty = outcome;
-                Some(Failing { call: x, ok, fails, name })
+                Ok(Failing { call: x, ok, fails, name })
             }
             hir::ExprKind::TryParse { to, fail, .. } => {
                 let fails = vec![fail.enum_id().unwrap()];
-                Some(Failing { ok: to, call: x, fails, name: "to".into() })
+                Ok(Failing { ok: to, call: x, fails, name: "to".into() })
             }
-            _ => {
-                self.cannot_fail(call, word);
-                None
-            }
+            _ => Err(x),
         }
     }
 
@@ -659,9 +667,8 @@ impl Checker<'_> {
         );
     }
 
-    /// `call maybe fallback`.
-    pub(super) fn maybe_expr(&mut self, call: &ast::Expr, fallback: &ast::Expr) -> Option<Val> {
-        let f = self.failing_call(call, "maybe")?;
+    /// `call maybe fallback` for a call `f` that can fail.
+    pub(super) fn maybe_failing(&mut self, f: Failing, fallback: &ast::Expr) -> Option<Val> {
         if f.ok == Type::None {
             self.diags.push(
                 Diagnostic::at(&codes::E0003, fallback.span, format!("`{}` returns nothing, so there is no value to fall back to", f.name))
@@ -671,7 +678,7 @@ impl Checker<'_> {
             return None;
         }
         let fb = self.coerce(fallback, f.ok)?;
-        Some(Val::Expr(expr(hir::ExprKind::Maybe { call: Box::new(f.call), fallback: Box::new(fb) }, f.ok)))
+        Some(Val::Expr(expr(hir::ExprKind::FailMaybe { call: Box::new(f.call), fallback: Box::new(fb) }, f.ok)))
     }
 
     /// `call fails`: every failure of the call must be in this function's list.

@@ -526,6 +526,37 @@ codes! {
         "A name is bound twice in one pattern, or the patterns of one `case`\n\
          (`case A(float64 x), B(float64 y)`) do not bind the same names with\n\
          the same types, so the body could not know which one it has.";
+    E0530: "`none` where no optional type is wanted",
+        "`none` is the empty value of an optional type (`uint32? x = none;`).\n\
+         Where no optional type is expected there is nothing for it to be empty\n\
+         in, so the place needs an optional type.\n\n\
+         \x20   uint32? x = none;                           // fine\n\
+         \x20   uint32 y = none;                            // error: no optional type";
+    E0531: "an optional used as its value",
+        "A `uint32?` may be `none`, so it is not a `uint32`. Arithmetic, a\n\
+         plain `uint32` argument or a plain declaration cannot take it.\n\
+         Give the empty case a value with `maybe`, or test it with `has value`\n\
+         and `is empty`.\n\n\
+         \x20   uint32? age = 5;\n\
+         \x20   uint32 n = age maybe 0;                     // fine\n\
+         \x20   uint32 m = age;                             // error: may be `none`";
+    E0532: "`maybe` or `has value` on a value that is not optional",
+        "`maybe`, `has value` and `is empty` work on an optional value (`T?`)\n\
+         only: they tell whether there is a value to take.\n\n\
+         \x20   uint32 n = 5;\n\
+         \x20   uint32 m = n maybe 0;                       // error: `n` is not optional";
+    E0533: "`none` compared with `==`",
+        "An optional is not compared with `none`. Ask whether it has a value\n\
+         with `has value`, or whether it is empty with `is empty`.\n\n\
+         \x20   if (age is empty) { }                       // instead of `age == none`\n\
+         \x20   if (age has value) { }                      // instead of `age != none`";
+    E0534: "the fallback of `maybe` is more than one value",
+        "The fallback after `maybe` is a single value, or a parenthesised\n\
+         expression. A binary operator after it would read as part of the\n\
+         fallback, so the fallback needs parentheses to say what it is.\n\n\
+         \x20   uint32 n = (age maybe 0) + 1;               // fine\n\
+         \x20   uint32 m = age maybe (n * 2);               // fine\n\
+         \x20   uint32 k = age maybe 0 + 1;                 // error";
     E0526: "wrong type in a pattern",
         "A binding in a variant pattern must name exactly the type of the\n\
          value it binds (no conversion is applied in patterns), and must\n\
