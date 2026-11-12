@@ -142,7 +142,7 @@ struct Square {
 }
 
 none report(&Shape s) {
-    io::outln(s::area()::text());
+    io::outln(s::area()->text());
 }
 
 none main() {
@@ -168,7 +168,7 @@ struct Square with Shape {
 }
 
 none report(&Shape s) {
-    io::outln(s::area()::text());
+    io::outln(s::area()->text());
 }
 
 none main() {
