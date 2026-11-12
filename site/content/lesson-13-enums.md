@@ -94,7 +94,7 @@ none main() {
 }
 ```
 
-```text title="intended output"
+```text title="expected output"
 6.0
 16.0
 0.0
@@ -189,7 +189,7 @@ none main() {
 }
 ```
 
-```text title="intended output"
+```text title="expected output"
 8
 0
 ```

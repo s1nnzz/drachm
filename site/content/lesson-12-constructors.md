@@ -78,7 +78,7 @@ none main() {
 }
 ```
 
-```text title="intended output"
+```text title="expected output"
 20.0
 21.5
 ```
@@ -179,7 +179,7 @@ none main() {
 }
 ```
 
-```text title="intended output"
+```text title="expected output"
 Bob 10 grunt
 ```
 
@@ -205,15 +205,10 @@ none main() {
 
 ## Choosing another def
 
-<!-- status: tentative -->
+A struct can have several `def`s. Pick one other than the default by name, as
+in `fill p with Veteran { }`, and let a def build on another with `from`.
 
-A struct can have several `def`s. Picking one other than the default, as in
-`fill p with Veteran { }`, is the design's most likely reading but is not
-confirmed.
-
-```drachm
-fill p with Veteran { p.name = "Sam"; }
-```
+<!-- example: def-defaults -->
 
 The full page for this part of the design is
 [Constructors and defaults](design-constructors.md). The next lesson covers

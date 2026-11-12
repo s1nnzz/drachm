@@ -1,0 +1,25 @@
+in io;
+
+uint32? findAge(&string name) {
+    if (name == "Illy") { return 18; }      // 18 wraps to uint32? by itself
+    return none;
+}
+
+none main() {
+    string name = "Illy";
+    uint32? age = findAge(&name);
+    if (age has value) { io::outln("found"); }
+    if (age is empty)  { io::outln("no age"); }
+
+    uint32 shown = age maybe 0;      // a fallback
+    io::outln(shown::text());
+
+    match (age) {
+        case uint32 a { io::outln(a::text()); }
+        case none     { io::outln("no age"); }
+    }
+
+    string other = "Sam";
+    uint32? none_age = findAge(&other);
+    if (none_age is empty) { io::outln("no age"); }
+}

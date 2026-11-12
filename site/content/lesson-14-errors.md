@@ -107,7 +107,7 @@ none main() {
 }
 ```
 
-```text title="intended output"
+```text title="expected output"
 7
 0
 ```
@@ -183,7 +183,7 @@ none main() {
 }
 ```
 
-```text title="intended output"
+```text title="expected output"
 number is over 100
 ```
 
