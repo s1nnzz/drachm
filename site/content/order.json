@@ -35,7 +35,8 @@
       "pages": [
         "guide-from-python-js",
         "guide-from-c",
-        "guide-performance"
+        "guide-performance",
+        "guide-testing"
       ]
     },
     {
