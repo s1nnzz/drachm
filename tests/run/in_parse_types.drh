@@ -1,14 +1,14 @@
 in io;
 
-none main() {
-    uint8 a = io::inln()->to<uint8>();
-    sint8 b = io::inln()->to<sint8>();
-    uint64 c = io::inln()->to<uint64>();
-    sint64 d = io::inln()->to<sint64>();
-    uint128 e = io::inln()->to<uint128>();
-    sint128 f = io::inln()->to<sint128>();
-    float32 g = io::inln()->to<float32>();
-    float64 h = io::inln()->to<float64>();
+none main() fails ConvertError {
+    uint8 a = io::inln()->to<uint8>() fails;
+    sint8 b = io::inln()->to<sint8>() fails;
+    uint64 c = io::inln()->to<uint64>() fails;
+    sint64 d = io::inln()->to<sint64>() fails;
+    uint128 e = io::inln()->to<uint128>() fails;
+    sint128 f = io::inln()->to<sint128>() fails;
+    float32 g = io::inln()->to<float32>() fails;
+    float64 h = io::inln()->to<float64>() fails;
     io::outln(a::text());
     io::outln(b::text());
     io::outln(c::text());

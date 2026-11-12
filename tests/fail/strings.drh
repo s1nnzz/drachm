@@ -28,6 +28,6 @@ none main() {
     mut string u = "u";
     u -= "x";
     u++;
-    string v = s::to<uint8>();
+    string v = s::to<uint8>() maybe 0;
     io::outln(s::sub(0, 1, 2));
 }

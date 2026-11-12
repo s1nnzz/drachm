@@ -1,7 +1,7 @@
 in io;
 
-none main() {
+none main() fails ConvertError {
     io::outln("start");
-    uint32 n = io::inln()->to<uint32>();
+    uint32 n = io::inln()->to<uint32>() fails;
     io::outln(n::text());
 }
