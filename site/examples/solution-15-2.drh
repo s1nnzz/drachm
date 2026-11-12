@@ -1,0 +1,20 @@
+in io;
+
+interface Shape {
+    float64 area();
+}
+
+struct Square with Shape {
+    public:
+    float64 side;
+    float64 area() { return self.side * self.side; }
+}
+
+none report(&Shape s) {
+    io::outln(s::area()->text());
+}
+
+none main() {
+    Square sq = 3.0;
+    report(&sq);
+}

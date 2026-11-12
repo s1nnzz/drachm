@@ -465,6 +465,13 @@ private:
 - An interface is only ever borrowed (`&Shape`); `Shape s` and `Shape[?]` are errors (E0617).
   A constrained type parameter (`<T with Shape>`) is checked once at its definition, with only
   what its interfaces promise; unconstrained parameters are checked per instance.
+- `&Shape` / `&mut Shape` (S6E): any interface can be borrowed (owner, step 6 Q5); the borrow is two
+  words (address, vtable). `&Circle` converts to `&Shape` where one is wanted (argument, declaration,
+  return) and `&Shape3D` converts to `&Shape` (upcast); a `static` method, a method with `Self` in its
+  signature or an operator is not callable through it (E0619); no conversion is E0640. Required fields
+  are read through the borrow. Interim (E0901): `exclusive &Shape` (owner's word, not designed),
+  writing a required field through `&mut Shape` (does the interface need to say `mut`?), a method that
+  returns a borrow, a struct that holds borrows, `&Text` over a built-in number, lists of `&Shape` (Q3).
 - `==` is automatic for structs (field by field), and structs can be map keys
   automatically. A `bool ==(T o)` operator method overrides `==`.
 - A `key()` method (e.g. `string key() { return self.text::lower(); }`) defines

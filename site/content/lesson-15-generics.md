@@ -137,12 +137,13 @@ interface Shape {
 }
 
 struct Square {
+    public:
     float64 side;
     // your code here
 }
 
 none report(&Shape s) {
-    io::outln(s::area()::text());
+    io::outln(s::area()->text());
 }
 
 none main() {
@@ -163,12 +164,13 @@ interface Shape {
 }
 
 struct Square with Shape {
+    public:
     float64 side;
     float64 area() { return self.side * self.side; }
 }
 
 none report(&Shape s) {
-    io::outln(s::area()::text());
+    io::outln(s::area()->text());
 }
 
 none main() {
