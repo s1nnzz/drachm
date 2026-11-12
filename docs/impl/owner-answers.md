@@ -93,3 +93,9 @@ Q9 reading set fields while filling: allowed only with the word `now`: `fill p {
 Q10 defs: named defs can be used (`fill p with Veteran { }`), def values are any expression that doesn't read fields, AND a def may extend another: `def Veteran of Player from PlayerStart { hp = 200; }`.
 Q11 failure messages are ordinary strings: write `f"bad config key ${k}"` to interpolate (the SPEC example changes).
 Q12 escaping failures print to stderr with an `error: ` prefix, then one `because:` line per cause: `error: couldn't load save` / `  because: no such file "save.dat"`; `${e}` prints the whole chain.
+Q13 `::to<T>()` on text fails with a built-in `ConvertError` with one variant per cause: `Empty`, `NotANumber`, `OutOfRange` (replaces step 4.6's exit-101 interim once failures exist).
+Q14 handlers: may name a single variant (`fails with (BadConfig e) => {}`), `any e` can be re-raised with `fail e;` (when the enclosing function lists it), AND `e` has members (owner's note "and members"): `e::message()`, `e::exit()`, `e::cause()`.
+Q15 `maybe` fallback: a single value or a parenthesised expression; anything longer is an error asking for parentheses (`(parse(s) maybe 0) + 1`, `parse(s) maybe (n * 2)`).
+Q16 ignoring a failure: both spellings: `fs::close(f) fails with none;` and `fs::close(f) ignore failure;`.
+Q17 failing functions may be anything, operator methods and `drop()` included (`bool ==(Port o) fails X`, `(p == q) maybe false`). (My note: a failing `drop()` that runs at scope end has no caller to handle it; until asked, a failure escaping an automatic drop is reported like an escape from `main`.)
+Q18 exit codes 0-255; the failure's code wins over a number `main` returns.
