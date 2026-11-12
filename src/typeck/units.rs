@@ -34,6 +34,11 @@ pub struct UnitEnv {
 /// The SI units of `in si;` (`src/prelude/si.drh`): ordinary declarations.
 pub const SI_PRELUDE: &str = include_str!("../prelude/si.drh");
 
+/// Is `name` a declared unit?
+pub(super) fn is_unit_name(g: &Globals, name: &str) -> bool {
+    g.units.borrow_mut().table.lookup(name).is_some()
+}
+
 /// Declares the units of a file. Order does not matter: a unit that uses
 /// another one evaluates it first. Runs before any type is resolved. Units
 /// already in the table (the SI prelude) cannot be declared again.

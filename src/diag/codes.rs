@@ -655,6 +655,44 @@ codes! {
     E0554: "failure list problem",
         "A failure type is listed twice after `fails`, or a `failure` has no\n\
          variants at all.";
+    E0601: "cannot tell what a type parameter is",
+        "A generic function's type parameter (`T`) is worked out from the\n\
+         arguments of the call. When no argument shows it, or the call only\n\
+         passes values with no type of their own that leave it open, write it\n\
+         out between `<` and `>`.\n\n\
+         \x20   T make<T>() { ... }\n\
+         \x20   make<uint32>();                             // fine\n\
+         \x20   make();                                     // error: what is `T`?";
+    E0602: "wrong number of type arguments",
+        "A type is given type arguments, but it takes none, or a different\n\
+         number. `Point` is not generic, so `Point<uint32>` is an error; a\n\
+         `Stack<T>` takes exactly one.";
+    E0603: "type arguments disagree",
+        "One type parameter is used for several arguments, and they do not have\n\
+         the same type. Convert one of them, or write the type out so the others\n\
+         are converted to it.\n\n\
+         \x20   T max<T>(T a, T b) { ... }\n\
+         \x20   max(a_u8, a_string);                        // error: `T` is two types\n\
+         \x20   max<uint32>(a, b);                          // fine";
+    E0604: "type arguments missing",
+        "A generic function or type was named without its type arguments where\n\
+         a type or a value is needed. A generic function used as a value, or a\n\
+         generic type written alone, has to say what its type parameters are.";
+    E0605: "bad type parameter list",
+        "A type parameter is declared twice in the same list, or has the name of\n\
+         a struct, enum or unit. A type parameter takes no other name's place.";
+    E0608: "a generic function keeps instantiating itself",
+        "A generic function calls itself with a bigger type each time\n\
+         (`grow<uint32>` calls `grow<uint32?>`, which calls `grow<uint32??>`, ...),\n\
+         so the compiler would never stop making copies. Make the recursive call\n\
+         use the same type.";
+    E0609: "a unit parameter used as a type",
+        "`unit U` declares a unit, so it can only be used inside the `<>` of a\n\
+         number type: `float64<U>`. A type parameter would be written `<T>`.";
+    W0600: "generic function never used",
+        "A generic function is only checked when something calls it with a\n\
+         particular type, so a generic function nothing calls is not checked\n\
+         at all.";
     E0901: "not supported yet",
         "This is part of Drachm's design, but this version of the compiler does\n\
          not implement it yet.";

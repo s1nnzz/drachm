@@ -62,6 +62,18 @@ struct Parser<'a> {
 
 type Parsed<T> = Result<T, Diagnostic>;
 
+/// State of a type lookahead. `half`: the type just read ended on the first
+/// `>` of a `>>`. `nums`: an integer may be a type argument (types, not calls).
+struct Look {
+    half: bool,
+    nums: bool,
+}
+
+/// `uint8`..`uint128`, `sint*`, `float*`: the types a `<` after them opens a unit for.
+fn is_number_name(name: &str) -> bool {
+    ["uint", "sint", "float"].iter().any(|k| name.strip_prefix(k).is_some_and(|d| !d.is_empty() && d.bytes().all(|b| b.is_ascii_digit())))
+}
+
 impl Parser<'_> {
     fn peek(&self) -> &Tok {
         &self.tokens[self.pos].tok
@@ -155,17 +167,90 @@ impl Parser<'_> {
         if self.peek() == &Tok::Kw("none") {
             let span = self.bump().span;
             let unit = self.type_unit()?;
-            return Ok(TypeName { name: "none".into(), span, mods, unit, optional: None });
+            return Ok(TypeName { mods, unit, ..TypeName::plain("none", span) });
         }
         let (name, span) = self.ident("a type")?;
-        let unit = self.type_unit()?;
-        let optional = self.type_optional(&name, span, &unit)?;
-        Ok(TypeName { name, span, mods, unit, optional })
+        // A `<` after a number type opens a unit (`float64<m/s>`); after any
+        // other name it opens type arguments (`Map<string, uint32>`).
+        let (mut unit, mut args) = (None, Vec::new());
+        if is_number_name(&name) {
+            unit = self.type_unit()?;
+        } else if self.peek() == &Tok::Sym("<") && self.type_start_at(1) {
+            args = self.type_args()?;
+        }
+        let dims = self.type_dims()?;
+        let optional = self.type_optional(&name, span, &unit, &args, &dims)?;
+        Ok(TypeName { mods, unit, optional, args, dims, ..TypeName::plain(name, span) })
+    }
+
+    /// Can a type argument start at token offset `n`?
+    fn type_start_at(&self, n: usize) -> bool {
+        matches!(self.peek_at(n), Tok::Ident(_) | Tok::Kw("none") | Tok::Sym("&" | "*" | "**" | ">") | Tok::Num(..))
+    }
+
+    /// `<A, B>`, at the `<`. An integer is an argument too (`Array<T, 4>`).
+    fn type_args(&mut self) -> Parsed<Vec<TypeName>> {
+        let open = self.bump().span;
+        if self.peek() == &Tok::Sym(">") {
+            return Err(Diagnostic::at(&codes::E0003, open.to(self.span()), "expected a type between `<` and `>`")
+                .help("write the type arguments, for example `Stack<uint32>`"));
+        }
+        let mut args = Vec::new();
+        loop {
+            match self.peek().clone() {
+                Tok::Num(NumLit { value: Const::Int(v), suffix: None, .. }, None) => {
+                    let span = self.bump().span;
+                    args.push(TypeName { is_number: true, ..TypeName::plain(v.to_string(), span) });
+                }
+                _ => args.push(self.ty()?),
+            }
+            if !self.eat(",") {
+                break;
+            }
+        }
+        if !matches!(self.peek(), Tok::Sym(">" | ">>")) {
+            return Err(self.unexpected("`,` or `>`").label(open, "the type arguments start here"));
+        }
+        self.close_angle()?;
+        Ok(args)
+    }
+
+    /// `[?]` and `[N]` after a type name, in order.
+    fn type_dims(&mut self) -> Parsed<Vec<Dim>> {
+        let mut dims = Vec::new();
+        while self.dim_look(0) {
+            let open = self.bump().span;
+            let dim = match self.peek().clone() {
+                Tok::Num(NumLit { value: Const::Int(v), .. }, None) => {
+                    let at = self.span();
+                    let n = v.to_u64().unwrap_or(0);
+                    if n == 0 {
+                        return Err(Diagnostic::at(&codes::E0003, at, "an array needs at least one item").help("write a length of 1 or more, or `[?]` for a list that grows"));
+                    }
+                    self.bump();
+                    Dim::Array(n, open.to(self.span()))
+                }
+                _ => {
+                    self.bump();
+                    Dim::List(open.to(self.span()))
+                }
+            };
+            self.expect("]")?;
+            dims.push(dim);
+        }
+        Ok(dims)
+    }
+
+    /// Is there a `[?]` or `[N]` at token offset `n`? (`[0]` counts: `ty` rejects it.)
+    fn dim_look(&self, n: usize) -> bool {
+        self.peek_at(n) == &Tok::Sym("[")
+            && (self.peek_at(n + 1) == &Tok::Sym("?") || matches!(self.peek_at(n + 1), Tok::Num(NumLit { value: Const::Int(_), suffix: None, .. }, None)))
+            && self.peek_at(n + 2) == &Tok::Sym("]")
     }
 
     /// The `?` after a type name: `uint32?`. Recorded for the checker, which
     /// makes one optional type per distinct base type. `T??` is E0901.
-    fn type_optional(&mut self, name: &str, span: Span, unit: &Option<UnitSpec>) -> Parsed<Option<Span>> {
+    fn type_optional(&mut self, name: &str, span: Span, unit: &Option<UnitSpec>, args: &[TypeName], dims: &[Dim]) -> Parsed<Option<Span>> {
         if self.peek() != &Tok::Sym("?") {
             return Ok(None);
         }
@@ -173,7 +258,7 @@ impl Parser<'_> {
         if self.peek() == &Tok::Sym("?") {
             return Err(Diagnostic::at(&codes::E0901, q.to(self.span()), "an optional of an optional is not supported yet"));
         }
-        self.optionals.push(TypeName { name: name.to_string(), span, mods: Vec::new(), unit: unit.clone(), optional: None });
+        self.optionals.push(TypeName { unit: unit.clone(), args: args.to_vec(), dims: dims.to_vec(), ..TypeName::plain(name, span) });
         Ok(Some(q))
     }
 
@@ -301,14 +386,106 @@ impl Parser<'_> {
     }
 
     /// The offset just after the type name at token offset `n`, with its
-    /// unit part (`<m/s>`) if one is written there.
+    /// unit part (`<m/s>`) or type arguments (`<A, B>`) and its `[?]`/`[N]`
+    /// if they are written there.
     fn name_end(&self, n: usize) -> usize {
-        let mut end = self.unit_part_end(n + 1).unwrap_or(n + 1);
-        // Every `?` counts, so that `T??` reaches `ty` and is E0901 there.
+        let mut look = Look { half: false, nums: true };
+        match self.name_look(n, &mut look) {
+            Some(end) if !look.half => end,
+            _ => {
+                let mut end = n + 1;
+                // Every `?` counts, so that `T??` reaches `ty` and is E0901 there.
+                while self.peek_at(end) == &Tok::Sym("?") {
+                    end += 1;
+                }
+                end
+            }
+        }
+    }
+
+    /// Lookahead for the type whose name is at token offset `n`: the offset
+    /// after it, if what follows the name reads as a unit part or argument list.
+    fn name_look(&self, n: usize, look: &mut Look) -> Option<usize> {
+        let mut end = n + 1;
+        if self.peek_at(end) == &Tok::Sym("<") {
+            let number = matches!(self.peek_at(n), Tok::Ident(w) if is_number_name(w));
+            if number {
+                if let Some(j) = self.unit_close(end) {
+                    if self.peek_at(j) == &Tok::Sym(">>") {
+                        // Closes this unit and the brackets around it.
+                        if look.half {
+                            return None;
+                        }
+                        look.half = true;
+                        return Some(j);
+                    }
+                    end = j + 1;
+                }
+            } else if matches!(self.peek_at(n), Tok::Ident(_)) && self.type_start_at(end + 1) {
+                end = self.args_look(end, look)?;
+                if look.half {
+                    return Some(end);
+                }
+            }
+        }
+        while self.dim_look(end) {
+            end += 3;
+        }
         while self.peek_at(end) == &Tok::Sym("?") {
             end += 1;
         }
-        end
+        Some(end)
+    }
+
+    /// Lookahead for `<A, B>` at token offset `n`: the offset after the `>`.
+    /// When the last `>` is the first half of a `>>`, `look.half` is set and
+    /// the offset is that of the `>>` itself.
+    fn args_look(&self, n: usize, look: &mut Look) -> Option<usize> {
+        let mut j = n + 1;
+        loop {
+            if matches!(self.peek_at(j), Tok::Num(NumLit { value: Const::Int(_), suffix: None, .. }, None)) {
+                if !look.nums {
+                    return None;
+                }
+                j += 1;
+            } else {
+                while matches!(self.peek_at(j), Tok::Sym("&" | "*" | "**")) || (self.peek_at(j) == &Tok::Kw("mut") && self.peek_at(j - 1) == &Tok::Sym("&")) {
+                    j += 1;
+                }
+                if !matches!(self.peek_at(j), Tok::Ident(_) | Tok::Kw("none")) {
+                    return None;
+                }
+                j = self.name_look(j, look)?;
+            }
+            if look.half {
+                // The inner type ended on the first half of a `>>`; this is the second.
+                look.half = false;
+                return Some(j + 1);
+            }
+            match self.peek_at(j) {
+                Tok::Sym(",") => j += 1,
+                Tok::Sym(">") => return Some(j + 1),
+                Tok::Sym(">>") => {
+                    look.half = true;
+                    return Some(j);
+                }
+                _ => return None,
+            }
+        }
+    }
+
+    /// Do type arguments for a call or path start at the `<` at offset 0:
+    /// do they run to a `>` that `(` or `::` follows? (`a < b > (c)` reads as
+    /// type arguments; it is a type error either way.)
+    fn expr_targs_ahead(&self) -> bool {
+        if self.peek() != &Tok::Sym("<") || !self.type_start_at(1) {
+            return false;
+        }
+        let mut look = Look { half: false, nums: false };
+        match self.args_look(0, &mut look) {
+            Some(end) if !look.half => matches!(self.peek_at(end), Tok::Sym("(" | "::")),
+            _ => false,
+        }
     }
 
     /// If a unit part starts at token offset `n` (a `<`) and its tokens run to
@@ -357,12 +534,78 @@ impl Parser<'_> {
             Tok::Ident(_) | Tok::Kw("none" | "unsafe") | Tok::Sym("&" | "&&" | "*" | "**") => {
                 let from = (self.peek() == &Tok::Kw("unsafe")) as usize;
                 match self.type_end(from) {
-                    Some(n) => matches!(self.peek_at(n), Tok::Ident(_)) && self.peek_at(n + 1) == &Tok::Sym("("),
+                    Some(n) => matches!(self.peek_at(n), Tok::Ident(_)) && {
+                        let after = self.tparams_end(n + 1).unwrap_or(n + 1);
+                        self.peek_at(after) == &Tok::Sym("(")
+                    },
                     None => false,
                 }
             }
             _ => false,
         }
+    }
+
+    /// The offset after a type parameter list `<T, U with A and B>` that
+    /// starts at token offset `n`, if one is written there.
+    fn tparams_end(&self, n: usize) -> Option<usize> {
+        if self.peek_at(n) != &Tok::Sym("<") {
+            return None;
+        }
+        let mut depth = 0usize;
+        let mut j = n;
+        loop {
+            match self.peek_at(j) {
+                Tok::Sym("<") => depth += 1,
+                Tok::Sym(">") => depth = depth.checked_sub(1)?,
+                Tok::Sym(">>") => depth = depth.checked_sub(2)?,
+                Tok::Ident(_) | Tok::Kw("with" | "none") | Tok::Sym("," | "&" | "*" | "**" | "?" | "[" | "]" | "/" | "^" | "(" | ")") | Tok::Num(..) => {}
+                _ => return None,
+            }
+            j += 1;
+            if depth == 0 {
+                return Some(j);
+            }
+        }
+    }
+
+    /// `<T, U with A and B, unit V>` after a function's name, if written.
+    fn type_params(&mut self) -> Parsed<Vec<TypeParam>> {
+        let mut out = Vec::new();
+        if self.peek() != &Tok::Sym("<") {
+            return Ok(out);
+        }
+        let open = self.bump().span;
+        if self.peek() == &Tok::Sym(">") {
+            return Err(Diagnostic::at(&codes::E0003, open.to(self.span()), "expected a type parameter name between `<` and `>`")
+                .help("write the names the function is generic over: `T max<T>(T a, T b)`"));
+        }
+        loop {
+            let is_unit = matches!(self.peek(), Tok::Ident(w) if w == "unit") && matches!(self.peek_at(1), Tok::Ident(_));
+            if is_unit {
+                self.bump();
+            }
+            let (name, span) = self.ident("a type parameter name")?;
+            let mut bounds = Vec::new();
+            if self.eat_kw("with") {
+                loop {
+                    bounds.push(self.ty()?);
+                    if matches!(self.peek(), Tok::Ident(w) if w == "and") {
+                        self.bump();
+                    } else {
+                        break;
+                    }
+                }
+            }
+            out.push(TypeParam { name, span, is_unit, bounds });
+            if !self.eat(",") {
+                break;
+            }
+        }
+        if !matches!(self.peek(), Tok::Sym(">" | ">>")) {
+            return Err(self.unexpected("`,` or `>`").label(open, "the type parameters start here"));
+        }
+        self.close_angle()?;
+        Ok(out)
     }
 
     fn import(&mut self) -> Parsed<Import> {
@@ -386,6 +629,7 @@ impl Parser<'_> {
 
     /// A function's parameters and body, after its return type and name.
     fn func_rest(&mut self, ret: TypeName, name: String, name_span: Span, is_unsafe: Option<Span>) -> Parsed<Func> {
+        let tparams = self.type_params()?;
         self.expect("(")?;
         let mut params = Vec::new();
         while self.peek() != &Tok::Sym(")") {
@@ -435,7 +679,7 @@ impl Parser<'_> {
             }
         }
         let body = self.block()?;
-        Ok(Func { ret, name, name_span, params, body, is_unsafe, lives, lives_span, lives_from, fails, fails_span, span })
+        Ok(Func { ret, name, name_span, tparams, params, body, is_unsafe, lives, lives_span, lives_from, fails, fails_span, span })
     }
 
     /// `self or key or other`, after `lives from`.
@@ -727,7 +971,7 @@ impl Parser<'_> {
                 return Ok(());
             }
             let (name, name_span) = self.ident("a constructor name")?;
-            let ret = TypeName { name: s.name.clone(), span: name_span, mods: Vec::new(), unit: None, optional: None };
+            let ret = TypeName::plain(s.name.clone(), name_span);
             let func = self.func_rest(ret, name, name_span, None)?;
             s.methods.push(Method { public: section.unwrap_or(true), is_static: None, operator: None, ctor: true, func });
             return Ok(());
@@ -748,6 +992,10 @@ impl Parser<'_> {
                     .help("`mut` goes on fields: `mut uint32 hp;`"));
             }
             let func = self.func_rest(ty, name, name_span, is_unsafe)?;
+            if let Some(tp) = func.tparams.first() {
+                return Err(Diagnostic::at(&codes::E0901, tp.span, "methods with type parameters of their own are not supported yet")
+                    .help("a struct's methods can use the struct's own type parameters"));
+            }
             s.methods.push(Method { public: section.unwrap_or(true), is_static, operator, ctor: false, func });
             return Ok(());
         }
@@ -1759,6 +2007,7 @@ impl Parser<'_> {
             Tok::Kw("none") => ExprKind::NoneValue,
             Tok::Kw("new") => {
                 let (name, name_span) = self.ident("a struct name after `new`")?;
+                let targs = if self.peek() == &Tok::Sym("<") && self.type_start_at(1) { self.type_args()? } else { Vec::new() };
                 if self.peek() != &Tok::Kw("of") {
                     return Err(self.unexpected("`of`").help(format!("write `new {name} of (...)`: the values go in parentheses")));
                 }
@@ -1781,7 +2030,7 @@ impl Parser<'_> {
                     }
                 }
                 self.expect(")")?;
-                ExprKind::New { name, name_span, values }
+                ExprKind::New { name, name_span, targs, values }
             }
             Tok::Sym("(") => {
                 let mut e = self.expr()?;
@@ -1792,7 +2041,14 @@ impl Parser<'_> {
             }
             Tok::Ident(name) => {
                 if self.peek() == &Tok::Sym("(") {
-                    ExprKind::Call { name, args: self.args()? }
+                    ExprKind::Call { name, targs: Vec::new(), args: self.args()? }
+                } else if self.expr_targs_ahead() {
+                    let targs = self.type_args()?;
+                    if self.peek() == &Tok::Sym("(") {
+                        ExprKind::Call { name, targs, args: self.args()? }
+                    } else {
+                        ExprKind::TypeArgs { name, targs }
+                    }
                 } else {
                     ExprKind::Var(name)
                 }
@@ -1914,6 +2170,132 @@ mod tests {
 
     fn errors(d: &[Diagnostic]) -> Vec<String> {
         d.iter().map(|d| d.message.clone()).collect()
+    }
+
+    /// A type as text, for comparing: `Map<string, uint32[?]>?`.
+    fn show_ty(t: &TypeName) -> String {
+        let mut s = String::new();
+        for (m, _) in &t.mods {
+            s.push_str(match m {
+                TypeMod::Ref { mutable: false } => "&",
+                TypeMod::Ref { mutable: true } => "&mut ",
+                TypeMod::Ptr => "*",
+                TypeMod::FixedPtr => "*fixed ",
+            });
+        }
+        s.push_str(&t.name);
+        if let Some(u) = &t.unit {
+            s.push_str(&format!("<{}>", unit_str(u)));
+        }
+        if !t.args.is_empty() {
+            s.push_str(&format!("<{}>", t.args.iter().map(show_ty).collect::<Vec<_>>().join(", ")));
+        }
+        for d in &t.dims {
+            match d {
+                Dim::List(_) => s.push_str("[?]"),
+                Dim::Array(n, _) => s.push_str(&format!("[{n}]")),
+            }
+        }
+        if t.optional.is_some() {
+            s.push('?');
+        }
+        s
+    }
+
+    fn let_type(src: &str) -> String {
+        let (s, d) = body(src);
+        assert!(d.is_empty(), "{src}: {:?}", errors(&d));
+        let Stmt::Let { ty, .. } = &s[0] else { panic!("{src}: not a binding: {:?}", s[0]) };
+        show_ty(ty)
+    }
+
+    #[test]
+    fn generic_type_arguments() {
+        assert_eq!(let_type("Vec<uint32> v;"), "Vec<uint32>");
+        assert_eq!(let_type("Map<string, uint32> m;"), "Map<string, uint32>");
+        assert_eq!(let_type("A<B<C>> x;"), "A<B<C>>");
+        assert_eq!(let_type("A<B<C<D>>> x;"), "A<B<C<D>>>");
+        assert_eq!(let_type("&Stack<uint32> s = &t;"), "&Stack<uint32>");
+        assert_eq!(let_type("Stack<uint32>? s;"), "Stack<uint32>?");
+        assert_eq!(let_type("List<List<uint32>> x = y;"), "List<List<uint32>>");
+        assert_eq!(let_type("Array<uint8, 4> a;"), "Array<uint8, 4>");
+    }
+
+    #[test]
+    fn units_stay_units_after_number_types() {
+        let (s, d) = body("float64<m/s> v; Vec<float64<m>> w;");
+        assert!(d.is_empty(), "{:?}", errors(&d));
+        let Stmt::Let { ty, .. } = &s[0] else { panic!() };
+        assert!(ty.args.is_empty());
+        assert_eq!(type_unit(ty), "(m/s)");
+        let Stmt::Let { ty, .. } = &s[1] else { panic!() };
+        assert_eq!(ty.name, "Vec");
+        assert!(ty.unit.is_none());
+        assert_eq!(show_ty(ty), "Vec<float64<m>>");
+        assert_eq!(let_type("Map<string, float64<m/s>> m;"), "Map<string, float64<(m/s)>>".replace("(m/s)", "(m/s)"));
+    }
+
+    #[test]
+    fn lists_and_arrays() {
+        assert_eq!(let_type("uint32[?] xs;"), "uint32[?]");
+        assert_eq!(let_type("uint8[4] a;"), "uint8[4]");
+        assert_eq!(let_type("uint32[?][?] g;"), "uint32[?][?]");
+        assert_eq!(let_type("string[?]? m;"), "string[?]?");
+        assert_eq!(let_type("&mut string[?] xs = &mut ys;"), "&mut string[?]");
+        assert_eq!(let_type("Map<string, uint32[?]> m;"), "Map<string, uint32[?]>");
+    }
+
+    #[test]
+    fn comparisons_and_indexing_stay_expressions() {
+        let (s, d) = body("a < b; a < b && c > d; y = a < b;");
+        let _ = &s;
+        assert!(d.is_empty(), "{:?}", errors(&d));
+        assert!(matches!(&s[0], Stmt::Expr(..)), "{:?}", s[0]);
+        assert!(matches!(&s[2], Stmt::Assign { .. }), "{:?}", s[2]);
+        let (s, d) = body("bool c = a < b; bool e = f(a < b, c > d);");
+        assert!(d.is_empty(), "{:?}", errors(&d));
+        assert_eq!(s.len(), 2);
+    }
+
+    #[test]
+    fn operator_method_less_than_is_not_a_type() {
+        let (p, d) = parse_src("struct Point { uint32 x; bool <(Point o) { return x < o.x; } }");
+        assert!(d.is_empty(), "{:?}", errors(&d));
+        assert_eq!(p.structs[0].methods[0].func.name, "<");
+    }
+
+    #[test]
+    fn type_arguments_in_expressions() {
+        let (s, d) = body("uint32 a = max<uint32>(5, 9); Stack<uint32>::zero(); new Stack<uint32> of (1);");
+        assert!(d.is_empty(), "{:?}", errors(&d));
+        let Stmt::Let { value: Some(Init::Expr(e)), .. } = &s[0] else { panic!() };
+        let ExprKind::Call { name, targs, args } = &e.kind else { panic!("{:?}", e.kind) };
+        assert_eq!((name.as_str(), targs.len(), args.len()), ("max", 1, 2));
+        let Stmt::Expr(e) = &s[1] else { panic!("{:?}", s[1]) };
+        let ExprKind::Method { recv, .. } = &e.kind else { panic!() };
+        assert!(matches!(&recv.kind, ExprKind::TypeArgs { name, targs } if name == "Stack" && targs.len() == 1));
+        let Stmt::Expr(e) = &s[2] else { panic!() };
+        assert!(matches!(&e.kind, ExprKind::New { targs, .. } if targs.len() == 1));
+    }
+
+    #[test]
+    fn generic_function_heads() {
+        let (p, d) = parse_src("T max<T>(T a, T b) { return a; } Stack<T> make<T, U>(U x) { } none f<T with A and B, unit U>() { }");
+        assert!(d.is_empty(), "{:?}", errors(&d));
+        assert_eq!(p.funcs.len(), 3);
+        assert_eq!(p.funcs[0].tparams.len(), 1);
+        assert_eq!(p.funcs[1].tparams.iter().map(|t| t.name.as_str()).collect::<Vec<_>>(), ["T", "U"]);
+        assert_eq!(show_ty(&p.funcs[1].ret), "Stack<T>");
+        let t = &p.funcs[2].tparams;
+        assert_eq!((t[0].bounds.len(), t[0].is_unit, t[1].is_unit), (2, false, true));
+    }
+
+    #[test]
+    fn type_syntax_errors() {
+        for (src, want) in [("Stack<> s", "expected a type between"), ("Stack<uint32 s", "expected `,` or `>`"), ("uint32[0] a", "at least one item")] {
+            let (_, d) = parse_src(&format!("none f({src}) {{ }}"));
+            assert!(errors(&d).iter().any(|m| m.contains(want)), "{src}: {:?}", errors(&d));
+        }
     }
 
     #[test]

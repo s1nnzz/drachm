@@ -139,6 +139,28 @@ pub struct TypeName {
     /// The `?` after the name: `uint32?` is an optional `uint32`. Marks written
     /// before the name apply to the optional (`*uint32?` is a pointer to one).
     pub optional: Option<Span>,
+    /// Generic arguments: `Map<string, uint32>` has two. An integer literal
+    /// argument (`Array<T, 4>`) is a `TypeName` with `is_number` set and the
+    /// digits as `name`.
+    pub args: Vec<TypeName>,
+    /// Sizes after the name, applied left to right: `uint32[?][4]`.
+    pub dims: Vec<Dim>,
+    /// A number written where a type argument goes.
+    pub is_number: bool,
+}
+
+impl TypeName {
+    /// A bare name with nothing else written.
+    pub fn plain(name: impl Into<String>, span: Span) -> TypeName {
+        TypeName { name: name.into(), span, mods: Vec::new(), unit: None, optional: None, args: Vec::new(), dims: Vec::new(), is_number: false }
+    }
+}
+
+/// One `[..]` after a type: `[?]` is a growing list, `[4]` an array of 4.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Dim {
+    List(Span),
+    Array(u64, Span),
 }
 
 /// A unit written in angle brackets after a number type or a number literal,
@@ -189,7 +211,7 @@ pub enum TypeMod {
     FixedPtr,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Param {
     pub mutable: bool,
     pub open: bool,
@@ -198,11 +220,24 @@ pub struct Param {
     pub span: Span,
 }
 
+/// One entry of a type parameter list.
+#[derive(Debug, Clone)]
+pub struct TypeParam {
+    pub name: String,
+    pub span: Span,
+    /// `unit U`: stands for a unit, not a type.
+    pub is_unit: bool,
+    /// `T with A and B`.
+    pub bounds: Vec<TypeName>,
+}
+
 #[derive(Debug)]
 pub struct Func {
     pub ret: TypeName,
     pub name: String,
     pub name_span: Span,
+    /// `<T, U with A and B, unit V>` after the name.
+    pub tparams: Vec<TypeParam>,
     pub params: Vec<Param>,
     pub body: Block,
     /// The word `unsafe` before the return type.
@@ -504,13 +539,15 @@ pub enum ExprKind {
     Path { owner: String, owner_span: Span, name: String, name_span: Span },
     /// The keyword `self`.
     SelfValue,
+    /// `Stack<uint32>` before `::`: a type name with its arguments.
+    TypeArgs { name: String, targs: Vec<TypeName> },
     /// `recv.name`
     Field { recv: Box<Expr>, name: String, name_span: Span },
     Unary(UnOp, Box<Expr>),
     Binary(BinOp, Box<Expr>, Box<Expr>),
     /// `x++`, `++x`, `x--`, `--x`.
     IncDec { inc: bool, prefix: bool, target: Box<Expr> },
-    Call { name: String, args: Vec<Expr> },
+    Call { name: String, targs: Vec<TypeName>, args: Vec<Expr> },
     /// `recv::name<targs>(args)` or `recv->name(args)`. `recv` may turn out
     /// to be a module (`io::outln`) or a struct name (`Point::origin()`).
     /// `unit` is set only by `recv::in<unit>()`, where `targs` is empty.
@@ -532,7 +569,7 @@ pub enum ExprKind {
     /// `none` as a value.
     NoneValue,
     /// `new Type of (values)`: a constructor call, with the values as written.
-    New { name: String, name_span: Span, values: Vec<FieldValue> },
+    New { name: String, name_span: Span, targs: Vec<TypeName>, values: Vec<FieldValue> },
     /// `call fails`: pass a failure of the call up to the caller.
     PassUp(Box<Expr>),
     /// `call fails with (T e) => { } ... otherwise (any e) => { }`, or

@@ -223,7 +223,7 @@ impl Checker<'_> {
         let en = to.enum_id()?;
         let (name, args, parens): (&String, &[ast::Expr], bool) = match &e.kind {
             ExprKind::Var(n) if self.lookup(n).is_none() => (n, &[], false),
-            ExprKind::Call { name, args } => (name, args, true),
+            ExprKind::Call { name, args, .. } => (name, args, true),
             _ => return None,
         };
         let vi = self.g.enums[en].variant(name)?;

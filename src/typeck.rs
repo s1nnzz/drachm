@@ -7,6 +7,7 @@ mod control;
 mod enums;
 mod failures;
 mod fill;
+mod generics;
 mod layout;
 mod optionals;
 mod overload;
@@ -114,6 +115,11 @@ struct Globals {
     defs: Vec<fill::DefInfo>,
     /// Failures, outcomes and the functions that report them (`failures.rs`).
     fail: failures::FailState,
+    /// Generic functions, instances and the bodies still to check (`generics.rs`).
+    mono: generics::State,
+    /// The type parameters of the instance being resolved or checked, and what
+    /// they stand for here.
+    tenv: HashMap<String, Type>,
 }
 
 impl Globals {
@@ -124,6 +130,12 @@ impl Globals {
     }
 
     fn resolve_base_quiet(&self, t: &ast::TypeName) -> Option<Type> {
+        if !t.args.is_empty() || !t.dims.is_empty() {
+            return None;
+        }
+        if let Some(&ty) = self.tenv.get(&t.name) {
+            return Some(ty);
+        }
         if t.name == "none" {
             return Some(Type::None);
         }
@@ -156,9 +168,15 @@ impl Globals {
                 return None;
             }
         }
-        // `Optional<T>` is written `T?`; the spelled-out form waits for generics.
-        if t.name == "Optional" && t.unit.is_some() && t.optional.is_none() {
-            diags.push(Diagnostic::at(&codes::E0901, t.span, "`Optional<T>` is not supported yet").help("write `T?`, for example `uint32?`"));
+        if !t.args.is_empty() {
+            return self.type_args_error(t, diags);
+        }
+        if let Some(dim) = t.dims.first() {
+            let (at, what) = match dim {
+                ast::Dim::List(s) => (*s, "lists"),
+                ast::Dim::Array(_, s) => (*s, "arrays"),
+            };
+            diags.push(Diagnostic::at(&codes::E0901, at, format!("{what} are not supported yet")));
             return None;
         }
         if t.optional.is_some() {
@@ -193,6 +211,41 @@ impl Globals {
                 None
             }
         }
+    }
+
+    /// A type written with `<..>` arguments. Nothing generic exists as a type
+    /// yet, so this explains why: E0602 for a type that takes none, E0901 for
+    /// the library types that are still to come.
+    fn type_args_error(&self, t: &ast::TypeName, diags: &mut Vec<Diagnostic>) -> Option<Type> {
+        let at = t.span.to(t.args.last().map_or(t.span, |a| a.span));
+        let plain = ast::TypeName::plain(t.name.clone(), t.span);
+        let unit_arg = t.args.len() == 1 && self.resolve_quiet(&t.args[0]).is_none() && units::is_unit_name(self, &t.args[0].name);
+        if unit_arg && matches!(self.resolve_base_quiet(&plain), Some(Type::Str | Type::Bool)) {
+            // `string<m>`: a unit on something that is not a number.
+            diags.push(
+                Diagnostic::at(&codes::E0405, t.span, format!("`{}` cannot have a unit", t.name))
+                    .note("units go only on number types")
+                    .help("for example `float64<m>`"),
+            );
+        } else if t.name == "Optional" {
+            diags.push(Diagnostic::at(&codes::E0901, t.span, "`Optional<T>` is not supported yet").help("write `T?`, for example `uint32?`"));
+        } else if matches!(t.name.as_str(), "List" | "Array" | "Map" | "OrderedMap" | "Iterable") {
+            diags.push(Diagnostic::at(&codes::E0901, t.span, format!("`{}` is not supported yet", t.name)));
+        } else if self.tenv.contains_key(&t.name) {
+            diags.push(
+                Diagnostic::at(&codes::E0602, at, format!("`{}` is a type parameter, so it takes no type arguments", t.name))
+                    .note("type arguments written here"),
+            );
+        } else if self.resolve_base_quiet(&plain).is_some() {
+            diags.push(
+                Diagnostic::at(&codes::E0602, at, format!("`{}` takes no type arguments", t.name))
+                    .note("type arguments written here")
+                    .help(format!("`{}` is not generic: write just `{}`", t.name, t.name)),
+            );
+        } else {
+            self.resolve(&plain, diags);
+        }
+        None
     }
 
     /// The type of a binding, parameter or field, which cannot be `none`.
@@ -321,17 +374,23 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
 
     // Signatures: functions, then methods.
     let mut func_ids = Vec::new();
-    for f in &prog.funcs {
+    g.mono.written_optionals = prog.optionals.clone();
+    for (index, f) in prog.funcs.iter().enumerate() {
+        if !f.tparams.is_empty() {
+            generics::declare_template(&mut g, index, f, diags);
+            func_ids.push(None);
+            continue;
+        }
         let params = f.params.iter().map(|p| g.resolve_binding_type(&p.ty, diags)).collect();
         let ret = g.resolve(&f.ret, diags);
         let (fails, outcome) = failures::signature(&mut g, f, ret, true, diags);
         let sig = Sig { name: f.name.clone(), params, ret, span: f.span, fails, outcome };
         check_signature_extras(&g, f, &sig.params, false, diags);
-        if let Some(&first) = g.funcs_by_name.get(&f.name) {
+        if let Some(first) = g.funcs_by_name.get(&f.name).map(|&id| g.sigs[id].span).or_else(|| g.mono.templates.get(&f.name).map(|t| t.head.span)) {
             diags.push(
                 Diagnostic::at(&codes::E0202, f.name_span, format!("function `{}` is defined twice", f.name))
                     .note("defined again here")
-                    .label(g.sigs[first].span, "first defined here"),
+                    .label(first, "first defined here"),
             );
             func_ids.push(None);
             continue;
@@ -372,6 +431,10 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
         funcs[id] = Some(f);
     };
     for (f, id) in prog.funcs.iter().zip(&func_ids) {
+        // A generic function is checked once per instance, below.
+        if !f.tparams.is_empty() {
+            continue;
+        }
         let checked = check_body(&mut g, src, diags, f, None, format!("drachm_f_{}", f.name));
         if let Some(id) = *id {
             emit(&mut funcs, id, checked);
@@ -405,6 +468,9 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
             }
         }
     }
+
+    generics::drain(&mut g, src, prog, diags, &mut |id, f| emit(&mut funcs, id, f));
+    generics::warn_unused(&g, diags);
 
     while let Some(s) = g.eq_pending.pop() {
         let f = auto_eq(&mut g, s);
@@ -2310,6 +2376,10 @@ impl Checker<'_> {
             ExprKind::Var(name) => match self.lookup(name) {
                 Some(id) => self.read_local(id, e.span).map(Val::Expr),
                 None if self.ambiguous_bare(name, e.span) => None,
+                None if self.g.mono.templates.contains_key(name) && !self.g.funcs_by_name.contains_key(name) => {
+                    self.generic_by_name(name, e.span);
+                    None
+                }
                 None => {
                     let mut d = Diagnostic::at(&codes::E0201, e.span, format!("unknown name `{name}`"));
                     if name == "io" {
@@ -2383,7 +2453,14 @@ impl Checker<'_> {
                 let ty = p.ty;
                 typed(hir::ExprKind::IncDec { place: p.hir_place(e.span), inc: *inc, prefix: *prefix }, ty)
             }
-            ExprKind::Call { name, args } => {
+            ExprKind::Call { name, targs, args } => {
+                if !self.g.funcs_by_name.contains_key(name) && self.g.mono.templates.contains_key(name) {
+                    return self.generic_call(name, targs, args, e.span);
+                }
+                if !targs.is_empty() {
+                    self.not_generic(name, targs, args.iter().collect(), e.span);
+                    return None;
+                }
                 let Some(&id) = self.g.funcs_by_name.get(name) else {
                     if !self.ambiguous_bare(name, e.span) {
                         let mut d = Diagnostic::at(&codes::E0201, e.span, format!("unknown function `{name}`"));
@@ -2436,7 +2513,17 @@ impl Checker<'_> {
             ExprKind::Take { place, leaving } => self.take_expr(e, place, leaving.as_deref()),
             ExprKind::Lend(inner) => self.lend_expr(e, inner),
             ExprKind::AddressOf(inner) => self.address_expr(e, inner),
-            ExprKind::New { name, name_span, values } => self.new_expr(name, *name_span, values, e.span),
+            ExprKind::New { name, name_span, targs, values } => {
+                if !targs.is_empty() {
+                    self.not_generic(name, targs, values.iter().map(|v| &v.value).collect(), e.span);
+                    return None;
+                }
+                self.new_expr(name, *name_span, values, e.span)
+            }
+            ExprKind::TypeArgs { name, targs } => {
+                self.not_generic(name, targs, Vec::new(), e.span);
+                None
+            }
             ExprKind::Now(inner) => {
                 self.now_depth += 1;
                 let v = self.expr(inner);
