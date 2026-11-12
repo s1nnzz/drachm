@@ -1,0 +1,86 @@
+in io;
+
+struct Point {
+    public:
+    sint32 x;
+    sint32 y;
+}
+
+uint32[?] make() {
+    return [7, 8];
+}
+
+none main() {
+    uint32[?] xs = [1, 2, 3, 4];
+    mut uint32 total = 0;
+    for (uint32 n of xs) {
+        total += n;
+    }
+    io::outln(total::text());
+
+    // continue and break work as in a range loop.
+    mut uint32 odd = 0;
+    for (uint32 n of xs) {
+        if (n == 2) {
+            continue;
+        }
+        if (n == 4) {
+            break;
+        }
+        odd += n;
+    }
+    io::outln(odd::text());
+
+    // Views: &T looks, &mut T changes the item in place.
+    mut uint32[?] ys = [10, 20];
+    for (&mut uint32 y of ys) {
+        y += 1;
+    }
+    for (&uint32 y of ys) {
+        io::outln(y::text());
+    }
+
+    // Owning items are copies; &string looks at each one.
+    mut string[?] names = ["ann", "bo"];
+    for (string n of names) {
+        io::outln(n);
+    }
+    for (&string n of names) {
+        io::outln(n::len()->text());
+    }
+    for (&mut string n of names) {
+        n += "!";
+    }
+    io::outln(names[1]);
+
+    // Arrays, structs, a list from a call, and nested loops.
+    uint8[3] bytes = [1, 2, 3];
+    mut uint32 bsum = 0;
+    for (uint8 b of bytes) {
+        bsum += b;
+    }
+    io::outln(bsum::text());
+    Point[?] pts = [new Point of (1, 2), new Point of (3, 4)];
+    for (&Point p of pts) {
+        io::outln((p.x + p.y)::text());
+    }
+    for (uint32 m of make()) {
+        io::outln(m::text());
+    }
+    mut uint32 pairs = 0;
+    for (uint32 a of xs) {
+        for (uint32 b of xs) {
+            if (a < b) {
+                pairs++;
+            }
+        }
+    }
+    io::outln(pairs::text());
+
+    // An empty list runs the body zero times.
+    uint32[?] none_yet = [];
+    for (uint32 n of none_yet) {
+        io::outln("never");
+    }
+    io::outln("done");
+}

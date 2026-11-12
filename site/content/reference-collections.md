@@ -112,14 +112,18 @@ enum with values is E0527). `contains` needs items that copy: on a list of
 
 <!-- example: list-compare -->
 
+## Walking a list
+
+`for (T x of xs)` goes over the items in order, with `&T x` for a view and
+`&mut T x` for a changeable view; the [loops page](reference-control-flow.md#looping-over-a-list)
+has the rules and the example.
+
 ## Not built yet
 
 <!-- status: not-implemented -->
 
-`for (T x of xs)` over a list or array, and `split`, `lines` and `chars`
-returning lists are designed (see [Collections](design-collections.md)) and
-not accepted yet: the `for` loop and the string functions say E0901 or do not
-exist yet. Generic structs holding a list (`Stack<T>`) wait for generic structs;
+`split`, `lines` and `chars` returning lists are designed (see
+[Collections](design-collections.md)) and not accepted yet: they say E0901. Generic structs holding a list (`Stack<T>`) wait for generic structs;
 generic functions over lists already work:
 
 ```drachm

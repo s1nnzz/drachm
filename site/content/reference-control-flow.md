@@ -49,6 +49,18 @@ work as in any loop.
 
 <!-- example: for-chars -->
 
+### Looping over a list
+
+`for (T x of xs)` goes over the items of a list or array, first to last. `T x`
+gives a copy of each item (a plain read when the item is a number or another
+Copy type), `&T x` a view of it, and `&mut T x` a changeable view, which needs
+a list that allows changes. The variable's type must be the items' type: a
+`uint32` list needs `uint32 x`, or `E0630`. The loop borrows the list for its
+whole length, so its body cannot push onto it (E0302). `break`, `continue` and
+`skip` work as in any loop. The list itself is in [Arrays and lists](reference-collections.md#walking-a-list).
+
+<!-- example: list-for -->
+
 ## break and continue
 
 `break;` leaves the innermost loop and `continue;` starts its next round. A number

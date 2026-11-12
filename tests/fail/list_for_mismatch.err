@@ -1,0 +1,2 @@
+E0630
+the items are `uint32`, but the variable is `string`

@@ -1,0 +1,6 @@
+none main() {
+    mut uint32[?] xs = [1, 2];
+    for (uint32 n of xs) {
+        xs::push(n);
+    }
+}

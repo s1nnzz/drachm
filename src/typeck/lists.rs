@@ -6,6 +6,8 @@
 //! its elements own and copies by bits when the element is Copy and the whole
 //! is at most 32 bytes (the struct rule). Neither can hold a borrow yet (Q3).
 
+use std::collections::HashMap;
+
 use num_traits::ToPrimitive;
 
 use super::{Checker, Globals, Origin, PlaceInfo, Sig, Val, optionals, origin};
@@ -643,6 +645,99 @@ impl Checker<'_> {
         let borrow = hir::Expr::new(K::Borrow { mutable: false, place: Box::new(v) }, Type::borrow(false, ty));
         Some(Val::Expr(hir::Expr::new(K::Call(f, vec![borrow, item]), Type::Bool)))
     }
+}
+
+impl Checker<'_> {
+    /// `for (T x of xs) { }` over a list or array (Q8, S6C.2). The loop holds
+    /// a borrow of the list for its whole length (a hidden local), so the body
+    /// cannot change it. Each time round, `x` is:
+    /// - `T x` (`T` is the item type): a copy of the item (a plain read when
+    ///   the item is Copy). The copy is made every time; skipping it when the
+    ///   body never keeps `x` is not done yet.
+    /// - `&T x`: a view of the item; `&mut T x`: a changeable view (the list
+    ///   must be changeable: the loop then holds a `&mut` borrow).
+    ///
+    /// ```text
+    /// owned = list;              // only when the list is not a place
+    /// hidden = &list;            // or &mut list, the changeable views
+    /// i = 0;
+    /// loop while (i < len(*hidden)) {
+    ///     x = item(*hidden, i);  // or copy, or a borrow of it
+    ///     body
+    /// } step { i = i + 1; }
+    /// ```
+    pub(super) fn for_list(&mut self, s: &ast::Stmt, ty: Option<Type>, list: hir::Expr, iter_span: Span, out: &mut hir::Block) {
+        let ast::Stmt::ForEach { mutable, ty: ty_name, name, name_span, body, span, .. } = s else { unreachable!() };
+        let list_ty = list.ty;
+        let elem = list_ty.elem().expect("a list loop is over a list or array");
+        let (view, changing_view) = (Type::borrow(false, elem), Type::borrow(true, elem));
+        let kind = match ty {
+            Some(t) if t == elem => Some(if self.g.plain_copy(Some(elem)) { Item::Read } else { Item::Copy }),
+            Some(t) if t == view => Some(Item::View),
+            Some(t) if t == changing_view => Some(Item::ChangingView),
+            Some(t) => {
+                self.diags.push(
+                    Diagnostic::at(&codes::E0630, ty_name.span, format!("the items are `{elem}`, but the variable is `{t}`"))
+                        .label(iter_span, format!("this holds `{elem}`"))
+                        .note(format!("this is `{t}`"))
+                        .help(format!("write `{elem}` for a copy of each item, or `&{elem}` to look at each one")),
+                );
+                None
+            }
+            None => None,
+        };
+        self.scopes.push(HashMap::new());
+        let var = self.declare(name, ty, *mutable, *name_span, false);
+        let label = self.new_label();
+        let body_end = body.end;
+        let (body, _) = self.looped(label, *span, body, None);
+        self.scopes.pop();
+
+        let Some(kind) = kind else { return };
+        let mut list = list;
+        if !list.is_place() {
+            let owned = self.hidden_named("for list", list_ty);
+            out.push(hir::Stmt::Decl(owned));
+            out.push(hir::Stmt::Assign(hir::Place::local(owned), list));
+            list = hir::Expr::new(K::Local(owned), list_ty);
+        }
+        let changes = matches!(kind, Item::ChangingView);
+        let hidden = self.hidden_named("for list borrow", Type::borrow(changes, list_ty));
+        let index = self.hidden_named("for list index", Type::U64);
+        out.push(hir::Stmt::Assign(hir::Place::local(hidden), hir::Expr::new(K::Borrow { mutable: changes, place: Box::new(list) }, Type::borrow(changes, list_ty))));
+        out.push(hir::Stmt::Assign(hir::Place::local(index), hir::Expr::new(K::Int(0), Type::U64)));
+
+        let whole = || hir::Expr::new(K::Deref(Box::new(hir::Expr::new(K::Local(hidden), Type::borrow(changes, list_ty)))), list_ty);
+        let here = || hir::Expr::new(K::Local(index), Type::U64);
+        let cond = hir::Expr::new(K::Binary(hir::BinOp::Lt, Box::new(here()), Box::new(hir::Expr::new(K::Len(Box::new(whole())), Type::U64))), Type::Bool);
+        let item = hir::Expr::new(K::Index(Box::new(whole()), Box::new(here())), elem);
+        let value = match kind {
+            Item::Read => item,
+            Item::Copy => hir::Expr::new(K::DeepCopy(Box::new(item)), elem),
+            Item::View => hir::Expr::new(K::Borrow { mutable: false, place: Box::new(item) }, view),
+            Item::ChangingView => hir::Expr::new(K::Borrow { mutable: true, place: Box::new(item) }, changing_view),
+        };
+        let mut inner = vec![hir::Stmt::Decl(var), hir::Stmt::Assign(hir::Place::local(var), value)];
+        inner.extend(body);
+        let step = vec![hir::Stmt::Assign(
+            hir::Place::local(index),
+            hir::Expr::new(K::Binary(hir::BinOp::Add, Box::new(here()), Box::new(hir::Expr::new(K::Int(1), Type::U64))), Type::U64),
+        )];
+        out.push(hir::Stmt::Loop { label, cond: Some(cond), body: inner, step, end: body_end });
+    }
+}
+
+/// How a `for` over a list binds each item (see `for_list`).
+#[derive(Clone, Copy)]
+enum Item {
+    /// The item is Copy: a plain read.
+    Read,
+    /// The item owns memory: a copy of it.
+    Copy,
+    /// `&T`: a view.
+    View,
+    /// `&mut T`: a changeable view.
+    ChangingView,
 }
 
 #[cfg(test)]
