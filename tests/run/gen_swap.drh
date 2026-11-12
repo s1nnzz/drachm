@@ -1,0 +1,23 @@
+in io;
+
+// A generic function that changes its arguments through `&mut`.
+none swap<T>(&mut T a, &mut T b) {
+    T tmp = copy a;
+    a = copy b;
+    b = tmp;
+}
+
+none main() {
+    mut uint32 x = 1;
+    mut uint32 y = 2;
+    swap(&mut x, &mut y);
+    io::outln(f"${x} ${y}");
+    mut string s = "left";
+    mut string t = "right";
+    swap(&mut s, &mut t);
+    io::outln(f"${s} ${t}");
+    mut float64 p = 0.5;
+    mut float64 q = 1.5;
+    swap<float64>(&mut p, &mut q);
+    io::outln(f"${p} ${q}");
+}

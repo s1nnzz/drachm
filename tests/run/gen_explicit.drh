@@ -1,0 +1,19 @@
+in io;
+
+// Type arguments written out decide the type, and constants adapt to it.
+T twice<T>(T x) {
+    return x + x;
+}
+
+T make<T>() {
+    return 7;
+}
+
+none main() {
+    io::outln(f"${twice<uint8>(100)}");
+    io::outln(f"${twice<float32>(1.25)}");
+    io::outln(f"${twice<uint64>(5000000000)}");
+    io::outln(f"${twice(21)}");
+    uint32 z = make<uint32>();
+    io::outln(f"${z} ${make<uint8>()} ${make<float64>()}");
+}

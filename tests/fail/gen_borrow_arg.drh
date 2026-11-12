@@ -1,0 +1,9 @@
+in io;
+
+// Q3: a borrow as a type argument is allowed by the design, not built yet.
+T same<T>(T x) { return x; }
+
+none main() {
+    string s = "text";
+    &string r = same<&string>(&s);
+}

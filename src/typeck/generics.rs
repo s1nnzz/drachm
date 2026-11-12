@@ -30,6 +30,7 @@ pub(super) struct Template {
     pub head: ast::Func,
     /// False after an error or an unsupported feature in its type parameters.
     pub usable: bool,
+    /// How many calls name it (counted even when the call is wrong).
     pub instances: usize,
 }
 
@@ -91,9 +92,10 @@ pub(super) fn declare_template(g: &mut Globals, index: usize, f: &ast::Func, dia
                 None
             };
             if let Some(what) = what {
+                let art = if what == "enum" { "an" } else { "a" };
                 diags.push(
-                    Diagnostic::at(&codes::E0605, p.span, format!("type parameter `{}` is also the name of a {what}", p.name))
-                        .note(format!("a {what} is already called `{}`", p.name))
+                    Diagnostic::at(&codes::E0605, p.span, format!("type parameter `{}` is also the name of {art} {what}", p.name))
+                        .note(format!("{art} {what} is already called `{}`", p.name))
                         .help("a type parameter takes no other name's place: rename it, for example `T`"),
                 );
                 usable = false;
@@ -141,10 +143,13 @@ pub(super) fn drain(g: &mut Globals, src: &str, prog: &ast::Program, diags: &mut
         g.tenv.clear();
         g.mono.depth = 0;
         for d in local {
-            if !first_report(g, &d) {
+            // `copy` that does nothing for this `T` is needed for another one.
+            if d.code.id == "W0322" || !first_report(g, &d) {
                 continue;
             }
-            diags.push(d.note_line(format!("while checking `{}`, instantiated here", p.display)).label(p.call, "instantiated here"));
+            let same = d.labels.first().is_some_and(|l| l.0 == p.call);
+            let d = d.note_line(format!("while checking `{}`, instantiated here", p.display));
+            diags.push(if same { d } else { d.label(p.call, "instantiated here") });
         }
         emit(p.id, f);
     }
@@ -224,6 +229,9 @@ impl Checker<'_> {
             (t.head.params.iter().map(|p| p.ty.clone()).collect::<Vec<_>>(), t.head.tparams.clone(), t.usable)
         };
         let n = tparams.len();
+        if let Some(t) = self.g.mono.templates.get_mut(name) {
+            t.instances += 1;
+        }
         let fail = |cx: &mut Self| {
             for a in args {
                 cx.expr(a);
@@ -420,11 +428,10 @@ impl Checker<'_> {
         let broken = sig.params.iter().any(Option::is_none) || sig.ret.is_none();
         let index = t.index;
         let id = self.g.add_sig(sig);
-        t.instances += 1;
         self.g.mono.templates.insert(name.to_string(), t);
         self.g.mono.instances.insert(key, id);
         if !broken {
-            let symbol = format!("drachm_f_{}", types::mangle(&display));
+            let symbol = format!("drachm_g_{}", types::mangle(&display));
             self.g.mono.pending.push_back(Pending { index, id, tenv, depth, call, display, symbol });
         }
         Some(id)

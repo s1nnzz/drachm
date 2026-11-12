@@ -1,0 +1,12 @@
+error[E0601]: cannot tell what `T` is in this call of `make`
+no argument shows `T`
+write it out: `make<uint32>()`
+error[E0603]: `T` is `uint8` from the first argument, but `string` from the second
+this one is `uint8`
+this one is `string`
+convert one of them, or write the type: `max<uint8>(...)`
+warning[W0102]: `300` does not fit `uint8`
+error[E0602]: `max` takes 1 type argument, but 2 given
+error[E0901]: writing only some of the type arguments is not supported yet
+error[E0604]: `max` is generic, so it needs a call
+error[E0103]: `max` takes 2 arguments, but 1 given

@@ -1,0 +1,7 @@
+uint32: 9
+float64: 2.5 1.5
+sint8: 4 -9
+explicit: 9
+constants: 7
+text: pear
+again: 5

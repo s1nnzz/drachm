@@ -1,0 +1,5 @@
+fn larger<uint32>(_1: uint32, _2: uint32) -> uint32
+fn larger<uint64>(_1: uint64, _2: uint64) -> uint64
+_3 = call larger<uint32>(const 1u32, const 2u32) -> bb1
+_4 = call larger<uint64>(const 3u64, const 4u64) -> bb2
+_3 = Gt(copy _1, copy _2)

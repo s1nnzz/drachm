@@ -298,9 +298,9 @@ impl fmt::Display for Type {
 /// A display name as a symbol-safe `[A-Za-z0-9_]` string. A name that is
 /// already plain (`Point`, `my_func`) is returned unchanged, so existing
 /// symbols do not move. Otherwise every `_` is doubled and the rest are
-/// spelled out: `<` `_L`, `>` `_R`, `,` `_C`, `?` `_Q`, `[?]` `_List`,
+/// spelled out: `<` `_L`, `>` `_R`, `, ` `_C`, `?` `_Q`, `[?]` `_List`,
 /// `[4]` `_A4`, `&` `_B`, `*` `_M`, `/` `_S`, `^` `_P`, `(` `_O`, `)` `_E`,
-/// `-` `_N`; spaces are dropped and anything else becomes `_x<hex>_`.
+/// `-` `_N`, a space `_Z`, and anything else becomes `_x<hex>_`.
 /// (A plain name that is itself a mangled form, like `a_Lb_R`, would collide
 /// with `a<b>`; nobody writes those.)
 pub fn mangle(name: &str) -> String {
@@ -324,7 +324,9 @@ pub fn mangle(name: &str) -> String {
             '(' => out.push_str("_O"),
             ')' => out.push_str("_E"),
             '-' => out.push_str("_N"),
-            ' ' => {}
+            // The space after a comma is part of `_C`.
+            ' ' if out.ends_with("_C") => {}
+            ' ' => out.push_str("_Z"),
             '[' => {
                 let mut inner = String::new();
                 for d in chars.by_ref() {
@@ -346,6 +348,65 @@ pub fn mangle(name: &str) -> String {
     out
 }
 
+/// The display name a symbol made by `mangle` stands for (`max_Luint32_R` is
+/// `max<uint32>`). Only for symbols known to be mangled: a plain name is not
+/// meant to be passed through it.
+pub fn demangle(mangled: &str) -> String {
+    let b = mangled.as_bytes();
+    let mut out = String::new();
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] != b'_' || i + 1 >= b.len() {
+            out.push(b[i] as char);
+            i += 1;
+            continue;
+        }
+        let rest = &mangled[i + 1..];
+        if let Some(r) = rest.strip_prefix("List") {
+            out.push_str("[?]");
+            i = mangled.len() - r.len();
+            continue;
+        }
+        if rest.starts_with('A') && rest[1..].starts_with(|c: char| c.is_ascii_digit()) {
+            let digits: String = rest[1..].chars().take_while(char::is_ascii_digit).collect();
+            out.push_str(&format!("[{digits}]"));
+            i += 2 + digits.len();
+            continue;
+        }
+        if let Some(hex) = rest.strip_prefix('x')
+            && let Some(end) = hex.find('_')
+            && let Some(c) = u32::from_str_radix(&hex[..end], 16).ok().and_then(char::from_u32)
+        {
+            out.push(c);
+            i += 3 + end;
+            continue;
+        }
+        let piece = match b[i + 1] {
+            b'_' => "_",
+            b'L' => "<",
+            b'R' => ">",
+            b'C' => ", ",
+            b'Q' => "?",
+            b'B' => "&",
+            b'M' => "*",
+            b'S' => "/",
+            b'P' => "^",
+            b'O' => "(",
+            b'E' => ")",
+            b'N' => "-",
+            b'Z' => " ",
+            _ => {
+                out.push('_');
+                i += 1;
+                continue;
+            }
+        };
+        out.push_str(piece);
+        i += 2;
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -359,6 +420,9 @@ mod tests {
         assert_eq!(mangle("f<uint8[4]?>"), "f_Luint8_A4_Q_R");
         assert_eq!(mangle("a_b<c>"), "a__b_Lc_R");
         assert_eq!(mangle("f<float64<m/s>>"), "f_Lfloat64_Lm_Ss_R_R");
+        for name in ["max<uint32>", "Map<string, uint32[?]>", "f<uint8[4]?>", "a_b<c>", "f<float64<m/s>>", "f<&mut string, *uint8>"] {
+            assert_eq!(demangle(&mangle(name)), name);
+        }
     }
 
     #[test]

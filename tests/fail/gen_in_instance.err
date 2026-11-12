@@ -1,0 +1,3 @@
+error[E0112]: `Opaque` has no `>` operator
+instantiated here
+while checking `biggest<Opaque>`, instantiated here

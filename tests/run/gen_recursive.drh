@@ -1,0 +1,20 @@
+in io;
+
+// A generic function calling itself with the same `T` reuses its instance.
+T power<T>(T base, uint32 n) {
+    if (n == 0) { return 1; }
+    return base * power(base, n - 1);
+}
+
+uint32 depth<T>(T x, uint32 n) {
+    if (n == 0) { return 0; }
+    return 1 + depth(x, n - 1);
+}
+
+none main() {
+    uint64 a = 3;
+    float64 b = 1.5;
+    io::outln(f"${power(a, 4)} ${power(b, 3)}");
+    io::outln(f"${power<sint32>(-2, 5)}");
+    io::outln(f"${depth(a, 5)} ${depth(b, 2)}");
+}

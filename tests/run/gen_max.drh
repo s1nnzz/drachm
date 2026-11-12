@@ -1,0 +1,30 @@
+in io;
+
+// One generic function, called with several types. `T` is worked out from
+// the arguments, or written out.
+T max<T>(T a, T b) {
+    if (a > b) { return a; }
+    return b;
+}
+
+T min<T>(T a, T b) {
+    if (a < b) { return a; }
+    return b;
+}
+
+none main() {
+    uint32 x = 5;
+    uint32 y = 9;
+    io::outln(f"uint32: ${max(x, y)}");
+    float64 f = 2.5;
+    float64 g = 1.5;
+    io::outln(f"float64: ${max(f, g)} ${min(f, g)}");
+    sint8 n = -3;
+    io::outln(f"sint8: ${max(n, 4)} ${min(-9, n)}");
+    io::outln(f"explicit: ${max<uint64>(5, 9)}");
+    io::outln(f"constants: ${max(7, 3)}");
+    string apple = "apple";
+    string pear = "pear";
+    io::outln(f"text: ${max<string>(apple, pear)}");
+    io::outln(f"again: ${max(x, 3)}");
+}
