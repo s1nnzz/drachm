@@ -1,0 +1,21 @@
+in io;
+
+struct Cell<T> {
+    public:
+    T value;
+}
+
+struct Pair<A, B> {
+    public:
+    A first;
+    B second;
+}
+
+none main() {
+    Pair<Cell<uint32>, string> p = new Pair<Cell<uint32>, string> of (new Cell<uint32> of (3), "x");
+    io::outln(f"${p.first.value} ${p.second}");
+    Cell<Pair<uint8, bool>> c = new Cell<Pair<uint8, bool>> of (new Pair<uint8, bool> of (1, true));
+    io::outln(f"${c.value.first} ${c.value.second}");
+    Cell<Cell<string>> cc = new Cell<Cell<string>> of (new Cell<string> of ("deep"));
+    io::outln(cc.value.value);
+}

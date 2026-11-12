@@ -1,0 +1,1 @@
+error[E0210]: struct `Node<uint32>` contains itself

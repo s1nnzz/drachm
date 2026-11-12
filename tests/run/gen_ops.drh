@@ -1,0 +1,32 @@
+in io;
+
+// Operators, automatic == and fill/def, per instance.
+struct Vec2<T> {
+    public:
+    T x;
+    T y;
+    Vec2<T> +(Vec2<T> o) { return new Vec2<T> of (self.x + o.x, self.y + o.y); }
+}
+
+def Origin of Vec2<sint32> { x = 0; y = 0; }
+
+struct Named<T> {
+    public:
+    string name;
+    T v;
+}
+
+none main() {
+    Vec2<sint32> v = new Vec2<sint32> of (1, 2);
+    Vec2<sint32> w = v + v;
+    io::outln(f"${w.x} ${w.y}");
+    Vec2<float64> f = new Vec2<float64> of (0.5, 1.5);
+    Vec2<float64> g = f + f;
+    io::outln(f"${g.x} ${g.y}");
+    Vec2<sint32> o;
+    fill o with Origin { }
+    io::outln(f"${o.x} ${o.y}");
+    Named<uint8> n1 = new Named<uint8> of ("a", 1);
+    Named<uint8> n2 = new Named<uint8> of ("a", 1);
+    io::outln(f"${n1 == n2}");
+}

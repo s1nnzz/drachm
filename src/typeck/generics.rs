@@ -332,6 +332,31 @@ fn peel(g: &Globals, p: &ast::TypeName, ty: Type) -> Type {
     t
 }
 
+/// Does the written type `p` name one of the type parameters, anywhere?
+fn mentions(tparams: &[ast::TypeParam], p: &ast::TypeName) -> bool {
+    (p.args.is_empty() && tparams.iter().any(|tp| tp.name == p.name)) || p.args.iter().any(|a| mentions(tparams, a))
+}
+
+/// What a parameter written `p` makes of the type parameters, given an
+/// argument of type `ty`: `(parameter index, type)` for each one it shows.
+fn bindings(g: &Globals, tparams: &[ast::TypeParam], p: &ast::TypeName, ty: Type, out: &mut Vec<(usize, Type)>) {
+    let inner = peel(g, p, ty);
+    if p.args.is_empty() {
+        if let Some(k) = tparams.iter().position(|tp| tp.name == p.name) {
+            out.push((k, inner));
+        }
+        return;
+    }
+    if let Some((name, targs)) = g.mono.origin.get(&inner)
+        && *name == p.name
+        && targs.len() == p.args.len()
+    {
+        for (pa, ta) in p.args.iter().zip(targs) {
+            bindings(g, tparams, pa, *ta, out);
+        }
+    }
+}
+
 /// An argument of a generic call, looked at before the instance is known.
 enum Pre {
     /// Its parameter names no type parameter, or it has to wait for the
@@ -396,7 +421,7 @@ impl Checker<'_> {
         // Arguments that show a type parameter are checked first, without an expected type.
         let mut pre: Vec<Pre> = Vec::new();
         for (a, p) in args.iter().zip(&params) {
-            let shows = !explicit && tparams.iter().any(|tp| tp.name == p.name) && p.args.is_empty() && p.dims.is_empty();
+            let shows = !explicit && mentions(&tparams, p) && p.dims.is_empty();
             if !shows || matches!(a.kind, ExprKind::NoneValue) {
                 pre.push(Pre::Later);
                 continue;
@@ -408,8 +433,9 @@ impl Checker<'_> {
             // The first argument that has a type decides.
             for (i, (a, p)) in args.iter().zip(&params).enumerate() {
                 let Pre::Done(Some(Val::Expr(x))) = &pre[i] else { continue };
-                let k = tparams.iter().position(|tp| tp.name == p.name).unwrap();
-                let ty = peel(self.g, p, x.ty);
+                let mut found = Vec::new();
+                bindings(self.g, &tparams, p, x.ty, &mut found);
+                for (k, ty) in found {
                 match bound[k] {
                     None => bound[k] = Some((ty, i)),
                     Some((first, from)) if first != ty => {
@@ -431,6 +457,7 @@ impl Checker<'_> {
                         return None;
                     }
                     _ => {}
+                }
                 }
             }
             // A parameter only constants show takes the type a constant has by itself.
@@ -591,6 +618,16 @@ impl Checker<'_> {
 }
 
 // ---- generic structs and enums -------------------------------------------
+
+impl State {
+    /// The `defaults` clause of generic struct `name`, if it has one.
+    pub fn struct_defaults(&self, name: &str) -> Option<(String, Span)> {
+        match &self.type_templates.get(name)?.head {
+            Head::Struct(s) => s.defaults.clone(),
+            Head::Enum(_) => None,
+        }
+    }
+}
 
 fn push_once(g: &mut Globals, diags: &mut Vec<Diagnostic>, d: Diagnostic) {
     if first_report(g, &d) {
@@ -811,6 +848,7 @@ fn ensure_type(g: &mut Globals, t: &ast::TypeName, diags: &mut Vec<Diagnostic>) 
             .note(format!("`{}` is `{}` here", tpl.tparams[bad].name, args[bad]))
             .help("hold the value itself, or write the borrow as a field: `&T`");
         g.mono.refused.insert(key);
+        g.mono.type_templates.get_mut(&t.name).unwrap().instances += 1;
         push_once(g, diags, d);
         return;
     }
@@ -899,7 +937,10 @@ pub(super) fn instantiate_type(g: &mut Globals, name: &str, types: Vec<Type>, at
         }
     }
     for d in local {
-        if first_report(g, &d) {
+        // Inside another instantiation the outer one decides what is repeated.
+        if g.mono.type_depth > 0 {
+            diags.push(d);
+        } else if first_report(g, &d) {
             diags.push(d.note_line(format!("while checking `{display}`, instantiated here")).label(at, "instantiated here"));
         }
     }

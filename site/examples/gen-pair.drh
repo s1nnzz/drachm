@@ -1,0 +1,39 @@
+in io;
+
+struct Cell<T> {
+    public:
+    T value;
+}
+
+struct Pair<A, B> {
+    public:
+    A first;
+    B second;
+}
+
+// A generic enum.
+enum Maybe2<T> {
+    Nothing,
+    Just(T value),
+}
+
+none show(Maybe2<uint32> m) {
+    match (m) {
+        case Nothing { io::outln("nothing"); }
+        case Just(uint32 v) { io::outln(f"just ${v}"); }
+    }
+}
+
+// T is worked out from the Cell<..> argument.
+T unwrap<T>(Cell<T> c) {
+    return copy c.value;
+}
+
+none main() {
+    // An instance can be an argument of another.
+    Pair<Cell<uint32>, string> p = new Pair<Cell<uint32>, string> of (new Cell<uint32> of (3), "x");
+    io::outln(f"${p.first.value} ${p.second}");
+    show(Just(5));
+    show(Maybe2<uint32>::Nothing());
+    io::outln(f"${unwrap(p.first)}");
+}

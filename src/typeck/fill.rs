@@ -28,8 +28,16 @@ pub(super) fn declare_defs(g: &mut Globals, src: &str, prog: &ast::Program, diag
             Some((n, sp)) => (n.clone(), *sp),
             None => (d.name.clone(), d.name_span),
         };
-        let owner = g.structs_by_name.get(&target).copied();
-        if owner.is_none() {
+        let owner = if d.of_args.is_empty() {
+            g.structs_by_name.get(&target).copied()
+        } else {
+            let tn = ast::TypeName { args: d.of_args.clone(), ..ast::TypeName::plain(target.clone(), at) };
+            g.resolve(&tn, diags).and_then(Type::struct_id).or_else(|| {
+                // Reported already, or not a struct.
+                None
+            })
+        };
+        if owner.is_none() && d.of_args.is_empty() {
             diags.push(Diagnostic::at(&codes::E0201, at, format!("unknown struct `{target}`")).help("a def is for a struct declared in this file"));
         }
         owners.push(owner);
@@ -102,6 +110,19 @@ pub(super) fn declare_defs(g: &mut Globals, src: &str, prog: &ast::Program, diag
             None => diags.push(
                 Diagnostic::at(&codes::E0508, *span, format!("`{}` has no default def named `{name}`", s.name))
                     .help(format!("write `def {name} of {} {{ ... }}`", s.name)),
+            ),
+        }
+    }
+    // `struct Cell<T> defaults Start`: each instance looks for a def of its own.
+    let mut instances: Vec<(String, StructId)> = g.mono.type_instances.iter().filter_map(|((n, _), t)| t.struct_id().map(|id| (n.clone(), id))).collect();
+    instances.sort_by_key(|(_, id)| *id);
+    for (tname, sid) in instances {
+        let Some((name, span)) = g.mono.struct_defaults(&tname) else { continue };
+        match g.defs.iter().position(|d| d.name == name && d.struct_id == sid) {
+            Some(idx) => g.structs[sid].default_def = Some(idx),
+            None => diags.push(
+                Diagnostic::at(&codes::E0508, span, format!("`{}` has no default def named `{name}`", g.structs[sid].name))
+                    .help(format!("write `def {name} of {} {{ ... }}`", g.structs[sid].name)),
             ),
         }
     }

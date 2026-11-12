@@ -1,0 +1,23 @@
+in io;
+
+struct Cell<T> {
+    public:
+    T value;
+}
+
+// T is worked out from the Cell<..> argument.
+none show<T>(&Cell<T> c, T extra) {
+    io::outln("shown");
+}
+
+T unwrap<T>(Cell<T> c) {
+    return copy c.value;
+}
+
+none main() {
+    Cell<uint32> a = new Cell<uint32> of (8);
+    show(&a, 3);
+    io::outln(f"${unwrap(a)}");
+    Cell<string> s = new Cell<string> of ("txt");
+    io::outln(unwrap(s));
+}

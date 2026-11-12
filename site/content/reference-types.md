@@ -42,7 +42,8 @@ A type name followed by `<` is read as a unit only after a number type
 (`float64<m/s>`); after any other name it opens type arguments
 (`Map<string, uint32>`), and a name that takes none is E0602. `[?]` and `[N]`
 after a type write a list and an array. Type arguments work for generic
-functions today; see [Generics](reference-generics.md).
+functions, structs and enums today, and `Optional<T>` is `T?` spelled out; see
+[Generics](reference-generics.md).
 
 ## Optional types
 

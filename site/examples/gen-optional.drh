@@ -1,0 +1,13 @@
+in io;
+
+// Optional<uint32> and uint32? are the same type.
+Optional<uint32> twice(uint32? x) {
+    return x;
+}
+
+none main() {
+    Optional<uint32> a = 4;
+    uint32? b = twice(a);
+    Optional<uint32> none_here = none;
+    io::outln(f"${b maybe 0} ${none_here maybe 9}");
+}

@@ -1,0 +1,39 @@
+in io;
+
+enum Maybe2<T> {
+    Nothing,
+    Just(T value),
+}
+
+enum Either<A, B> {
+    Left(A a),
+    Right(B b),
+}
+
+none show(Maybe2<uint32> m) {
+    match (m) {
+        case Nothing { io::outln("nothing"); }
+        case Just(uint32 v) { io::outln(f"just ${v}"); }
+    }
+}
+
+none say(Either<uint8, string> e) {
+    match (e) {
+        case Left(uint8 a) { io::outln(f"left ${a}"); }
+        case Right(take string b) { io::outln(f"right ${b}"); }
+    }
+}
+
+none main() {
+    Maybe2<uint32> a = Just(5);
+    Maybe2<uint32> b = Maybe2<uint32>::Nothing();
+    show(a);
+    show(b);
+    Maybe2<string> t = Maybe2<string>::Just("text");
+    match (t) {
+        case Just(take string v) { io::outln(v); }
+        case Nothing { io::outln("none"); }
+    }
+    say(Either<uint8, string>::Left(7));
+    say(Either<uint8, string>::Right("r"));
+}

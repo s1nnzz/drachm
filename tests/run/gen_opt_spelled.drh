@@ -1,0 +1,17 @@
+in io;
+
+// Optional<T> is the same type as T?.
+Optional<uint32> twice(uint32? x) {
+    return x;
+}
+
+none main() {
+    Optional<uint32> a = 4;
+    uint32? b = a;
+    io::outln(f"${b maybe 0}");
+    uint32? c = twice(b);
+    Optional<uint32> d = none;
+    io::outln(f"${c maybe 1} ${d maybe 9}");
+    Optional<string> s = "hi";
+    io::outln(s maybe "none");
+}

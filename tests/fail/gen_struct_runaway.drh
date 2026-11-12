@@ -1,0 +1,13 @@
+struct Cell<T> {
+    public:
+    T value;
+}
+
+struct Bad<T> {
+    public:
+    Bad<Cell<T>> inner;
+}
+
+none main() {
+    Bad<uint32> b;
+}
