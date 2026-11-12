@@ -406,3 +406,31 @@ implement `Equal` without writing `==`, because every struct has one.
 
 `float64<U> twice<unit U>(float64<U> x)` would work with any unit and keep it.
 Today `unit U` is E0901. The spelling is still open.
+
+## Function types and lambdas
+
+A function type lists its parameter types in parentheses, then `=>` and
+its result type. A local or parameter of function type is called with
+ordinary parentheses. A named function can be passed by name wherever its
+function type is expected.
+
+<!-- example: lambda-basic -->
+
+The parameter and result types must match (E0650 and E0651). Function
+values can be held in locals and passed down as arguments. Returning one
+or storing one inside another value is E0652.
+
+### Lambda expressions
+
+<!-- status: not-implemented -->
+
+Write `(uint32 n) => n * n` for an expression body or use braces for a
+block body. Lambdas borrow captures by default, and `move` takes ownership.
+An assignment through a capture infers a mutable borrow.
+
+### Collection callbacks
+
+<!-- status: not-implemented -->
+
+`names::each((string n) => io::outln(n))` invokes a callback for each item
+in order.

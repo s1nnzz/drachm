@@ -93,7 +93,7 @@ pub(super) fn declare_variants(g: &mut Globals, id: EnumId, e: &ast::Enum, diags
         }
         let mut fields: Vec<FieldInfo> = Vec::new();
         for f in &v.fields {
-            let ty = g.resolve_binding_type(&f.ty, diags);
+            let ty = g.resolve_storable(&f.ty, diags);
             if ty.is_some_and(|t| t.is_borrow() || t.is_ptr() || g.holds_borrow(t)) {
                 diags.push(
                     Diagnostic::at(&codes::E0901, f.ty.span, "a variant holding a borrow or a pointer is not supported yet")

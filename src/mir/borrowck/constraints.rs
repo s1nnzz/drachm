@@ -159,7 +159,7 @@ impl Gen<'_> {
                 }
             }
             // Enum payloads hold no borrows (E0901 at the declaration), so there is nothing to relate.
-            Rvalue::Variant(..) | Rvalue::Len(_) | Rvalue::ListNew(..) | Rvalue::Array(..) | Rvalue::Discriminant(_) | Rvalue::RawRef(_) | Rvalue::Neg(_) | Rvalue::Not(_) | Rvalue::BitNot(_) | Rvalue::Binary(..) | Rvalue::Shift { .. } | Rvalue::IntPow(..) | Rvalue::Convert(..) => {}
+            Rvalue::MakeFn(..) | Rvalue::Variant(..) | Rvalue::Len(_) | Rvalue::ListNew(..) | Rvalue::Array(..) | Rvalue::Discriminant(_) | Rvalue::RawRef(_) | Rvalue::Neg(_) | Rvalue::Not(_) | Rvalue::BitNot(_) | Rvalue::Binary(..) | Rvalue::Shift { .. } | Rvalue::IntPow(..) | Rvalue::Convert(..) => {}
         }
     }
 

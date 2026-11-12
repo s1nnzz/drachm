@@ -39,7 +39,7 @@ pub(crate) fn cl_type(t: Type) -> Option<ClType> {
         Type::Float(_) => Some(types::F64),
         Type::Bool => Some(types::I8),
         // A fat borrow is two words in memory.
-        Type::Ref { to: Type::Dyn { .. }, .. } => None,
+        Type::Ref { to: Type::Dyn { .. }, .. } | Type::Func(_) => None,
         Type::Ref { .. } | Type::Ptr { .. } | Type::FixedPtr { .. } => Some(types::I64),
         Type::Dyn { .. } => unreachable!("an interface is only the target of a borrow"),
         Type::None | Type::Str | Type::List { .. } | Type::Array { .. } | Type::Struct { .. } | Type::Enum { .. } => None,
@@ -49,7 +49,7 @@ pub(crate) fn cl_type(t: Type) -> Option<ClType> {
 
 /// Strings and structs live in memory and are handled by address.
 pub(crate) fn in_memory(t: Type) -> bool {
-    t == Type::Str || t.is_list() || t.is_array() || t.struct_id().is_some() || t.enum_id().is_some() || t.is_fat()
+    t == Type::Str || t.is_list() || t.is_array() || t.struct_id().is_some() || t.enum_id().is_some() || t.is_fat() || t.is_func()
 }
 
 pub(crate) fn signature(module: &ObjectModule, f: &Func) -> Signature {

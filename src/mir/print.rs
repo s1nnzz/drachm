@@ -87,6 +87,7 @@ fn terminator(p: &Program, hir: &hir::Program, k: &TerminatorKind) -> String {
                 Callee::Str(f) => format!("Str{f:?}"),
                 Callee::Out { newline: false } => "Out".to_string(),
                 Callee::Out { newline: true } => "Outln".to_string(),
+                Callee::Fn(ty) => format!("Fn({ty})"),
                 Callee::Dyn { iface, method } => format!("Dyn({}.{})", hir.dyn_ifaces[*iface].name, hir.dyn_ifaces[*iface].methods[*method].name),
                 Callee::Text => "Text".to_string(),
                 Callee::InLine => "InLine".to_string(),
@@ -174,6 +175,7 @@ fn rvalue(p: &Program, hir: &hir::Program, rv: &Rvalue) -> String {
         }
         Rvalue::IntPow(a, b) => format!("IntPow({}, {})", o(a), o(b)),
         Rvalue::Convert(x, t) => format!("Convert({}, {t})", o(x)),
+        Rvalue::MakeFn(id, _) => format!("MakeFn({})", hir.funcs[*id].symbol),
         Rvalue::Unsize(x, t) => format!("Unsize({}, {t})", o(x)),
         Rvalue::Ref(BorrowKind::Shared, pl) => format!("&{}", place(pl)),
         Rvalue::Ref(BorrowKind::Mut { two_phase: false }, pl) => format!("&mut {}", place(pl)),

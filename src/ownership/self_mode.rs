@@ -248,6 +248,7 @@ impl Cx<'_> {
             | ExprKind::Bool(_)
             | ExprKind::Str(_)
             | ExprKind::Local(_)
+            | ExprKind::FuncRef(_)
             | ExprKind::InLine
             | ExprKind::InEnded
             | ExprKind::NullPtr => {}
@@ -347,7 +348,7 @@ impl Cx<'_> {
                     self.expr(a, out);
                 }
             }
-            ExprKind::Join(args) | ExprKind::Variant { args, .. } | ExprKind::DynCall(_, _, args) => {
+            ExprKind::Join(args) | ExprKind::Variant { args, .. } | ExprKind::DynCall(_, _, args) | ExprKind::FnCall(args) => {
                 for a in args {
                     self.expr(a, out);
                 }

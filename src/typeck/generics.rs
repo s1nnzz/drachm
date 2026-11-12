@@ -625,7 +625,7 @@ pub(super) fn make_fn_instance(g: &mut Globals, diags: &mut Vec<Diagnostic>, nam
     let mut local = Vec::new();
     ensure_written(g, &mut local);
     let params: Vec<Option<Type>> = t.head.params.iter().map(|p| g.resolve_binding_type(&p.ty, &mut local)).collect();
-    let ret = g.resolve(&t.head.ret, &mut local);
+    let ret = g.resolve_return(&t.head.ret, &mut local);
     let (fails, outcome) = failures::signature(g, &t.head, ret, true, &mut local);
     let sig = Sig { name: display.clone(), params, ret, span: t.head.span, fails, outcome };
     check_signature_extras(g, &t.head, &sig.params, false, &mut local);

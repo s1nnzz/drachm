@@ -122,7 +122,7 @@ pub fn rvalue_ty(body: &Body, hir: &hir::Program, rv: &Rvalue) -> Result<Type, S
         }
         Rvalue::Shift { value, .. } => operand_ty(body, hir, value)?,
         Rvalue::IntPow(base, _) => operand_ty(body, hir, base)?,
-        Rvalue::Convert(_, t) | Rvalue::Unsize(_, t) => *t,
+        Rvalue::Convert(_, t) | Rvalue::Unsize(_, t) | Rvalue::MakeFn(_, t) => *t,
         Rvalue::Ref(kind, p) => {
             let t = place_ty(body, hir, p)?;
             if t.is_borrow() {

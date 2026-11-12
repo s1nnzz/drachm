@@ -50,6 +50,12 @@ functions, structs and enums today, and `Optional<T>` is `T?` spelled out; see
 `T?` is a `T` that may be missing: a value of type `T`, or `none`. See
 [Optionals](reference-enums.md#optionals).
 
+## Function types
+
+`(uint32) => uint32` takes one `uint32` and returns another.
+`() => none` takes no arguments and gives no result. See
+[Function types and lambdas](reference-generics.md#function-types-and-lambdas).
+
 ## Borrow types
 
 `&T` is a shared borrow of a `T`: it reads. `&mut T` is a unique borrow: it

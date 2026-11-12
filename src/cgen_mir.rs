@@ -576,6 +576,9 @@ impl Gen<'_> {
             // A reborrow of the interface behind a fat borrow is the fat borrow.
             Rvalue::Ref(_, p) if matches!(place_ty(self.body, self.hir, p), Ok(Type::Dyn { .. })) => self.lvalue(p),
             Rvalue::Ref(_, p) | Rvalue::RawRef(p) => format!("&{}", self.lvalue(p)),
+            Rvalue::MakeFn(id, _) => {
+                format!("(drachm_fn){{ (void (*)(void)){}, NULL }}", self.hir.funcs[*id].symbol)
+            }
             Rvalue::Unsize(op, to) => {
                 let from = self.op_ty(op);
                 let x = self.operand(op);
@@ -762,18 +765,25 @@ impl Gen<'_> {
                     _ => self.line(format!("{call};")),
                 }
             }
-            Callee::Dyn { iface, method } => {
-                let m = &self.hir.dyn_ifaces[iface].methods[method];
-                let slot = self.hir.dyn_ifaces[iface].method_slot(method);
+            Callee::Dyn { .. } | Callee::Fn(_) => {
                 let fat = self.operand(&args[0].op);
-                let rest: Vec<String> = args[1..].iter().map(|a| self.operand(&a.op)).collect();
-                let mut params = vec!["void *".to_string()];
-                params.extend(m.params.iter().map(|&p| c_type(p)));
-                let fn_ty = format!("{} (*)({})", c_type(m.ret), params.join(", "));
-                let mut all = vec![format!("{fat}.data")];
-                all.extend(rest);
-                let call = format!("(({fn_ty}){fat}.vt[{slot}])({})", all.join(", "));
-                match (&dest_lv, m.ret) {
+                let (ret, args_ty, env_ty, env, code) = match callee {
+                    Callee::Dyn { iface, method } => {
+                        let iface = &self.hir.dyn_ifaces[iface];
+                        let m = &iface.methods[method];
+                        let slot = iface.method_slot(method);
+                        (m.ret, m.params.as_slice(), "void *", format!("{fat}.data"), format!("{fat}.vt[{slot}]"))
+                    }
+                    Callee::Fn(Type::Func(sig)) => (sig.ret, sig.params.as_slice(), "uint8_t *", format!("{fat}.env"), format!("{fat}.code")),
+                    _ => unreachable!("an indirect callee"),
+                };
+                let mut params = vec![env_ty.to_string()];
+                params.extend(args_ty.iter().map(|&p| c_type(p)));
+                let fn_ty = format!("{} (*)({})", c_type(ret), params.join(", "));
+                let mut all = vec![env];
+                all.extend(args[1..].iter().map(|a| self.operand(&a.op)));
+                let call = format!("(({fn_ty}){code})({})", all.join(", "));
+                match (&dest_lv, ret) {
                     (Some(_), t) if t != Type::None => {
                         let d = self.decl(dest.unwrap(), t);
                         self.line(format!("{d} = {call};"))

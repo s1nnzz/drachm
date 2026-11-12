@@ -188,6 +188,7 @@ fn roles(hir: &hir::Program, body: &Body) -> HashMap<Location, Role> {
 /// Does `rv` read local `l` as a whole or in part?
 fn reads_local(rv: &Rvalue, l: Local) -> bool {
     let ops: Vec<&Operand> = match rv {
+        Rvalue::MakeFn(..) => Vec::new(),
         Rvalue::Use(o) | Rvalue::Neg(o) | Rvalue::Not(o) | Rvalue::BitNot(o) | Rvalue::Convert(o, _) | Rvalue::Unsize(o, _) => vec![o],
         Rvalue::Binary(_, a, b) | Rvalue::IntPow(a, b) => vec![a, b],
         Rvalue::Shift { value, amount, .. } => vec![value, amount],

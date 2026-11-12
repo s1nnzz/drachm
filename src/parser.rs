@@ -174,6 +174,21 @@ impl Parser<'_> {
                 _ => break,
             }
         }
+        if self.eat("(") {
+            let start = self.prev_span();
+            let mut params = Vec::new();
+            while self.peek() != &Tok::Sym(")") {
+                params.push(self.ty()?);
+                if !self.eat(",") {
+                    break;
+                }
+            }
+            self.expect(")")?;
+            self.expect("=>")?;
+            let ret = self.ty()?;
+            let span = start.to(self.prev_span());
+            return Ok(TypeName { mods, func: Some(Box::new(FuncType { params, ret })), ..TypeName::plain("", span) });
+        }
         if self.peek() == &Tok::Kw("none") {
             let span = self.bump().span;
             let unit = self.type_unit()?;
@@ -392,10 +407,35 @@ impl Parser<'_> {
             match self.peek_at(n) {
                 Tok::Sym("&" | "&&" | "*" | "**") => n += 1,
                 Tok::Kw("mut") if n > 0 && matches!(self.peek_at(n - 1), Tok::Sym("&")) => n += 1,
+                Tok::Sym("(") => {
+                    let close = self.paren_close(n)?;
+                    if self.peek_at(close + 1) != &Tok::Sym("=>") {
+                        return None;
+                    }
+                    n = close + 2;
+                }
                 Tok::Ident(_) | Tok::Kw("none") => return Some(self.name_end(n)),
                 _ => return None,
             }
         }
+    }
+
+    fn paren_close(&self, open: usize) -> Option<usize> {
+        let mut depth = 1;
+        for n in open + 1.. {
+            match self.peek_at(n) {
+                Tok::Sym("(") => depth += 1,
+                Tok::Sym(")") => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return Some(n);
+                    }
+                }
+                Tok::Eof | Tok::Sym(";" | "{" | "}") => return None,
+                _ => {}
+            }
+        }
+        unreachable!()
     }
 
     /// The offset just after the type name at token offset `n`, with its
@@ -534,7 +574,7 @@ impl Parser<'_> {
         }
         match self.peek() {
             Tok::Kw("in" | "struct" | "enum" | "failure" | "interface") => true,
-            Tok::Ident(_) | Tok::Kw("none" | "unsafe") | Tok::Sym("&" | "&&" | "*" | "**") => {
+            Tok::Ident(_) | Tok::Kw("none" | "unsafe") | Tok::Sym("&" | "&&" | "*" | "**" | "(") => {
                 let from = (self.peek() == &Tok::Kw("unsafe")) as usize;
                 match self.type_end(from) {
                     Some(n) => matches!(self.peek_at(n), Tok::Ident(_)) && {
@@ -1243,6 +1283,7 @@ impl Parser<'_> {
         match self.peek() {
             Tok::Kw("mut" | "open") => true,
             Tok::Ident(_) | Tok::Kw("none") => matches!(self.peek_at(self.name_end(0)), Tok::Ident(_) | Tok::Kw(_)),
+            Tok::Sym("(") => self.type_end(0).is_some_and(|n| matches!(self.peek_at(n), Tok::Ident(_)) && matches!(self.peek_at(n + 1), Tok::Sym("=" | ";"))),
             Tok::Sym("&" | "&&") => true,
             // `*uint32 p = ..` declares; `*p = 7;` and `*p.f = 7;` assign.
             Tok::Sym("*" | "**") => {

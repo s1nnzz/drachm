@@ -199,6 +199,8 @@ pub struct Import {
 pub struct TypeName {
     pub name: String,
     pub span: Span,
+    /// A function type: parameter types and the result type.
+    pub func: Option<Box<FuncType>>,
     /// Borrow and pointer marks written before the name, outermost first:
     /// `&mut string` is `[Ref { mutable: true }]`, `*uint32` is `[Ptr]`.
     pub mods: Vec<(TypeMod, Span)>,
@@ -220,10 +222,16 @@ pub struct TypeName {
     pub self_ty: bool,
 }
 
+#[derive(Debug, Clone)]
+pub struct FuncType {
+    pub params: Vec<TypeName>,
+    pub ret: TypeName,
+}
+
 impl TypeName {
     /// A bare name with nothing else written.
     pub fn plain(name: impl Into<String>, span: Span) -> TypeName {
-        TypeName { name: name.into(), span, mods: Vec::new(), unit: None, optional: None, args: Vec::new(), dims: Vec::new(), is_number: false, self_ty: false }
+        TypeName { name: name.into(), span, func: None, mods: Vec::new(), unit: None, optional: None, args: Vec::new(), dims: Vec::new(), is_number: false, self_ty: false }
     }
 }
 

@@ -1,0 +1,15 @@
+in io;
+
+uint32 square(uint32 n) {
+    return n * n;
+}
+
+none twice((uint32) => uint32 f) {
+    io::outln(f(3)::text());
+    io::outln(f(4)::text());
+}
+
+none main() {
+    (uint32) => uint32 operation = square;
+    twice(operation);
+}

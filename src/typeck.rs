@@ -11,6 +11,7 @@ mod fill;
 mod generics;
 mod interfaces;
 mod layout;
+mod lambdas;
 mod lists;
 mod optionals;
 mod overload;
@@ -134,6 +135,7 @@ struct Globals {
     ifaces: interfaces::State,
     /// The tables of the borrows of interfaces (`dynamic.rs`).
     dynamic: dynamic::State,
+    lambdas: lambdas::State,
     /// The type parameters of the instance being resolved or checked, and what
     /// they stand for here.
     tenv: HashMap<String, Type>,
@@ -182,6 +184,9 @@ impl Globals {
 
     /// `t` with its `&`, `&mut` and `*` marks applied to the named type.
     fn resolve_quiet(&self, t: &ast::TypeName) -> Option<Type> {
+        if t.func.is_some() {
+            return self.resolve_func(t, &mut Vec::new());
+        }
         if let Some(fat) = dynamic::dyn_borrow(self, t) {
             return Some(fat);
         }
@@ -200,6 +205,9 @@ impl Globals {
     }
 
     fn resolve(&self, t: &ast::TypeName, diags: &mut Vec<Diagnostic>) -> Option<Type> {
+        if t.func.is_some() {
+            return self.resolve_func(t, diags);
+        }
         if let Some((_, span)) = t.mods.first() {
             if !self.unsafe_allowed && let Some((_, at)) = t.mods.iter().find(|(m, _)| matches!(m, ast::TypeMod::Ptr | ast::TypeMod::FixedPtr)) {
                 diags.push(unsafe_disabled(*at, "raw pointer type here"));
@@ -454,7 +462,7 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
             continue;
         }
         let params = f.params.iter().map(|p| g.resolve_binding_type(&p.ty, diags)).collect();
-        let ret = g.resolve(&f.ret, diags);
+        let ret = g.resolve_return(&f.ret, diags);
         let (fails, outcome) = failures::signature(&mut g, f, ret, true, diags);
         let sig = Sig { name: f.name.clone(), params, ret, span: f.span, fails, outcome };
         check_signature_extras(&g, f, &sig.params, false, diags);
@@ -469,6 +477,9 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
         }
         let id = g.add_sig(sig);
         g.funcs_by_name.insert(f.name.clone(), id);
+        if f.is_unsafe.is_some() {
+            g.lambdas.unsafe_named.insert(id);
+        }
         func_ids.push(Some(id));
     }
     let method_ids: Vec<Vec<Option<FuncId>>> = prog
@@ -577,6 +588,9 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
         }
     }
 
+    for (id, f) in std::mem::take(&mut g.lambdas.bodies) {
+        emit(&mut funcs, id, f);
+    }
     for (id, f) in failures::finish(&mut g) {
         emit(&mut funcs, id, f);
     }
@@ -856,7 +870,7 @@ fn new_struct_info(g: &mut Globals, name: &str, s: &ast::Struct) -> StructId {
 
 fn declare_fields(g: &mut Globals, id: StructId, s: &ast::Struct, diags: &mut Vec<Diagnostic>) {
     for f in &s.fields {
-        let ty = g.resolve_binding_type(&f.ty, diags);
+        let ty = g.resolve_storable(&f.ty, diags);
         if let Some(first) = g.structs[id].fields.iter().find(|o| o.name == f.name) {
             diags.push(
                 Diagnostic::at(&codes::E0202, f.name_span, format!("`{}` has two fields named `{}`", g.structs[id].name, f.name))
@@ -887,7 +901,7 @@ fn declare_method_list(g: &mut Globals, id: StructId, methods: &[ast::Method], d
         }
         let f = &m.func;
         let params = f.params.iter().map(|p| g.resolve_binding_type(&p.ty, diags)).collect();
-        let ret = g.resolve(&f.ret, diags);
+        let ret = g.resolve_return(&f.ret, diags);
         let (fails, outcome) = failures::signature(g, f, ret, true, diags);
         let sig = Sig { name: format!("{sname}::{}", f.name), params, ret, span: f.span, fails, outcome };
         check_signature_extras(g, f, &sig.params, m.is_static.is_none(), diags);
@@ -1130,7 +1144,7 @@ struct MethodCtx {
 }
 
 fn check_body(g: &mut Globals, src: &str, diags: &mut Vec<Diagnostic>, f: &ast::Func, method: Option<MethodCtx>, symbol: String) -> hir::Func {
-    let ret = g.resolve_quiet(&f.ret);
+    let ret = g.resolve_return(&f.ret, &mut Vec::new());
     let (fails, outcome) = failures::signature(g, f, ret, !method.is_some_and(|m| m.no_fails), &mut Vec::new());
     let mut cx = Checker {
         src,
@@ -2029,6 +2043,9 @@ impl Checker<'_> {
 
     /// Check `e` and convert it to `to`, reporting a mismatch or a lossy conversion.
     fn coerce(&mut self, e: &ast::Expr, to: Type) -> Option<hir::Expr> {
+        if let Type::Func(sig) = to {
+            return self.coerce_func(e, to, sig);
+        }
         if let Some(made) = self.bare_variant(e, to) {
             return made;
         }
@@ -2657,6 +2674,9 @@ impl Checker<'_> {
                 typed(hir::ExprKind::IncDec { place: p.hir_place(e.span), inc: *inc, prefix: *prefix }, ty)
             }
             ExprKind::Call { name, targs, args } => {
+                if let Some(id) = self.lookup(name) {
+                    return self.call_value(id, name, targs, args, e.span);
+                }
                 if !self.g.funcs_by_name.contains_key(name) && self.g.mono.templates.contains_key(name) {
                     return self.generic_call(name, targs, args, e.span);
                 }

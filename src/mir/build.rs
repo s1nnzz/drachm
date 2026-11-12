@@ -897,6 +897,7 @@ impl<'a> Builder<'a> {
             | ExprKind::IntPow(..)
             | ExprKind::Convert(_)
             | ExprKind::PtrConv(_)
+            | ExprKind::FuncRef(_)
             | ExprKind::Unsize(_)
             | ExprKind::Struct(_)
             | ExprKind::Variant { .. }
@@ -1148,6 +1149,7 @@ impl<'a> Builder<'a> {
             | ExprKind::IntPow(..)
             | ExprKind::Convert(_)
             | ExprKind::PtrConv(_)
+            | ExprKind::FuncRef(_)
             | ExprKind::Unsize(_)
             | ExprKind::Struct(_)
             | ExprKind::Variant { .. }
@@ -1276,6 +1278,11 @@ impl<'a> Builder<'a> {
                 let ops = self.operands(&es, &|i| (i == 0 && has_self).then_some((mutable, mutable)));
                 self.call(Callee::Func(*f), ops, e.ty)
             }
+            ExprKind::FnCall(args) => {
+                let refs: Vec<_> = args.iter().collect();
+                let ops = self.operands(&refs, &|_| None);
+                self.call(Callee::Fn(args[0].ty), ops, e.ty)
+            }
             ExprKind::DynCall(iface, method, args) => {
                 let changes = self.hir.dyn_ifaces[*iface].methods[*method].changes;
                 let es: Vec<&Expr> = args.iter().collect();
@@ -1358,6 +1365,7 @@ impl<'a> Builder<'a> {
             }
             ExprKind::Convert(a) => Rvalue::Convert(first(self.operands(&[&**a], &none)), e.ty),
             ExprKind::PtrConv(a) => Rvalue::Use(first(self.operands(&[&**a], &none))),
+            ExprKind::FuncRef(id) => Rvalue::MakeFn(*id, e.ty),
             ExprKind::Unsize(a) => Rvalue::Unsize(first(self.operands(&[&**a], &none)), e.ty),
             ExprKind::Struct(fields) => {
                 let sid = e.ty.struct_id().expect("a struct value has a struct type");
@@ -1891,6 +1899,8 @@ fn kind_name(k: &ExprKind) -> &'static str {
         ExprKind::Maybe { .. } => "Maybe",
         ExprKind::Convert(_) => "Convert",
         ExprKind::PtrConv(_) => "PtrConv",
+        ExprKind::FuncRef(_) => "FuncRef",
+        ExprKind::FnCall(_) => "FnCall",
         ExprKind::Unsize(_) => "Unsize",
         ExprKind::DynCall(..) => "DynCall",
         ExprKind::Call(..) => "Call",

@@ -124,6 +124,7 @@ impl Validator<'_> {
                 let dt = self.place(&at, dest);
                 let mut operands: Vec<&Operand> = Vec::new();
                 match rv {
+                    Rvalue::MakeFn(..) => {}
                     Rvalue::Use(o) | Rvalue::Neg(o) | Rvalue::Not(o) | Rvalue::BitNot(o) | Rvalue::Convert(o, _) | Rvalue::Unsize(o, _) => operands.push(o),
                     Rvalue::Binary(_, a, b) | Rvalue::IntPow(a, b) => operands.extend([a, b]),
                     Rvalue::Shift { value, amount, .. } => operands.extend([value, amount]),
@@ -138,6 +139,15 @@ impl Validator<'_> {
                 }
                 let tys: Vec<Option<Type>> = operands.iter().map(|o| self.operand(&at, o)).collect();
                 match rv {
+                    Rvalue::MakeFn(id, Type::Func(sig)) => {
+                        let f = &self.hir.funcs[*id];
+                        let params = f.locals.iter().take(f.params).map(|p| p.ty);
+                        let want = std::iter::once(Type::borrow(false, Type::U8)).chain(sig.params.iter().copied());
+                        if f.has_self || f.ret != sig.ret || !params.eq(want) {
+                            self.err(&at, "MakeFn target does not have the callable signature");
+                        }
+                    }
+                    Rvalue::MakeFn(..) => self.err(&at, "MakeFn result is not a callable type"),
                     Rvalue::Binary(_, ..) => {
                         // A comparison may mix `*T` and `*fixed T` of one pointee type.
                         let same_ptr = matches!((tys[0], tys[1]), (Some(a), Some(b)) if a.is_ptr() && b.is_ptr() && a.target() == b.target());
@@ -300,6 +310,11 @@ impl Validator<'_> {
                     })
                     .collect();
                 (Some(args), func.ret)
+            }
+            Callee::Fn(ty) => {
+                let Type::Func(sig) = ty else { unreachable!("a callable value") };
+                let args = std::iter::once(ty).chain(sig.params.iter().copied()).map(Want::Exact);
+                (Some(args.collect()), sig.ret)
             }
             Callee::Dyn { iface, method } => {
                 let m = &self.hir.dyn_ifaces[iface].methods[method];
@@ -473,6 +488,7 @@ fn flow_statement(assigned: &mut [bool], k: &StatementKind, used: &mut dyn FnMut
     match k {
         StatementKind::Assign(dest, rv) => {
             match rv {
+                Rvalue::MakeFn(..) => {}
                 Rvalue::Use(o) | Rvalue::Neg(o) | Rvalue::Not(o) | Rvalue::BitNot(o) | Rvalue::Convert(o, _) | Rvalue::Unsize(o, _) => operand_use(o, used),
                 Rvalue::Binary(_, a, b) | Rvalue::IntPow(a, b) => {
                     operand_use(a, used);
