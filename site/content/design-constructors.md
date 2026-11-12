@@ -7,26 +7,8 @@ description: Constructors that can fail and keys for maps, the parts of construc
 
 Constructors, `new ... of`, the declaration shorthand, `fill` blocks and `def`
 defaults are built. The [structs reference](reference-structs.md#constructors)
-covers them with examples. This page keeps the parts that are still designed.
-
-## A constructor that can fail
-
-<!-- status: not-implemented -->
-
-A constructor may declare `fails`, and then the declaration handles the failure
-like any other failing call. See [Errors](design-errors.md).
-
-```drachm
-struct Port {
-    uint32 n;
-    Port(uint32 n) fails BadPort {
-        if (n > 65535) { fail BadPort; }
-        self.n = n;
-    }
-}
-
-Port p = 8080 maybe Port::default();
-```
+covers them with examples. This page keeps the parts that are still designed. Constructors that can fail are
+in the [structs reference](reference-structs.md#constructors-that-fail).
 
 ## Choosing another def
 

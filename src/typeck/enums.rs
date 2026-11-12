@@ -569,7 +569,9 @@ impl Checker<'_> {
             );
             return None;
         };
-        let fields: Vec<(String, Type)> = self.g.enums[en].variants[vi].fields.iter().map(|f| (f.name.clone(), f.ty.unwrap_or(Type::None))).collect();
+        // A failure's first field is the hidden cause, which a pattern never names.
+        let skip = usize::from(self.g.enums[en].kind == hir::EnumKind::Failure);
+        let fields: Vec<(String, Type)> = self.g.enums[en].variants[vi].fields.iter().skip(skip).map(|f| (f.name.clone(), f.ty.unwrap_or(Type::None))).collect();
         if parens && args.len() != fields.len() {
             self.diags.push(
                 Diagnostic::at(&codes::E0526, span, format!("`{name}` holds {} value{}, but this pattern names {}", fields.len(), if fields.len() == 1 { "" } else { "s" }, args.len()))
@@ -582,9 +584,9 @@ impl Checker<'_> {
         let _ = name_span;
         alt.tests.push(self.tag_test(en, vi, place));
         let mut ok = true;
-        let mut subs = Vec::new();
+        let mut subs = vec![Pat::Wild; skip];
         for (i, (fname, fty)) in fields.iter().enumerate() {
-            let payload = hir::Expr::new(hir::ExprKind::Payload { value: Box::new(place.clone()), variant: vi, field: i }, *fty);
+            let payload = hir::Expr::new(hir::ExprKind::Payload { value: Box::new(place.clone()), variant: vi, field: i + skip }, *fty);
             let sub = args.get(i);
             match self.sub_pat(&payload, *fty, name, sub, alt) {
                 Some(p) => subs.push(p),
@@ -746,14 +748,6 @@ impl Checker<'_> {
     pub(super) fn enum_match(&mut self, v: hir::Expr, value: &ast::Expr, cases: &[ast::Case], span: Span, out: &mut hir::Block) {
         let ty = v.ty;
         let en = ty.enum_id().unwrap();
-        if self.g.enums[en].kind == hir::EnumKind::Failure {
-            self.diags.push(
-                Diagnostic::at(&codes::E0901, value.span, "`match` on a failure is not supported yet")
-                    .note(format!("`{}` is a failure", self.g.enums[en].name))
-                    .help("handlers will take failures apart"),
-            );
-            return;
-        }
         // The value is matched where it is when it is a place (it is not
         // moved by `match`); anything else is kept in a hidden local.
         let rooted = {

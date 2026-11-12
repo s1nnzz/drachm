@@ -1,0 +1,8 @@
+file: no such file save.dat
+100
+parse: cannot parse save?
+200
+other: something odd (exit code 1)
+300
+30
+check: no such file check.dat

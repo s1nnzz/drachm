@@ -1,0 +1,30 @@
+// A `drop()` may fail. Nobody is there to handle a failure of the drop that
+// runs by itself, so it is reported like one that leaves `main`.
+in io;
+
+failure FlushError {
+    Disk(string path) f"cannot write ${path}" exit 7,
+}
+
+struct Log {
+public:
+    string path;
+    uint32 lines;
+
+    none drop() fails FlushError {
+        io::outln(f"closing ${self.path}");
+        if (self.lines > 2) {
+            fail Disk(self.path + ".tmp");
+        }
+    }
+}
+
+none main() {
+    Log a = "a.log", 1;
+    io::outln("a is fine");
+    if (true) {
+        Log b = "b.log", 5;
+        io::outln("leaving the block");
+    }
+    io::outln("never printed");
+}

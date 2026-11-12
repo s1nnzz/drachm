@@ -5,8 +5,8 @@ description: failure types, fail, fails, maybe and fails with, catch-alls and be
 
 # Lesson 14: Errors
 
-`failure`, `fails`, `fail`, `maybe` and a bare `fails` run today. Handlers
-(`fails with`, `any e`, `otherwise`) are still the planned design and are marked.
+`failure`, `fails`, `fail`, `maybe`, a bare `fails`, handlers (`fails with`,
+`any e`, `otherwise`) and `because` all run today.
 
 **Goal:** write functions that can go wrong, and say at every call what happens
 when they do.
@@ -72,8 +72,7 @@ A call to a failing function must say what to do. There are three ways.
 A bare `fails` passes the failure on to the caller, which must declare it too.
 
 <!-- focus: 3-6 -->
-`fails with` runs a handler. The handler's `maybe` gives the replacement value
-(handlers are not built yet).
+`fails with` runs a handler. The handler's `maybe` gives the replacement value.
 
 ```drachm
 uint32 a = parse(input) maybe 0;
@@ -132,7 +131,6 @@ none main() {
 ```
 
 ## Handlers, catch-alls and causes
-<!-- status: not-implemented -->
 
 A function may list several failure types, and each can have its own
 `fails with`. A `return` inside a handler leaves the outer function, not the
@@ -156,13 +154,14 @@ string t = fs::read(p) fails with (FileMissing e) => {
 };
 ```
 
-```text title="intended output"
-couldn't load save
+If `LoadFailed` leaves `main`, the program prints:
+
+```text title="on standard error"
+error: couldn't load save
   because: no such file "save.dat"
 ```
 
 ### Your turn: report and recover
-<!-- status: not-implemented -->
 
 Using the same `check`, handle the failure with `fails with`: print the
 message of the failure, then give 0.

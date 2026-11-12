@@ -1063,6 +1063,10 @@ impl Cg<'_, '_> {
                     self.store(loc, r[0]);
                 }
             }
+            Callee::ReportExit => {
+                let (msg, slot, code) = (self.operand(&args[0].op), self.operand(&args[1].op), self.operand(&args[2].op));
+                self.rt("drachm_report_exit", &[ptr, ptr, types::I8], &[], &[msg, slot, code]);
+            }
             Callee::Report => {
                 let (msg, slot) = (self.operand(&args[0].op), self.operand(&args[1].op));
                 self.rt("drachm_report", &[ptr, ptr], &[], &[msg, slot]);

@@ -241,6 +241,8 @@ pub enum Callee {
     /// `(&string message, &mut uint64 cause slot)`: prints the report of an
     /// escaping failure to standard error and frees the chain in the slot.
     Report,
+    /// `Report`, then the program ends with the exit code (a `uint8`) given last.
+    ReportExit,
     /// Number or bool to an owned string.
     Text,
     Radix { base: u32, upper: bool },

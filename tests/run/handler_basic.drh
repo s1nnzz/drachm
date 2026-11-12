@@ -1,0 +1,30 @@
+// A handler after a call: the failure is bound to a name, and the handler
+// gives the call's value with `maybe v;`.
+in io;
+
+failure ParseError {
+    Empty "nothing to parse",
+    Bad(string text) f"cannot parse ${text}" exit 3,
+}
+
+uint32 parse(string s) fails ParseError {
+    if (s == "") { fail Empty; }
+    if (s == "x") { fail Bad(s + "!"); }
+    return 7;
+}
+
+none main() {
+    uint32 a = parse("1") fails with (ParseError e) => {
+        io::outln(f"bad input: ${e}");
+        maybe 0;
+    };
+    uint32 b = parse("") fails with (ParseError e) => {
+        io::outln(f"bad input: ${e}");
+        maybe 1;
+    };
+    uint32 c = parse("x") fails with (ParseError e) => {
+        io::outln(f"bad input: ${e::message()} exit ${e::exit()}");
+        maybe 2;
+    };
+    io::outln(f"${a} ${b} ${c}");
+}

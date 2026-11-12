@@ -76,21 +76,43 @@ fn mutability(m: hir::Mutability) -> Mutability {
     }
 }
 
-/// The locals declared by `Stmt::Decl` anywhere in a block.
+/// The locals declared by `Stmt::Decl` anywhere in a block (failure handlers included).
 fn decls(b: &[Stmt], out: &mut HashSet<usize>) {
     for s in b {
         match s {
             Stmt::Decl(l) => {
                 out.insert(*l);
             }
-            Stmt::If { branches, .. } => branches.iter().for_each(|br| decls(&br.body, out)),
-            Stmt::Loop { body, step, .. } => {
+            Stmt::If { branches, .. } => {
+                for br in branches {
+                    if let Some(t) = &br.test {
+                        decls_expr(t, out);
+                    }
+                    decls(&br.body, out);
+                }
+            }
+            Stmt::Loop { cond, body, step, .. } => {
+                if let Some(c) = cond {
+                    decls_expr(c, out);
+                }
                 decls(body, out);
                 decls(step, out);
             }
             Stmt::Unsafe(b) => decls(b, out),
+            Stmt::Assign(_, e) | Stmt::Expr(e) | Stmt::InitField(_, e) | Stmt::Return(Some(e)) | Stmt::Resume(_, Some(e)) => decls_expr(e, out),
             _ => {}
         }
+    }
+}
+
+fn decls_expr(e: &Expr, out: &mut HashSet<usize>) {
+    if let ExprKind::Handled { arms, .. } = &e.kind {
+        for a in arms {
+            decls(&a.body, out);
+        }
+    }
+    for c in e.children() {
+        decls_expr(c, out);
     }
 }
 
@@ -133,6 +155,10 @@ struct Builder<'a> {
     cur: BlockId,
     frames: Vec<Frame>,
     targets: HashMap<Label, Target>,
+    /// For each failure handler being lowered: where `maybe v;` puts its value
+    /// (none when the call returns nothing), the block after the call, and
+    /// the number of frames outside the call.
+    resumes: HashMap<Label, (Option<Local>, BlockId, usize)>,
     span: Span,
     unsafe_depth: u32,
     /// The local a `Decl` just declared, until the next statement.
@@ -167,6 +193,7 @@ impl<'a> Builder<'a> {
             cur: BlockId(0),
             frames: Vec::new(),
             targets: HashMap::new(),
+            resumes: HashMap::new(),
             span: NO_SPAN,
             unsafe_depth: 0,
             just_declared: None,
@@ -523,6 +550,30 @@ impl<'a> Builder<'a> {
                 self.in_stmt(|b| {
                     b.operand(e);
                 });
+            }
+            Stmt::Resume(l, v) => {
+                let (result, join, depth) = self.resumes[l];
+                self.push_frame(ScopeKind::Block, self.span);
+                match (v, result) {
+                    (Some(v), Some(r)) => self.assign(Place::local(r), v, false),
+                    (Some(v), None) => {
+                        self.operand(v);
+                    }
+                    _ => {}
+                }
+                self.unwind(depth);
+                self.frames.pop();
+                self.diverge(TerminatorKind::Goto(join));
+            }
+            Stmt::Reraise(p) => {
+                let pl = self.hir_place(p);
+                self.at(p.span);
+                let ty = crate::mir::ty::place_ty_in(&self.locals, self.hir, &pl);
+                self.push_frame(ScopeKind::Block, self.span);
+                let failure = self.new_temp(ty);
+                self.assign_stmt(Place::local(failure), Rvalue::Use(Operand::Move(pl)));
+                self.return_failure(failure, ty);
+                self.frames.pop();
             }
             Stmt::Decl(l) => {
                 let local = self.local(*l);
@@ -1120,13 +1171,18 @@ impl<'a> Builder<'a> {
             ExprKind::TryParse { .. } => unreachable!("a text parse is always under `maybe` or `fails`"),
             ExprKind::FailMaybe { call, fallback } => self.maybe(e, call, fallback),
             ExprKind::PassUp { call } => self.pass_up(e, call),
+            ExprKind::Handled { call, arms, label } => self.handled(e, call, arms, *label),
             ExprKind::CauseWrap { msg, slot } => {
                 let ops = self.operands(&[&**msg, &**slot], &|i| Some((i == 1, false)));
                 self.call(Callee::CauseWrap, ops, e.ty)
             }
-            ExprKind::Report { msg, slot } => {
+            ExprKind::Report { msg, slot, exit: None } => {
                 let ops = self.operands(&[&**msg, &**slot], &|i| Some((i == 1, false)));
                 self.call(Callee::Report, ops, Type::None)
+            }
+            ExprKind::Report { msg, slot, exit: Some(code) } => {
+                let ops = self.operands(&[&**msg, &**slot, &**code], &|i| (i < 2).then_some((i == 1, false)));
+                self.call(Callee::ReportExit, ops, Type::None)
             }
             ExprKind::Radix { value, base, upper } => {
                 let ops = self.operands(&[&**value], &|_| None);
@@ -1314,6 +1370,134 @@ impl<'a> Builder<'a> {
         self.read(Place::local(result), e.ty)
     }
 
+    /// Can `target` be reached from the start, through the blocks built so far?
+    fn reaches(&self, target: BlockId) -> bool {
+        let mut seen = vec![false; self.blocks.len()];
+        let mut stack = vec![0usize];
+        seen[0] = true;
+        while let Some(b) = stack.pop() {
+            if b == target.index() {
+                return true;
+            }
+            if let Some(t) = &self.blocks[b].terminator {
+                for n in traversal::successors(t) {
+                    if !seen[n.index()] {
+                        seen[n.index()] = true;
+                        stack.push(n.index());
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    /// The `ConvertError` for the status `st` (not zero) of reading text.
+    fn parse_failure(&mut self, st: Operand, fail: Type) -> Local {
+        let arms: Vec<BlockId> = (0..3).map(|_| self.new_block()).collect();
+        let merge = self.new_block();
+        self.end(TerminatorKind::Switch { discr: st, cases: vec![(1, arms[0]), (2, arms[1])], otherwise: arms[2] });
+        let failure = self.new_temp(fail);
+        for (k, arm) in arms.into_iter().enumerate() {
+            self.cur = arm;
+            self.assign_stmt(Place::local(failure), Rvalue::Variant(fail.enum_id().expect("ConvertError"), k, vec![Operand::Const(Constant::Int(0, Type::U64))]));
+            self.goto(merge);
+        }
+        self.cur = merge;
+        failure
+    }
+
+    /// `call fails with ...` (`e`): the Ok value, or what the handler for the failure gives.
+    fn handled(&mut self, e: &Expr, call: &Expr, arms: &[hir::HandlerArm], label: Label) -> Operand {
+        let result = (e.ty != Type::None).then(|| self.new_temp(e.ty));
+        let join = self.new_block();
+        self.resumes.insert(label, (result, join, self.frames.len()));
+        let failure;
+        let from;
+        if let ExprKind::TryParse { text, to, fail } = &call.kind {
+            let ops = self.operands(&[&**text], &|_| Some((false, false)));
+            let status = self.call(Callee::ParseStatus(*to), ops.clone(), Type::U8);
+            let st = self.freeze(status, Type::U8);
+            let bad = self.decl(Type::Bool, LocalKind::Temp);
+            self.assign_stmt(Place::local(bad), Rvalue::Binary(hir::BinOp::Ne, st.clone(), Operand::Const(Constant::Int(0, Type::U8))));
+            let (fail_bb, ok_bb) = (self.new_block(), self.new_block());
+            self.end(TerminatorKind::If { cond: Operand::Copy(Place::local(bad)), then: fail_bb, els: ok_bb });
+            self.cur = ok_bb;
+            let v = self.call(Callee::Parse(*to), ops, *to);
+            self.assign_stmt(Place::local(result.expect("a number")), Rvalue::Use(v));
+            self.goto(join);
+            self.cur = fail_bb;
+            self.push_frame(ScopeKind::Block, self.span);
+            failure = self.parse_failure(st, *fail);
+            from = *fail;
+        } else {
+            let out = self.outcome_of(call);
+            let (fail_bb, ok_bb) = self.branch_on_failure(&out);
+            self.cur = ok_bb;
+            if let Some(r) = result {
+                let v = self.read(Self::payload(&out, 0), e.ty);
+                self.assign_stmt(Place::local(r), Rvalue::Use(v));
+            }
+            self.forget(&out);
+            self.goto(join);
+            self.cur = fail_bb;
+            self.push_frame(ScopeKind::Block, self.span);
+            let callee_ty = crate::mir::ty::place_ty_in(&self.locals, self.hir, &out);
+            let hir::EnumKind::Outcome { fail: f, .. } = self.hir.enum_def(callee_ty).kind else { unreachable!("a failing call has an outcome") };
+            from = f;
+            failure = self.new_temp(from);
+            self.assign_stmt(Place::local(failure), Rvalue::Use(Operand::Move(Self::payload(&out, 1))));
+            self.forget(&out);
+        }
+        let set = self.hir.enum_def(from).kind == hir::EnumKind::FailSet;
+        let blocks: Vec<BlockId> = arms.iter().map(|_| self.new_block()).collect();
+        if set && arms.iter().any(|a| a.member.is_some()) {
+            let tag_ty = crate::mir::ty::tag_type(self.hir.enum_def(from).tag_size);
+            let tag = self.decl(tag_ty, LocalKind::Temp);
+            self.assign_stmt(Place::local(tag), Rvalue::Discriminant(Place::local(failure)));
+            let mut cases: Vec<(u128, BlockId)> = arms.iter().zip(&blocks).filter_map(|(a, &b)| a.member.map(|m| (m as u128, b))).collect();
+            let otherwise = match arms.iter().position(|a| a.member.is_none()) {
+                Some(k) => blocks[k],
+                None => cases.pop().expect("a typed handler").1,
+            };
+            self.end(TerminatorKind::Switch { discr: Operand::Copy(Place::local(tag)), cases, otherwise });
+        } else {
+            self.goto(blocks[0]);
+        }
+        for (a, &bb) in arms.iter().zip(&blocks) {
+            self.cur = bb;
+            self.push_frame(ScopeKind::IfBranch, a.end);
+            self.stmt(&a.body[0]);
+            self.just_declared = None;
+            let bind = self.local(a.bind);
+            let src = match a.member {
+                Some(m) => Self::payload(&Place::local(failure), m),
+                None => Place::local(failure),
+            };
+            self.assign_stmt(Place::local(bind), Rvalue::Use(Operand::Move(src)));
+            if a.member.is_some() {
+                self.forget(&Place::local(failure));
+            }
+            self.block(&a.body[1..]);
+            self.pop_frame(a.end);
+            if result.is_some() && self.reaches(self.cur) {
+                self.diags.push(
+                    Diagnostic::at(&codes::E0547, a.end, "this handler can end without giving the call's value")
+                        .note("it ends here")
+                        .help("end the handler with `maybe value;`, `return` or `fail`"),
+                );
+                self.end(TerminatorKind::Unreachable);
+            } else {
+                self.goto(join);
+            }
+        }
+        self.frames.pop();
+        self.cur = join;
+        match result {
+            Some(r) => self.read(Place::local(r), e.ty),
+            None => Self::unit(),
+        }
+    }
+
     /// `call fails` (`e`): the Ok value, or a return of the failure.
     fn pass_up(&mut self, e: &Expr, call: &Expr) -> Operand {
         if let ExprKind::TryParse { text, to, fail } = &call.kind {
@@ -1327,19 +1511,7 @@ impl<'a> Builder<'a> {
             self.cur = bad_bb;
             // What the failing path makes dies there, not on the way on.
             self.push_frame(ScopeKind::Block, self.span);
-            let arms: Vec<BlockId> = (0..3).map(|_| self.new_block()).collect();
-            let merge = self.new_block();
-            self.end(TerminatorKind::Switch { discr: st, cases: vec![(1, arms[0]), (2, arms[1])], otherwise: arms[2] });
-            let failure = self.new_temp(*fail);
-            for (k, arm) in arms.into_iter().enumerate() {
-                self.cur = arm;
-                self.assign_stmt(
-                    Place::local(failure),
-                    Rvalue::Variant(fail.enum_id().expect("ConvertError"), k, vec![Operand::Const(Constant::Int(0, Type::U64))]),
-                );
-                self.goto(merge);
-            }
-            self.cur = merge;
+            let failure = self.parse_failure(st, *fail);
             self.return_failure(failure, *fail);
             self.frames.pop();
             self.cur = ok_bb;
@@ -1488,6 +1660,7 @@ fn kind_name(k: &ExprKind) -> &'static str {
         ExprKind::TryParse { .. } => "TryParse",
         ExprKind::FailMaybe { .. } => "FailMaybe",
         ExprKind::PassUp { .. } => "PassUp",
+        ExprKind::Handled { .. } => "Handled",
         ExprKind::CauseWrap { .. } => "CauseWrap",
         ExprKind::Report { .. } => "Report",
         ExprKind::Borrow { .. } => "Borrow",

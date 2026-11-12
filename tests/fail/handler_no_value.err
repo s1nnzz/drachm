@@ -1,0 +1,1 @@
+error[E0547]: this handler can end without giving the call's value

@@ -295,6 +295,7 @@ impl Validator<'_> {
             Callee::ParseStatus(_) => (Some(vec![shared(Type::Str)]), Type::U8),
             Callee::CauseWrap => (Some(vec![shared(Type::Str), Want::Exact(Type::borrow(true, Type::U64))]), Type::U64),
             Callee::Report => (Some(vec![shared(Type::Str), Want::Exact(Type::borrow(true, Type::U64))]), Type::None),
+            Callee::ReportExit => (Some(vec![shared(Type::Str), Want::Exact(Type::borrow(true, Type::U64)), Want::Exact(Type::U8)]), Type::None),
             Callee::Text | Callee::Radix { .. } => (None, Type::Str),
             Callee::Join => (Some(Vec::new()), Type::Str),
         }

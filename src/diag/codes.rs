@@ -624,17 +624,34 @@ codes! {
          `fails` (the caller must then list the failure type itself).\n\n\
          \x20   uint32 n = parse(line) maybe 0;\n\
          \x20   uint32 m = parse(line) fails;";
+    E0545: "handler for a failure the call cannot raise",
+        "A `fails with (Type e)` handler names a failure that the call cannot\n\
+         fail with. Handle one of the failures the function lists after `fails`.";
+    E0546: "failure handled twice",
+        "Each failure type gets one handler after a call.";
+    E0547: "handler gives no value",
+        "A handler for a call that returns a value has to give one with\n\
+         `maybe v;`, or leave the function (`return`, `fail`) or the loop\n\
+         (`break`, `continue`). Ignoring a failure (`fails with none`) is only\n\
+         for calls that return nothing.\n\n\
+         \x20   uint32 n = parse(line) fails with (ParseError e) => { maybe 0; };";
     E0548: "failure not declared by the caller",
         "`call fails` passes the failures of the call up to the caller, so the\n\
          caller has to list every one of them after its own `fails`.";
     E0549: "because needs a failure",
         "`fail X because e;` records the failure `e` as the cause of `X`. The value\n\
          after `because` has to be a failure value.";
+    E0550: "maybe outside a handler",
+        "`maybe v;` gives the value of the call whose failure a handler is\n\
+         dealing with, so it can only be written inside a `fails with` block.";
     E0551: "unknown value in a failure message",
         "A failure message can use the values of its variant with `${name}`. The\n\
          name is not one of the variant's values.";
     E0552: "exit code out of range",
         "The exit code of a failure is a whole number from 0 to 255.";
+    E0553: "catch-all handler out of place",
+        "`otherwise (any e)` and `fails with (any e)` handle every failure the\n\
+         handlers before them did not, so they come last, and there is only one.";
     E0554: "failure list problem",
         "A failure type is listed twice after `fails`, or a `failure` has no\n\
          variants at all.";

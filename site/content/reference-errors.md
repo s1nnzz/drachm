@@ -11,8 +11,7 @@ function returns its failure as an ordinary value, and every value alive in it i
 dropped on the way out, exactly as for a `return`. The
 [errors lesson](lesson-14-errors.md) introduces this with exercises, and
 [Error handling without exceptions](guide-errors-handling.md) is about designing
-with it. Handlers (`fails with`), `otherwise`, `any e` and `ignore failure` are
-not built yet; they are marked on those pages.
+with it. Only the `crash` setting for `unhandled_fail` is not built yet.
 
 ## Failure types
 
@@ -34,7 +33,8 @@ like a struct that owns a `string`; it cannot be copied.
 `fails` after the parameters lists the failure types the function may end with,
 in either order with `lives`. A name that is not a failure type is E0540, and a
 type listed twice is E0554. Functions, methods and operator methods can fail;
-a constructor or `drop()` that fails is E0901.
+so are constructors (see [Structs](reference-structs.md#constructors-that-fail))
+and `drop()` (see [A drop that fails](#a-drop-that-fails)).
 
 `fail X;` leaves the function with variant `X`; `fail X(values);` gives it
 values. The name is searched in every listed failure type. If two of them have
@@ -46,7 +46,8 @@ is reaching the end of a failing `none` function.
 ## Saying what happens at the call
 
 A call of a function that can fail, with nothing after it, is an error (E0544):
-the message shows the two ways out that are built today.
+the message shows the ways out: a fallback with `maybe`, passing the failure up
+with `fails`, or a handler with `fails with`.
 
 `call maybe value` is the call's result, or the value when it failed. The value
 is converted to the result type, and it is evaluated only on failure. It is a
@@ -67,8 +68,62 @@ caller, including the temporaries of the statement, is dropped as for a
 A failing call can be an argument, an operand, an initialiser or a loop
 condition, as long as it carries its own `maybe` or `fails`. For an operator
 method that fails, put the operation in parentheses first:
-`(a == b) maybe false`. `a != b` with an `==` that fails is not built yet (E0901);
-write `!((a == b) maybe false)`.
+`(a == b) maybe false`. `a != b` with an `==` that fails takes `maybe` and `fails`
+the same way, and the fallback is the value of the whole `!=`:
+`(a != b) maybe true`. Handlers after such a `!=` are not built (E0901); handle
+the `==` instead.
+
+## Handlers
+
+`call fails with (Type e) => { ... }` runs a block when the call fails with that
+failure type, with the failure moved into `e`. The `;` ends the whole expression.
+A call that can fail with several types gets one handler for each (E0546 for a
+repeat, E0545 for a type the call cannot fail with), written one after the other.
+`fails with (any e)` takes every failure not named before it, and so does
+`otherwise (any e)`, which must be last (E0553). If a type is left out and there
+is no catch-all, E0544 names it. A catch-all after handlers for every type is
+W0111.
+
+Inside the block, `e` is an ordinary local that owns the failure; it is dropped
+at the end of the block unless it was moved. For a handler of `any`, its type is
+the failure (one type) or the set of the call's failures. `${e}` and
+`e::message()` give the message, `e::exit()` the exit code, and `match (e)` takes
+a failure apart with the usual `case` patterns. `e::cause()` is not built (E0901).
+
+A handler ends in one of these ways:
+
+- `maybe v;` gives the value of the call (converted like any value) and carries
+  on after the call. It is E0550 outside a handler. For a call that returns
+  nothing, write `maybe;` or simply let the block end.
+- `return` leaves the enclosing function, and `fail ...;` raises one of its
+  failures (the function must list it). `fail e;` raises the failure that was
+  caught again, as long as the function lists its type.
+- `break` and `continue` leave or restart the loop around the call.
+
+For a call that returns a value, a block that can end without one of these is
+E0547.
+
+<!-- example: fails-handlers -->
+
+`fails with none;` and `ignore failure` both ignore a failure of a call that
+returns nothing. A call that returns a value cannot be ignored (E0547): give
+it a fallback instead.
+
+## Because in a handler
+
+`fail X because e;` works on the failure a handler caught: the new failure keeps
+its message behind it. `e` is moved. Only the message and the earlier causes are
+kept, and the report of a failure that leaves `main` lists them.
+
+<!-- example: fails-cause -->
+
+## A drop that fails
+
+`none drop() fails FlushError { ... }` is allowed. Nobody is there to handle a
+failure of the `drop()` that runs by itself when a value goes out of scope, so a
+failure that comes out of it is reported like one that leaves `main` (`error:`,
+the message, the causes) and ends the program at once with the failure's exit
+code. Values still alive are not dropped first.
 
 ## Reading text as a number
 
@@ -108,14 +163,10 @@ error: couldn't load save
   because: no such file save.dat
 ```
 
-A cause is text, and it is not inspectable. Failure values can only be named
-by a local variable until handlers are built, so the cause is a failure you made
-yourself.
+A cause is text, and it is not inspectable. The failure can be one you built
+yourself or the `e` of a handler.
 
 ## What is not built yet
 
-- Handlers: `fails with (E e) => { ... }`, several in a row, `otherwise`,
-  `any e`, `${e}`, `e::message()`, `fail e;`.
-- `ignore failure`, `fails with none`.
-- `match` on a failure, `copy` of a failure, a constructor or `drop()` that fails.
+- `e::cause()`, `copy` of a failure, and a handler after a `!=` whose `==` fails.
 - The `crash` setting for `unhandled_fail` (step 7).

@@ -1,0 +1,31 @@
+in io;
+
+failure FileError {
+    Missing(string path) f"no such file ${path}" exit 4,
+}
+
+failure AppError {
+    LoadFailed "couldn't load save" exit 5,
+}
+
+none read(string path) fails FileError {
+    fail Missing(path);
+}
+
+// A handler can turn one failure into another and keep the first as its cause.
+none load(string name) fails AppError {
+    read(name + ".dat") fails with (FileError e) => {
+        fail LoadFailed because e;
+    };
+}
+
+none main() {
+    // Caught here, the failure still has its message ...
+    load("save") fails with (AppError e) => {
+        io::outln(f"main caught: ${e}");
+    };
+    // ... and `because` keeps the first failure behind the new one.
+    load("other") fails with (AppError e) => {
+        io::outln("giving up");
+    };
+}

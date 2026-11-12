@@ -7,8 +7,8 @@ description: failure types, fail, maybe, fails with, catch-alls and chained caus
 
 Drachm has no `Result` type and no `?` operator. A function that can go wrong
 says so with `fails`, and the caller must say what happens on failure. The
-parts that build are described on [Failures](reference-errors.md); handlers,
-catch-alls and handler-based causes below are marked.
+rules, with examples that run, are on [Failures](reference-errors.md). Only the
+`crash` setting at the end is not built yet.
 
 ## A function that can fail
 
@@ -69,49 +69,33 @@ uint32 c = parse(input) fails with (ParseError e) => {
 ```
 
 ## Several handlers
-<!-- status: not-implemented -->
 
-One `fails with` per failure type. A `return` inside a handler leaves the outer
-function, not the handler.
+One `fails with` per failure type, written one after the other. A `return`
+inside a handler leaves the outer function, not the handler.
 
-```drachm
-Save s = load(p) fails with (FileMissing e) => { maybe Save::empty(); }
-                 fails with (ParseError e)  => { return; };
-```
+<!-- example: fails-handlers -->
 
 ## Catch-alls
-<!-- status: not-implemented -->
 
-`fails with (any e)` handles any failure. After specific handlers, `otherwise`
-handles whatever they did not name.
-
-```drachm
-load(p) fails with (FileMissing e) => { /* ... */ }
-        otherwise (any e) => { io::outln(`load: ${e}`); return; };
-```
+`fails with (any e)` handles any failure. After specific handlers, `otherwise
+(any e)` handles whatever they did not name; the example above uses both.
 
 ## Chaining a cause
-<!-- status: not-implemented -->
 
 `fail X because e` raises a new failure and keeps the one that caused it. When
 it reaches the end of the program, both are printed.
 
-<!-- focus: 2 -->
+<!-- example: fails-cause -->
 
-```drachm
-string t = fs::read(p) fails with (FileMissing e) => {
-    fail LoadFailed because e;
-};
-```
-
-```text title="intended output"
-couldn't load save
-  because: no such file "save.dat"
+```text title="if LoadFailed leaves main"
+error: couldn't load save
+  because: no such file save.dat
 ```
 
 ## When nothing is said
+<!-- status: not-implemented -->
 
 A call to a failing function with none of `maybe`, `fails` or `fails with` is a
-compile error by default. The `unhandled_fail` setting in
+compile error by default (that part is built: E0544). The `unhandled_fail` setting in
 [Config](design-config.md) can change that to `crash`, which stops the program
 with a message when the call fails. Scripts use `crash` by default.

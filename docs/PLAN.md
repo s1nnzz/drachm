@@ -23,7 +23,7 @@ answers into `docs/SPEC.md` and the design doc, and note leftovers under that st
 | 4 | `for`, `skip`, `match` | done: `match` on text (exact patterns, `globbed` globs), `for` over characters (`string` copies, `&string` views), lists in step 6 |
 | 4.5 | Units of measure | done (`in si;`, points and deltas, scaled integers wrap; decisions in `docs/impl/step4.5-units.md`) |
 | 4.6 | Input: `io::inln()`, `io::ended()`, text `::to<T>()` | done (interim: bad text stops the program with exit 101; forgiving number text (spaces, `+`, `.5`); `\r\n` lines; invalid UTF-8 becomes U+FFFD) |
-| 5 | Constructors, enums, `fails` / `maybe` | in progress: S5A.1 done (enums with data, `match` with bindings/`take`/`copy`/guards/nesting/alternatives/values, exhaustiveness, `Switch`; `==` for payload-free enums) and S5B done (constructors, overloads, `new ... of`, named values, `Person(auto);`, `fill`, `fill partial`, `def`, `defaults`, `now`); optionals done (S5A.2, below); failures done (S5C, below: `failure`, `fails`, `fail`, `maybe`/`fails` on calls, `because`, `ConvertError`, exit codes); handlers (S5D) not started |
+| 5 | Constructors, enums, `fails` / `maybe` | done (the `crash` setting of `unhandled_fail` waits for step 7): S5A.1 done (enums with data, `match` with bindings/`take`/`copy`/guards/nesting/alternatives/values, exhaustiveness, `Switch`; `==` for payload-free enums) and S5B done (constructors, overloads, `new ... of`, named values, `Person(auto);`, `fill`, `fill partial`, `def`, `defaults`, `now`); optionals done (S5A.2, below); failures done (S5C and S5D, below: `failure`, `fails`, `fail`, `maybe`/`fails` on calls, handlers, `because`, `ConvertError`, exit codes, failing constructors and `drop()`) |
 | 6 | Generics, interfaces, collections | not started |
 | 7 | Modules, config, scripts, stdlib | not started |
 | 7.5 | MIR optimiser: SSA, inlining, scalar replacement, constant folding, loop opts, check elimination, alias info from borrows | not started |
@@ -781,6 +781,20 @@ in the HIR); `call fails` is `PassUp`; text `::to<T>()` is `TryParse` (status th
 is E0901; failure values hold numbers, bools and strings; `match`/`copy` on a failure and a failing function returning a borrow are
 E0901; `fails with` is E0901 until S5D; a cause can only come from a failure value in a variable (no handlers yet).
 Benchmark baseline (`bench/fails.*`): see the Performance section.
+
+**Step 5 progress, S5D (handlers):** `call fails with (T e) => { }` chains, one handler for each failure type (single-type calls take the
+failure whole), `fails with (any e)`, `otherwise (any e)` last (E0545/E0546/E0547/E0550/E0553, W0111, E0544 listing unhandled types),
+`fails with none` and `ignore failure` (calls returning nothing). `hir::ExprKind::Handled` lowers like `maybe`: the failure is moved
+out of the outcome, a `Switch` on the set tag picks the arm, `e` is a local owned by the arm; `maybe v;` is `Stmt::Resume` (assigns the
+result temp, unwinds the arm's frames, jumps to the join); `fail e;` is `Stmt::Reraise`; an arm of a value call that can fall off its
+end is E0547 (found while building, by reachability of the arm's last block). `${e}`, `e::message()`, `e::exit()`, `match (e)` and
+`because e` work on a caught failure (also a set). `a != b` with a failing `==` takes `maybe`/`fails` (the fallback is the value of the
+`!=`); handlers after it stay E0901. Failing constructors: signature gets an outcome; the shorthand `Port p = 8080 maybe ...` (single
+value only) and `new Port of (...)` take the suffix after the value; `self` is declared so a `fail` drops the fields set so far. A
+failing `drop()`: glue calls a synthesised wrapper (returns `none`) that reports the failure and ends the process at once with its exit
+code (`ReportExit`, `_exit`, so live values are not freed). Interims: `e::cause()` and `copy` of a failure are E0901; the list shorthand
+`Port p = 1, 2 maybe x` is not built; `Callee::Parse` was already replaced by S5C's status call.
+**Open (owner):** what `e::cause()` returns; whether `maybe` after a list shorthand should apply to the whole list.
 
 ## Performance (cross-cutting)
 

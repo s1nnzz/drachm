@@ -1,0 +1,38 @@
+in io;
+
+failure PortError {
+    Zero "port zero is not allowed",
+    Reserved(uint32 n) f"port ${n} is reserved" exit 3,
+}
+
+struct Port {
+public:
+    uint32 n;
+    string label;
+
+    // A constructor that can fail says so like any function.
+    Port(uint32 n) fails PortError {
+        self.label = f"port ${n}";
+        if (n == 0) { fail Zero; }
+        if (n < 1024) { fail Reserved(n); }
+        self.n = n;
+    }
+
+    Port(string text) {
+        self.n = 1;
+        self.label = text;
+    }
+}
+
+none main() {
+    // The shorthand takes the suffix after the value.
+    Port a = 8080 maybe new Port of ("default");
+    Port b = 22 maybe new Port of ("fallback");
+    io::outln(f"${a.label} / ${b.label}");
+
+    Port c = new Port of (80) fails with (PortError e) => {
+        io::outln(f"cannot: ${e}");
+        maybe new Port of ("handled");
+    };
+    io::outln(c.label);
+}

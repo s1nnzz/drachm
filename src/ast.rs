@@ -264,6 +264,8 @@ pub enum Stmt {
     Break { cont: bool, count: Option<(u64, Span)>, span: Span },
     Skip { target: SkipTarget, span: Span },
     Return { value: Option<Expr>, span: Span },
+    /// `maybe v;` inside a failure handler: the value of the handled call.
+    Resume { value: Option<Expr>, span: Span },
     /// `fail X;`, `fail X(args);`, `fail Type::X;`, with `because e` if given.
     Fail { value: Expr, because: Option<Expr>, span: Span },
     /// `unsafe { }`
@@ -273,6 +275,28 @@ pub enum Stmt {
     /// `fill [partial] x { ... }`, with `with defaults` or `with NAME` after the name.
     Fill { partial: bool, target: (String, Span), with: Option<FillWith>, body: Block, span: Span },
     Expr(Expr),
+}
+
+/// One `fails with (...) => { }` or `otherwise (any e) => { }` after a call.
+#[derive(Debug)]
+pub struct Handler {
+    pub kind: HandlerKind,
+    /// The name the failure is bound to.
+    pub bind: Option<(String, Span)>,
+    pub body: Block,
+    pub span: Span,
+}
+
+#[derive(Debug)]
+pub enum HandlerKind {
+    /// `fails with (Type e)`
+    Type(String, Span),
+    /// `fails with (any e)`
+    Any,
+    /// `otherwise (any e)`
+    Otherwise,
+    /// `fails with none` and `ignore failure`
+    Ignore,
 }
 
 /// The `with` clause of a `fill`.
@@ -511,6 +535,9 @@ pub enum ExprKind {
     New { name: String, name_span: Span, values: Vec<FieldValue> },
     /// `call fails`: pass a failure of the call up to the caller.
     PassUp(Box<Expr>),
+    /// `call fails with (T e) => { } ... otherwise (any e) => { }`, or
+    /// `call fails with none` / `call ignore failure` (one `Ignore` handler).
+    Handled { call: Box<Expr>, handlers: Vec<Handler> },
     /// `now e`: a field already set may be read inside a constructor or `fill`.
     Now(Box<Expr>),
     /// `value maybe fallback`: the value of an optional, or `fallback` when it is `none`.

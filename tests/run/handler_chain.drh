@@ -1,0 +1,47 @@
+// Several failure types: one handler for each, then `otherwise`.
+in io;
+
+failure FileError {
+    Missing(string path) f"no such file ${path}" exit 4,
+}
+
+failure ParseError {
+    Bad(string text) f"cannot parse ${text}",
+}
+
+failure Other {
+    Odd "odd",
+}
+
+uint32 load(uint32 which, string name) fails FileError, ParseError, Other {
+    if (which == 0) { fail Missing(name + ".dat"); }
+    if (which == 1) { fail Bad(name + "?"); }
+    if (which == 2) { fail Odd; }
+    return which * 10;
+}
+
+uint32 read(uint32 which) {
+    return load(which, "save")
+        fails with (FileError e) => {
+            io::outln(f"file: ${e}");
+            maybe 100;
+        }
+        fails with (ParseError e) => {
+            io::outln(f"parse: ${e}");
+            maybe 200;
+        }
+        otherwise (any e) => {
+            io::outln(f"other: ${e} / ${e::exit()}");
+            maybe 300;
+        };
+}
+
+uint32 only_any(uint32 which) {
+    return load(which, "x") fails with (any e) => { maybe 7; };
+}
+
+none main() {
+    for (mut uint32 i = 0; i < 5; i++) {
+        io::outln(f"${read(i)} ${only_any(i)}");
+    }
+}

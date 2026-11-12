@@ -47,6 +47,9 @@ pub(super) struct FailState {
     pub sets: HashMap<Vec<EnumId>, Type>,
     /// The built-in `ConvertError`.
     pub convert_error: Option<EnumId>,
+    /// For each `drop()` that fails: the function glue calls (returns nothing), the written
+    /// `drop`, and the struct it belongs to.
+    pub drop_wrappers: Vec<(FuncId, FuncId, Type)>,
 }
 
 /// The failures every program has.
@@ -404,6 +407,60 @@ pub(super) fn finish(g: &mut Globals) -> Vec<(FuncId, hir::Func)> {
     out
 }
 
+/// The function glue calls for a `drop()` that fails: it calls the written one, and a
+/// failure that comes out is reported like one that leaves `main` (nobody can handle it).
+pub(super) fn drop_wrapper(g: &Globals, wrapper: FuncId, drop: FuncId, self_ty: Type) -> hir::Func {
+    let outcome = g.sigs[drop].outcome.expect("a drop that fails");
+    let EnumKind::Outcome { fail, .. } = g.enums[outcome.enum_id().unwrap()].kind else { unreachable!("an outcome") };
+    let fen = fail.enum_id().unwrap();
+    let (mf, xf) = g.fail.fns[&fen];
+    let first = if g.enums[fen].kind == EnumKind::FailSet {
+        let inner = g.enums[fen].variants[0].fields[0].ty.unwrap();
+        payload(local(1, fail), 0, 0, inner)
+    } else {
+        local(1, fail)
+    };
+    let slot = payload(first, 0, 0, Type::U64);
+    let place = |i: usize| hir::Place { local: i, proj: Vec::new(), span: NOWHERE };
+    let arm = vec![
+        hir::Stmt::Decl(1),
+        hir::Stmt::Decl(2),
+        hir::Stmt::Assign(place(2), expr(hir::ExprKind::Call(mf, vec![local(1, fail)]), Type::Str)),
+        hir::Stmt::Expr(expr(
+            hir::ExprKind::Report {
+                msg: Box::new(local(2, Type::Str)),
+                slot: Box::new(slot),
+                exit: Some(Box::new(expr(hir::ExprKind::Call(xf, vec![local(1, fail)]), Type::U8))),
+            },
+            Type::None,
+        )),
+    ];
+    let call = expr(hir::ExprKind::Call(drop, vec![local(0, self_ty)]), outcome);
+    let handled = expr(
+        hir::ExprKind::Handled { call: Box::new(call), arms: vec![hir::HandlerArm { member: None, bind: 1, body: arm, end: NOWHERE }], label: 0 },
+        Type::None,
+    );
+    let decl = |name: &str, ty, mutability, is_param| hir::Local { name: name.into(), ty, span: NOWHERE, mutability, is_param, written: None };
+    hir::Func {
+        symbol: format!("drachm_drop_auto_{wrapper}"),
+        params: 1,
+        has_self: true,
+        locals: vec![
+            decl("self", self_ty, hir::Mutability::Mut, true),
+            decl("failure", fail, hir::Mutability::Fixed, false),
+            decl("message", Type::Str, hir::Mutability::Fixed, false),
+        ],
+        ret: Type::None,
+        body: vec![hir::Stmt::Expr(handled)],
+        name_span: NOWHERE,
+        span: NOWHERE,
+        body_end: NOWHERE,
+        is_unsafe: false,
+        lives: None,
+        lives_span: None,
+    }
+}
+
 /// The function `main` really is when the written one fails: it calls it,
 /// and on a failure prints the report and returns the failure's exit code.
 pub(super) fn main_wrapper(g: &mut Globals, main: FuncId) -> Option<(FuncId, hir::Func)> {
@@ -437,7 +494,7 @@ pub(super) fn main_wrapper(g: &mut Globals, main: FuncId) -> Option<(FuncId, hir
     let on_failure = vec![
         hir::Stmt::Decl(1),
         hir::Stmt::Assign(place(1), expr(hir::ExprKind::Call(mf, vec![failure]), Type::Str)),
-        hir::Stmt::Expr(expr(hir::ExprKind::Report { msg: Box::new(local(1, Type::Str)), slot: Box::new(slot) }, Type::None)),
+        hir::Stmt::Expr(expr(hir::ExprKind::Report { msg: Box::new(local(1, Type::Str)), slot: Box::new(slot), exit: None }, Type::None)),
         hir::Stmt::Return(Some(expr(hir::ExprKind::Convert(Box::new(code)), Type::S32))),
     ];
     let value = if ok == Type::S32 { payload(out(0), 0, 0, Type::S32) } else { expr(hir::ExprKind::Int(0), Type::S32) };
@@ -467,6 +524,14 @@ pub(super) fn main_wrapper(g: &mut Globals, main: FuncId) -> Option<(FuncId, hir
 
 // ---- in function bodies ---------------------------------------------------------
 
+/// The handler whose block is being checked.
+#[derive(Clone, Copy)]
+pub(super) struct HandlerCtx {
+    pub label: hir::Label,
+    /// The type of the handled call's value.
+    pub ok: Type,
+}
+
 /// A failing call, found under `maybe` or `fails`.
 pub(super) struct Failing {
     /// The call, typed with its outcome (or the text parse, typed with its number).
@@ -475,6 +540,8 @@ pub(super) struct Failing {
     ok: Type,
     fails: Vec<EnumId>,
     name: String,
+    /// `a != b` with a failing `==`: the call is the `==`, and the value is its negation.
+    negated: bool,
 }
 
 impl Checker<'_> {
@@ -499,6 +566,14 @@ impl Checker<'_> {
             );
             return;
         };
+        if let ExprKind::Var(n) = &value.kind
+            && let Some(id) = self.lookup(n)
+            && let Some(ty) = self.locals[id].ty
+            && ty.enum_id().is_some_and(|en| matches!(self.g.enums[en].kind, EnumKind::Failure | EnumKind::FailSet))
+        {
+            self.reraise(id, ty, value.span, because.is_some(), span, out);
+            return;
+        }
         let (owner, vname, args, parens): (Option<&String>, &String, &[ast::Expr], bool) = match &value.kind {
             ExprKind::Var(n) => (None, n, &[], false),
             ExprKind::Call { name, args } => (None, name, args, true),
@@ -603,7 +678,7 @@ impl Checker<'_> {
     fn because(&mut self, e: &ast::Expr, out: &mut hir::Block) -> Option<hir::Expr> {
         let v = self.expr(e)?;
         let v = self.materialise(v, e.span)?;
-        let is_failure = v.ty.enum_id().is_some_and(|id| self.g.enums[id].kind == EnumKind::Failure);
+        let is_failure = v.ty.enum_id().is_some_and(|id| matches!(self.g.enums[id].kind, EnumKind::Failure | EnumKind::FailSet));
         if !is_failure {
             self.diags.push(
                 Diagnostic::at(&codes::E0549, e.span, format!("`because` needs a failure, but this is a `{}`", v.ty))
@@ -618,7 +693,15 @@ impl Checker<'_> {
         out.push(hir::Stmt::Assign(hir::Place { local: tmp, proj: Vec::new(), span: e.span }, v));
         let (m, _) = self.g.fail.fns[&ty.enum_id().unwrap()];
         let msg = expr(hir::ExprKind::Call(m, vec![local(tmp, ty)]), Type::Str);
-        let slot = payload(local(tmp, ty), 0, 0, Type::U64);
+        // The cause word is at the same place in every failure of a set.
+        let first = match self.g.enums[ty.enum_id().unwrap()].kind {
+            EnumKind::FailSet => {
+                let inner = self.g.enums[ty.enum_id().unwrap()].variants[0].fields[0].ty.unwrap();
+                payload(local(tmp, ty), 0, 0, inner)
+            }
+            _ => local(tmp, ty),
+        };
+        let slot = payload(first, 0, 0, Type::U64);
         Some(expr(hir::ExprKind::CauseWrap { msg: Box::new(msg), slot: Box::new(slot) }, Type::U64))
     }
 
@@ -643,23 +726,31 @@ impl Checker<'_> {
 
     /// `x` as a failing call, or itself back.
     pub(super) fn classify(&self, mut x: hir::Expr) -> Result<Failing, hir::Expr> {
+        if let hir::ExprKind::Not(inner) = &x.kind
+            && matches!(&inner.kind, hir::ExprKind::Call(fid, _) if !self.g.sigs[*fid].fails.is_empty())
+        {
+            let hir::ExprKind::Not(inner) = x.kind else { unreachable!() };
+            let mut f = self.classify(*inner)?;
+            f.negated = true;
+            return Ok(f);
+        }
         match x.kind {
             hir::ExprKind::Call(fid, _) if !self.g.sigs[fid].fails.is_empty() => {
                 let sig = &self.g.sigs[fid];
                 let (fails, name, outcome) = (sig.fails.clone(), sig.name.clone(), sig.outcome.unwrap());
                 let ok = x.ty;
                 x.ty = outcome;
-                Ok(Failing { call: x, ok, fails, name })
+                Ok(Failing { call: x, ok, fails, name, negated: false })
             }
             hir::ExprKind::TryParse { to, fail, .. } => {
                 let fails = vec![fail.enum_id().unwrap()];
-                Ok(Failing { ok: to, call: x, fails, name: "to".into() })
+                Ok(Failing { ok: to, call: x, fails, name: "to".into(), negated: false })
             }
             _ => Err(x),
         }
     }
 
-    fn cannot_fail(&mut self, call: &ast::Expr, word: &str) {
+    pub(super) fn cannot_fail(&mut self, call: &ast::Expr, word: &str) {
         self.diags.push(
             Diagnostic::at(&codes::E0003, call.span, format!("`{word}` needs a call that can fail"))
                 .note("this cannot fail")
@@ -678,12 +769,23 @@ impl Checker<'_> {
             return None;
         }
         let fb = self.coerce(fallback, f.ok)?;
-        Some(Val::Expr(expr(hir::ExprKind::FailMaybe { call: Box::new(f.call), fallback: Box::new(fb) }, f.ok)))
+        let (fb, wrap) = if f.negated {
+            (expr(hir::ExprKind::Not(Box::new(fb)), Type::Bool), true)
+        } else {
+            (fb, false)
+        };
+        let m = expr(hir::ExprKind::FailMaybe { call: Box::new(f.call), fallback: Box::new(fb) }, f.ok);
+        Some(Val::Expr(if wrap { expr(hir::ExprKind::Not(Box::new(m)), Type::Bool) } else { m }))
     }
 
     /// `call fails`: every failure of the call must be in this function's list.
     pub(super) fn pass_up_expr(&mut self, e: &ast::Expr, call: &ast::Expr) -> Option<Val> {
         let f = self.failing_call(call, "fails")?;
+        self.pass_up_failing(e, f)
+    }
+
+    /// `call fails` for the failing call `f` (`e` is the whole expression).
+    pub(super) fn pass_up_failing(&mut self, e: &ast::Expr, f: Failing) -> Option<Val> {
         if let Some(&missing) = f.fails.iter().find(|id| !self.fails.contains(id)) {
             let name = self.g.enums[missing].name.clone();
             let mut d = Diagnostic::at(&codes::E0548, e.span, format!("`{}` can fail with `{name}`, but this function does not list it", f.name))
@@ -696,7 +798,231 @@ impl Checker<'_> {
             self.diags.push(d);
             return None;
         }
-        Some(Val::Expr(expr(hir::ExprKind::PassUp { call: Box::new(f.call) }, f.ok)))
+        let p = expr(hir::ExprKind::PassUp { call: Box::new(f.call) }, f.ok);
+        Some(Val::Expr(if f.negated { expr(hir::ExprKind::Not(Box::new(p)), Type::Bool) } else { p }))
+    }
+
+    /// `call fails with (T e) => { } ... otherwise (any e) => { }`, `call fails with none`.
+    pub(super) fn handled_expr(&mut self, e: &ast::Expr, call: &ast::Expr, handlers: &[ast::Handler]) -> Option<Val> {
+        let Some(f) = self.failing_call(call, "fails with") else {
+            for h in handlers {
+                self.scopes.push(HashMap::new());
+                for s in &h.body {
+                    self.stmt(s, &mut Vec::new());
+                }
+                self.scopes.pop();
+            }
+            return None;
+        };
+        self.handled_failing(e, f, handlers)
+    }
+
+    /// `f fails with ...` for the failing call `f` (`e` is the whole expression).
+    pub(super) fn handled_failing(&mut self, e: &ast::Expr, f: Failing, handlers: &[ast::Handler]) -> Option<Val> {
+        if f.negated {
+            self.diags.push(
+                Diagnostic::at(&codes::E0901, e.span, "a handler after `!=` with an `==` that can fail is not supported yet")
+                    .note("the `==` can fail here")
+                    .help("write `(a != b) maybe false`, or handle `a == b` and negate it"),
+            );
+            return None;
+        }
+        let ids = f.fails.clone();
+        let n = ids.len();
+        let fail_ty = if n == 1 { self.g.enums[ids[0]].ty } else { failure_set(self.g, &ids) };
+        let label = self.new_label();
+        self.handlers.push(HandlerCtx { label, ok: f.ok });
+        let mut seen: Vec<usize> = Vec::new();
+        let mut catch_all: Option<Span> = None;
+        let mut arms = Vec::new();
+        let mut ok = true;
+        for (i, h) in handlers.iter().enumerate() {
+            let last = i + 1 == handlers.len();
+            let (member, bind_ty) = match &h.kind {
+                ast::HandlerKind::Type(name, span) => {
+                    let id = self.g.enums_by_name.get(name).copied().filter(|&id| self.g.enums[id].kind == EnumKind::Failure);
+                    let Some(id) = id else {
+                        self.diags.push(
+                            Diagnostic::at(&codes::E0540, *span, format!("`{name}` is not a failure type")).note("not a failure").help("a handler names a `failure` type, or `any`"),
+                        );
+                        ok = false;
+                        continue;
+                    };
+                    let Some(idx) = ids.iter().position(|&x| x == id) else {
+                        self.diags.push(
+                            Diagnostic::at(&codes::E0545, *span, format!("`{}` cannot fail with `{name}`", f.name))
+                                .note("this call never fails with this")
+                                .help(format!("it can fail with {}", self.fail_names(&ids))),
+                        );
+                        ok = false;
+                        continue;
+                    };
+                    if seen.contains(&idx) {
+                        self.diags.push(Diagnostic::at(&codes::E0546, *span, format!("`{name}` is handled twice")).note("already handled above").help("keep one handler for each failure type"));
+                        ok = false;
+                        continue;
+                    }
+                    seen.push(idx);
+                    (if n > 1 { Some(idx) } else { None }, self.g.enums[id].ty)
+                }
+                ast::HandlerKind::Any | ast::HandlerKind::Otherwise | ast::HandlerKind::Ignore => {
+                    if !last || catch_all.is_some() {
+                        let what = if matches!(h.kind, ast::HandlerKind::Otherwise) { "`otherwise`" } else { "a catch-all handler" };
+                        self.diags.push(
+                            Diagnostic::at(&codes::E0553, h.span, format!("{what} has to be the last handler, and there is only one"))
+                                .note("something comes after or before it")
+                                .help("put `otherwise (any e) => { ... }` after the handlers for single failure types"),
+                        );
+                        ok = false;
+                        continue;
+                    }
+                    catch_all = Some(h.span);
+                    if matches!(h.kind, ast::HandlerKind::Ignore) && f.ok != Type::None {
+                        self.diags.push(
+                            Diagnostic::at(&codes::E0547, h.span, format!("`{}` returns a value, so ignoring its failure leaves nothing to use", f.name))
+                                .note("no value here")
+                                .help("give a fallback with `maybe`, or a handler that ends with `maybe v;`"),
+                        );
+                        ok = false;
+                    }
+                    (None, fail_ty)
+                }
+            };
+            self.scopes.push(HashMap::new());
+            let mut body = Vec::new();
+            let bind = match &h.bind {
+                Some((name, span)) => self.declare(name, Some(bind_ty), false, *span, false),
+                None => self.hidden_named("ignored", bind_ty),
+            };
+            body.push(hir::Stmt::Decl(bind));
+            for st in &h.body {
+                self.stmt(st, &mut body);
+            }
+            self.scopes.pop();
+            arms.push(hir::HandlerArm { member, bind, body, end: h.body.end });
+        }
+        self.handlers.pop();
+        if let Some(at) = catch_all
+            && seen.len() == n
+            && arms.len() > 1
+        {
+            self.diags.push(
+                Diagnostic::at(&codes::W0111, at, "every failure is handled above, so this handler never runs")
+                    .note("unreachable")
+                    .help("remove it"),
+            );
+        }
+        if catch_all.is_none() && seen.len() < n && ok {
+            let missing: Vec<EnumId> = ids.iter().enumerate().filter(|(i, _)| !seen.contains(i)).map(|(_, &id)| id).collect();
+            self.diags.push(
+                Diagnostic::at(&codes::E0544, e.span, format!("`{}` can fail with {} here and nothing handles it", f.name, self.fail_names(&missing)))
+                    .note("no handler for this")
+                    .help("add `otherwise (any e) => { ... }` or a handler for each failure"),
+            );
+            ok = false;
+        }
+        if !ok {
+            return None;
+        }
+        Some(Val::Expr(expr(hir::ExprKind::Handled { call: Box::new(f.call), arms, label }, f.ok)))
+    }
+
+    /// `maybe v;` inside a handler.
+    pub(super) fn resume_stmt(&mut self, value: Option<&ast::Expr>, span: Span, out: &mut hir::Block) {
+        let Some(&HandlerCtx { label, ok }) = self.handlers.last() else {
+            if let Some(v) = value {
+                self.expr(v);
+            }
+            self.diags.push(
+                Diagnostic::at(&codes::E0550, span, "`maybe` as a statement is only for the inside of a handler")
+                    .note("not in a handler")
+                    .help("write `call fails with (T e) => { maybe value; }`, or use `call maybe value`"),
+            );
+            return;
+        };
+        match (value, ok) {
+            (None, Type::None) => out.push(hir::Stmt::Resume(label, None)),
+            (Some(v), Type::None) => {
+                self.expr(v);
+                self.diags.push(
+                    Diagnostic::at(&codes::E0101, v.span, "the call returns nothing, so the handler gives no value").note("remove this value").help("write `maybe;`"),
+                );
+            }
+            (None, _) => self.diags.push(
+                Diagnostic::at(&codes::E0547, span, format!("the call returns a `{ok}`, so the handler has to give one"))
+                    .note("no value")
+                    .help("write `maybe value;`"),
+            ),
+            (Some(v), t) => {
+                if let Some(x) = self.coerce(v, t) {
+                    out.push(hir::Stmt::Resume(label, Some(x)));
+                }
+            }
+        }
+    }
+
+    /// Is `ty` a failure, or the set of failures a call can raise?
+    pub(super) fn is_failure_type(&self, ty: Type) -> bool {
+        ty.enum_id().is_some_and(|en| matches!(self.g.enums[en].kind, EnumKind::Failure | EnumKind::FailSet))
+    }
+
+    /// The message of the failure `v`, as an owned `string`.
+    pub(super) fn failure_message(&self, v: hir::Expr) -> hir::Expr {
+        let (m, _) = self.g.fail.fns[&v.ty.enum_id().unwrap()];
+        expr(hir::ExprKind::Call(m, vec![v]), Type::Str)
+    }
+
+    /// `e::message()` and `e::exit()` on a failure.
+    pub(super) fn failure_method(&mut self, v: hir::Expr, recv: Span, name: &str, name_span: Span, args: &[ast::Expr]) -> Option<Val> {
+        for a in args {
+            self.expr(a);
+        }
+        if let Some(a) = args.first() {
+            self.diags.push(Diagnostic::at(&codes::E0103, a.span, format!("`{name}` takes no arguments")));
+            return None;
+        }
+        match name {
+            "message" => Some(Val::Expr(self.failure_message(v))),
+            "exit" => {
+                let (_, x) = self.g.fail.fns[&v.ty.enum_id().unwrap()];
+                Some(Val::Expr(expr(hir::ExprKind::Call(x, vec![v]), Type::U8)))
+            }
+            "cause" => {
+                self.diags.push(Diagnostic::at(&codes::E0901, name_span, "`::cause()` is not supported yet").help("`${e}` gives the message"));
+                None
+            }
+            _ => {
+                self.diags.push(
+                    Diagnostic::at(&codes::E0201, name_span, format!("`{}` has no method `{name}`", v.ty))
+                        .label(recv, format!("this is `{}`", v.ty))
+                        .help("a failure has `message()` and `exit()`"),
+                );
+                None
+            }
+        }
+    }
+
+    /// `fail e;` with `e` a failure that was caught: raise it again.
+    fn reraise(&mut self, id: super::LocalId, ty: Type, name_span: Span, because: bool, span: Span, out: &mut hir::Block) {
+        if because {
+            self.diags.push(Diagnostic::at(&codes::E0901, span, "`because` with a failure that is passed on is not supported yet"));
+            return;
+        }
+        let en = ty.enum_id().unwrap();
+        let members: Vec<EnumId> = if self.g.enums[en].kind == EnumKind::FailSet {
+            self.g.enums[en].variants.iter().map(|v| v.fields[0].ty.unwrap().enum_id().unwrap()).collect()
+        } else {
+            vec![en]
+        };
+        if let Some(&missing) = members.iter().find(|m| !self.fails.contains(m)) {
+            self.diags.push(
+                Diagnostic::at(&codes::E0541, name_span, format!("this function does not list `{}` after `fails`", self.g.enums[missing].name))
+                    .note("this failure is not in the list")
+                    .help(format!("add it: `fails {}`", self.fail_list_with(missing))),
+            );
+            return;
+        }
+        out.push(hir::Stmt::Reraise(hir::Place { local: id, proj: Vec::new(), span }));
     }
 
     /// E0544: a call that can fail, with nothing after it.
@@ -708,11 +1034,7 @@ impl Checker<'_> {
         if let hir::ExprKind::Not(inner) = &x.kind
             && matches!(&inner.kind, hir::ExprKind::Call(fid, _) if !self.g.sigs[*fid].fails.is_empty())
         {
-            self.diags.push(
-                Diagnostic::at(&codes::E0901, e.span, "`!=` with an `==` that can fail is not supported yet")
-                    .note("the `==` can fail here")
-                    .help("write the negation yourself: `!((a == b) maybe false)`"),
-            );
+            self.report_unhandled(e.span, inner);
             return;
         }
         self.report_unhandled(e.span, x);
