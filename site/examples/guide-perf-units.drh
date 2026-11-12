@@ -1,0 +1,17 @@
+in io;
+
+unit m;
+unit s;
+unit km = 1000 m;
+
+// The units are checked by the compiler and then erased: this function does
+// the same work as one taking plain float64 values.
+float64<m/s> speed(float64<m> distance, float64<s> time) {
+    return distance / time;
+}
+
+none main() {
+    float64<km> trip = 3.6<km>;
+    float64<m/s> v = speed(trip::in<m>(), 600.0<s>);
+    io::outln(v::text() + " " + v::unitText());
+}

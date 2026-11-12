@@ -1,0 +1,47 @@
+in io;
+
+// Four 8-byte fields: 32 bytes, so a Vec4 copies by itself.
+struct Vec4 {
+public:
+    float64 x;
+    float64 y;
+    float64 z;
+    float64 w;
+
+    float64 sum() {
+        return self.x + self.y + self.z + self.w;
+    }
+}
+
+// One more field makes it 40 bytes, so a Big moves like a string.
+struct Big {
+public:
+    float64 a;
+    float64 b;
+    float64 c;
+    float64 d;
+    float64 e;
+
+    float64 sum() {
+        return self.a + self.b + self.c + self.d + self.e;
+    }
+}
+
+float64 twice(Vec4 v) {
+    return v::sum() * 2;
+}
+
+float64 total(&Big b) {
+    return b::sum();
+}
+
+none main() {
+    Vec4 v = 1.0, 2.0, 3.0, 4.0;
+    Vec4 w = v;
+    io::outln(f"${twice(v)} ${twice(w)}");
+
+    Big big = 1.0, 2.0, 3.0, 4.0, 5.0;
+    io::outln(f"${total(&big)} ${total(&big)}");
+    Big other = copy big;
+    io::outln(other::sum()->text());
+}

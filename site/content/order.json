@@ -33,12 +33,16 @@
     {
       "title": "Guides",
       "pages": [
+        "guide-from-python-js",
+        "guide-from-c",
         "guide-ownership",
-        "guide-errors-handling",
         "guide-enums-optionals",
         "guide-structs",
-        "guide-projects",
+        "guide-errors-handling",
         "guide-generics",
+        "guide-projects",
+        "guide-performance",
+        "guide-testing",
         "guide-concurrency"
       ]
     },

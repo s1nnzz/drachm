@@ -1,0 +1,30 @@
+in io;
+
+// Python: class Account: ...
+struct Account {
+public:
+    string owner;
+    mut sint32 balance;
+
+    none deposit(sint32 amount) {
+        self.balance += amount;
+    }
+
+    string describe() {
+        return f"${self.owner}: ${self.balance}";
+    }
+}
+
+none main() {
+    // Python: acct = Account("Illy", 10)
+    Account acct = "Illy", 10;
+    acct::deposit(5);
+    io::outln(acct::describe());
+
+    // Python: other = acct   (two names, one object)
+    // Drachm: a struct holding a string moves. A copy must be asked for.
+    Account other = copy acct;
+    other::deposit(100);
+    io::outln(acct::describe());
+    io::outln(other::describe());
+}
