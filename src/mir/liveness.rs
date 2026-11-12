@@ -42,7 +42,9 @@ fn operand_local(op: &Operand, f: &mut impl FnMut(Local)) {
 
 pub fn rvalue_locals(rv: &Rvalue, f: &mut impl FnMut(Local)) {
     match rv {
-        Rvalue::MakeFn(..) => {},
+        Rvalue::MakeFn(_, _, Some(p)) => place_local(p, f),
+        Rvalue::MakeFn(_, _, None) => {}
+
         Rvalue::Use(o) | Rvalue::Neg(o) | Rvalue::Not(o) | Rvalue::BitNot(o) | Rvalue::Convert(o, _) | Rvalue::Unsize(o, _) => operand_local(o, f),
         Rvalue::Binary(_, a, b) | Rvalue::IntPow(a, b) => {
             operand_local(a, f);

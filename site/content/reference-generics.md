@@ -431,10 +431,27 @@ statements gives `none`.
 
 ### Captures
 
+A lambda borrows the enclosing locals it uses. Reads give it a shared borrow.
+If its body changes a capture, the compiler infers a mutable borrow. The
+borrow lasts until the last use of the function value.
+
+<!-- example: lambda-capture -->
+
+Changing a borrowed capture before the last call gives E0302. For example,
+changing `extra` between creating `add` and calling it would produce
+`` error[E0302]: cannot change `extra` while it is borrowed `` if `extra` were declared `mut`.
+
+A `move` lambda takes ownership of its captures. Using an owning value again
+after it has been moved into a lambda gives E0301.
+
+<!-- example: lambda-move -->
+
+#### Other capture and result forms
+
 <!-- status: not-implemented -->
 
-Lambdas borrow captures by default, and `move` takes ownership. An assignment
-through a capture infers a mutable borrow.
+Borrowing an existing borrow or holder into a closure, capturing a function
+value, and returning a borrow from a lambda are pending.
 
 ### Collection callbacks
 

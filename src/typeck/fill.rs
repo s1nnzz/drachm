@@ -193,7 +193,7 @@ impl Checker<'_> {
             self.diags.push(Diagnostic::at(&codes::E0201, name_span, format!("unknown binding `{name}`")));
             return;
         };
-        let (blocked, ty) = (self.locals[id].is_param || self.locals[id].is_self || self.locals[id].open, self.locals[id].ty);
+        let (blocked, ty) = (self.locals[id].is_param || self.locals[id].is_self || self.locals[id].open || self.is_capture(id), self.locals[id].ty);
         if blocked {
             self.diags.push(
                 Diagnostic::at(&codes::E0901, span, format!("`fill` of `{name}` is not supported yet"))

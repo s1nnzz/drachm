@@ -1,0 +1,9 @@
+struct Stored {
+    () => none callback;
+}
+
+() => none make() {
+    return () => {};
+}
+
+none main() {}

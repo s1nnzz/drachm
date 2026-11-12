@@ -1,0 +1,9 @@
+in io;
+
+none main() {
+    mut uint32 x = 2;
+    () => uint32 get = () => x;
+    io::outln(get()::text());
+    x++;
+    io::outln(x::text());
+}

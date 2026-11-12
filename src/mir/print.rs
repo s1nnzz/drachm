@@ -175,7 +175,10 @@ fn rvalue(p: &Program, hir: &hir::Program, rv: &Rvalue) -> String {
         }
         Rvalue::IntPow(a, b) => format!("IntPow({}, {})", o(a), o(b)),
         Rvalue::Convert(x, t) => format!("Convert({}, {t})", o(x)),
-        Rvalue::MakeFn(id, _) => format!("MakeFn({})", hir.funcs[*id].symbol),
+        Rvalue::MakeFn(id, _, env) => match env {
+            Some(env) => format!("MakeFn({}, &{})", hir.funcs[*id].symbol, place(env)),
+            None => format!("MakeFn({})", hir.funcs[*id].symbol),
+        },
         Rvalue::Unsize(x, t) => format!("Unsize({}, {t})", o(x)),
         Rvalue::Ref(BorrowKind::Shared, pl) => format!("&{}", place(pl)),
         Rvalue::Ref(BorrowKind::Mut { two_phase: false }, pl) => format!("&mut {}", place(pl)),

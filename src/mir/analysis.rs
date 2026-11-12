@@ -12,7 +12,7 @@ pub fn mark_in_memory(hir: &hir::Program, body: &mut Body) {
     let mut borrowed = vec![false; body.locals.len()];
     for block in body.blocks.iter() {
         for s in &block.statements {
-            if let StatementKind::Assign(_, Rvalue::Ref(_, p) | Rvalue::RawRef(p)) = &s.kind
+            if let StatementKind::Assign(_, Rvalue::Ref(_, p) | Rvalue::RawRef(p) | Rvalue::MakeFn(_, _, Some(p))) = &s.kind
                 && !p.proj.contains(&Proj::Deref)
             {
                 borrowed[p.local.index()] = true;

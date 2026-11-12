@@ -1335,7 +1335,7 @@ fn children_mut(e: &mut hir::Expr) -> Vec<&mut hir::Expr> {
         K::Logic { lhs, rhs, .. } | K::Maybe { value: lhs, fallback: rhs } => vec![&mut **lhs, &mut **rhs],
         K::Shift { value, amount, .. } => vec![&mut **value, &mut **amount],
         K::Struct(fields) => fields.iter_mut().map(|(_, v)| v).collect(),
-        K::Call(_, args) | K::StrCall(_, args) | K::DynCall(_, _, args) | K::FnCall(args) => args.iter_mut().collect(),
+        K::Call(_, args) | K::StrCall(_, args) | K::DynCall(_, _, args) | K::FnCall(args) | K::Closure(_, args) => args.iter_mut().collect(),
         K::Join(parts) => parts.iter_mut().collect(),
         K::Take { leaving, .. } => leaving.as_deref_mut().into_iter().collect(),
     }

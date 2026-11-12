@@ -660,7 +660,7 @@ impl Parser<'_> {
 
     fn func(&mut self) -> Parsed<Func> {
         let is_unsafe = if self.peek() == &Tok::Kw("unsafe") { Some(self.bump().span) } else { None };
-        if !matches!(self.peek(), Tok::Ident(_) | Tok::Kw("none") | Tok::Sym("&" | "&&" | "*" | "**")) {
+        if !matches!(self.peek(), Tok::Ident(_) | Tok::Kw("none") | Tok::Sym("&" | "&&" | "*" | "**" | "(")) {
             return Err(self
                 .unexpected("a function, `struct` or `in`")
                 .help("a function starts with its return type: `none main() { }`"));

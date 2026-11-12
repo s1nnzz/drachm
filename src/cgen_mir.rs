@@ -191,7 +191,13 @@ fn glue(hir: &hir::Program) -> String {
 /// `static T symbol(T l1, T l2)`. A method's `self` is an ordinary `&T`
 /// parameter, so a pointer.
 fn signature(hir: &hir::Program, body: &Body) -> String {
-    let params: Vec<String> = (1..=body.arg_count).map(|i| format!("{} l{i}", c_type(body.locals[Local(i as u32)].ty))).collect();
+    let params: Vec<String> = (1..=body.arg_count).map(|i| {
+        if i == 1 && hir.closures.contains_key(&body.func) {
+            "uint8_t *env".into()
+        } else {
+            format!("{} l{i}", c_type(body.locals[Local(i as u32)].ty))
+        }
+    }).collect();
     let params = if params.is_empty() { "void".to_string() } else { params.join(", ") };
     format!("static {} {}({params})", c_type(hir.funcs[body.func].ret), hir.funcs[body.func].symbol)
 }
@@ -330,6 +336,10 @@ impl Gen<'_> {
         // on small recursive functions change with such declarations.
         let named = named_locals(&body_text);
         let mut text = String::new();
+        if self.hir.closures.contains_key(&body.func) {
+            let ty = c_type(body.locals[Local(1)].ty);
+            let _ = writeln!(text, "    {ty} l1 = ({ty})env;");
+        }
         for (l, d) in body.locals.iter_enumerated() {
             if !named.contains(&l.index()) || (l.index() <= body.arg_count && l.index() != 0) || d.ty == Type::None || self.consts[l.index()] {
                 continue;
@@ -576,8 +586,9 @@ impl Gen<'_> {
             // A reborrow of the interface behind a fat borrow is the fat borrow.
             Rvalue::Ref(_, p) if matches!(place_ty(self.body, self.hir, p), Ok(Type::Dyn { .. })) => self.lvalue(p),
             Rvalue::Ref(_, p) | Rvalue::RawRef(p) => format!("&{}", self.lvalue(p)),
-            Rvalue::MakeFn(id, _) => {
-                format!("(drachm_fn){{ (void (*)(void)){}, NULL }}", self.hir.funcs[*id].symbol)
+            Rvalue::MakeFn(id, _, env) => {
+                let env = env.as_ref().map_or_else(|| "NULL".into(), |p| format!("(uint8_t *)&{}", self.lvalue(p)));
+                format!("(drachm_fn){{ (void (*)(void)){}, {env} }}", self.hir.funcs[*id].symbol)
             }
             Rvalue::Unsize(op, to) => {
                 let from = self.op_ty(op);

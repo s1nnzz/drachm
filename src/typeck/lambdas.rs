@@ -1,6 +1,9 @@
 //! Function types and callable values (S6F).
 
-use super::{Checker, Globals, Sig, Val};
+use std::cell::Cell;
+use std::collections::{BTreeMap, HashMap};
+
+use super::{Checker, FieldInfo, Globals, Sig, StructInfo, Val};
 use crate::ast;
 use crate::diag::{Diagnostic, Span, codes};
 use crate::hir::{self, ExprKind as K};
@@ -9,6 +12,7 @@ use crate::types::{FuncSig, Type};
 #[derive(Default)]
 pub(super) struct State {
     pub bodies: Vec<(hir::FuncId, hir::Func)>,
+    pub closures: BTreeMap<hir::FuncId, hir::Closure>,
     thunks: std::collections::HashMap<hir::FuncId, hir::FuncId>,
     pub unsafe_named: std::collections::HashSet<hir::FuncId>,
 }
@@ -149,17 +153,31 @@ impl Checker<'_> {
 }
 
 pub(super) struct Frame {
-    enclosing: std::collections::HashSet<String>,
+    /// Local ids of the aliases form a contiguous range after the parameters.
+    alias_start: hir::LocalId,
+    aliases: Vec<Alias>,
     returns: Option<(Type, Span)>,
 }
 
+struct Alias {
+    parent: hir::LocalId,
+    used: Cell<bool>,
+}
+
 impl Checker<'_> {
-    pub(super) fn unbuilt_capture(&mut self, name: &str, at: Span) -> bool {
-        if self.lambda.as_ref().is_some_and(|f| f.enclosing.contains(name)) {
-            self.diags.push(Diagnostic::at(&codes::E0901, at, format!("capturing `{name}` in a lambda is not supported yet")));
-            return true;
+    fn capture_alias(&self, id: hir::LocalId) -> Option<&Alias> {
+        let frame = self.lambda.as_ref()?;
+        frame.aliases.get(id.checked_sub(frame.alias_start)?)
+    }
+
+    pub(super) fn is_capture(&self, id: hir::LocalId) -> bool {
+        self.capture_alias(id).is_some()
+    }
+
+    pub(super) fn use_capture(&self, id: hir::LocalId) {
+        if let Some(alias) = self.capture_alias(id) {
+            alias.used.set(true);
         }
-        false
     }
 
     pub(super) fn lambda_return(&mut self, value: Option<&ast::Expr>, at: Span) -> Option<Option<hir::Expr>> {
@@ -198,7 +216,7 @@ impl Checker<'_> {
         Some(expr)
     }
 
-    pub(super) fn lambda_expr(&mut self, _moves: bool, params: &[ast::Param], body: &ast::LambdaBody, at: Span) -> Option<hir::Expr> {
+    pub(super) fn lambda_expr(&mut self, moves: bool, params: &[ast::Param], body: &ast::LambdaBody, at: Span) -> Option<hir::Expr> {
         let types: Vec<_> = params.iter().map(|p| self.g.resolve_binding_type(&p.ty, self.diags)).collect::<Option<_>>()?;
         let id = self.g.add_sig(Sig {
             name: "lambda".into(),
@@ -209,15 +227,31 @@ impl Checker<'_> {
             outcome: None,
         });
         let symbol = format!("drachm_l_{}_{id}", self.symbol.trim_start_matches("drachm_"));
-        let mut enclosing = self.lambda.as_ref().map(|f| f.enclosing.clone()).unwrap_or_default();
-        enclosing.extend(self.scopes.iter().flat_map(|s| s.keys().cloned()));
+        // Snapshot the names in scope at the literal. Parameters and body
+        // bindings can shadow these aliases without recording a capture.
+        let visible: HashMap<_, _> = self.scopes.iter().flat_map(|scope| scope.iter()).map(|(name, &id)| (name, id)).collect();
+        let mut visible: Vec<_> = visible.into_values().collect();
+        visible.sort_unstable();
         let mut child = Checker::new(self.g, self.src, self.diags, &symbol, None, self.method);
-        child.lambda = Some(Frame { enclosing, returns: None });
-        child.declare("_env", Some(Type::borrow(false, Type::U8)), false, Span::new(0, 0), true);
+        child.declare("$env", Some(Type::borrow(false, Type::U8)), false, Span::new(0, 0), true);
+        child.scopes[0].remove("$env");
         for (p, &ty) in params.iter().zip(&types) {
             let local = child.declare(&p.name, Some(ty), p.mutable, p.span, true);
             child.locals[local].open = p.open;
         }
+        let alias_start = child.locals.len();
+        let mut scope = HashMap::new();
+        let mut aliases = Vec::new();
+        for parent in visible {
+            let outer = &self.locals[parent];
+            scope.insert(outer.name.clone(), child.locals.len());
+            let mut local = outer.clone();
+            local.is_param = false;
+            child.locals.push(local);
+            aliases.push(Alias { parent, used: Cell::new(false) });
+        }
+        child.scopes.insert(0, scope);
+        child.lambda = Some(Frame { alias_start, aliases, returns: None });
         let (body, end) = match body {
             ast::LambdaBody::Expr(e) => {
                 let value = child.lambda_return(Some(e), e.span)?;
@@ -229,8 +263,52 @@ impl Checker<'_> {
             }
             ast::LambdaBody::Block(b) => (child.block(b), b.end),
         };
-        let ret = child.lambda.as_ref().and_then(|f| f.returns).map_or(Type::None, |(ty, _)| ty);
-        let locals = child.lower_locals();
+        let frame = child.lambda.take().expect("checking a lambda");
+        let ret = frame.returns.map_or(Type::None, |(ty, _)| ty);
+        let mut locals = child.lower_locals();
+        let mut captures = Vec::new();
+        let mut values = Vec::new();
+        for (i, alias) in frame.aliases.into_iter().enumerate() {
+            let local = frame.alias_start + i;
+            let ty = locals[local].ty;
+            // An alias uses its environment field in MIR, so it needs no slot
+            // of its own. An unused alias can be erased entirely from MIR.
+            if !alias.used.get() {
+                locals[local].ty = Type::None;
+                continue;
+            }
+            if ty.is_func() {
+                child.diags.push(Diagnostic::at(&codes::E0901, at, "capturing a function value is not supported yet"));
+                return None;
+            }
+            if self.filling.contains(&alias.parent) {
+                child.diags.push(Diagnostic::at(&codes::E0901, at, "capturing a binding while it is being filled is not supported yet"));
+                return None;
+            }
+            let enclosing_self = self.locals[alias.parent].is_self;
+            if (moves && enclosing_self) || (child.g.holds_borrow(ty) && !(moves && ty.is_borrow())) {
+                child.diags.push(
+                    Diagnostic::at(&codes::E0901, at, format!("capturing `{}` this way is not supported yet", locals[local].name))
+                        .label(locals[local].span, format!("this binding has type `{ty}`")),
+                );
+                return None;
+            }
+            if let Some(f) = &self.lambda
+                && let Some(outer_alias) = alias.parent.checked_sub(f.alias_start).and_then(|i| f.aliases.get(i))
+            {
+                outer_alias.used.set(true);
+            }
+            captures.push(hir::Capture { local, borrow: (!moves).then_some(false) });
+            values.push(hir::Expr::new(K::Local(alias.parent), ty).at(at));
+        }
+        let expr = if captures.is_empty() {
+            K::FuncRef(id)
+        } else {
+            let env = child.g.closure_env(id, &captures, &locals, at);
+            child.g.lambdas.closures.insert(id, hir::Closure { env, captures });
+            locals[0].ty = Type::borrow(true, env);
+            K::Closure(id, values)
+        };
         child.g.sigs[id].ret = Some(ret);
         child.g.lambdas.bodies.push((id, hir::Func {
             symbol: symbol.clone(),
@@ -246,6 +324,67 @@ impl Checker<'_> {
             lives: None,
             lives_span: None,
         }));
-        Some(hir::Expr::new(K::FuncRef(id), Type::func(types, ret)).at(at))
+        Some(hir::Expr::new(expr, Type::func(types, ret)).at(at))
+    }
+}
+
+
+impl Globals {
+    fn closure_env(&mut self, code: hir::FuncId, captures: &[hir::Capture], locals: &[hir::Local], at: Span) -> Type {
+        let id = self.structs.len();
+        let name = format!("#env{code}");
+        let ty = Type::Struct { id, name: crate::types::intern(&name) };
+        let fields: Vec<_> = captures.iter().enumerate().map(|(i, c)| {
+            let local = &locals[c.local];
+            let ty = c.borrow.map_or(local.ty, |mutable| Type::borrow(mutable, local.ty));
+            FieldInfo { name: format!("capture{i}"), ty: Some(ty), mutable: false, public: false, span: local.span }
+        }).collect();
+        let lives = fields.iter().enumerate().filter_map(|(i, field)| field.ty.filter(|t| t.is_borrow()).map(|_| i)).collect();
+        self.structs.push(StructInfo {
+            name,
+            name_span: at,
+            ty,
+            fields,
+            methods: Vec::new(),
+            stays: true,
+            lives,
+            has_drop: None,
+            ctors: Vec::new(),
+            auto_ctor: false,
+            default_def: None,
+            declared_lives: false,
+            placeholder: None,
+        });
+        ty
+    }
+}
+
+/// Capturing a place mutably is itself a change in the enclosing body. That
+/// can make a method or a nested closure require mutable access in turn.
+pub(super) fn infer_captures(program: &mut hir::Program) {
+    use crate::ownership::self_mode::{changes_local, infer};
+    if program.closures.is_empty() {
+        return;
+    }
+    loop {
+        let modes = infer(program);
+        let mut changed = Vec::new();
+        for (&code, closure) in &program.closures {
+            for (i, capture) in closure.captures.iter().enumerate() {
+                if capture.borrow == Some(false) && changes_local(program, code, capture.local, &modes) {
+                    changed.push((code, i));
+                }
+            }
+        }
+        if changed.is_empty() {
+            break;
+        }
+        for (code, field) in changed {
+            let closure = program.closures.get_mut(&code).unwrap();
+            closure.captures[field].borrow = Some(true);
+            let env = closure.env.struct_id().unwrap();
+            let f = &mut program.structs[env].fields[field];
+            f.ty = Type::borrow(true, f.ty.target().unwrap());
+        }
     }
 }

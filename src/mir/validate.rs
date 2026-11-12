@@ -139,10 +139,12 @@ impl Validator<'_> {
                 }
                 let tys: Vec<Option<Type>> = operands.iter().map(|o| self.operand(&at, o)).collect();
                 match rv {
-                    Rvalue::MakeFn(id, Type::Func(sig)) => {
+                    Rvalue::MakeFn(id, Type::Func(sig), env) => {
                         let f = &self.hir.funcs[*id];
                         let params = f.locals.iter().take(f.params).map(|p| p.ty);
-                        let want = std::iter::once(Type::borrow(false, Type::U8)).chain(sig.params.iter().copied());
+                        let env_ty = env.as_ref().and_then(|p| self.place(&at, p));
+                        let env_param = env_ty.map_or(Type::borrow(false, Type::U8), |ty| Type::borrow(true, ty));
+                        let want = std::iter::once(env_param).chain(sig.params.iter().copied());
                         if f.has_self || f.ret != sig.ret || !params.eq(want) {
                             self.err(&at, "MakeFn target does not have the callable signature");
                         }
@@ -488,7 +490,8 @@ fn flow_statement(assigned: &mut [bool], k: &StatementKind, used: &mut dyn FnMut
     match k {
         StatementKind::Assign(dest, rv) => {
             match rv {
-                Rvalue::MakeFn(..) => {}
+                Rvalue::MakeFn(_, _, Some(p)) => place_use(p, used),
+                Rvalue::MakeFn(_, _, None) => {}
                 Rvalue::Use(o) | Rvalue::Neg(o) | Rvalue::Not(o) | Rvalue::BitNot(o) | Rvalue::Convert(o, _) | Rvalue::Unsize(o, _) => operand_use(o, used),
                 Rvalue::Binary(_, a, b) | Rvalue::IntPow(a, b) => {
                     operand_use(a, used);

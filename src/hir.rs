@@ -44,7 +44,23 @@ pub struct Program {
     pub dyn_ifaces: Vec<DynIface>,
     /// Every pair (implementing type, interface) a borrow is converted at: one
     /// read-only table each (S6E). The backends emit them all.
+    /// Environments of lifted functions which capture outer locals.
+    pub closures: std::collections::BTreeMap<FuncId, Closure>,
     pub vtables: Vec<VTable>,
+}
+
+pub struct Closure {
+    pub env: Type,
+    /// Indexed by field in the environment struct, in lexical declaration order.
+    pub captures: Vec<Capture>,
+}
+
+pub struct Capture {
+    /// The lifted body's local id for this captured binding.
+    pub local: LocalId,
+    /// Borrowing captures are shared until mutation inference proves otherwise.
+    /// `None` is an owned field in a `move` closure.
+    pub borrow: Option<bool>,
 }
 
 /// An interface as the backends see it: the slots of a vtable.
@@ -651,6 +667,8 @@ pub enum ExprKind {
     PtrConv(Box<Expr>),
     /// A named function adapted to the function-value ABI.
     FuncRef(FuncId),
+    /// A lifted function with its captures as places in the enclosing function.
+    Closure(FuncId, Vec<Expr>),
     /// Indirect call with the callable value at index zero.
     FnCall(Vec<Expr>),
     /// A `&S` / `&mut S` made a `&Iface` / `&mut Iface` (the expression's type):
@@ -721,7 +739,7 @@ impl Expr {
             K::Logic { lhs, rhs, .. } | K::Maybe { value: lhs, fallback: rhs } => vec![&**lhs, &**rhs],
             K::Shift { value, amount, .. } => vec![&**value, &**amount],
             K::Struct(fields) => fields.iter().map(|(_, v)| v).collect(),
-            K::Call(_, args) | K::StrCall(_, args) | K::DynCall(_, _, args) | K::FnCall(args) => args.iter().collect(),
+            K::Call(_, args) | K::StrCall(_, args) | K::DynCall(_, _, args) | K::FnCall(args) | K::Closure(_, args) => args.iter().collect(),
             K::Join(parts) => parts.iter().collect(),
             K::Take { leaving, .. } => leaving.as_deref().into_iter().collect(),
         }

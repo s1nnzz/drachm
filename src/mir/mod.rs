@@ -329,7 +329,7 @@ pub enum Rvalue {
     Convert(Operand, Type),
     /// A `&S` made a `&Iface` of the given type: the borrow and the vtable
     /// of `S` for the interface, two words.
-    MakeFn(FuncId, Type),
+    MakeFn(FuncId, Type, Option<Place>),
     Unsize(Operand, Type),
     Ref(BorrowKind, Place),
     /// `address of place`: makes a `*T`.

@@ -162,7 +162,9 @@ pub fn events(body: &Body, loc: Location) -> Vec<Event> {
                     MoveCause::Assign
                 };
                 match rv {
-                    Rvalue::MakeFn(..) => {},
+                    Rvalue::MakeFn(_, _, Some(p)) => read(p, s.span, &mut out),
+                    Rvalue::MakeFn(_, _, None) => {}
+
                     Rvalue::Use(o) | Rvalue::Neg(o) | Rvalue::Not(o) | Rvalue::BitNot(o) | Rvalue::Convert(o, _) | Rvalue::Unsize(o, _) => {
                         operand_events(o, s.span, cause, &mut out)
                     }

@@ -614,7 +614,10 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
     }
     let conformances = std::mem::take(&mut g.ifaces.records);
     let (dyn_ifaces, vtables) = dynamic::finish(&mut g, &structs);
-    let mut program = hir::Program { funcs: funcs.into_iter().map(|f| f.unwrap_or_else(placeholder)).collect(), structs, enums: enum_defs, main, collections, conformances, dyn_ifaces, vtables };
+    let mut program = hir::Program { funcs: funcs.into_iter().map(|f| f.unwrap_or_else(placeholder)).collect(), structs, enums: enum_defs, main, collections, conformances, dyn_ifaces, vtables, closures: std::mem::take(&mut g.lambdas.closures) };
+    if !diags.iter().any(Diagnostic::is_error) {
+        lambdas::infer_captures(&mut program);
+    }
     units::erase(&mut program);
     if cfg!(debug_assertions) {
         units::assert_erased(&mut program);
@@ -1320,6 +1323,7 @@ fn origin(e: &ast::Expr) -> Origin {
     Origin { span: e.span, compound }
 }
 
+#[derive(Clone)]
 struct LocalInfo {
     name: String,
     ty: Option<Type>,
@@ -1473,7 +1477,9 @@ impl<'a> Checker<'a> {
     }
 
     fn lookup(&self, name: &str) -> Option<LocalId> {
-        self.scopes.iter().rev().find_map(|s| s.get(name).copied())
+        let id = self.scopes.iter().rev().find_map(|s| s.get(name).copied())?;
+        self.use_capture(id);
+        Some(id)
     }
 
     fn declare(&mut self, name: &str, ty: Option<Type>, mutable: bool, span: Span, is_param: bool) -> LocalId {
@@ -1867,9 +1873,6 @@ impl<'a> Checker<'a> {
         match &e.kind {
             ExprKind::Var(name) => {
                 let Some(id) = self.lookup(name) else {
-                    if self.unbuilt_capture(name, e.span) {
-                        return None;
-                    }
                     self.diags.push(Diagnostic::at(&codes::E0201, e.span, format!("unknown binding `{name}`")));
                     return None;
                 };
@@ -1976,9 +1979,6 @@ impl<'a> Checker<'a> {
 
     /// The `self` local, or an error if there is none here.
     fn self_local(&mut self, at: Span) -> Option<LocalId> {
-        if self.unbuilt_capture("self", at) {
-            return None;
-        }
         match self.method {
             None => {
                 self.diags.push(Diagnostic::at(&codes::E0209, at, "`self` only exists inside a struct's methods").note("not in a method"));
@@ -2615,7 +2615,6 @@ impl<'a> Checker<'a> {
             ExprKind::Lambda { moves, params, body } => self.lambda_expr(*moves, params, body, e.span).map(Val::Expr),
             ExprKind::Var(name) => match self.lookup(name) {
                 Some(id) => self.read_local(id, e.span).map(Val::Expr),
-                None if self.unbuilt_capture(name, e.span) => None,
                 None if self.ambiguous_bare(name, e.span) => None,
                 None if self.g.mono.templates.contains_key(name) && !self.g.funcs_by_name.contains_key(name) => {
                     self.generic_by_name(name, e.span);
@@ -2703,9 +2702,6 @@ impl<'a> Checker<'a> {
             ExprKind::Call { name, targs, args } => {
                 if let Some(id) = self.lookup(name) {
                     return self.call_value(id, name, targs, args, e.span);
-                }
-                if self.unbuilt_capture(name, e.span) {
-                    return None;
                 }
                 if !self.g.funcs_by_name.contains_key(name) && self.g.mono.templates.contains_key(name) {
                     return self.generic_call(name, targs, args, e.span);
@@ -2993,6 +2989,10 @@ impl<'a> Checker<'a> {
             return None;
         }
         let p = self.lvalue(inner)?;
+        if p.ty.is_func() {
+            self.diags.push(Diagnostic::at(&codes::E0652, inner.span, "a function value cannot be stored behind a pointer"));
+            return None;
+        }
         let l = &self.locals[p.local];
         // A place that can be changed gives `*T`; anything else (an immutable
         // binding, a place behind `&` or `*fixed`) gives the read-only `*fixed T` (#9).

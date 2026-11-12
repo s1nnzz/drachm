@@ -922,10 +922,13 @@ impl Cg<'_, '_> {
                 let d = self.addr_of(dest);
                 self.copy_bits(ty, d, src);
             }
-            Rvalue::MakeFn(id, _) => {
+            Rvalue::MakeFn(id, _, env) => {
                 let f = self.module.declare_func_in_func(self.ids[*id], self.b.func);
                 let code = self.b.ins().func_addr(self.ptr, f);
-                let env = self.b.ins().iconst(self.ptr, 0);
+                let env = match env {
+                    Some(p) => self.addr_of(p),
+                    None => self.b.ins().iconst(self.ptr, 0),
+                };
                 let d = self.addr_of(dest);
                 self.b.ins().store(MEM, code, d, 0);
                 self.b.ins().store(MEM, env, d, 8);

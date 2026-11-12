@@ -1,0 +1,16 @@
+in io;
+
+none twice(() => none f) {
+    f();
+    f();
+}
+
+none main() {
+    uint32 extra = 10;
+    (uint32) => uint32 add = (uint32 n) => n + extra;
+    io::outln(add(5)::text());
+
+    mut uint32 count = 0;
+    twice(() => { count++; });
+    io::outln(count::text());
+}

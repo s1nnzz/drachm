@@ -180,13 +180,26 @@ enum Evidence {
 /// Every piece of evidence in `func`'s body, in source order. Reads, shared
 /// borrows, moves and calls on places not rooted at `self` are not evidence.
 fn walk(hir: &hir::Program, func: &hir::Func, out: &mut dyn FnMut(Evidence)) {
-    let cx = Cx { hir, func };
+    let cx = Cx { hir, func, root: 0 };
     cx.block(&func.body, out);
+}
+
+pub(crate) fn changes_local(hir: &hir::Program, code: FuncId, root: hir::LocalId, modes: &[Option<SelfMode>]) -> bool {
+    let cx = Cx { hir, func: &hir.funcs[code], root };
+    let mut changes = false;
+    cx.block(&cx.func.body, &mut |e| {
+        changes |= match e {
+            Evidence::Calls(_, f) => is_mut(modes, f),
+            _ => true,
+        };
+    });
+    changes
 }
 
 struct Cx<'a> {
     hir: &'a hir::Program,
     func: &'a hir::Func,
+    root: hir::LocalId,
 }
 
 impl Cx<'_> {
@@ -348,7 +361,27 @@ impl Cx<'_> {
                     self.expr(a, out);
                 }
             }
-            ExprKind::Join(args) | ExprKind::Variant { args, .. } | ExprKind::DynCall(_, _, args) | ExprKind::FnCall(args) => {
+            ExprKind::Closure(code, captures) => {
+                for (value, capture) in captures.iter().zip(&self.hir.closures[code].captures) {
+                    if capture.borrow == Some(true)
+                        && let Some(text) = self.self_text(value)
+                    {
+                        out(Evidence::LendsMut(value.span, text));
+                    }
+                    self.expr(value, out);
+                }
+            }
+            ExprKind::DynCall(iface, method, args) => {
+                if self.hir.dyn_ifaces[*iface].methods[*method].changes
+                    && let Some(place) = args.first().and_then(|recv| self.place_of(recv))
+                {
+                    self.place_write(&place, out);
+                }
+                for a in args {
+                    self.expr(a, out);
+                }
+            }
+            ExprKind::Join(args) | ExprKind::Variant { args, .. } | ExprKind::FnCall(args) => {
                 for a in args {
                     self.expr(a, out);
                 }
@@ -379,6 +412,11 @@ impl Cx<'_> {
 
     /// A write to `place` is evidence when its root is `self`.
     fn place_write(&self, place: &Place, out: &mut dyn FnMut(Evidence)) {
+        for step in &place.proj {
+            if let HirProj::Index(index) = step {
+                self.expr(index, out);
+            }
+        }
         if let Some(text) = self.place_text(place) {
             out(Evidence::Writes(place.span, text, self.mut_path(place)));
         }
@@ -386,7 +424,7 @@ impl Cx<'_> {
 
     /// Does the path from `self` reach a `mut` field with no explicit `*` before it?
     fn mut_path(&self, place: &Place) -> bool {
-        let mut ty = self.func.locals[0].ty;
+        let mut ty = self.func.locals[self.root].ty;
         let mut derefed = false;
         for p in &place.proj {
             match p {
@@ -414,7 +452,7 @@ impl Cx<'_> {
     /// The HIR place an expression names, if it is `self` or a part of it.
     fn place_of(&self, e: &Expr) -> Option<Place> {
         match &e.kind {
-            ExprKind::Local(0) if self.func.has_self => Some(Place { local: 0, proj: Vec::new(), span: e.span }),
+            ExprKind::Local(id) if *id == self.root => Some(Place { local: *id, proj: Vec::new(), span: e.span }),
             ExprKind::Field(inner, i) => {
                 let mut p = self.place_of(inner)?;
                 p.proj.push(HirProj::Field(*i));
@@ -438,7 +476,7 @@ impl Cx<'_> {
     /// expression is not rooted at `self` or goes through a raw pointer.
     fn self_text(&self, e: &Expr) -> Option<String> {
         match &e.kind {
-            ExprKind::Local(0) if self.func.has_self => Some("self".to_string()),
+            ExprKind::Local(id) if *id == self.root => Some(self.func.locals[*id].name.clone()),
             ExprKind::Field(inner, i) => {
                 let base = self.self_text(inner)?;
                 Some(self.extend(base, inner.ty, *i))
@@ -450,11 +488,11 @@ impl Cx<'_> {
     }
 
     fn place_text(&self, place: &Place) -> Option<String> {
-        if !self.func.has_self || place.local != 0 {
+        if place.local != self.root {
             return None;
         }
-        let mut text = "self".to_string();
-        let mut ty = self.func.locals[0].ty;
+        let mut text = self.func.locals[self.root].name.clone();
+        let mut ty = self.func.locals[self.root].ty;
         for p in &place.proj {
             match p {
                 HirProj::Downcast(_) => return None,
