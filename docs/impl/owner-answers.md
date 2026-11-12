@@ -99,3 +99,9 @@ Q15 `maybe` fallback: a single value or a parenthesised expression; anything lon
 Q16 ignoring a failure: both spellings: `fs::close(f) fails with none;` and `fs::close(f) ignore failure;`.
 Q17 failing functions may be anything, operator methods and `drop()` included (`bool ==(Port o) fails X`, `(p == q) maybe false`). (My note: a failing `drop()` that runs at scope end has no caller to handle it; until asked, a failure escaping an automatic drop is reported like an escape from `main`.)
 Q18 exit codes 0-255; the failure's code wins over a number `main` returns.
+
+# Step 6 questions (step6-overview.md), 2026-11-12
+Q1 unconstrained `T`: checked per use (at each instantiation, as if `T` were written out); `max<Circle>` errors inside `max`, pointing at the call. Constrained parameters (`<T with Shape>`) are checked at the definition.
+Q2 unit arguments to your own generics are marked at the use: `Vec3<float64, unit m/s> v;` (declaration `struct Vec3<T, unit U>`).
+Q3 borrows as type arguments are allowed and the container becomes a borrower with inferred lifetime: `Stack<&string> s; s::push(&name);` ties `s` to `name`.
+Q4 interfaces are only ever borrowed (`&Shape`); owned interface values like `Shape[?]` are errors (use an enum or `&Shape`).
