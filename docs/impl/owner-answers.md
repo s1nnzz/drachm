@@ -109,3 +109,7 @@ Q6 built-in types and interfaces: a separate declaration lets any type promise a
 Q7 inferring `T`: the first argument that has a type decides; untyped constants adapt or fail (`max(a_u8, 300)` is an error like `uint8 x = 300;`); an all-constant call uses the default constant type.
 Q8 for-each over owning items: like text: `string n` gives a copy per item (skipped when never kept), `&string n` a view, `&mut string n` a changeable view.
 Q9 maps: `m[k] = v` adds or replaces; `m[k] += x` on a missing key stops the program; methods exist too (owner: "methods too"; my reading: `m::set(k, v)`, `m::remove(k)`, `m::get(k)` returning `T?`).
+Q10 lists: negative indexes count from the end like text (`xs[-1]` is the last item); methods `push`, `pop` (`T?`), `get(i)` (`T?`), `insert(i, v)`, `remove(i)`, `clear()`, `contains(v)`, `join(sep)`, `first()`/`last()` (`T?`). Out-of-range `[]` stops the program.
+Q11 moving an item out by index: `take xs[i] leaving v` (the list keeps its length), and also `take xs[i] reorders` (owner's note: moves the item out, fills the slot with the last item and shrinks; order not kept).
+Q12 array lengths as generic value parameters: `struct Buffer<T, uint32 N> { T[N] items; }`.
+Q13 a map key type with both `key()` and its own `==`: `key()` wins for maps; `==` stays what `==` is.
