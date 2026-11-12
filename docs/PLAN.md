@@ -755,7 +755,8 @@ methods, control flow, errors/diagnostics, the CLI), and the error index
 (generated from `src/diag/codes.rs`, matching `drachm explain`).
 
 Decided (2026-11-11): repo stays private. 2026-11-12: the docs site is published
-publicly on GitHub Pages (https://s1nnzz.github.io/drachm/) by
+publicly at https://drachm-lang.github.io (built site pushed to the public repo
+`drachm-lang/drachm-lang.github.io`, branch `gh-pages`) by
 `.github/workflows/docs.yml` on every push to master that touches `site/`.
 
 **Open (ask owner):** domain (docs.drachm.dev?) once it goes public.

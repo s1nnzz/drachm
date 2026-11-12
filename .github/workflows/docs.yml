@@ -1,5 +1,7 @@
 name: docs
 
+# Builds the docs site and publishes it to https://drachm-lang.github.io
+# (the public repo drachm-lang/drachm-lang.github.io holds only the built site).
 on:
   push:
     branches: [master]
@@ -8,15 +10,13 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
-  group: pages
+  group: docs
   cancel-in-progress: true
 
 jobs:
-  build:
+  publish:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -29,19 +29,14 @@ jobs:
         working-directory: site
       - run: npm run build
         working-directory: site
-        env:
-          NEXT_BASE_PATH: /drachm
       - run: touch site/out/.nojekyll
-      - uses: actions/upload-pages-artifact@v3
+      - uses: peaceiris/actions-gh-pages@v4
         with:
-          path: site/out
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
+          deploy_key: ${{ secrets.PAGES_DEPLOY_KEY }}
+          external_repository: drachm-lang/drachm-lang.github.io
+          publish_branch: gh-pages
+          publish_dir: site/out
+          force_orphan: true
+          user_name: drachm-docs
+          user_email: drachm-docs@users.noreply.github.com
+          commit_message: Publish docs from ${{ github.sha }}
