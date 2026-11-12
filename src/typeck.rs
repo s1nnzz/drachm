@@ -399,7 +399,7 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
                 func: mid,
                 static_span: m.is_static,
                 ctor: m.ctor,
-                no_fails: m.operator.is_none() && m.func.name == "drop",
+                no_fails: false,
             };
             let checked = check_body(&mut g, src, diags, &m.func, Some(ctx), symbol);
             emit(&mut funcs, mid, checked);
@@ -426,6 +426,10 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
 
     for (id, f) in failures::finish(&mut g) {
         emit(&mut funcs, id, f);
+    }
+    for (wrapper, drop, ty) in std::mem::take(&mut g.fail.drop_wrappers) {
+        let f = failures::drop_wrapper(&g, wrapper, drop, ty);
+        emit(&mut funcs, wrapper, f);
     }
     let mut main = g.funcs_by_name.get("main").copied().unwrap_or(0);
     if let Some((id, f)) = failures::main_wrapper(&mut g, main) {
@@ -670,15 +674,7 @@ fn declare_methods(g: &mut Globals, id: StructId, s: &ast::Struct, diags: &mut V
         let f = &m.func;
         let params = f.params.iter().map(|p| g.resolve_binding_type(&p.ty, diags)).collect();
         let ret = g.resolve(&f.ret, diags);
-        let may_fail = !(f.name == "drop" && m.operator.is_none());
-        if !f.fails.is_empty() && !may_fail {
-            diags.push(
-                Diagnostic::at(&codes::E0901, f.fails_span.unwrap_or(f.span), "a `drop()` that fails is not supported yet")
-                    .note("`fails` on `drop`")
-                    .help("write `none drop() { ... }`"),
-            );
-        }
-        let (fails, outcome) = failures::signature(g, f, ret, may_fail, diags);
+        let (fails, outcome) = failures::signature(g, f, ret, true, diags);
         let sig = Sig { name: format!("{}::{}", s.name, f.name), params, ret, span: f.span, fails, outcome };
         check_signature_extras(g, f, &sig.params, m.is_static.is_none(), diags);
         let mut is_drop = false;
@@ -718,7 +714,16 @@ fn declare_methods(g: &mut Globals, id: StructId, s: &ast::Struct, diags: &mut V
         let info = MethodInfo { name: f.name.clone(), operator: m.operator, func, is_static: m.is_static.is_some(), public: m.public };
         g.structs[id].methods.push(info);
         if is_drop {
-            g.structs[id].has_drop = Some(func);
+            // A `drop()` that fails is run through a function that reports the failure.
+            let wrapper = if g.sigs[func].outcome.is_some() {
+                let sig = Sig { name: format!("{}::drop", s.name), params: Vec::new(), ret: Some(Type::None), span: f.span, fails: Vec::new(), outcome: None };
+                let w = g.add_sig(sig);
+                g.fail.drop_wrappers.push((w, func, self_ty));
+                w
+            } else {
+                func
+            };
+            g.structs[id].has_drop = Some(wrapper);
         }
         ids.push(Some(func));
     }

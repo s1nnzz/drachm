@@ -273,9 +273,16 @@ impl Cx<'_> {
                     self.block(&a.body, out);
                 }
             }
-            ExprKind::FailMaybe { call: a, fallback: b } | ExprKind::CauseWrap { msg: a, slot: b } | ExprKind::Report { msg: a, slot: b } => {
+            ExprKind::FailMaybe { call: a, fallback: b } | ExprKind::CauseWrap { msg: a, slot: b } => {
                 self.expr(a, out);
                 self.expr(b, out);
+            }
+            ExprKind::Report { msg, slot, exit } => {
+                self.expr(msg, out);
+                self.expr(slot, out);
+                if let Some(x) = exit {
+                    self.expr(x, out);
+                }
             }
             ExprKind::Struct(fields) => {
                 for (_, v) in fields {

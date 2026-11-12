@@ -533,7 +533,9 @@ pub enum ExprKind {
     /// Prints the report of an escaping failure to standard error (`error:`,
     /// the message `msg`, then the chain in the `uint64` place `slot`, which
     /// is emptied and freed).
-    Report { msg: Box<Expr>, slot: Box<Expr> },
+    /// With `exit`, the program ends with that `uint8` as its exit code once
+    /// the report is printed.
+    Report { msg: Box<Expr>, slot: Box<Expr>, exit: Option<Box<Expr>> },
     /// `p::freeze()` / `p::thaw()`: the same pointer bits under the other
     /// pointer kind (`*T` to `*fixed T` or back). Needs `unsafe`.
     PtrConv(Box<Expr>),
@@ -571,7 +573,8 @@ impl Expr {
             K::TryParse { text, .. } => vec![&**text],
             K::FailMaybe { call, fallback } => vec![&**call, &**fallback],
             K::PassUp { call } | K::Handled { call, .. } => vec![&**call],
-            K::CauseWrap { msg, slot } | K::Report { msg, slot } => vec![&**msg, &**slot],
+            K::CauseWrap { msg, slot } => vec![&**msg, &**slot],
+            K::Report { msg, slot, exit } => vec![&**msg, &**slot].into_iter().chain(exit.as_deref()).collect(),
             K::Borrow { place, .. } => vec![&**place],
             K::Binary(_, a, b) | K::IntPow(a, b) => vec![&**a, &**b],
             K::Logic { lhs, rhs, .. } | K::Maybe { value: lhs, fallback: rhs } => vec![&**lhs, &**rhs],

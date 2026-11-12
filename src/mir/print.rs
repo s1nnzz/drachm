@@ -94,6 +94,7 @@ fn terminator(p: &Program, hir: &hir::Program, k: &TerminatorKind) -> String {
                 Callee::ParseStatus(ty) => format!("ParseStatus<{ty}>"),
                 Callee::CauseWrap => "CauseWrap".to_string(),
                 Callee::Report => "Report".to_string(),
+                Callee::ReportExit => "ReportExit".to_string(),
                 Callee::Radix { base, upper } => format!("Radix{base}{}", if *upper { "Upper" } else { "" }),
                 Callee::Join => "Join".to_string(),
             };

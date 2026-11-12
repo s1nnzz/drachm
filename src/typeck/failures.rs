@@ -47,6 +47,9 @@ pub(super) struct FailState {
     pub sets: HashMap<Vec<EnumId>, Type>,
     /// The built-in `ConvertError`.
     pub convert_error: Option<EnumId>,
+    /// For each `drop()` that fails: the function glue calls (returns nothing), the written
+    /// `drop`, and the struct it belongs to.
+    pub drop_wrappers: Vec<(FuncId, FuncId, Type)>,
 }
 
 /// The failures every program has.
@@ -404,6 +407,60 @@ pub(super) fn finish(g: &mut Globals) -> Vec<(FuncId, hir::Func)> {
     out
 }
 
+/// The function glue calls for a `drop()` that fails: it calls the written one, and a
+/// failure that comes out is reported like one that leaves `main` (nobody can handle it).
+pub(super) fn drop_wrapper(g: &Globals, wrapper: FuncId, drop: FuncId, self_ty: Type) -> hir::Func {
+    let outcome = g.sigs[drop].outcome.expect("a drop that fails");
+    let EnumKind::Outcome { fail, .. } = g.enums[outcome.enum_id().unwrap()].kind else { unreachable!("an outcome") };
+    let fen = fail.enum_id().unwrap();
+    let (mf, xf) = g.fail.fns[&fen];
+    let first = if g.enums[fen].kind == EnumKind::FailSet {
+        let inner = g.enums[fen].variants[0].fields[0].ty.unwrap();
+        payload(local(1, fail), 0, 0, inner)
+    } else {
+        local(1, fail)
+    };
+    let slot = payload(first, 0, 0, Type::U64);
+    let place = |i: usize| hir::Place { local: i, proj: Vec::new(), span: NOWHERE };
+    let arm = vec![
+        hir::Stmt::Decl(1),
+        hir::Stmt::Decl(2),
+        hir::Stmt::Assign(place(2), expr(hir::ExprKind::Call(mf, vec![local(1, fail)]), Type::Str)),
+        hir::Stmt::Expr(expr(
+            hir::ExprKind::Report {
+                msg: Box::new(local(2, Type::Str)),
+                slot: Box::new(slot),
+                exit: Some(Box::new(expr(hir::ExprKind::Call(xf, vec![local(1, fail)]), Type::U8))),
+            },
+            Type::None,
+        )),
+    ];
+    let call = expr(hir::ExprKind::Call(drop, vec![local(0, self_ty)]), outcome);
+    let handled = expr(
+        hir::ExprKind::Handled { call: Box::new(call), arms: vec![hir::HandlerArm { member: None, bind: 1, body: arm, end: NOWHERE }], label: 0 },
+        Type::None,
+    );
+    let decl = |name: &str, ty, mutability, is_param| hir::Local { name: name.into(), ty, span: NOWHERE, mutability, is_param, written: None };
+    hir::Func {
+        symbol: format!("drachm_drop_auto_{wrapper}"),
+        params: 1,
+        has_self: true,
+        locals: vec![
+            decl("self", self_ty, hir::Mutability::Mut, true),
+            decl("failure", fail, hir::Mutability::Fixed, false),
+            decl("message", Type::Str, hir::Mutability::Fixed, false),
+        ],
+        ret: Type::None,
+        body: vec![hir::Stmt::Expr(handled)],
+        name_span: NOWHERE,
+        span: NOWHERE,
+        body_end: NOWHERE,
+        is_unsafe: false,
+        lives: None,
+        lives_span: None,
+    }
+}
+
 /// The function `main` really is when the written one fails: it calls it,
 /// and on a failure prints the report and returns the failure's exit code.
 pub(super) fn main_wrapper(g: &mut Globals, main: FuncId) -> Option<(FuncId, hir::Func)> {
@@ -437,7 +494,7 @@ pub(super) fn main_wrapper(g: &mut Globals, main: FuncId) -> Option<(FuncId, hir
     let on_failure = vec![
         hir::Stmt::Decl(1),
         hir::Stmt::Assign(place(1), expr(hir::ExprKind::Call(mf, vec![failure]), Type::Str)),
-        hir::Stmt::Expr(expr(hir::ExprKind::Report { msg: Box::new(local(1, Type::Str)), slot: Box::new(slot) }, Type::None)),
+        hir::Stmt::Expr(expr(hir::ExprKind::Report { msg: Box::new(local(1, Type::Str)), slot: Box::new(slot), exit: None }, Type::None)),
         hir::Stmt::Return(Some(expr(hir::ExprKind::Convert(Box::new(code)), Type::S32))),
     ];
     let value = if ok == Type::S32 { payload(out(0), 0, 0, Type::S32) } else { expr(hir::ExprKind::Int(0), Type::S32) };

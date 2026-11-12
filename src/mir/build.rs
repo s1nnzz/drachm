@@ -1176,9 +1176,13 @@ impl<'a> Builder<'a> {
                 let ops = self.operands(&[&**msg, &**slot], &|i| Some((i == 1, false)));
                 self.call(Callee::CauseWrap, ops, e.ty)
             }
-            ExprKind::Report { msg, slot } => {
+            ExprKind::Report { msg, slot, exit: None } => {
                 let ops = self.operands(&[&**msg, &**slot], &|i| Some((i == 1, false)));
                 self.call(Callee::Report, ops, Type::None)
+            }
+            ExprKind::Report { msg, slot, exit: Some(code) } => {
+                let ops = self.operands(&[&**msg, &**slot, &**code], &|i| (i < 2).then_some((i == 1, false)));
+                self.call(Callee::ReportExit, ops, Type::None)
             }
             ExprKind::Radix { value, base, upper } => {
                 let ops = self.operands(&[&**value], &|_| None);
