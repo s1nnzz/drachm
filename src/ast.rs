@@ -22,6 +22,10 @@ pub struct Program {
     /// Every `T?` written in the file, with `T` as written (no marks, no `?`).
     /// The checker makes one optional type for each distinct `T` (S5A.2).
     pub optionals: Vec<TypeName>,
+    /// Every type written with type arguments (`Stack<uint32>`, also the
+    /// ones inside other arguments), in the order the parser finished them.
+    /// The checker makes the instances they name before it resolves types.
+    pub generics: Vec<TypeName>,
 }
 
 /// `struct Name { fields and methods }`
@@ -29,6 +33,10 @@ pub struct Program {
 pub struct Struct {
     pub name: String,
     pub name_span: Span,
+    /// `<T, U>` after the name: the struct is a template.
+    pub tparams: Vec<TypeParam>,
+    /// From `struct` to the closing `}`.
+    pub span: Span,
     /// `lives a, b`: the borrow fields it names.
     pub lives: Vec<(String, Span)>,
     /// The `stays` clause: never copied automatically.
@@ -48,6 +56,9 @@ pub struct Struct {
 pub struct Enum {
     pub name: String,
     pub name_span: Span,
+    pub tparams: Vec<TypeParam>,
+    /// From `enum` to the closing `}`.
+    pub span: Span,
     pub variants: Vec<Variant>,
 }
 
@@ -69,7 +80,7 @@ pub struct FailVariant {
     pub exit: Option<(u64, Span)>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Variant {
     pub name: String,
     pub name_span: Span,
@@ -84,6 +95,8 @@ pub struct DefDecl {
     pub name: String,
     pub name_span: Span,
     pub of: Option<(String, Span)>,
+    /// `Cell<uint32>` after `of`: the type arguments of a generic struct.
+    pub of_args: Vec<TypeName>,
     pub from: Option<(String, Span)>,
     pub assigns: Vec<DefAssign>,
     pub span: Span,
@@ -97,7 +110,7 @@ pub struct DefAssign {
 }
 
 /// `Type name;` or `mut Type name;` inside a struct.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Field {
     pub public: bool,
     pub mutable: bool,
@@ -147,12 +160,15 @@ pub struct TypeName {
     pub dims: Vec<Dim>,
     /// A number written where a type argument goes.
     pub is_number: bool,
+    /// The return type the parser gives a constructor: the struct itself,
+    /// whatever type arguments it has in this instance.
+    pub self_ty: bool,
 }
 
 impl TypeName {
     /// A bare name with nothing else written.
     pub fn plain(name: impl Into<String>, span: Span) -> TypeName {
-        TypeName { name: name.into(), span, mods: Vec::new(), unit: None, optional: None, args: Vec::new(), dims: Vec::new(), is_number: false }
+        TypeName { name: name.into(), span, mods: Vec::new(), unit: None, optional: None, args: Vec::new(), dims: Vec::new(), is_number: false, self_ty: false }
     }
 }
 

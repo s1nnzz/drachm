@@ -36,6 +36,13 @@ impl Globals {
         }
     }
 
+    /// Was node `i` (a struct id, then `structs.len() + enum id`) found in a cycle?
+    pub(super) fn was_cyclic(&self, i: usize) -> bool {
+        let ns = self.structs.len();
+        let c = self.layouts.borrow();
+        if i < ns { c.cyclic_structs.contains(&i) } else { c.cyclic_enums.contains(&(i - ns)) }
+    }
+
     fn is_cyclic(&self, t: Type) -> bool {
         let c = self.layouts.borrow();
         match t {

@@ -1,0 +1,3 @@
+error[E0604]: `Cell` is generic, so it needs type arguments
+error[E0602]: `Point` takes no type arguments
+error[E0602]: `Cell` takes 1 type argument, but 2 given

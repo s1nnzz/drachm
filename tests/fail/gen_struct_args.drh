@@ -1,0 +1,13 @@
+struct Cell<T> {
+    public:
+    T value;
+}
+
+struct Point { public: uint32 x; }
+
+none main() {
+    Cell c;
+    Point<uint32> p;
+    Cell<uint32, uint32> q;
+    Cell<uint32> ok = new Cell of (1);
+}

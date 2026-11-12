@@ -68,6 +68,9 @@ pub(super) fn declare_enum(g: &mut Globals, e: &ast::Enum, diags: &mut Vec<Diagn
         diags.push(Diagnostic::at(&codes::E0202, e.name_span, msg).note("defined again here").label(first, "first defined here"));
         return None;
     }
+    if super::generics::type_name_taken(g, &e.name, e.name_span, "enum", diags) {
+        return None;
+    }
     let id = g.enums.len();
     let ty = Type::Enum { id, name: types::intern(&e.name) };
     g.enums.push(EnumInfo { name: e.name.clone(), name_span: e.name_span, ty, variants: Vec::new(), kind: hir::EnumKind::User, owns: false });

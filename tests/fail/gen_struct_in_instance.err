@@ -1,0 +1,2 @@
+error[E0112]: `Opaque` has no `>` operator
+while checking `Holder<Opaque>`, instantiated here

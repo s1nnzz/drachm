@@ -681,18 +681,18 @@ codes! {
     E0605: "bad type parameter list",
         "A type parameter is declared twice in the same list, or has the name of\n\
          a struct, enum or unit. A type parameter takes no other name's place.";
-    E0608: "a generic function keeps instantiating itself",
+    E0608: "a generic keeps instantiating itself",
         "A generic function calls itself with a bigger type each time\n\
          (`grow<uint32>` calls `grow<uint32?>`, which calls `grow<uint32??>`, ...),\n\
          so the compiler would never stop making copies. Make the recursive call\n\
-         use the same type.";
+         use the same type. The same happens to a generic struct that holds an\n\
+         instance of itself with a bigger type (`struct Bad<T> { Bad<Cell<T>> x; }`).";
     E0609: "a unit parameter used as a type",
         "`unit U` declares a unit, so it can only be used inside the `<>` of a\n\
          number type: `float64<U>`. A type parameter would be written `<T>`.";
-    W0600: "generic function never used",
-        "A generic function is only checked when something calls it with a\n\
-         particular type, so a generic function nothing calls is not checked\n\
-         at all.";
+    W0600: "generic never used",
+        "A generic function, struct or enum is only checked when something uses\n\
+         it with particular types, so one nothing uses is not checked at all.";
     E0901: "not supported yet",
         "This is part of Drachm's design, but this version of the compiler does\n\
          not implement it yet.";

@@ -1,0 +1,9 @@
+struct Node<T> {
+    public:
+    T v;
+    Node<T> next;
+}
+
+none main() {
+    Node<uint32> n;
+}

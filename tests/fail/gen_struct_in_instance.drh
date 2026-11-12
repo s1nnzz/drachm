@@ -1,0 +1,14 @@
+struct Opaque { public: uint32 n; }
+
+struct Holder<T> {
+    public:
+    T a;
+    T b;
+    bool bigger() { return self.a > self.b; }
+}
+
+none main() {
+    Holder<uint32> ok = new Holder<uint32> of (2, 1);
+    bool r = ok::bigger();
+    Holder<Opaque> h = new Holder<Opaque> of (new Opaque of (1), new Opaque of (2));
+}

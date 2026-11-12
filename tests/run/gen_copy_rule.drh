@@ -1,0 +1,29 @@
+in io;
+
+struct Cell<T> {
+    public:
+    T value;
+}
+
+struct Wide<T> {
+    public:
+    T a;
+    T b;
+    T c;
+    T d;
+}
+
+none main() {
+    // Cell<uint32> is Copy: using it twice is fine.
+    Cell<uint32> a = new Cell<uint32> of (4);
+    Cell<uint32> b = a;
+    io::outln(f"${a.value} ${b.value}");
+    // Cell<string> is not: it has to be copied by hand.
+    Cell<string> s = new Cell<string> of ("owned");
+    Cell<string> t = copy s;
+    io::outln(f"${s.value} ${t.value}");
+    // Exactly 32 bytes is still Copy.
+    Wide<uint64> w = new Wide<uint64> of (1, 2, 3, 4);
+    Wide<uint64> w2 = w;
+    io::outln(f"${w.d} ${w2.a}");
+}

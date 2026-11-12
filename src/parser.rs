@@ -8,7 +8,7 @@ use crate::lexer::{StrPiece, Tok, Token};
 /// Never fails: syntax errors are reported to `diags` and the parser carries
 /// on at the next statement or function, so several can be found in one go.
 pub fn parse(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>) -> Program {
-    let mut p = Parser { tokens, pos: 0, diags, optionals: Vec::new() };
+    let mut p = Parser { tokens, pos: 0, diags, optionals: Vec::new(), generics: Vec::new() };
     let mut program = Program {
         imports: Vec::new(),
         units: Vec::new(),
@@ -19,6 +19,7 @@ pub fn parse(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>) -> Program {
         defs: Vec::new(),
         unsafe_allowed: false,
         optionals: Vec::new(),
+        generics: Vec::new(),
     };
     while p.peek() != &Tok::Eof {
         let start = p.pos;
@@ -49,6 +50,7 @@ pub fn parse(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>) -> Program {
         }
     }
     program.optionals = p.optionals;
+    program.generics = p.generics;
     program
 }
 
@@ -58,6 +60,8 @@ struct Parser<'a> {
     diags: &'a mut Vec<Diagnostic>,
     /// Every `T?` seen so far (see `ast::Program::optionals`).
     optionals: Vec<TypeName>,
+    /// Every type with type arguments seen so far (`ast::Program::generics`).
+    generics: Vec<TypeName>,
 }
 
 type Parsed<T> = Result<T, Diagnostic>;
@@ -180,6 +184,9 @@ impl Parser<'_> {
         }
         let dims = self.type_dims()?;
         let optional = self.type_optional(&name, span, &unit, &args, &dims)?;
+        if !args.is_empty() {
+            self.generics.push(TypeName { args: args.clone(), dims: dims.clone(), ..TypeName::plain(name.clone(), span) });
+        }
         Ok(TypeName { mods, unit, optional, args, dims, ..TypeName::plain(name, span) })
     }
 
@@ -716,9 +723,7 @@ impl Parser<'_> {
     fn enum_decl(&mut self) -> Parsed<Enum> {
         let start = self.bump().span;
         let (name, name_span) = self.ident("an enum name")?;
-        if self.peek() == &Tok::Sym("<") {
-            return Err(Diagnostic::at(&codes::E0901, self.span(), "generic enums are not supported yet"));
-        }
+        let tparams = self.type_params()?;
         let open = self.expect("{")?;
         let mut variants = Vec::new();
         while self.peek() != &Tok::Sym("}") {
@@ -762,7 +767,7 @@ impl Parser<'_> {
                 .note("this enum has none")
                 .help(format!("write one: `enum {name} {{ First, Second }}`")));
         }
-        Ok(Enum { name, name_span, variants })
+        Ok(Enum { name, name_span, tparams, span: start.to(self.prev_span()), variants })
     }
 
     /// `failure Name { Variant "message" exit N, Variant(Type v) "msg ${v}", }`
@@ -839,9 +844,15 @@ impl Parser<'_> {
         let start = self.bump().span;
         let (name, name_span) = self.ident("a name for the def")?;
         let mut of = None;
+        let mut of_args = Vec::new();
         if self.peek() == &Tok::Kw("of") {
             self.bump();
-            of = Some(self.ident("a struct name after `of`")?);
+            let (n, sp) = self.ident("a struct name after `of`")?;
+            if self.peek() == &Tok::Sym("<") && self.type_start_at(1) {
+                of_args = self.type_args()?;
+                self.generics.push(TypeName { args: of_args.clone(), ..TypeName::plain(n.clone(), sp) });
+            }
+            of = Some((n, sp));
         }
         let mut from = None;
         if self.peek() == &Tok::Kw("from") {
@@ -861,14 +872,15 @@ impl Parser<'_> {
             assigns.push(DefAssign { name: fname, name_span: fspan, value });
         }
         self.bump();
-        Ok(DefDecl { name, name_span, of, from, assigns, span: start.to(self.prev_span()) })
+        Ok(DefDecl { name, name_span, of, of_args, from, assigns, span: start.to(self.prev_span()) })
     }
 
     fn struct_decl(&mut self) -> Parsed<Struct> {
-        self.bump();
+        let start = self.bump().span;
         // `struct default Player { }`: the default def is the one named like the struct.
         let default_word = if matches!(self.peek(), Tok::Ident(w) if w == "default") { Some(self.bump().span) } else { None };
         let (name, name_span) = self.ident("a struct name")?;
+        let tparams = self.type_params()?;
         let mut defaults = default_word.map(|_| (name.clone(), name_span));
         let mut lives: Vec<(String, Span)> = Vec::new();
         let mut lives_seen = false;
@@ -881,9 +893,6 @@ impl Parser<'_> {
                     }
                     self.bump();
                     defaults = Some(self.ident("the name of the default def after `defaults`")?);
-                }
-                Tok::Sym("<") => {
-                    return Err(Diagnostic::at(&codes::E0901, self.span(), "generic structs are not supported yet"));
                 }
                 Tok::Kw("with") => {
                     return Err(Diagnostic::at(&codes::E0901, self.span(), "interfaces are not supported yet"));
@@ -907,7 +916,7 @@ impl Parser<'_> {
             }
         }
         let open = self.expect("{")?;
-        let mut s = Struct { name, name_span, lives, stays, defaults, auto_ctor: None, fields: Vec::new(), methods: Vec::new() };
+        let mut s = Struct { name, name_span, tparams, span: start, lives, stays, defaults, auto_ctor: None, fields: Vec::new(), methods: Vec::new() };
         // `Some(true)` after `public:`, `Some(false)` after `private:`. Before
         // any label, fields are private and methods public.
         let mut section: Option<bool> = None;
@@ -930,6 +939,7 @@ impl Parser<'_> {
             }
         }
         self.bump();
+        s.span = start.to(self.prev_span());
         Ok(s)
     }
 
@@ -961,7 +971,7 @@ impl Parser<'_> {
                 return Ok(());
             }
             let (name, name_span) = self.ident("a constructor name")?;
-            let ret = TypeName::plain(s.name.clone(), name_span);
+            let ret = TypeName { self_ty: true, ..TypeName::plain(s.name.clone(), name_span) };
             let func = self.func_rest(ret, name, name_span, None)?;
             s.methods.push(Method { public: section.unwrap_or(true), is_static: None, operator: None, ctor: true, func });
             return Ok(());
@@ -1911,7 +1921,7 @@ impl Parser<'_> {
             tokens.push(Token { tok, span: Span::new(span.start + from, span.start + i) });
         }
         tokens.push(Token { tok: Tok::Eof, span: Span::new(span.end, span.end) });
-        let mut inner = Parser { tokens, pos: 0, diags: &mut *self.diags, optionals: Vec::new() };
+        let mut inner = Parser { tokens, pos: 0, diags: &mut *self.diags, optionals: Vec::new(), generics: Vec::new() };
         let spec = inner.unit_spec()?;
         if inner.peek() != &Tok::Eof {
             return Err(inner.unexpected("the end of the unit"));
@@ -1998,6 +2008,9 @@ impl Parser<'_> {
             Tok::Kw("new") => {
                 let (name, name_span) = self.ident("a struct name after `new`")?;
                 let targs = if self.peek() == &Tok::Sym("<") && self.type_start_at(1) { self.type_args()? } else { Vec::new() };
+                if !targs.is_empty() {
+                    self.generics.push(TypeName { args: targs.clone(), ..TypeName::plain(name.clone(), name_span) });
+                }
                 if self.peek() != &Tok::Kw("of") {
                     return Err(self.unexpected("`of`").help(format!("write `new {name} of (...)`: the values go in parentheses")));
                 }
@@ -2034,6 +2047,7 @@ impl Parser<'_> {
                     ExprKind::Call { name, targs: Vec::new(), args: self.args()? }
                 } else if self.expr_targs_ahead() {
                     let targs = self.type_args()?;
+                    self.generics.push(TypeName { args: targs.clone(), ..TypeName::plain(name.clone(), t.span) });
                     if self.peek() == &Tok::Sym("(") {
                         ExprKind::Call { name, targs, args: self.args()? }
                     } else {
@@ -2080,10 +2094,12 @@ impl Parser<'_> {
                 .note("empty")
                 .help("for example `${name}`; write `\\$` for a plain dollar sign"));
         }
-        let mut inner = Parser { tokens, pos: 0, diags: &mut *self.diags, optionals: Vec::new() };
+        let mut inner = Parser { tokens, pos: 0, diags: &mut *self.diags, optionals: Vec::new(), generics: Vec::new() };
         let e = inner.expr()?;
         let found = std::mem::take(&mut inner.optionals);
         self.optionals.extend(found);
+        let found = std::mem::take(&mut inner.generics);
+        self.generics.extend(found);
         if inner.peek() != &Tok::Sym("}") {
             return Err(inner.unexpected("`}` to end the `${`"));
         }

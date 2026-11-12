@@ -8,8 +8,8 @@ description: Generic functions, type arguments and how they are worked out, how 
 A generic function is written once and works for many types. The compiler
 makes one real function for each set of types it is called with, so a generic
 call is exactly as fast as one written out by hand. This page states the
-rules for what builds today; generic structs and enums, constraints and
-generic units are at the end, marked. The [lesson](lesson-15-generics.md) and
+rules for what builds today; constraints and generic units are at the end,
+marked. The [lesson](lesson-15-generics.md) and
 the [guide](guide-generics.md) introduce the ideas.
 
 ## Generic functions
@@ -122,27 +122,61 @@ four (`uint8[4]`); they can be stacked (`uint32[?][?]`) and followed by `?`
 using one in a type is E0901 for now.
 
 ## Generic structs and enums
-<!-- status: not-implemented -->
 
-`struct Stack<T> { ... }` and `enum Tree<T> { ... }` take type parameters the
-same way, and `Stack<uint32>` names an instance. Each instance is its own
-type with its own fields, methods and `drop()`. A generic struct's own
-methods use only the struct's parameters.
+`struct Cell<T> { ... }` and `enum Maybe<T> { ... }` take type parameters the
+same way, and `Cell<uint32>` names an instance. Each instance is its own
+type with its own fields, methods, operators, constructors, `drop()`, `fill`
+and `def`s, laid out and checked as if you had written `Cell_uint32` by hand.
+`Cell<uint32>` written in two places is one type; `Cell<uint32>` and
+`Cell<sint32>` are different types. A generic struct's own methods use only
+the struct's parameters: a method with type parameters of its own is E0901.
 
-```drachm
-struct Cell<T> {
-    public:
-    T value;
-}
+<!-- example: gen-cell -->
 
-Cell<string> c = new Cell<string> of ("held");
+Generic struct arguments are never worked out for you: a declaration, `new`
+and a static call write the whole type (`new Cell<uint32> of (5)`,
+`Cell<string>::make("held")`, `Maybe<uint32>::Nothing()`). Where the type is
+known, a bare variant name works as for any enum (`Maybe<uint32> m = Just(5);`).
+A generic function can take one, though, and works its parameters out from it:
+`T unwrap<T>(Cell<T> c)` called with a `Cell<uint32>` has `T` = `uint32`.
+
+<!-- example: gen-pair -->
+
+An instance may be an argument of another (`Pair<Cell<uint32>, string>`).
+Whether an instance is Copy follows the usual rule applied to that instance:
+`Cell<uint32>` is Copy and `Cell<string>` is not. A `def` is for one
+instance (`def Origin of Vec2<sint32> { ... }`), and `struct Cell<T> defaults
+Start` looks for a def of that name for each instance.
+
+As with generic functions, the instance is what gets checked. An error inside
+a method shows at its own line with the instance that made it:
+
+```text
+error[E0112]: `Opaque` has no `>` operator
+   --> in_instance.drh:7:28
+    |
+  7 |     bool bigger() { return self.a > self.b; }
+    |                            ^^^^^^^^^^^^^^^
+    |                            ------ this is `Opaque`
+   ...
+ 13 |     Holder<Opaque> h = new Holder<Opaque> of (new Opaque of (1), new Opaque of (2));
+    |     ------ instantiated here
+    |
+ note: while checking `Holder<Opaque>`, instantiated here
 ```
 
+Writing a generic type without arguments (`Cell c;`) is E0604, the wrong
+number of arguments or arguments on a type that takes none is E0602, a struct
+that holds itself through an instance is E0210 as for any struct, and a type
+that asks for ever bigger instances of itself is E0608. A type argument that
+is a borrow (`Stack<&string>`) is not supported yet (E0901).
+
 ## Optional types
-<!-- status: not-implemented -->
 
 `Optional<uint32>` is another way to write `uint32?`; the two are the same
-type.
+type, and can be mixed freely.
+
+<!-- example: gen-optional -->
 
 ## Constraints
 <!-- status: not-implemented -->

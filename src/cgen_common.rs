@@ -101,7 +101,7 @@ pub(crate) fn enum_name(id: usize) -> String {
 }
 
 pub(crate) fn struct_name(name: &str) -> String {
-    format!("drachm_s_{name}")
+    format!("drachm_s_{}", crate::types::mangle(name))
 }
 
 /// A struct or an enum, for ordering definitions.

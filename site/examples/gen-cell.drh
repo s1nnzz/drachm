@@ -1,0 +1,21 @@
+in io;
+
+// A generic struct. Cell<uint32> and Cell<string> are two different types,
+// each with its own fields, methods and drop().
+struct Cell<T> {
+    public:
+    T value;
+    Cell(T v) { self.value = v; }
+    T get() { return copy self.value; }
+    none set(T v) { self.value = v; }
+    static Cell<T> make(T v) { return new Cell<T> of (v); }
+    none drop() { io::outln("drop cell"); }
+}
+
+none main() {
+    open Cell<uint32> n = new Cell<uint32> of (5);
+    n::set(n::get() + 1);
+    io::outln(f"${n.value}");
+    Cell<string> s = Cell<string>::make("held");
+    io::outln(s::get());
+}
