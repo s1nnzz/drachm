@@ -7,6 +7,8 @@ compiler (the owner's choice, for benchmark speed).
 
 ## Read first
 
+- `docs/HANDOFF.md`: current state, how work is run (agents, roles, CPU and
+  push rules), the docs site and the owner's tools. Start here.
 - `docs/SPEC.md`: every design decision so far (a snapshot of the design doc).
 - `docs/PLAN.md`: the step-by-step build plan, progress table, and the **Open**
   questions for each step.
@@ -26,7 +28,7 @@ compiler (the owner's choice, for benchmark speed).
 - Put Drachm code in option previews in ```cpp fences so it gets highlighted.
 - Engineering choices (data structures, crates, algorithms) are yours; mention
   any that change what users see.
-- Commits: no AI attribution lines (no Co-Authored-By etc.), short plain messages like a human programmer. Ask before pushing.
+- Commits: no AI attribution lines (no Co-Authored-By etc.), short plain messages like a human programmer. Pushing master after a verified merge is allowed; ask before anything else.
 
 ## Keeping the docs site current
 
@@ -56,5 +58,5 @@ target/debug/drachm run examples/hello.drh       # plain build (Cranelift)
 target/debug/drachm run examples/hello.drh -O    # optimised build (via C)
 ```
 
-Steps 0 and 1 of the plan are done. The two backends must always behave
-identically; `cargo test` checks every run case both ways.
+See `docs/PLAN.md` for progress (steps 0-5 done). The two backends must always
+behave identically; `cargo test` checks every run case both ways.

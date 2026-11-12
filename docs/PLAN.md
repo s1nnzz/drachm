@@ -37,6 +37,9 @@ C header import, `drachm fmt`, the Agora registry.
 
 ## Where things stand
 
+**Current summary and next steps: `docs/HANDOFF.md`.** The paragraph below is
+an older snapshot.
+
 Steps 0, 1 and 2 are done, and the control-flow part of step 4: the compiler
 takes Drachm syntax (`.drh`), all number types up to 128 bits, `bool`, `none`,
 owned `string`s with interpolation and `io::outf`, structs (fields that may be
