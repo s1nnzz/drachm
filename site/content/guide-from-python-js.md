@@ -122,28 +122,15 @@ Sharing behaviour between types uses interfaces, designed in
 
 ## Null becomes an optional
 
-<!-- status: not-implemented -->
-
 There is no `null`, `None` or `undefined`. A value that may be missing has the
 type `T?`, and you must say what to do when it is missing. `maybe` supplies a
 fallback and `match` takes the two cases apart.
 
-```drachm
-// Python: age = ages.get("Bob", 0)
-uint32? found = ages["Bob"];
-uint32 age = found maybe 0;
-
-match (found) {
-    case uint32 a { io::outln(a::text()); }
-    case none     { io::outln("no age"); }
-}
-```
+<!-- example: guide-py-optional -->
 
 See [Enums and optionals](design-enums.md).
 
 ## Exceptions become failures
-
-<!-- status: not-implemented -->
 
 Nothing is thrown through code that does not expect it. A function that can go
 wrong says so in its signature with `fails`, and every call must say what
@@ -151,15 +138,7 @@ happens on failure: give a fallback with `maybe`, pass it on with `fails`, or
 handle it with `fails with`. There is no `try` or `catch`, and no `Result`
 wrapper to unpack.
 
-```drachm
-uint32 parse(string s) fails ParseError {
-    if (s::isEmpty()) { fail Empty; }
-    return 42;
-}
-
-uint32 a = parse(input) maybe 0;
-uint32 b = parse(input) fails;
-```
+<!-- example: guide-py-failures -->
 
 Faults that are bugs, such as dividing by zero or an index out of range, are
 not failures: they stop the program with a message and exit code 101. Lesson 14

@@ -1,0 +1,19 @@
+in io;
+
+// Python: age = ages.get("Bob", 0)
+uint32? lookup(&string name) {
+    if (name == "Illy") { return 18; }
+    return none;
+}
+
+none main() {
+    string who = "Bob";
+    uint32? found = lookup(&who);
+    uint32 age = found maybe 0;
+    io::outln(age::text());
+
+    match (found) {
+        case uint32 a { io::outln(a::text()); }
+        case none     { io::outln("no age"); }
+    }
+}

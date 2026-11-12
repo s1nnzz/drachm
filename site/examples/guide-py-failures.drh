@@ -1,0 +1,23 @@
+in io;
+
+failure ParseError {
+    Empty "nothing to parse",
+}
+
+uint32 parse(string s) fails ParseError {
+    if (s::isEmpty()) { fail Empty; }
+    return 42;
+}
+
+uint32 twice(string s) fails ParseError {
+    uint32 n = parse(s) fails;
+    return n * 2;
+}
+
+none main() {
+    string input = "";
+    uint32 a = parse(input) maybe 0;
+    io::outln(a::text());
+    uint32 b = twice("x") maybe 0;
+    io::outln(b::text());
+}
