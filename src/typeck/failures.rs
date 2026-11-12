@@ -314,7 +314,7 @@ fn synth(symbol: String, ret: Type, self_ty: Type, body: hir::Block) -> hir::Fun
         symbol,
         params: 1,
         has_self: true,
-        locals: vec![hir::Local { name: "e".into(), ty: self_ty, span: NOWHERE, mutability: hir::Mutability::Fixed, is_param: true }],
+        locals: vec![hir::Local { name: "e".into(), ty: self_ty, span: NOWHERE, mutability: hir::Mutability::Fixed, is_param: true, written: None }],
         ret,
         body,
         name_span: NOWHERE,
@@ -447,7 +447,7 @@ pub(super) fn main_wrapper(g: &mut Globals, main: FuncId) -> Option<(FuncId, hir
         hir::Stmt::If { label: 0, branches: vec![hir::Branch { test: Some(failed), body: on_failure, end: NOWHERE }] },
         hir::Stmt::Return(Some(value)),
     ];
-    let local_decl = |name: &str, ty, mutability| hir::Local { name: name.into(), ty, span: NOWHERE, mutability, is_param: false };
+    let local_decl = |name: &str, ty, mutability| hir::Local { name: name.into(), ty, span: NOWHERE, mutability, is_param: false, written: None };
     let func = hir::Func {
         symbol: "drachm_main_wrapper".into(),
         params: 0,
