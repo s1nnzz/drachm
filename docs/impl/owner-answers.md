@@ -117,3 +117,6 @@ Q14 float map keys are allowed, hashed and compared by bits: `NaN` equals itself
 Q15 methods with their own type parameters only through interface methods (`interface Mappable<T> { U[?] map<U>((T) => U f); }`); a struct's own methods use only the struct's parameters.
 Q16 walking a map: two bindings `for (string k, uint32 v of ages)`, or an iteration method (owner: "or an iteration method"; my reading: `ages::each((string k, uint32 v) => { ... })`).
 Q17 function values only go down: parameters, locals, calls; storing one in a struct/list or returning it is an error (`move` lambdas too).
+Q18 lambdas that change captures: inferred like `self`: the capture becomes a `&mut` borrow automatically (`names::each((string n) => { count++; });` with `mut uint32 count`).
+Q19 `Iterable`: two levels: the type gives `iter()`, a fresh walker with `T? next() changes self`; `for` walks `c::iter()`, so the value itself isn't spent and can be walked again.
+Q20 a list or map declared without a value starts empty and is usable at once (`mut string[?] xs; xs::push("a");`).
