@@ -1,0 +1,6 @@
+in io;
+none main() {
+    uint8[4] rgba = [255, 0, 0, 255];
+    uint8 a = rgba[5];
+    io::outln(a::text());
+}

@@ -1,0 +1,4 @@
+none main() {
+    string[?] names = ["a", "b"];
+    string first = names[0];
+}

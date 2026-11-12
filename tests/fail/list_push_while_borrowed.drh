@@ -1,0 +1,6 @@
+none main() {
+    mut uint32[?] xs = [1, 2];
+    &uint32 a = &xs[0];
+    xs::push(3);
+    uint32 n = a;
+}

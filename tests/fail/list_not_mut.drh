@@ -1,0 +1,5 @@
+none main() {
+    uint32[?] xs = [1, 2];
+    xs[0] = 5;
+    xs::push(3);
+}

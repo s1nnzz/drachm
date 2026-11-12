@@ -1,0 +1,4 @@
+in io;
+none main() {
+    io::outln([]::len()->text());
+}
