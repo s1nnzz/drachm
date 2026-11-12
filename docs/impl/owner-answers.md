@@ -79,3 +79,9 @@ Units Q12b (2026-11-11): assigning or declaring a unit variable with a plain val
 - WP9 Q1 (#8): everything that touches a pointer value needs `unsafe`, moving/passing/returning/storing included; the body of an `unsafe` function counts as one unsafe block (no inner block needed).
 - WP9 Q2: converting between `*T` and `*fixed T` is explicit both ways, inside `unsafe`: `p::freeze()` (`*T` -> `*fixed T`) and `p::thaw()` (`*fixed T` -> `*T`).
 - Input Q1 (2026-11-11): text to number is forgiving: surrounding spaces ignored, a leading `+` allowed, `.5` and `5.` fine for floats; out-of-range is still bad text. (Line endings, invalid UTF-8 and `to<bool>`/units keep the interim behaviour until asked.)
+
+# Step 4 rest / step 5 questions (step5-overview.md section 8), 2026-11-12
+Q1 text patterns: the opposite of `case literal`: a plain `case "a*b"` matches the text exactly (a `*` is just a star); globs are written `case globbed "*.png"`, where `*` is a wildcard.
+Q2 for-each over a string: both, by the type written: `for (string c of s)` gives an owned copy per character (may be kept), `for (&string c of s)` a borrowed view; the compiler skips the copy when the body never keeps `c`.
+Q3 owning payloads in a `case`: the pattern says `take` or `copy`: `case Text(take string body)` moves the payload out (the matched value is used up), `case Text(copy string body)` copies it; a bare `string body` for an owning payload is an error with both fix-its. Copy payloads (numbers, bools, Copy structs) bind plainly.
+Q4 patterns: all of them: guards (`case Circle(float64 r) if r > 10.0`), several patterns per body (`case A(..), B(..)`), nesting (`case Some(Circle(float64 r))`), and values inside patterns (`case Rect(2.0, float64 h)`).
