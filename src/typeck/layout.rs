@@ -129,7 +129,7 @@ impl Globals {
     }
 
     /// Is a field or element of type `ty` plain data that copies by bits?
-    fn plain_copy(&self, ty: Option<Type>) -> bool {
+    pub(super) fn plain_copy(&self, ty: Option<Type>) -> bool {
         match ty.map(Type::bare) {
             Some(Type::Int { .. } | Type::Float(_) | Type::Bool | Type::Ref { mutable: false, .. }) => true,
             Some(ft @ (Type::Struct { .. } | Type::Enum { .. } | Type::Array { .. })) => self.copy_of(ft),

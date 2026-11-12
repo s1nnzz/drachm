@@ -1241,6 +1241,8 @@ impl Cg<'_, '_> {
                 let upper = self.b.ins().iconst(types::I8, upper as i64);
                 self.rt("drachm_str_radix", &[ptr, i64t, i64t, types::I8, i32t, types::I8], &[], &[out, lo, hi, signed, base, upper]);
             }
+            Callee::ListOp(op, elem) => self.list_op(op, elem, args, dest),
+            Callee::ListHas(elem) => self.list_has(elem, args, dest),
             Callee::ListPush(elem) => {
                 let list = self.operand(&args[0].op);
                 let ety = self.op_ty(&args[1].op);
@@ -1325,6 +1327,113 @@ impl Cg<'_, '_> {
     }
 
     /// Call a runtime function, importing it on first use.
+    /// The address of the drop function of one item of type `elem` for the
+    /// list runtime, or null when the item is plain data.
+    fn item_drop_fn(&mut self, elem: Type) -> Value {
+        let ptr = self.ptr;
+        if !needs_drop(self.hir, elem) {
+            return self.b.ins().iconst(ptr, 0);
+        }
+        let id = if elem == Type::Str { import_rt(self.module, self.runtime, "drachm_str_drop", &[ptr], &[]) } else { self.drop_ids[&elem] };
+        let f = self.module.declare_func_in_func(id, self.b.func);
+        self.b.ins().func_addr(ptr, f)
+    }
+
+    /// A list method with a runtime call (see `hir::ListOp`). `args[0]` is the
+    /// list's address; the rest are as `build.rs::list_call` made them.
+    fn list_op(&mut self, op: hir::ListOp, elem: Type, args: &[Arg], dest: Option<&Place>) {
+        use hir::ListOp;
+        let (ptr, i64t) = (self.ptr, types::I64);
+        let list = self.operand(&args[0].op);
+        let (size, align) = self.hir.size_align(elem);
+        let size_v = self.b.ins().iconst(i64t, size as i64);
+        match op {
+            ListOp::Pop => unreachable!("`pop` is a test and a `Remove`, not a call"),
+            ListOp::Get => {
+                // The item is copied out only when the runtime found one.
+                let idx = self.operand(&args[1].op);
+                let (tmp, out) = self.item_out(elem, dest);
+                let p = self.rt("drachm_list_get", &[ptr, i64t, i64t], &[ptr], &[list, idx, size_v])[0];
+                let found = self.b.ins().icmp_imm(IntCC::NotEqual, p, 0);
+                let (hit, join) = (self.b.create_block(), self.b.create_block());
+                self.b.ins().brif(found, hit, &[], join, &[]);
+                self.b.switch_to_block(hit);
+                self.copy_bits(elem, out, p);
+                self.b.ins().jump(join, &[]);
+                self.b.switch_to_block(join);
+                self.item_done(elem, dest, tmp);
+            }
+            ListOp::Remove => {
+                let idx = self.operand(&args[1].op);
+                let (tmp, out) = self.item_out(elem, dest);
+                self.rt("drachm_list_remove", &[ptr, i64t, ptr, i64t], &[], &[list, idx, out, size_v]);
+                self.item_done(elem, dest, tmp);
+            }
+            ListOp::Insert => {
+                let idx = self.operand(&args[1].op);
+                let ety = self.op_ty(&args[2].op);
+                let item = if in_memory(ety) {
+                    self.operand_addr(&args[2].op)
+                } else {
+                    let v = self.operand(&args[2].op);
+                    let tmp = self.mem(ety);
+                    self.b.ins().store(MEM, v, tmp, 0);
+                    tmp
+                };
+                let align_v = self.b.ins().iconst(i64t, align as i64);
+                self.rt("drachm_list_insert", &[ptr, i64t, ptr, i64t, i64t], &[], &[list, idx, item, size_v, align_v]);
+            }
+            ListOp::Clear => {
+                let f = self.item_drop_fn(elem);
+                self.rt("drachm_list_clear", &[ptr, i64t, ptr], &[], &[list, size_v, f]);
+            }
+            ListOp::Join => {
+                let sep = self.operand(&args[1].op);
+                let out = self.dest_addr(dest);
+                self.rt("drachm_list_join", &[ptr, ptr, ptr], &[], &[out, list, sep]);
+            }
+        }
+    }
+
+    /// Where a runtime call writes one item: the destination itself when it
+    /// lives in memory, else a fresh slot (its scalar is loaded to the
+    /// destination by `item_done`). Returns (the slot if any, the address).
+    fn item_out(&mut self, elem: Type, dest: Option<&Place>) -> (Option<Value>, Value) {
+        if in_memory(elem) {
+            (None, self.dest_addr(dest))
+        } else {
+            let tmp = self.mem(elem);
+            (Some(tmp), tmp)
+        }
+    }
+
+    /// Finishes `item_out`: a scalar item is loaded from its slot into the destination.
+    fn item_done(&mut self, elem: Type, dest: Option<&Place>, tmp: Option<Value>) {
+        if let Some(slot) = tmp {
+            let cl = cl_type(elem).expect("a scalar item has a machine type");
+            let v = self.b.ins().load(cl, MEM, slot, 0);
+            self.set_dest(dest, v);
+        }
+    }
+
+    /// `(&list, index)` as a `ListHas`: whether the runtime finds that item.
+    fn list_has(&mut self, elem: Type, args: &[Arg], dest: Option<&Place>) {
+        let (ptr, i64t) = (self.ptr, types::I64);
+        let (list, idx) = (self.operand(&args[0].op), self.operand(&args[1].op));
+        let size = self.b.ins().iconst(i64t, self.hir.size_align(elem).0 as i64);
+        let p = self.rt("drachm_list_get", &[ptr, i64t, i64t], &[ptr], &[list, idx, size])[0];
+        let found = self.b.ins().icmp_imm(IntCC::NotEqual, p, 0);
+        self.set_dest(dest, found);
+    }
+
+    /// Stores a call's scalar result in its destination, if it has one.
+    fn set_dest(&mut self, dest: Option<&Place>, v: Value) {
+        if let Some(d) = dest {
+            let (loc, _) = self.locate(d);
+            self.store(loc, v);
+        }
+    }
+
     fn rt(&mut self, name: &'static str, params: &[ClType], returns: &[ClType], args: &[Value]) -> Vec<Value> {
         // A `drachm_pair` result. SysV returns it in two registers, as declared;
         // Windows x64 returns a 16-byte struct through a hidden first argument.

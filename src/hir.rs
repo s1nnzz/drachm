@@ -563,6 +563,9 @@ pub enum ExprKind {
     Array(Vec<Expr>),
     /// `list::push(value)`: `list` is a changeable list place; `value` is moved in.
     ListPush { list: Box<Expr>, value: Box<Expr> },
+    /// A list method with a runtime call (`ListOp`): `args[0]` is the list
+    /// place, the rest are the method's arguments.
+    ListCall { op: ListOp, args: Vec<Expr> },
     /// `value maybe fallback` (S5A.2): the payload of the optional `value`
     /// (of tag `Some`), or `fallback` when it is `none`. `value` is a place
     /// (read where it is; only for Copy optionals) or an owned temporary.
@@ -594,6 +597,7 @@ impl Expr {
             K::Variant { args, .. } => args.iter().collect(),
             K::Len(x) => vec![&**x],
             K::Index(a, b) | K::ListPush { list: a, value: b } => vec![&**a, &**b],
+            K::ListCall { args, .. } => args.iter().collect(),
             K::List(items) | K::Array(items) => items.iter().collect(),
             K::Radix { value, .. } => vec![&**value],
             K::Out { arg, .. } => vec![&**arg],
@@ -611,6 +615,30 @@ impl Expr {
             K::Join(parts) => parts.iter().collect(),
             K::Take { leaving, .. } => leaving.as_deref().into_iter().collect(),
         }
+    }
+}
+
+/// The list methods that call the runtime (`runtime/lists.h`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ListOp {
+    /// `list::pop()`: the last item, or none (`T?`).
+    Pop,
+    /// `list::get(i)`: the item at `i` (negative counts from the end), or none.
+    Get,
+    /// `list::insert(i, value)`.
+    Insert,
+    /// `list::remove(i)`: the item at `i`, moved out; the rest move down.
+    Remove,
+    /// `list::clear()`: drops every item.
+    Clear,
+    /// `list::join(sep)` of a `string[?]`: the items with `sep` between them.
+    Join,
+}
+
+impl ListOp {
+    /// Does the call change the list (it needs a changeable list place)?
+    pub fn changes(self) -> bool {
+        matches!(self, ListOp::Pop | ListOp::Insert | ListOp::Remove | ListOp::Clear)
     }
 }
 

@@ -251,6 +251,12 @@ pub enum Callee {
     /// `(&mut list, element)`: moves the element onto the end of a list whose
     /// elements have this type.
     ListPush(Type),
+    /// A list method with a runtime call (`hir::ListOp`) on items of this type.
+    /// `Get` and `Remove` write the item they find to the destination; the
+    /// builder only calls them when there is one.
+    ListOp(hir::ListOp, Type),
+    /// `(&list, index)`: whether `get(index)` finds an item of this type.
+    ListHas(Type),
     /// `(index, length)` of a failed bounds check: stops the program. `unsigned`
     /// when the index was an unsigned number (a signed one prints as it is).
     IndexPanic { unsigned: bool },

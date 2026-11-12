@@ -277,6 +277,17 @@ impl Cx<'_> {
                     self.expr(i, out);
                 }
             }
+            ExprKind::ListCall { op, args } => {
+                // A method that changes the list writes to it when it is part of `self`.
+                if op.changes()
+                    && let Some(place) = args.first().and_then(|list| self.place_of(list))
+                {
+                    self.place_write(&place, out);
+                }
+                for a in args {
+                    self.expr(a, out);
+                }
+            }
             ExprKind::ListPush { list, value } => {
                 // Pushing changes the list: a write to it when it is part of `self`.
                 if let Some(place) = self.place_of(list) {

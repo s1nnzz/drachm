@@ -95,7 +95,7 @@ impl Globals {
 }
 
 /// The list methods that are decided (Q10) but not built yet.
-const LATER: &[&str] = &["pop", "get", "insert", "remove", "clear", "contains", "join", "first", "last", "each", "swap"];
+const LATER: &[&str] = &["contains", "each", "swap"];
 
 impl Checker<'_> {
     /// `[a, b, c]`. With a type wanted (`to`, a list or an array) the items
@@ -337,6 +337,7 @@ impl Checker<'_> {
                 );
                 None
             }
+            "pop" | "get" | "first" | "last" | "insert" | "remove" | "clear" | "join" => self.list_runtime_method(v, recv, name, name_span, args),
             _ => {
                 for a in args {
                     self.expr(a);
@@ -353,6 +354,107 @@ impl Checker<'_> {
                 None
             }
         }
+    }
+}
+
+impl Checker<'_> {
+    /// The methods that call the runtime (Q10, Q11): `pop()`, `get(i)`,
+    /// `first()`, `last()` (`T?`), `insert(i, v)`, `remove(i)`, `clear()` and
+    /// `join(sep)` of a `string[?]`. Negative indexes count from the end.
+    fn list_runtime_method(&mut self, v: hir::Expr, recv: &ast::Expr, name: &str, name_span: Span, args: &[ast::Expr]) -> Option<Val> {
+        use hir::ListOp;
+        let ty = v.ty;
+        let elem = ty.elem()?;
+        let (op, takes) = match name {
+            "pop" => (ListOp::Pop, 0),
+            "get" => (ListOp::Get, 1),
+            "first" | "last" => (ListOp::Get, 0),
+            "insert" => (ListOp::Insert, 2),
+            "remove" => (ListOp::Remove, 1),
+            "clear" => (ListOp::Clear, 0),
+            _ => (ListOp::Join, 1),
+        };
+        if args.len() != takes {
+            let s = if takes == 1 { "" } else { "s" };
+            self.diags.push(
+                Diagnostic::at(&codes::E0103, name_span, format!("`{name}` takes {takes} argument{s}, but {} given", args.len()))
+                    .note(format!("takes {takes} argument{s}")),
+            );
+            for a in args {
+                self.expr(a);
+            }
+            return None;
+        }
+        if ty.is_array() && op.changes() {
+            for a in args {
+                self.expr(a);
+            }
+            self.diags.push(
+                Diagnostic::at(&codes::E0201, name_span, format!("`{ty}` has no method `{name}`"))
+                    .label(recv.span, format!("this is `{ty}`, an array: its length is fixed"))
+                    .help("use a list (`T[?]`) for something that changes its length"),
+            );
+            return None;
+        }
+        if ty.is_array() {
+            for a in args {
+                self.expr(a);
+            }
+            self.diags.push(Diagnostic::at(&codes::E0901, name_span, format!("`{name}` on an array is not supported yet")));
+            return None;
+        }
+        if op == ListOp::Join && elem != Type::Str {
+            for a in args {
+                self.expr(a);
+            }
+            self.diags.push(
+                Diagnostic::at(&codes::E0201, name_span, format!("`{ty}` has no method `join`"))
+                    .label(recv.span, format!("this list holds `{elem}`"))
+                    .help("`join` puts a list of `string`s together, with the separator between them"),
+            );
+            return None;
+        }
+        if op == ListOp::Get && !self.g.plain_copy(Some(elem)) {
+            for a in args {
+                self.expr(a);
+            }
+            self.diags.push(
+                Diagnostic::at(&codes::E0901, name_span, format!("`{name}` on a list of `{elem}` is not supported yet"))
+                    .note("an item that owns memory cannot be copied or lent out by `get` yet"),
+            );
+            return None;
+        }
+        let mut all = vec![v];
+        let result = match op {
+            ListOp::Pop | ListOp::Get => {
+                if name == "first" || name == "last" {
+                    let at = if name == "first" { 0 } else { -1i64 as u64 as u128 };
+                    let ty_i = if name == "first" { Type::U64 } else { Type::S64 };
+                    all.push(hir::Expr::new(K::Int(at), ty_i).at(name_span));
+                } else if let Some(arg) = args.first() {
+                    let idx = self.index_arg(arg, ty, recv.span)?;
+                    all.push(idx);
+                }
+                optionals::optional_of(self.g, elem)?
+            }
+            ListOp::Insert => {
+                let idx = self.index_arg(&args[0], ty, recv.span)?;
+                let value = self.coerce(&args[1], elem)?;
+                all.push(idx);
+                all.push(value);
+                Type::None
+            }
+            ListOp::Remove => {
+                all.push(self.index_arg(&args[0], ty, recv.span)?);
+                elem
+            }
+            ListOp::Clear => Type::None,
+            ListOp::Join => {
+                all.push(self.coerce(&args[0], Type::Str)?);
+                Type::Str
+            }
+        };
+        Some(Val::Expr(hir::Expr::new(K::ListCall { op, args: all }, result).at(name_span)))
     }
 }
 

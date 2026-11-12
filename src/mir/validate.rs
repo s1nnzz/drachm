@@ -322,6 +322,19 @@ impl Validator<'_> {
             Callee::Text | Callee::Radix { .. } => (None, Type::Str),
             Callee::Join => (Some(Vec::new()), Type::Str),
             Callee::ListPush(elem) => (Some(vec![Want::Exact(Type::borrow(true, Type::list(elem))), Want::Exact(elem)]), Type::None),
+            Callee::ListHas(elem) => (Some(vec![Want::Exact(Type::borrow(false, Type::list(elem))), Want::Any]), Type::Bool),
+            Callee::ListOp(op, elem) => {
+                let list = Type::list(elem);
+                let (mut_list, shared_list) = (Want::Exact(Type::borrow(true, list)), Want::Exact(Type::borrow(false, list)));
+                match op {
+                    hir::ListOp::Get => (Some(vec![shared_list, Want::Any]), elem),
+                    hir::ListOp::Remove => (Some(vec![mut_list, Want::Any]), elem),
+                    hir::ListOp::Insert => (Some(vec![mut_list, Want::Any, Want::Exact(elem)]), Type::None),
+                    hir::ListOp::Clear => (Some(vec![mut_list]), Type::None),
+                    hir::ListOp::Join => (Some(vec![shared_list, Want::Exact(Type::borrow(false, Type::Str))]), Type::Str),
+                    hir::ListOp::Pop => unreachable!("`pop` is a test and a `Remove`, not a call"),
+                }
+            }
             Callee::IndexPanic { .. } => (Some(vec![Want::Any, Want::Exact(Type::U64)]), Type::None),
         }
     }

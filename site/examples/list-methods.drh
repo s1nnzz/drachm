@@ -1,0 +1,37 @@
+in io;
+
+none main() {
+    mut uint32[?] xs = [10, 20, 30];
+    io::outln((xs::pop() maybe 0)::text());
+    io::outln(xs::len()->text());
+    io::outln((xs::get(1) maybe 0)::text());
+    io::outln((xs::get(-1) maybe 0)::text());
+    io::outln((xs::get(7) maybe 99)::text());
+    io::outln((xs::first() maybe 0)::text());
+    io::outln((xs::last() maybe 0)::text());
+    xs::insert(0, 5);
+    xs::insert(-1, 15);
+    io::outln(xs::len()->text());
+    io::outln(xs[0]::text());
+    io::outln(xs[1]::text());
+    io::outln(xs[2]::text());
+    io::outln(xs::remove(1)->text());
+    io::outln(xs[1]::text());
+    xs::clear();
+    io::outln(xs::len()->text());
+    io::outln((xs::pop() maybe 7)::text());
+    io::outln((xs::first() maybe 8)::text());
+
+    mut string[?] names = ["ann", "bo"];
+    names::push("cy");
+    string last = names::pop() maybe "none";
+    io::outln(last);
+    string taken = names::remove(0);
+    io::outln(taken);
+    io::outln(names[0]);
+    names::insert(0, "zed");
+    io::outln(names::join(", "));
+    names::clear();
+    io::outln(names::len()->text());
+    io::outln(names::join("-"));
+}

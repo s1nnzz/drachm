@@ -1133,6 +1133,7 @@ impl<'a> Builder<'a> {
                 }
                 Operand::Move(Place::local(list))
             }
+            ExprKind::ListCall { op, args } => self.list_call(e, *op, args),
             ExprKind::ListPush { list, value } => {
                 let elem = value.ty;
                 let ops = self.operands(&[&**list, &**value], &|i| (i == 0).then_some((true, true)));
@@ -1719,6 +1720,97 @@ impl<'a> Builder<'a> {
         self.diverge(TerminatorKind::Return);
     }
 
+    /// A call whose result goes to `dest`, which the caller made (an item
+    /// a runtime call writes into, never read before that).
+    fn call_into(&mut self, callee: Callee, args: Vec<Arg>, dest: Place) {
+        let next = self.new_block();
+        self.end(TerminatorKind::Call { callee, args, dest: Some(dest), target: next });
+        self.cur = next;
+    }
+
+    /// `if test { some } else { none }` into a new temp of the optional type
+    /// `opt`: `some` makes the payload, which goes in `Some`. Returns the temp.
+    fn optional_if(&mut self, opt: Type, test: Operand, some: impl FnOnce(&mut Self) -> Operand) -> Operand {
+        let enum_id = opt.enum_id().expect("an optional is an enum");
+        let res = self.new_temp(opt);
+        let (some_bb, none_bb, join) = (self.new_block(), self.new_block(), self.new_block());
+        self.end(TerminatorKind::If { cond: test, then: some_bb, els: none_bb });
+        self.cur = some_bb;
+        let got = some(self);
+        self.assign_stmt(Place::local(res), Rvalue::Variant(enum_id, 1, vec![got]));
+        self.goto(join);
+        self.cur = none_bb;
+        self.assign_stmt(Place::local(res), Rvalue::Variant(enum_id, 0, Vec::new()));
+        self.goto(join);
+        self.cur = join;
+        self.read(Place::local(res), opt)
+    }
+
+    /// A list method with a runtime call (`hir::ListOp`). `pop` and `get` test
+    /// first (the count, or `ListHas`) and take the item only when there is
+    /// one, so the item is always written before it is read.
+    fn list_call(&mut self, e: &Expr, op: hir::ListOp, args: &[Expr]) -> Operand {
+        use hir::ListOp;
+        let elem = args[0].ty.elem().expect("a list method is called on a list");
+        let list_ty = args[0].ty;
+        let borrow = move |i: usize| match i {
+            0 => Some((op.changes(), op.changes())),
+            1 if op == ListOp::Join => Some((false, false)),
+            _ => None,
+        };
+        let es: Vec<&Expr> = args.iter().collect();
+        match op {
+            ListOp::Pop => {
+                // The list place is read once: its count says whether there is a last item.
+                let list = self.as_place(&args[0]);
+                let count = self.decl(Type::U64, LocalKind::Temp);
+                self.assign_stmt(Place::local(count), Rvalue::Len(list.clone()));
+                let test = self.decl(Type::Bool, LocalKind::Temp);
+                self.assign_stmt(Place::local(test), Rvalue::Binary(hir::BinOp::Ne, Operand::Copy(Place::local(count)), Operand::Const(Constant::Int(0, Type::U64))));
+                let last = Operand::Const(Constant::Int(u64::MAX as u128, Type::S64));
+                self.optional_if(e.ty, Operand::Copy(Place::local(test)), |b| {
+                    let r = b.new_ref_temp(list_ty, true);
+                    b.assign_stmt(Place::local(r), Rvalue::Ref(BorrowKind::Mut { two_phase: false }, list.clone()));
+                    let out = b.decl(elem, LocalKind::Temp);
+                    let args = vec![Arg { op: Operand::Move(Place::local(r)), span: b.span }, Arg { op: last, span: b.span }];
+                    b.call_into(Callee::ListOp(ListOp::Remove, elem), args, Place::local(out));
+                    b.read(Place::local(out), elem)
+                })
+            }
+            ListOp::Get => {
+                // `get(i)`: the index is evaluated once; `ListHas` says whether it is in the list.
+                let list = self.as_place(&args[0]);
+                let idx = self.operands(&[&args[1]], &|_| None).remove(0).op;
+                let r = self.new_ref_temp(list_ty, false);
+                self.assign_stmt(Place::local(r), Rvalue::Ref(BorrowKind::Shared, list.clone()));
+                let found_args = vec![Arg { op: Operand::Copy(Place::local(r)), span: self.span }, Arg { op: idx.clone(), span: self.span }];
+                let found = self.call(Callee::ListHas(elem), found_args, Type::Bool);
+                self.optional_if(e.ty, found, |b| {
+                    let r = b.new_ref_temp(list_ty, false);
+                    b.assign_stmt(Place::local(r), Rvalue::Ref(BorrowKind::Shared, list.clone()));
+                    let out = b.decl(elem, LocalKind::Temp);
+                    let args = vec![Arg { op: Operand::Copy(Place::local(r)), span: b.span }, Arg { op: idx, span: b.span }];
+                    b.call_into(Callee::ListOp(ListOp::Get, elem), args, Place::local(out));
+                    b.read(Place::local(out), elem)
+                })
+            }
+            ListOp::Remove => {
+                let ops = self.operands(&es, &borrow);
+                let out = self.decl(elem, LocalKind::Temp);
+                self.call_into(Callee::ListOp(op, elem), ops, Place::local(out));
+                self.read(Place::local(out), elem)
+            }
+            ListOp::Insert | ListOp::Clear => {
+                let ops = self.operands(&es, &borrow);
+                self.call(Callee::ListOp(op, elem), ops, Type::None)
+            }
+            ListOp::Join => {
+                let ops = self.operands(&es, &borrow);
+                self.call(Callee::ListOp(op, elem), ops, e.ty)
+            }
+        }
+    }
+
     /// `call` with arguments already made.
     fn call_args(&mut self, callee: Callee, args: Vec<Arg>, ret: Type) -> Operand {
         self.call(callee, args, ret)
@@ -1818,6 +1910,7 @@ fn kind_name(k: &ExprKind) -> &'static str {
         ExprKind::List(_) => "List",
         ExprKind::Array(_) => "Array",
         ExprKind::ListPush { .. } => "ListPush",
+        ExprKind::ListCall { .. } => "ListCall",
     }
 }
 

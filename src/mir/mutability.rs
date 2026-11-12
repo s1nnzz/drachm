@@ -174,6 +174,7 @@ fn roles(hir: &hir::Program, body: &Body) -> HashMap<Location, Role> {
         let role = match callee {
             Callee::Func(f) if hir.funcs[*f].has_self => Role::Receiver { method: *f, span: *span },
             Callee::Str(StrFn::Append) | Callee::ListPush(_) => Role::Append,
+            Callee::ListOp(op, _) if op.changes() => Role::Append,
             _ => continue,
         };
         out.insert(at, role);

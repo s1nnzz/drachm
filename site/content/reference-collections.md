@@ -86,16 +86,32 @@ onto a list in `self` makes the method one that changes `self`.
 A borrow of an item keeps the list from changing: `push` while `&xs[0]` is
 still used is E0302.
 
+## Reading and removing items
+
+`xs::pop()` takes the last item out, and `xs::remove(i)` takes the item at
+`i` out (the items after it move down). Both give the item, `pop` as a `T?`
+that is `none` for an empty list; `remove` stops the program when `i` is
+outside the list. `xs::insert(i, item)` puts an item in at `i` (`i` may be
+the length, to add at the end). `xs::clear()` drops every item and keeps the
+list usable.
+
+`xs::get(i)`, `xs::first()` and `xs::last()` give the item as a `T?`, which is
+`none` when there is no such item, so they never stop the program. They copy
+the item, so they are for items that copy (numbers, `bool`, Copy structs); a
+list of `string`s is E0901 for now. `xs::join(sep)` puts the items of a
+`string[?]` together with `sep` between them (`""` for an empty list).
+
+<!-- example: list-methods -->
+
 ## Not built yet
 
 <!-- status: not-implemented -->
 
-The rest of the list methods (`pop`, `get`, `insert`, `remove`, `clear`,
-`contains`, `join`, `first`, `last`), `for (T x of xs)` over a list or array,
-comparing lists with `==`, and `split`, `lines` and `chars` returning lists
-are designed (see [Collections](design-collections.md)) and not accepted yet:
-the methods say E0901. Generic structs holding a list (`Stack<T>`) wait for
-generic structs; generic functions over lists already work:
+`contains`, `for (T x of xs)` over a list or array, comparing lists with
+`==`, and `split`, `lines` and `chars` returning lists are designed (see
+[Collections](design-collections.md)) and not accepted yet: the methods say
+E0901. Generic structs holding a list (`Stack<T>`) wait for generic structs;
+generic functions over lists already work:
 
 ```drachm
 T add_first<T>(&T[?] xs) { return xs[0] + xs[1]; }
