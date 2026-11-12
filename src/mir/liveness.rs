@@ -18,6 +18,7 @@ pub fn holds_user_drop(hir: &hir::Program, ty: Type) -> bool {
             let s = &hir.structs[id];
             s.has_drop.is_some() || s.fields.iter().any(|f| holds_user_drop(hir, f.ty))
         }
+        Type::Enum { id, .. } => hir.enums[id].variants.iter().flat_map(|v| &v.fields).any(|f| holds_user_drop(hir, f.ty)),
         _ => false,
     }
 }
@@ -39,8 +40,8 @@ pub fn rvalue_locals(rv: &Rvalue, f: &mut impl FnMut(Local)) {
             operand_local(value, f);
             operand_local(amount, f);
         }
-        Rvalue::Aggregate(_, ops) => ops.iter().for_each(|o| operand_local(o, f)),
-        Rvalue::Ref(_, p) | Rvalue::RawRef(p) | Rvalue::DeepCopy(p) => f(p.local),
+        Rvalue::Aggregate(_, ops) | Rvalue::Variant(_, _, ops) => ops.iter().for_each(|o| operand_local(o, f)),
+        Rvalue::Ref(_, p) | Rvalue::RawRef(p) | Rvalue::DeepCopy(p) | Rvalue::Discriminant(p) => f(p.local),
     }
 }
 

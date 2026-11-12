@@ -91,14 +91,14 @@ pub fn accesses(hir: &hir::Program, body: &Body, loc: Location) -> Vec<Access> {
                         operand_access(value, s.span, loc, Via::Plain, &mut out);
                         operand_access(amount, s.span, loc, Via::Plain, &mut out);
                     }
-                    Rvalue::Aggregate(_, ops) => ops.iter().for_each(|o| operand_access(o, s.span, loc, Via::Plain, &mut out)),
+                    Rvalue::Aggregate(_, ops) | Rvalue::Variant(_, _, ops) => ops.iter().for_each(|o| operand_access(o, s.span, loc, Via::Plain, &mut out)),
                     Rvalue::Ref(BorrowKind::Shared, p) => out.push(acc(p, AccessKind::ShareBorrow, s.span, Via::Plain)),
                     Rvalue::Ref(BorrowKind::Mut { two_phase }, p) => {
                         // A receiver is only reserved here, which reads like a shared borrow.
                         let kind = if *two_phase { AccessKind::ShareBorrow } else { AccessKind::MutBorrow };
                         out.push(acc(p, kind, s.span, Via::MutArgument));
                     }
-                    Rvalue::RawRef(p) | Rvalue::DeepCopy(p) => out.push(acc(p, AccessKind::Read, s.span, Via::Plain)),
+                    Rvalue::RawRef(p) | Rvalue::DeepCopy(p) | Rvalue::Discriminant(p) => out.push(acc(p, AccessKind::Read, s.span, Via::Plain)),
                 }
                 // Writing through a borrow (`*r = ..`, `p.f = ..`) reads the borrow variable.
                 out.push(acc(dest, AccessKind::Write, s.span, Via::Plain));
@@ -171,6 +171,8 @@ pub fn places_conflict(hir: &hir::Program, body: &Body, borrowed: &Place, access
                     ty = hir.structs[id].fields[f].ty;
                 }
             }
+            // A payload place overlaps every other place through the same enum (conservative).
+            Proj::Downcast(_) => {}
         }
     }
     let n = borrowed.proj.len().min(accessed.proj.len());

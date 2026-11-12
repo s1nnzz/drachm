@@ -1257,7 +1257,7 @@ impl Checker<'_> {
     /// The by-value operand of an operator (`==`, an operator method): the
     /// callee gets a copy and the operand stays where it is.
     fn copied(&self, e: hir::Expr) -> hir::Expr {
-        if e.is_place() && matches!(e.ty, Type::Str | Type::Struct { .. }) && !self.copies_anyway(e.ty) {
+        if e.is_place() && matches!(e.ty, Type::Str | Type::Struct { .. } | Type::Enum { .. }) && !self.copies_anyway(e.ty) {
             let ty = e.ty;
             return hir::Expr::new(hir::ExprKind::DeepCopy(Box::new(e)), ty);
         }
@@ -1732,6 +1732,9 @@ impl Checker<'_> {
 
     /// Check `e` and convert it to `to`, reporting a mismatch or a lossy conversion.
     fn coerce(&mut self, e: &ast::Expr, to: Type) -> Option<hir::Expr> {
+        if let Some(made) = self.bare_variant(e, to) {
+            return made;
+        }
         if to.is_ptr() && matches!(e.kind, ExprKind::NoneValue) {
             return Some(hir::Expr::new(hir::ExprKind::NullPtr, to).at(e.span));
         }
@@ -1812,6 +1815,13 @@ impl Checker<'_> {
                     return None;
                 };
                 let Some(s) = t.struct_id() else { return self.coerce(e, t) };
+                // One value for a struct with one enum field: a bare variant takes that enum.
+                if let [only] = &self.g.structs[s].fields[..]
+                    && let Some(fty) = only.ty
+                    && let Some(made) = self.bare_variant(e, fty)
+                {
+                    return self.construct(t, vec![(None, made.map(Val::Expr), origin(e))], e.span);
+                }
                 match self.expr_raw(e)? {
                     Val::Expr(x) if x.ty == t => Some(x),
                     Val::Expr(x) if x.ty.is_borrow() && x.ty.target() == Some(t) => match self.read(Val::Expr(x)) {
@@ -1826,7 +1836,26 @@ impl Checker<'_> {
                 }
             }
             ast::Init::Fields(values, span) => {
-                let checked: Vec<_> = values.iter().map(|fv| (fv.name.clone(), self.expr_raw(&fv.value), origin(&fv.value))).collect();
+                let sid = ty.and_then(Type::struct_id);
+                let checked: Vec<_> = values
+                    .iter()
+                    .enumerate()
+                    .map(|(i, fv)| {
+                        let want = sid.and_then(|s| {
+                            let fields = &self.g.structs[s].fields;
+                            match &fv.name {
+                                Some((n, _)) => fields.iter().find(|f| f.name == *n),
+                                None => fields.get(i),
+                            }
+                            .and_then(|f| f.ty)
+                        });
+                        let v = match want.and_then(|w| self.bare_variant(&fv.value, w)) {
+                            Some(made) => made.map(Val::Expr),
+                            None => self.expr_raw(&fv.value),
+                        };
+                        (fv.name.clone(), v, origin(&fv.value))
+                    })
+                    .collect();
                 match ty {
                     Some(t) if t.struct_id().is_some() => self.construct(t, checked, *span),
                     Some(t) => {
@@ -2131,6 +2160,7 @@ impl Checker<'_> {
             ExprKind::Str(parts) => self.string_literal(parts),
             ExprKind::Var(name) => match self.lookup(name) {
                 Some(id) => self.read_local(id, e.span).map(Val::Expr),
+                None if self.ambiguous_bare(name, e.span) => None,
                 None => {
                     let mut d = Diagnostic::at(&codes::E0201, e.span, format!("unknown name `{name}`"));
                     if name == "io" {
@@ -2142,10 +2172,7 @@ impl Checker<'_> {
                     None
                 }
             },
-            ExprKind::Path { .. } => {
-                self.diags.push(Diagnostic::at(&codes::E0901, e.span, "enum values are not supported yet"));
-                None
-            }
+            ExprKind::Path { owner, owner_span, name, name_span } => self.path_expr(owner, *owner_span, name, *name_span, e.span),
             ExprKind::SelfValue => {
                 let id = self.self_local(e.span)?;
                 self.read_local(id, e.span).map(Val::Expr)
@@ -2174,7 +2201,11 @@ impl Checker<'_> {
             }
             ExprKind::Binary(op, l, r) => {
                 let lv = self.expr(l);
-                let rv = self.expr(r);
+                // `d == North`: a bare variant on the right takes its enum from the left.
+                let rv = match &lv {
+                    Some(Val::Expr(x)) if matches!(op, BinOp::Eq | BinOp::Ne) && x.ty.enum_id().is_some() => self.coerce(r, x.ty).map(Val::Expr),
+                    _ => self.expr(r),
+                };
                 self.binary_vals(*op, lv?, origin(l), rv?, origin(r), e.span)
             }
             ExprKind::IncDec { inc, prefix, target } => {
@@ -2201,7 +2232,9 @@ impl Checker<'_> {
             }
             ExprKind::Call { name, args } => {
                 let Some(&id) = self.g.funcs_by_name.get(name) else {
-                    self.diags.push(Diagnostic::at(&codes::E0201, e.span, format!("unknown function `{name}`")));
+                    if !self.ambiguous_bare(name, e.span) {
+                        self.diags.push(Diagnostic::at(&codes::E0201, e.span, format!("unknown function `{name}`")));
+                    }
                     for a in args {
                         self.expr(a);
                     }
@@ -2221,6 +2254,9 @@ impl Checker<'_> {
                     }
                     if let Some(&s) = self.g.structs_by_name.get(n) {
                         return self.static_call(s, name, *name_span, targs, args, e.span);
+                    }
+                    if let Some(&en) = self.g.enums_by_name.get(n) {
+                        return self.qualified_variant(en, name, *name_span, args, e.span);
                     }
                 }
                 self.method(recv, name, *name_span, targs, args, e.span)
@@ -2334,6 +2370,7 @@ impl Checker<'_> {
         match t {
             Type::Int { .. } | Type::Float(_) | Type::Bool | Type::Ref { mutable: false, .. } => true,
             Type::Struct { id, .. } => self.g.struct_copy.get(id).copied().unwrap_or(false),
+            Type::Enum { id, .. } => self.g.enum_copy.get(id).copied().unwrap_or(false),
             _ => false,
         }
     }
@@ -2839,6 +2876,14 @@ impl Checker<'_> {
                 self.operator_call(s, &m, lhs, rv, ro, span).map(|e| Val::Expr(not(e)))
             }
             BinOp::Eq | BinOp::Ne => {
+                if let Some(bad) = self.payload_enum_in(t) {
+                    self.diags.push(
+                        Diagnostic::at(&codes::E0527, span, format!("`{t}` holds a `{bad}`, which has variants with values, so it cannot be compared with `{}`", op.symbol()))
+                            .label(lo.span, format!("this is a `{t}`"))
+                            .help("compare the parts with `match`, or give the struct its own `==` method"),
+                    );
+                    return None;
+                }
                 let rhs = self.into(rv, t, ro)?;
                 let rhs = self.copied(rhs);
                 let eq = self.g.struct_eq(s, lhs, rhs);
@@ -2854,6 +2899,15 @@ impl Checker<'_> {
                 );
                 None
             }
+        }
+    }
+
+    /// An enum with values somewhere inside `t` (a struct, at any depth), if there is one.
+    fn payload_enum_in(&self, t: Type) -> Option<Type> {
+        match t {
+            Type::Enum { id, .. } => self.g.enums[id].variants.iter().any(|v| !v.fields.is_empty()).then_some(t),
+            Type::Struct { id, .. } => self.g.structs[id].fields.iter().filter_map(|f| f.ty).find_map(|ft| self.payload_enum_in(ft)),
+            _ => None,
         }
     }
 
@@ -2964,6 +3018,9 @@ impl Checker<'_> {
         }
         if lead.struct_id().is_some() && matches!(class, OpClass::Arithmetic | OpClass::Comparison) {
             return self.struct_operator(op, lhs, lo, rv, ro, span);
+        }
+        if lead.enum_id().is_some() && matches!(op, BinOp::Eq | BinOp::Ne) {
+            return self.enum_compare(op, lhs, lo, rv, ro);
         }
 
         // Two pointers compare their addresses (owner answers, Q14). `*T` and

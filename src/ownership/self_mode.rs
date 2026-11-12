@@ -251,6 +251,8 @@ impl Cx<'_> {
             | ExprKind::DeepCopy(inner)
             | ExprKind::AddressOf(inner)
             | ExprKind::Deref(inner)
+            | ExprKind::Discriminant(inner)
+            | ExprKind::Payload { value: inner, .. }
             | ExprKind::Out { arg: inner, .. }
             | ExprKind::ParseText { text: inner, .. }
             | ExprKind::Radix { value: inner, .. } => self.expr(inner, out),
@@ -287,7 +289,7 @@ impl Cx<'_> {
                     self.expr(a, out);
                 }
             }
-            ExprKind::Join(args) => {
+            ExprKind::Join(args) | ExprKind::Variant { args, .. } => {
                 for a in args {
                     self.expr(a, out);
                 }

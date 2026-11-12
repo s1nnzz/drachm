@@ -188,7 +188,7 @@ pub struct Terminator {
 pub enum TerminatorKind {
     Goto(BlockId),
     If { cond: Operand, then: BlockId, els: BlockId },
-    /// Defined, printed and validated, but the builder never emits it.
+    /// Jumps on the tag of an enum (`match` with three or more variants).
     Switch { discr: Operand, cases: Vec<(u128, BlockId)>, otherwise: BlockId },
     /// `dest` is `None` for calls returning `none`.
     Call { callee: Callee, args: Vec<Arg>, dest: Option<Place>, target: BlockId },
@@ -246,6 +246,10 @@ impl Place {
 pub enum Proj {
     /// On a struct-typed prefix.
     Field(usize),
+    /// On an enum-typed prefix: the payload of variant `n`. Always directly
+    /// followed by a `Field`. Appears only in operands that read a payload
+    /// right after the tag test, and in `Drop` places made by the glue.
+    Downcast(usize),
     /// On a reference (`&T`, `&mut T`) or `*T`.
     Deref,
 }
@@ -283,6 +287,10 @@ pub enum Rvalue {
     RawRef(Place),
     /// A struct built from operands in field (declaration) order.
     Aggregate(StructId, Vec<Operand>),
+    /// An enum value of variant `n`, built from its payload operands.
+    Variant(hir::EnumId, usize, Vec<Operand>),
+    /// The tag of an enum place, as an unsigned integer of the tag's size.
+    Discriminant(Place),
     /// `copy place` on a non-Copy type: a fresh owned deep copy.
     DeepCopy(Place),
 }

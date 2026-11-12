@@ -334,7 +334,7 @@ impl Expr {
     pub fn is_place(&self) -> bool {
         match &self.kind {
             ExprKind::Local(_) | ExprKind::Deref(_) => true,
-            ExprKind::Field(inner, _) => inner.is_place(),
+            ExprKind::Field(inner, _) | ExprKind::Payload { value: inner, .. } => inner.is_place(),
             _ => false,
         }
     }
@@ -438,6 +438,15 @@ pub enum ExprKind {
     AddressOf(Box<Expr>),
     /// `none` as a pointer.
     NullPtr,
+    /// An enum value of the given variant, built from its payload values
+    /// (one for each field, in order).
+    Variant { enum_id: EnumId, variant: usize, args: Vec<Expr> },
+    /// The tag of an enum value (an unsigned integer of the tag's size). The
+    /// operand is read where it is, never moved.
+    Discriminant(Box<Expr>),
+    /// Field `field` of variant `variant` of an enum value that is known to
+    /// be that variant (the test for it came first). A place when `value` is.
+    Payload { value: Box<Expr>, variant: usize, field: usize },
     /// `p::freeze()` / `p::thaw()`: the same pointer bits under the other
     /// pointer kind (`*T` to `*fixed T` or back). Needs `unsafe`.
     PtrConv(Box<Expr>),

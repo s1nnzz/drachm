@@ -11,12 +11,32 @@ pub fn local_ty(body: &Body, l: Local) -> Result<Type, String> {
 /// The type of `p`, or why it is ill-typed (V2).
 pub fn place_ty(body: &Body, hir: &hir::Program, p: &Place) -> Result<Type, String> {
     let mut t = local_ty(body, p.local)?;
+    let mut variant: Option<usize> = None;
     for (i, pr) in p.proj.iter().enumerate() {
         match *pr {
             Proj::Deref => {
                 t = t.target().ok_or_else(|| format!("Deref of `{t}` in a place based on {}", p.local))?;
             }
+            Proj::Downcast(v) => {
+                let Type::Enum { id, .. } = t else {
+                    return Err(format!("Downcast (projection {i}) of non-enum `{t}` in a place based on {}", p.local));
+                };
+                let def = hir.enums.get(id).ok_or_else(|| format!("enum #{id} does not exist"))?;
+                if v >= def.variants.len() {
+                    return Err(format!("enum {} has no variant {v}", def.name));
+                }
+                if !matches!(p.proj.get(i + 1), Some(Proj::Field(_))) {
+                    return Err(format!("Downcast in a place based on {} is not followed by a Field (V10)", p.local));
+                }
+                variant = Some(v);
+            }
             Proj::Field(f) => {
+                if let Some(v) = variant.take() {
+                    let Type::Enum { id, .. } = t else { unreachable!() };
+                    let fd = hir.enums[id].variants[v].fields.get(f).ok_or_else(|| format!("variant {v} of {} has no field {f}", hir.enums[id].name))?;
+                    t = fd.ty;
+                    continue;
+                }
                 let Type::Struct { id, .. } = t else {
                     return Err(format!("field {f} (projection {i}) of non-struct `{t}` in a place based on {}", p.local));
                 };
@@ -49,6 +69,11 @@ pub fn struct_type(hir: &hir::Program, sid: StructId) -> Type {
     Type::Struct { id: sid, name: types::intern(&hir.structs[sid].name) }
 }
 
+/// The unsigned integer type of an enum tag of `size` bytes.
+pub fn tag_type(size: u32) -> Type {
+    Type::Int { bits: (size * 8) as u16, signed: false }
+}
+
 pub fn rvalue_ty(body: &Body, hir: &hir::Program, rv: &Rvalue) -> Result<Type, String> {
     Ok(match rv {
         Rvalue::Use(o) | Rvalue::Neg(o) | Rvalue::Not(o) | Rvalue::BitNot(o) => operand_ty(body, hir, o)?,
@@ -71,6 +96,12 @@ pub fn rvalue_ty(body: &Body, hir: &hir::Program, rv: &Rvalue) -> Result<Type, S
         }
         Rvalue::RawRef(p) => Type::ptr(place_ty(body, hir, p)?),
         Rvalue::Aggregate(sid, _) => struct_type(hir, *sid),
+        Rvalue::Variant(eid, ..) => hir.enum_type(*eid),
+        Rvalue::Discriminant(p) => {
+            let t = place_ty(body, hir, p)?;
+            let Type::Enum { id, .. } = t else { return Err(format!("Discriminant of non-enum `{t}`")) };
+            tag_type(hir.enums[id].tag_size)
+        }
         Rvalue::DeepCopy(p) => place_ty(body, hir, p)?,
     })
 }

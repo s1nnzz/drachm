@@ -622,6 +622,7 @@ impl<'a> Builder<'a> {
             | ExprKind::Convert(_)
             | ExprKind::PtrConv(_)
             | ExprKind::Struct(_)
+            | ExprKind::Variant { .. }
             | ExprKind::Borrow { .. }
             | ExprKind::AddressOf(_) => true,
             ExprKind::DeepCopy(_) => !is_copy(self.hir, e.ty),
@@ -675,6 +676,15 @@ impl<'a> Builder<'a> {
             ExprKind::Deref(inner) => {
                 let mut p = self.as_place(inner);
                 p.proj.push(Proj::Deref);
+                p
+            }
+            ExprKind::Payload { value, variant, field } => {
+                let mut p = self.as_place(value);
+                if value.ty.is_borrow() {
+                    p.proj.push(Proj::Deref);
+                }
+                p.proj.push(Proj::Downcast(*variant));
+                p.proj.push(Proj::Field(*field));
                 p
             }
             _ => match self.operand(e) {
@@ -732,6 +742,7 @@ impl<'a> Builder<'a> {
                 .map(|x| match x {
                     Proj::Field(f) => hir::HirProj::Field(*f),
                     Proj::Deref => hir::HirProj::Deref,
+                    Proj::Downcast(_) => unreachable!("the builder never moves out of a payload"),
                 })
                 .collect(),
             span,
@@ -791,10 +802,17 @@ impl<'a> Builder<'a> {
             ExprKind::Bool(b) => Operand::Const(Constant::Bool(*b)),
             ExprKind::Str(s) => Operand::Const(Constant::Str(self.intern(s))),
             ExprKind::NullPtr => Operand::Const(Constant::Int(0, e.ty)),
-            ExprKind::Local(_) | ExprKind::Field(..) | ExprKind::Deref(_) => {
+            ExprKind::Local(_) | ExprKind::Field(..) | ExprKind::Deref(_) | ExprKind::Payload { .. } => {
                 let p = self.as_place(e);
                 self.at(expr_span(e));
                 self.read_place(p, e)
+            }
+            ExprKind::Discriminant(inner) => {
+                let p = self.as_place(inner);
+                self.at(expr_span(e));
+                let t = self.decl(e.ty, LocalKind::Temp);
+                self.assign_stmt(Place::local(t), Rvalue::Discriminant(p));
+                Operand::Copy(Place::local(t))
             }
             ExprKind::Neg(_)
             | ExprKind::Not(_)
@@ -805,6 +823,7 @@ impl<'a> Builder<'a> {
             | ExprKind::Convert(_)
             | ExprKind::PtrConv(_)
             | ExprKind::Struct(_)
+            | ExprKind::Variant { .. }
             | ExprKind::Borrow { .. }
             | ExprKind::AddressOf(_) => {
                 let rv = self.rvalue(e);
@@ -965,6 +984,11 @@ impl<'a> Builder<'a> {
                 }
                 Rvalue::Aggregate(sid, by_field.into_iter().map(|o| o.expect("every field is given")).collect())
             }
+            ExprKind::Variant { enum_id, variant, args } => {
+                let es: Vec<&Expr> = args.iter().collect();
+                let ops = self.operands(&es, &none);
+                Rvalue::Variant(*enum_id, *variant, ops.into_iter().map(|a| a.op).collect())
+            }
             ExprKind::Borrow { mutable, place: inner } => {
                 let is_place = inner.is_place();
                 let hoist = std::mem::take(&mut self.decl_init);
@@ -1040,8 +1064,11 @@ fn pure(e: &Expr) -> bool {
         | ExprKind::Convert(a)
         | ExprKind::PtrConv(a)
         | ExprKind::Deref(a)
+        | ExprKind::Discriminant(a)
+        | ExprKind::Payload { value: a, .. }
         | ExprKind::DeepCopy(a)
         | ExprKind::AddressOf(a) => pure(a),
+        ExprKind::Variant { args, .. } => args.iter().all(pure),
         ExprKind::Borrow { place, .. } => pure(place),
         ExprKind::Binary(_, a, b) | ExprKind::IntPow(a, b) => pure(a) && pure(b),
         ExprKind::Shift { value, amount, .. } => pure(value) && pure(amount),
@@ -1086,6 +1113,9 @@ fn kind_name(k: &ExprKind) -> &'static str {
         ExprKind::Lend(_) => "Lend",
         ExprKind::AddressOf(_) => "AddressOf",
         ExprKind::NullPtr => "NullPtr",
+        ExprKind::Variant { .. } => "Variant",
+        ExprKind::Discriminant(_) => "Discriminant",
+        ExprKind::Payload { .. } => "Payload",
     }
 }
 

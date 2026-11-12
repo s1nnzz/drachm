@@ -66,6 +66,8 @@ pub fn slots_of_projection(hir: &hir::Program, local_ty: Type, proj: &[Proj]) ->
                     ty = ty.target().unwrap_or(ty);
                 }
             },
+            // Enums have no region slots, and neither does anything inside one.
+            Proj::Downcast(_) => return r.end..r.end,
             Proj::Field(f) => {
                 let Type::Struct { id, .. } = ty else { return r.end..r.end };
                 let def = &hir.structs[id];

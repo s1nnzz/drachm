@@ -13,7 +13,7 @@ use std::fmt::Write;
 
 use crate::cgen_common::{bits, c_str_value, c_type, halves, main_fn, prelude, signed, struct_defs, work_type};
 use crate::hir::{self, BinOp};
-use crate::mir::drops::{copy_glue_structs, drop_glue_structs, holds_string};
+use crate::mir::drops::{copy_glue_types, drop_glue_types, glue_name, holds_string};
 use crate::mir::traversal::reverse_postorder;
 use crate::mir::ty::{operand_ty, place_ty};
 use crate::mir::*;
@@ -35,52 +35,89 @@ pub fn generate(hir: &hir::Program, mir: &Program) -> String {
     out
 }
 
-/// The drop and copy glue of the structs that need it: `drachm_drop_S(&value)`
-/// runs the struct's `drop()` (if it has one) and then drops its fields in
-/// declaration order; `drachm_copy_S(&dest, &src)` copies the plain fields
-/// by value and deep-copies the strings. Prototypes first, so the order of
-/// the definitions does not matter. Ordered by struct id.
+/// The drop and copy glue of the structs and enums that need it:
+/// `drachm_drop_S(&value)` runs the struct's `drop()` (if it has one) and then
+/// drops its fields in declaration order (an enum drops the fields of the
+/// variant its tag names); `drachm_copy_S(&dest, &src)` copies the plain
+/// parts by value and deep-copies the strings. Prototypes first, so the order
+/// of the definitions does not matter. Structs by id, then enums.
 fn glue(hir: &hir::Program) -> String {
-    let drops = drop_glue_structs(hir);
-    let copies = copy_glue_structs(hir);
     let mut protos = String::new();
     let mut defs = String::new();
-    for &s in &drops {
-        let def = &hir.structs[s];
-        let t = crate::cgen_common::struct_name(&def.name);
-        let _ = writeln!(protos, "static void drachm_drop_{}({t} *p);", def.name);
-        let _ = writeln!(defs, "\nstatic void drachm_drop_{}({t} *p) {{", def.name);
-        if let Some(f) = def.has_drop {
-            let _ = writeln!(defs, "    {}(p);", hir.funcs[f].symbol);
-        }
-        for f in &def.fields {
-            match f.ty {
-                Type::Str => {
-                    let _ = writeln!(defs, "    if (p->f_{0}.cap != 0) drachm_str_drop(&p->f_{0});", f.name);
-                }
-                Type::Struct { name, .. } if crate::mir::needs_drop(hir, f.ty) => {
-                    let _ = writeln!(defs, "    drachm_drop_{name}(&p->f_{});", f.name);
-                }
-                _ => {}
+    // The drop statement for the field at C path `access` (a value, not a pointer).
+    let drop_of = |access: &str, ty: Type| -> Option<String> {
+        match ty {
+            Type::Str => Some(format!("if ({access}.cap != 0) drachm_str_drop(&{access});")),
+            Type::Struct { .. } | Type::Enum { .. } if crate::mir::needs_drop(hir, ty) => {
+                Some(format!("drachm_drop_{}(&{access});", glue_name(ty)))
             }
+            _ => None,
+        }
+    };
+    let copy_of = |dst: &str, src: &str, ty: Type| -> Option<String> {
+        match ty {
+            Type::Str => Some(format!("drachm_str_copy(&{dst}, &{src});")),
+            Type::Struct { .. } | Type::Enum { .. } if holds_string(hir, ty) => Some(format!("drachm_copy_{}(&{dst}, &{src});", glue_name(ty))),
+            _ => None,
+        }
+    };
+    for t in drop_glue_types(hir) {
+        let (n, c) = (glue_name(t), c_type(t));
+        let _ = writeln!(protos, "static void drachm_drop_{n}({c} *p);");
+        let _ = writeln!(defs, "\nstatic void drachm_drop_{n}({c} *p) {{");
+        match t {
+            Type::Struct { id, .. } => {
+                let def = &hir.structs[id];
+                if let Some(f) = def.has_drop {
+                    let _ = writeln!(defs, "    {}(p);", hir.funcs[f].symbol);
+                }
+                for f in &def.fields {
+                    if let Some(line) = drop_of(&format!("p->f_{}", f.name), f.ty) {
+                        let _ = writeln!(defs, "    {line}");
+                    }
+                }
+            }
+            Type::Enum { id, .. } => {
+                let _ = writeln!(defs, "    switch (p->tag) {{");
+                for (vi, v) in hir.enums[id].variants.iter().enumerate() {
+                    let lines: Vec<String> = v.fields.iter().filter_map(|f| drop_of(&format!("p->u.v{vi}.f_{}", f.name), f.ty)).collect();
+                    if !lines.is_empty() {
+                        let _ = writeln!(defs, "    case {vi}: {} break;", lines.join(" "));
+                    }
+                }
+                let _ = writeln!(defs, "    default: break;\n    }}");
+            }
+            _ => unreachable!(),
         }
         defs += "}\n";
     }
-    for &s in &copies {
-        let def = &hir.structs[s];
-        let t = crate::cgen_common::struct_name(&def.name);
-        let _ = writeln!(protos, "static void drachm_copy_{}({t} *dst, const {t} *src);", def.name);
-        let _ = writeln!(defs, "\nstatic void drachm_copy_{}({t} *dst, const {t} *src) {{\n    *dst = *src;", def.name);
-        for f in &def.fields {
-            match f.ty {
-                Type::Str => {
-                    let _ = writeln!(defs, "    drachm_str_copy(&dst->f_{0}, &src->f_{0});", f.name);
+    for t in copy_glue_types(hir) {
+        let (n, c) = (glue_name(t), c_type(t));
+        let _ = writeln!(protos, "static void drachm_copy_{n}({c} *dst, const {c} *src);");
+        let _ = writeln!(defs, "\nstatic void drachm_copy_{n}({c} *dst, const {c} *src) {{\n    *dst = *src;");
+        match t {
+            Type::Struct { id, .. } => {
+                for f in &hir.structs[id].fields {
+                    if let Some(line) = copy_of(&format!("dst->f_{}", f.name), &format!("src->f_{}", f.name), f.ty) {
+                        let _ = writeln!(defs, "    {line}");
+                    }
                 }
-                Type::Struct { name, .. } if holds_string(hir, f.ty) => {
-                    let _ = writeln!(defs, "    drachm_copy_{name}(&dst->f_{0}, &src->f_{0});", f.name);
-                }
-                _ => {}
             }
+            Type::Enum { id, .. } => {
+                let _ = writeln!(defs, "    switch (src->tag) {{");
+                for (vi, v) in hir.enums[id].variants.iter().enumerate() {
+                    let lines: Vec<String> = v
+                        .fields
+                        .iter()
+                        .filter_map(|f| copy_of(&format!("dst->u.v{vi}.f_{}", f.name), &format!("src->u.v{vi}.f_{}", f.name), f.ty))
+                        .collect();
+                    if !lines.is_empty() {
+                        let _ = writeln!(defs, "    case {vi}: {} break;", lines.join(" "));
+                    }
+                }
+                let _ = writeln!(defs, "    default: break;\n    }}");
+            }
+            _ => unreachable!(),
         }
         defs += "}\n";
     }
@@ -314,8 +351,16 @@ impl Gen<'_> {
     fn lvalue(&self, p: &Place) -> String {
         let mut s = format!("l{}", p.local.index());
         let mut ty = self.body.locals[p.local].ty;
+        let mut variant = None;
         for pr in &p.proj {
             match *pr {
+                Proj::Downcast(v) => variant = Some(v),
+                Proj::Field(i) if variant.is_some() => {
+                    let v = variant.take().unwrap();
+                    let f = &self.hir.enum_def(ty).variants[v].fields[i];
+                    let _ = write!(s, ".u.v{v}.f_{}", f.name);
+                    ty = f.ty;
+                }
                 Proj::Field(i) => {
                     let f = &self.hir.struct_def(ty).fields[i];
                     let _ = write!(s, ".f_{}", f.name);
@@ -373,7 +418,7 @@ impl Gen<'_> {
                 let call = match ty {
                     // `drachm_str_drop` starts with this test; doing it here skips the call.
                     Type::Str => format!("if ({lv}.cap != 0) drachm_str_drop(&{lv});"),
-                    Type::Struct { name, .. } if crate::mir::needs_drop(self.hir, ty) => format!("drachm_drop_{name}(&{lv});"),
+                    Type::Struct { .. } | Type::Enum { .. } if crate::mir::needs_drop(self.hir, ty) => format!("drachm_drop_{}(&{lv});", glue_name(ty)),
                     _ => return,
                 };
                 match flag {
@@ -452,11 +497,24 @@ impl Gen<'_> {
                 let parts: Vec<String> = ops.iter().enumerate().map(|(i, op)| format!(".f_{} = {}", def.fields[i].name, self.operand(op))).collect();
                 format!("({}){{ {} }}", crate::cgen_common::struct_name(&def.name), parts.join(", "))
             }
+            Rvalue::Variant(eid, vi, ops) => {
+                let v = &self.hir.enums[*eid].variants[*vi];
+                let parts: Vec<String> = ops.iter().zip(&v.fields).map(|(op, f)| format!(".f_{} = {}", f.name, self.operand(op))).collect();
+                let name = crate::cgen_common::enum_name(*eid);
+                if parts.is_empty() {
+                    format!("({name}){{ .tag = {vi} }}")
+                } else {
+                    format!("({name}){{ .tag = {vi}, .u.v{vi} = {{ {} }} }}", parts.join(", "))
+                }
+            }
+            Rvalue::Discriminant(p) => format!("{}.tag", self.lvalue(p)),
             Rvalue::DeepCopy(p) => {
                 let src = self.lvalue(p);
                 match ty {
                     Type::Str => self.line(format!("drachm_str_copy(&{lv}, &{src});")),
-                    Type::Struct { name, .. } if holds_string(self.hir, ty) => self.line(format!("drachm_copy_{name}(&{lv}, &{src});")),
+                    Type::Struct { .. } | Type::Enum { .. } if holds_string(self.hir, ty) => {
+                        self.line(format!("drachm_copy_{}(&{lv}, &{src});", glue_name(ty)))
+                    }
                     _ => self.line(format!("{lv} = {src};")),
                 }
                 return;
@@ -553,8 +611,19 @@ impl Gen<'_> {
                 self.call(*callee, args, dest.as_ref());
                 self.goto(*target, next);
             }
-            // The builder never emits `Switch`, and `PanicKind` has no values.
-            TerminatorKind::Switch { .. } | TerminatorKind::Panic(_) => unreachable!("the builder never emits {k:?}"),
+            TerminatorKind::Switch { discr, cases, otherwise } => {
+                let d = self.operand(discr);
+                let mut text = format!("switch ({d}) {{");
+                for (v, t) in cases {
+                    self.jumped[t.index()] = true;
+                    let _ = write!(text, " case {v}: goto bb{};", t.index());
+                }
+                self.jumped[otherwise.index()] = true;
+                let _ = write!(text, " default: goto bb{}; }}", otherwise.index());
+                self.line(text);
+            }
+            // `PanicKind` has no values.
+            TerminatorKind::Panic(_) => unreachable!("the builder never emits {k:?}"),
         }
     }
 

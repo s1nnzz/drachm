@@ -45,18 +45,34 @@ pub fn holds_string(hir: &hir::Program, ty: Type) -> bool {
     match ty {
         Type::Str => true,
         Type::Struct { id, .. } => hir.structs[id].fields.iter().any(|f| holds_string(hir, f.ty)),
+        Type::Enum { id, .. } => hir.enums[id].variants.iter().flat_map(|v| &v.fields).any(|f| holds_string(hir, f.ty)),
         _ => false,
     }
 }
 
-/// The structs that get a drop glue function, in id order.
-pub fn drop_glue_structs(hir: &hir::Program) -> Vec<StructId> {
-    (0..hir.structs.len()).filter(|&s| needs_drop(hir, struct_type(hir, s))).collect()
+/// The structs and enums that get a drop glue function: structs in id
+/// order, then enums.
+pub fn drop_glue_types(hir: &hir::Program) -> Vec<Type> {
+    all_types(hir).into_iter().filter(|&t| needs_drop(hir, t)).collect()
 }
 
-/// The structs that get a copy glue function, in id order.
-pub fn copy_glue_structs(hir: &hir::Program) -> Vec<StructId> {
-    (0..hir.structs.len()).filter(|&s| holds_string(hir, struct_type(hir, s))).collect()
+/// The structs and enums that get a copy glue function.
+pub fn copy_glue_types(hir: &hir::Program) -> Vec<Type> {
+    all_types(hir).into_iter().filter(|&t| holds_string(hir, t)).collect()
+}
+
+fn all_types(hir: &hir::Program) -> Vec<Type> {
+    (0..hir.structs.len()).map(|s| struct_type(hir, s)).chain((0..hir.enums.len()).map(|e| hir.enum_type(e))).collect()
+}
+
+/// The part of a glue function's name that tells the type apart: a struct's
+/// own name, or `_enumN` (a struct cannot be called that by accident).
+pub fn glue_name(ty: Type) -> String {
+    match ty {
+        Type::Struct { name, .. } => name.to_string(),
+        Type::Enum { id, .. } => format!("_enum{id}"),
+        _ => unreachable!("only structs and enums have glue"),
+    }
 }
 
 fn struct_type(hir: &hir::Program, s: StructId) -> Type {
@@ -104,7 +120,7 @@ impl Elab<'_> {
             .iter()
             .map(|p| match p {
                 Proj::Field(f) => *f,
-                Proj::Deref => unreachable!(),
+                Proj::Deref | Proj::Downcast(_) => unreachable!(),
             })
             .collect();
         // The nearest path at or above `place`: a place with no path of its
