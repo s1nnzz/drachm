@@ -19,6 +19,10 @@ use std::sync::{Mutex, Once};
 
 use unicode_segmentation::UnicodeSegmentation;
 
+mod hash;
+mod lists;
+mod maps;
+
 #[repr(C)]
 pub struct DrachmStr {
     ptr: *mut u8,
@@ -106,12 +110,57 @@ pub extern "C-unwind" fn drachm_str_alloc(cap: u64) -> *mut u8 {
         track(p);
     }
     LIVE.fetch_add(1, AtomicOrdering::Relaxed);
+    #[cfg(test)]
+    THREAD_LIVE.with(|n| n.set(n.get() + 1));
     p
 }
 
 #[unsafe(no_mangle)]
 pub extern "C-unwind" fn drachm_str_live() -> u64 {
     LIVE.load(AtomicOrdering::Relaxed)
+}
+
+// Test-only: the live buffers this thread has allocated minus freed. The
+// global counter is shared by the parallel unit tests, this one is exact.
+#[cfg(test)]
+thread_local! {
+    static THREAD_LIVE: std::cell::Cell<i64> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+fn thread_live() -> i64 {
+    THREAD_LIVE.with(|n| n.get())
+}
+
+/// Free a counted owned buffer (cap > 0, so `p` came from `drachm_str_alloc`
+/// or `counted_realloc`).
+pub(crate) fn counted_free(p: *mut u8) {
+    if checking() {
+        untrack(p);
+    }
+    unsafe { libc::free(p as *mut _) };
+    LIVE.fetch_sub(1, AtomicOrdering::Relaxed);
+    #[cfg(test)]
+    THREAD_LIVE.with(|n| n.set(n.get() - 1));
+}
+
+/// Resize a counted owned buffer to `cap` bytes, keeping its contents (the
+/// count of live buffers does not change). A NULL `p` allocates a new one.
+pub(crate) unsafe fn counted_realloc(p: *mut u8, cap: u64) -> *mut u8 {
+    if p.is_null() {
+        return drachm_str_alloc(cap);
+    }
+    if checking() {
+        untrack(p);
+    }
+    let q = unsafe { libc::realloc(p as *mut _, cap as usize) } as *mut u8;
+    if q.is_null() {
+        panic_with(c"out of memory");
+    }
+    if checking() {
+        track(q);
+    }
+    q
 }
 
 // ---- views and constructors -------------------------------------------------
@@ -147,6 +196,8 @@ pub unsafe extern "C-unwind" fn drachm_str_drop(s: *mut DrachmStr) {
         }
         unsafe { libc::free(s.ptr as *mut _) };
         LIVE.fetch_sub(1, AtomicOrdering::Relaxed);
+        #[cfg(test)]
+        THREAD_LIVE.with(|n| n.set(n.get() - 1));
     }
     *s = EMPTY;
 }
@@ -804,7 +855,7 @@ const ACUTE: &str = "\u{301}"; // a bare combining mark
 
     #[test]
     fn concat_copy_drop_and_counter() {
-        let before = drachm_str_live();
+        let before = thread_live();
         let (a, b) = (lit("foo"), lit("bar"));
         let mut c = EMPTY;
         unsafe { drachm_str_concat(&mut c, &a, &b) };
@@ -814,7 +865,7 @@ const ACUTE: &str = "\u{301}"; // a bare combining mark
         unsafe { drachm_str_copy(&mut d, &c) };
         assert_ne!(d.ptr, c.ptr);
         assert_eq!(unsafe { bytes(&d) }, b"foobar");
-        assert!(drachm_str_live() >= before + 2);
+        assert!(thread_live() >= before + 2);
         unsafe { drachm_str_drop(&mut c) };
         assert_eq!((c.ptr, c.len, c.cap), (ptr::null_mut(), 0, 0));
         unsafe { drachm_str_drop(&mut c) }; // dropping an empty string is fine
@@ -844,7 +895,7 @@ const ACUTE: &str = "\u{301}"; // a bare combining mark
 
     #[test]
     fn appending() {
-        let before = drachm_str_live();
+        let before = thread_live();
         // Appending to a literal makes it owned; appending nothing changes nothing.
         let mut s = lit("ab");
         unsafe { drachm_str_append(&mut s, &EMPTY) };
@@ -862,8 +913,8 @@ const ACUTE: &str = "\u{301}"; // a bare combining mark
             unsafe { drachm_str_append(&mut s, &lit(if i % 2 == 0 { "x" } else { E_ACUTE })) };
         }
         assert_eq!(s.len, 64 + 50 + 100);
-        // Other tests run in parallel, so only a lower bound is certain.
-        assert!(drachm_str_live() > before);
+        // This thread's own count: other tests running in parallel do not move it.
+        assert!(thread_live() > before);
         unsafe { drachm_str_drop(&mut s) };
         let mut e = EMPTY;
         unsafe { drachm_str_append(&mut e, &lit("x")) };

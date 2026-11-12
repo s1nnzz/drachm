@@ -13,6 +13,7 @@ fn main() {
     println!("cargo:rerun-if-changed=runtime/strings/Cargo.lock");
     println!("cargo:rerun-if-changed=runtime/strings/src");
     println!("cargo:rerun-if-changed=runtime/strings.h");
+    println!("cargo:rerun-if-changed=runtime/lists.h");
     println!("cargo:rerun-if-changed=build.rs");
 
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
