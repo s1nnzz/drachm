@@ -5,7 +5,7 @@
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::lists::{DrachmList, EMPTY_LIST, drachm_list_push};
-use crate::{DrachmStr, EMPTY, bytes, emit, panic_with};
+use crate::{DrachmStr, EMPTY, bytes, emit};
 
 /// Size and alignment of a `string` item in a list.
 const STR_SIZE: u64 = std::mem::size_of::<DrachmStr>() as u64;
@@ -25,12 +25,13 @@ fn find(text: &[u8], pat: &[u8]) -> Option<usize> {
 
 /// The pieces of `s` between the occurrences of `sep`, in order. Empty pieces
 /// are kept: `"a,,b"` gives `a`, ``, `b`, and `""` gives one empty piece.
-/// An empty separator stops the program.
+/// An empty separator gives the same grapheme clusters as `chars`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn drachm_str_split(out: *mut DrachmList, s: *const DrachmStr, sep: *const DrachmStr) {
     let (text, sep) = unsafe { (bytes(s), bytes(sep)) };
     if sep.is_empty() {
-        panic_with(c"split needs a separator that is not empty");
+        unsafe { drachm_str_chars(out, s) };
+        return;
     }
     unsafe { out.write(EMPTY_LIST) };
     let mut rest = text;

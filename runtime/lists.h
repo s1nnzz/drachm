@@ -85,7 +85,7 @@ void drachm_list_join(drachm_str *out, const drachm_list *l, const drachm_str *s
 
 // ---- string splitting (runtime/strings/src/strings_split.rs) ----
 // Each gives a new list of owned strings, replacing whatever `out` held.
-void drachm_str_split(drachm_list *out, const drachm_str *s, const drachm_str *sep); // empty sep stops the program
+void drachm_str_split(drachm_list *out, const drachm_str *s, const drachm_str *sep); // empty sep gives characters
 void drachm_str_lines(drachm_list *out, const drachm_str *s);
 void drachm_str_chars(drachm_list *out, const drachm_str *s);
 

@@ -44,6 +44,8 @@ none main() {
     string[?] nothing = ""::chars();
     io::outln(nothing::len()->text());
 
+    io::outln("🇫🇷a"::split("")->join("|"));
+
     // The pieces are owned copies: they outlive the text they came from.
     string[?] kept = pieces();
     io::outln(kept::join("+"));

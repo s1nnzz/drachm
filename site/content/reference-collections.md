@@ -136,7 +136,7 @@ as a `string[?]`. Empty pieces are kept, so `",a,,b,"` gives five pieces and
 ends (`\n` or `\r\n`); a last line without a line end counts, and an empty text
 has no lines. `text::chars()` gives the characters, one owned string each, counted
 the way `len()` counts them. Every piece is a copy, so the list keeps working
-after the text is gone. A separator that is empty stops the program.
+after the text is gone. An empty separator gives the same grapheme clusters as `chars()`.
 
 <!-- example: list-split -->
 
