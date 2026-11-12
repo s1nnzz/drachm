@@ -1954,22 +1954,15 @@ impl<'a> Builder<'a> {
         self.read(Place::local(m), map_ty)
     }
 
-    /// A map method (`hir::MapOp`). `Get` tests with `Has` and copies the value
-    /// with `Find` only when there is one, so the value is always written first.
+    /// A map method (`hir::MapOp`). Lookup returns an owned optional.
     fn map_call(&mut self, e: &Expr, op: hir::MapOp, args: &[Expr]) -> Operand {
         use hir::MapOp;
         let map_ty = args[0].ty;
-        let (_, val) = map_ty.map_parts().expect("a map call is on a map");
         let es: Vec<&Expr> = args.iter().collect();
         match op {
             MapOp::Get => {
                 let ops = self.operands(&es, &|_| Some((false, false)));
-                let has = self.call(Callee::MapOp(MapFn::Has, map_ty), ops.clone(), Type::Bool);
-                self.optional_if(e.ty, has, |b| {
-                    let out = b.decl(val, LocalKind::Temp);
-                    b.call_into(Callee::MapOp(MapFn::Find, map_ty), ops, Place::local(out));
-                    b.read(Place::local(out), val)
-                })
+                self.call(Callee::MapOp(MapFn::Get(e.ty), map_ty), ops, e.ty)
             }
             MapOp::Len => {
                 let ops = self.operands(&es, &|_| Some((false, false)));

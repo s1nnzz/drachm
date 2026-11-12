@@ -1,0 +1,26 @@
+in io;
+
+none main() {
+    uint64 count = 5000000;
+    mut Map<uint64, uint64> values;
+
+    mut uint64 i = 0;
+    while (i < count) {
+        values::set(i, i * 3 + 1);
+        i++;
+    }
+
+    // A stride coprime to count visits every inserted key once.
+    mut uint64 key = 0;
+    mut uint64 total = 0;
+    i = 0;
+    while (i < count) {
+        total += (values::get(key) maybe 0);
+        key += 7919;
+        if (key >= count) {
+            key -= count;
+        }
+        i++;
+    }
+    io::outln(total::text());
+}

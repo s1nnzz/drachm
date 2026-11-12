@@ -333,8 +333,7 @@ impl Validator<'_> {
                 let (mut_map, shared_map) = (Want::Exact(Type::borrow(true, map)), Want::Exact(Type::borrow(false, map)));
                 let shared_key = Want::Exact(Type::borrow(false, k));
                 match f {
-                    MapFn::Has => (Some(vec![shared_map, shared_key]), Type::Bool),
-                    MapFn::Find => (Some(vec![shared_map, shared_key]), v),
+                    MapFn::Get(result) => (Some(vec![shared_map, shared_key]), result),
                     MapFn::Set => (Some(vec![mut_map, Want::Exact(k), Want::Exact(v)]), Type::None),
                     MapFn::Remove => (Some(vec![mut_map, shared_key]), Type::None),
                     MapFn::Len => (Some(vec![shared_map]), Type::U64),

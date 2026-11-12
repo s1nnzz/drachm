@@ -6,39 +6,15 @@ status: not-implemented
 
 # Collections
 
-Fixed arrays, growable lists and maps are designed for step 6. Array and list
-types, literals, indexing, `push`, `len` and `copy` are built and described in
-[Arrays and lists](reference-collections.md); maps (except walking them) are
-built too, see [Maps](reference-collections.md#maps). The other list methods
-and `for` over a collection are not all accepted yet.
+The [collections reference](reference-collections.md) describes the array,
+list and map operations the compiler accepts today.
 
-## Arrays, lists and maps
+## Configuring lookups
 
-A type followed by `[n]` is a fixed-size array, `[?]` is a growable list, and
-`Map<K, V>` is a map. The brackets are the short spelling of `Array<T, n>` and
-`List<T>`.
-
-<!-- focus: 1,2,3 -->
-
-```drachm
-uint8[4] rgba = [255, 0, 0, 255];
-string[?] names = ["Illy", "Sam"];
-Map<string, uint32> ages = { "Illy": 18 };
-```
-
-## Indexing
-
-Indexes start at 0. An index outside the collection panics by default; the
-`bounds` setting in [Config](design-config.md) changes that. A map lookup with
-`[]` gives an optional, `none` for a missing key (the `missing_key` setting can
-make it panic), and `::get` always exists.
-
-<!-- focus: 1 -->
-
-```drachm
-uint32? age = ages["Bob"];
-uint32 a = ages["Bob"] maybe 0;
-```
+The `bounds` setting in [Config](design-config.md) will control indexing
+outside an array or list. The `missing_key` setting will let a missing
+`map[key]` stop the program. The `map::get(key)` method will continue to
+return an optional.
 
 ## Changing a list
 
@@ -50,17 +26,7 @@ open string[?] xs = [];
 xs::push("a");
 ```
 
-## Walking a collection
+## Walking a map
 
-`for` with `of` visits each item. A map's iteration order is unspecified, and
-an `OrderedMap` keeps insertion order.
-
-```drachm
-for (string name of names) {
-    io::outln(name);
-}
-```
-
-## Splitting strings
-
-Built: see [Arrays and lists](reference-collections.md#splitting-strings).
+`for (string name, uint32 age of ages)` will visit each entry. A map's
+iteration order is unspecified, and an `OrderedMap` keeps insertion order.

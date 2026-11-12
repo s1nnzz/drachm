@@ -171,9 +171,10 @@ impl Globals {
     fn instance_of(&self, t: &ast::TypeName) -> Option<Type> {
         let args: Option<Vec<Type>> = t.args.iter().map(|a| if a.is_number { None } else { self.resolve_quiet(a) }).collect();
         let args = args?;
-        if maps::is_map_name(self, t) {
+        if maps::is_map_name(&t.name) && t.args.len() == 2 {
             let [key, val] = args[..] else { return None };
-            maps::check_key(key, t.span).ok()?;
+            maps::check_key(key, t.args[0].span).ok()?;
+            self.check_map_value(val, t.args[1].span, &t.name).ok()?;
             return Some(self.make_map(key, val, t.name == "OrderedMap"));
         }
         if t.name == "Optional" {
@@ -215,7 +216,14 @@ impl Globals {
         if !t.dims.is_empty() {
             return self.resolve_dims(t, diags);
         }
-        if maps::is_map_name(self, t) {
+        if maps::is_map_name(&t.name) {
+            if t.args.len() != 2 {
+                diags.push(
+                    Diagnostic::at(&codes::E0602, t.span, format!("`{}` takes 2 type arguments, but {} given", t.name, t.args.len()))
+                        .help(format!("write `{}<string, uint32>`", t.name)),
+                );
+                return None;
+            }
             let base = self.resolve_map(t, diags)?;
             let base = optionals::wrap(self, t, base)?;
             return Some(t.mods.iter().rev().fold(base, |ty, (m, _)| match m {
@@ -294,7 +302,7 @@ impl Globals {
                     .note("units go only on number types")
                     .help("for example `float64<m>`"),
             );
-        } else if matches!(t.name.as_str(), "List" | "Array" | "Map" | "OrderedMap" | "Iterable") {
+        } else if matches!(t.name.as_str(), "List" | "Array" | "Iterable") {
             diags.push(Diagnostic::at(&codes::E0901, t.span, format!("`{}` is not supported yet", t.name)));
         } else if self.tenv.contains_key(&t.name) {
             diags.push(
@@ -808,7 +816,7 @@ fn check_one_struct_lives(g: &mut Globals, id: StructId, s: &ast::Struct, diags:
 }
 
 fn declare_struct(g: &mut Globals, s: &ast::Struct, diags: &mut Vec<Diagnostic>) -> Option<StructId> {
-    if s.name == "none" || !matches!(Type::from_name(&s.name), Err(TypeError::Unknown)) {
+    if s.name == "none" || maps::is_map_name(&s.name) || !matches!(Type::from_name(&s.name), Err(TypeError::Unknown)) {
         diags.push(
             Diagnostic::at(&codes::E0202, s.name_span, format!("`{}` is the name of a built-in type", s.name))
                 .note("already a type")
@@ -2511,14 +2519,14 @@ impl Checker<'_> {
                 (hir::ExprKind::Int(bits), Const::Dec(r)) if !r.is_integer() => (
                     match Const::from_int_bits(*bits, to) {
                         Const::Int(v) => v.to_string(),
-                        Const::Dec(_) => unreachable!(),
+                        Const::Dec(_) | Const::NegZero => unreachable!(),
                     },
                     format!("`{to}` holds only whole numbers, from {}; the fraction is dropped", to.describe_range()),
                 ),
                 (hir::ExprKind::Int(bits), _) => (
                     match Const::from_int_bits(*bits, to) {
                         Const::Int(v) => v.to_string(),
-                        Const::Dec(_) => unreachable!(),
+                        Const::Dec(_) | Const::NegZero => unreachable!(),
                     },
                     format!("`{to}` holds {}; a constant outside that wraps around", to.describe_range()),
                 ),

@@ -705,7 +705,7 @@ pub(super) fn type_name_taken(g: &Globals, name: &str, span: Span, _what: &str, 
 }
 
 fn declare_type_template(g: &mut Globals, kind: Kind, index: usize, name: &str, name_span: Span, tparams: &[ast::TypeParam], head: Head, diags: &mut Vec<Diagnostic>) {
-    if name == "none" || !matches!(Type::from_name(name), Err(types::TypeError::Unknown)) {
+    if name == "none" || super::maps::is_map_name(name) || !matches!(Type::from_name(name), Err(types::TypeError::Unknown)) {
         diags.push(
             Diagnostic::at(&codes::E0202, name_span, format!("`{name}` is the name of a built-in type"))
                 .note("already a type")

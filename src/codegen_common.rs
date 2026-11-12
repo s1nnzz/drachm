@@ -111,7 +111,14 @@ pub fn key_tag(k: crate::types::Type) -> &'static str {
             Some(2) => "u16",
             Some(4) => "u32",
             Some(8) => "u64",
+            Some(16) => "u128",
             _ => unreachable!("a map key is a number, bool or string"),
         },
     }
+}
+
+/// Ordered and unordered maps with the same key and value share runtime operations.
+pub fn map_ops_type(map: crate::types::Type) -> crate::types::Type {
+    let (key, value) = map.map_parts().expect("a map");
+    crate::types::Type::map(key, value, false)
 }

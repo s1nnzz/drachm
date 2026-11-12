@@ -284,8 +284,13 @@ uint32? age = ages["Bob"];                 // missing key -> none
 
 - Out-of-bounds index: config, default **panic**.
 - Map `[]` returns an optional by default (config can make a missing key panic);
-  `::get` always exists. Map iteration order is unspecified; an `OrderedMap`
-  keeps insertion order.
+  `::get` always returns an optional.
+- A map declared without an initializer starts empty. `m[k] = v` adds or
+  replaces an entry. A compound update such as `m[k] += v` stops the program
+  if the key is missing. Map methods also support mutation (see Q9).
+- Map iteration uses two bindings, for example
+  `for (string name, uint32 age of ages)`, or an iteration method (see Q16).
+  Map order is unspecified. An `OrderedMap` keeps insertion order.
 - Your own types work with `for (T x of thing)` by implementing `Iterable<T>`,
   whose `T? next()` returns `none` when done.
 
@@ -465,11 +470,12 @@ private:
 - An interface is only ever borrowed (`&Shape`); `Shape s` and `Shape[?]` are errors (E0617).
   A constrained type parameter (`<T with Shape>`) is checked once at its definition, with only
   what its interfaces promise; unconstrained parameters are checked per instance.
-- `==` is automatic for structs (field by field), and structs can be map keys
-  automatically. A `bool ==(T o)` operator method overrides `==`.
+- `==` is automatic for structs (field by field), and structs with hashable
+  fields can be map keys. A `bool ==(T o)` operator method overrides ordinary `==`.
 - A `key()` method (e.g. `string key() { return self.text::lower(); }`) defines
-  what map keys compare and hash by. **OPEN:** what happens when a type has both
-  `key()` and a custom `==`.
+  what map keys compare and hash by, including on types with a custom `==`.
+- Float map keys hash and compare by bits. A NaN key finds itself and
+  `-0.0` and `0.0` are distinct keys.
 - Construction from the declared type: `Vector3 p = 1, 2, 3;`,
   `Person p = "Illy", 18;`, `Circle a = 5;` (picks `Circle(uint32)`). This
   shorthand works **only in declarations**.

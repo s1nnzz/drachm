@@ -23,7 +23,7 @@ use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Switch, Variab
 use cranelift_module::{DataDescription, DataId, FuncId, Linkage, Module};
 use cranelift_object::{ObjectBuilder, ObjectModule};
 
-use crate::codegen_common::{cl_type, emit_c_main, err, in_memory, is_signed, key_tag, signature, MEM, STR_CAP, STR_LEN};
+use crate::codegen_common::{cl_type, emit_c_main, err, in_memory, is_signed, key_tag, map_ops_type, signature, MEM, STR_CAP, STR_LEN};
 use crate::mir::MapFn;
 use crate::hir::{self, BinOp, STR_SIZE};
 use crate::mir::drops::{copy_glue_types, drop_glue_types, glue_name, holds_string};
@@ -88,6 +88,7 @@ pub fn compile(hir: &hir::Program, mir: &Program) -> Result<Vec<u8>, String> {
     let mut ctx = module.make_context();
     let mut fctx = FunctionBuilderContext::new();
     let mut runtime = HashMap::new();
+    let map_ops = define_map_ops(&mut module, &mut runtime, hir, &drop_ids, &copy_ids, &key_ids)?;
     let mut lits: Vec<Option<DataId>> = vec![None; mir.strings.len()];
 
     for (f, &id) in ids.iter().enumerate() {
@@ -117,7 +118,7 @@ pub fn compile(hir: &hir::Program, mir: &Program) -> Result<Vec<u8>, String> {
                 blocks,
                 ret_ptr: None,
                 drop_ids: &drop_ids,
-                key_ids: &key_ids,
+                map_ops: &map_ops,
                 copy_ids: &copy_ids,
             };
             g.prologue(&params, hf.ret);
@@ -139,10 +140,10 @@ pub fn compile(hir: &hir::Program, mir: &Program) -> Result<Vec<u8>, String> {
     }
 
     for t in drop_glue_types(hir) {
-        define_glue(&mut module, &mut ctx, &mut fctx, &mut runtime, hir, &ids, &drop_ids, &copy_ids, &key_ids, t, true)?;
+        define_glue(&mut module, &mut ctx, &mut fctx, &mut runtime, hir, &ids, &drop_ids, &copy_ids, &map_ops, t, true)?;
     }
     for t in copy_glue_types(hir) {
-        define_glue(&mut module, &mut ctx, &mut fctx, &mut runtime, hir, &ids, &drop_ids, &copy_ids, &key_ids, t, false)?;
+        define_glue(&mut module, &mut ctx, &mut fctx, &mut runtime, hir, &ids, &drop_ids, &copy_ids, &map_ops, t, false)?;
     }
     let mut tags: Vec<(&'static str, (FuncId, FuncId))> = key_ids.iter().map(|(t, f)| (*t, *f)).collect();
     tags.sort_by_key(|x| x.0);
@@ -233,7 +234,7 @@ struct GlueEnv<'a> {
     ids: &'a [FuncId],
     drop_ids: &'a HashMap<Type, FuncId>,
     copy_ids: &'a HashMap<Type, FuncId>,
-    key_ids: &'a HashMap<&'static str, (FuncId, FuncId)>,
+    map_ops: &'a HashMap<Type, DataId>,
 }
 
 /// Drop the field of type `ty` at `base + off`.
@@ -343,19 +344,33 @@ fn glue_fn_addr(
     elem: Type,
     drop: bool,
 ) -> Value {
-    let ptr = module.target_config().pointer_type();
-    let needed = if drop { needs_drop(env.hir, elem) } else { holds_string(env.hir, elem) };
-    if !needed {
-        return b.ins().iconst(ptr, 0);
+    let ids = if drop { env.drop_ids } else { env.copy_ids };
+    if let Some(id) = glue_fn_id(module, runtime, env.hir, ids, elem, drop) {
+        let f = module.declare_func_in_func(id, b.func);
+        b.ins().func_addr(module.target_config().pointer_type(), f)
+    } else {
+        b.ins().iconst(module.target_config().pointer_type(), 0)
     }
-    let id = match (elem, drop) {
+}
+
+fn glue_fn_id(
+    module: &mut ObjectModule,
+    runtime: &mut HashMap<&'static str, FuncId>,
+    hir: &hir::Program,
+    ids: &HashMap<Type, FuncId>,
+    elem: Type,
+    drop: bool,
+) -> Option<FuncId> {
+    let needed = if drop { needs_drop(hir, elem) } else { holds_string(hir, elem) };
+    if !needed {
+        return None;
+    }
+    let ptr = module.target_config().pointer_type();
+    Some(match (elem, drop) {
         (Type::Str, true) => import_rt(module, runtime, "drachm_str_drop", &[ptr], &[]),
         (Type::Str, false) => import_rt(module, runtime, "drachm_str_copy", &[ptr, ptr], &[]),
-        (_, true) => env.drop_ids[&elem],
-        (_, false) => env.copy_ids[&elem],
-    };
-    let f = module.declare_func_in_func(id, b.func);
-    b.ins().func_addr(ptr, f)
+        _ => ids[&elem],
+    })
 }
 
 /// Define the drop (`drop == true`) or copy glue function of struct or enum `ty`.
@@ -369,7 +384,7 @@ fn define_glue(
     ids: &[FuncId],
     drop_ids: &HashMap<Type, FuncId>,
     copy_ids: &HashMap<Type, FuncId>,
-    key_ids: &HashMap<&'static str, (FuncId, FuncId)>,
+    map_ops: &HashMap<Type, DataId>,
     ty: Type,
     drop: bool,
 ) -> Result<(), String> {
@@ -378,7 +393,7 @@ fn define_glue(
     ctx.func.signature = module.declarations().get_function_decl(id).signature.clone();
     ctx.func.name = UserFuncName::user(0, id.as_u32());
     let cfg = module.isa().frontend_config();
-    let env = GlueEnv { hir, ids, drop_ids, copy_ids, key_ids };
+    let env = GlueEnv { hir, ids, drop_ids, copy_ids, map_ops };
     {
         let mut b = FunctionBuilder::new(&mut ctx.func, fctx);
         let entry = b.create_block();
@@ -389,7 +404,7 @@ fn define_glue(
             let p = params[0];
             match ty {
                 Type::Map { .. } => {
-                    let ops = map_ops_addr(module, runtime, &env, &mut b, ty);
+                    let ops = map_ops_addr(module, &mut b, env.map_ops, ty);
                     let rt = import_rt(module, runtime, "drachm_map_drop", &[ptr, ptr], &[]);
                     let callee = module.declare_func_in_func(rt, b.func);
                     b.ins().call(callee, &[p, ops]);
@@ -440,7 +455,7 @@ fn define_glue(
             let (dst, src) = (params[0], params[1]);
             match ty {
                 Type::Map { .. } => {
-                    let ops = map_ops_addr(module, runtime, &env, &mut b, ty);
+                    let ops = map_ops_addr(module, &mut b, env.map_ops, ty);
                     let rt = import_rt(module, runtime, "drachm_map_copy", &[ptr, ptr, ptr], &[]);
                     let callee = module.declare_func_in_func(rt, b.func);
                     b.ins().call(callee, &[dst, src, ops]);
@@ -536,7 +551,7 @@ struct Cg<'a, 'b> {
     drop_ids: &'a HashMap<Type, FuncId>,
     copy_ids: &'a HashMap<Type, FuncId>,
     /// The hash and equality functions of each map key tag (S6D).
-    key_ids: &'a HashMap<&'static str, (FuncId, FuncId)>,
+    map_ops: &'a HashMap<Type, DataId>,
 }
 
 impl Cg<'_, '_> {
@@ -1683,31 +1698,57 @@ impl Cg<'_, '_> {
 
 // ---- maps (S6D) ----
 
-/// The `drachm_map_ops` of map type `mt` (`runtime/lists.h`): built in a stack
-/// slot of the current function, which is where the runtime reads it. Returns its address.
-fn map_ops_addr(module: &mut ObjectModule, runtime: &mut HashMap<&'static str, FuncId>, env: &GlueEnv, b: &mut FunctionBuilder, mt: Type) -> Value {
+/// A read-only operations table per (key, value) pair, with relocations to glue.
+fn define_map_ops(
+    module: &mut ObjectModule,
+    runtime: &mut HashMap<&'static str, FuncId>,
+    hir: &hir::Program,
+    drop_ids: &HashMap<Type, FuncId>,
+    copy_ids: &HashMap<Type, FuncId>,
+    key_ids: &HashMap<&'static str, (FuncId, FuncId)>,
+) -> Result<HashMap<Type, DataId>, String> {
+    let mut tables = HashMap::new();
     let ptr = module.target_config().pointer_type();
-    let (k, v) = mt.map_parts().expect("a map has key and value types");
-    let slot = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 80, 3));
-    let (ks, ka) = env.hir.size_align(k);
-    let (vs, va) = env.hir.size_align(v);
-    for (off, n) in [(0, ks), (8, ka), (16, vs), (24, va)] {
-        let c = b.ins().iconst(types::I64, n as i64);
-        b.ins().stack_store(ptr, c, slot, off);
+    for mt in hir.collections.iter().copied().filter(|t| t.is_map()).map(map_ops_type) {
+        if tables.contains_key(&mt) {
+            continue;
+        }
+        let (k, v) = mt.map_parts().expect("a map");
+        let (ks, ka) = hir.size_align(k);
+        let (vs, va) = hir.size_align(v);
+        let mut bytes = vec![0; 32 + 6 * ptr.bytes() as usize];
+        for (field, n) in bytes.chunks_exact_mut(8).zip([ks, ka, vs, va]) {
+            field.copy_from_slice(&(n as u64).to_ne_bytes());
+        }
+        let mut desc = DataDescription::new();
+        desc.set_align(8);
+        desc.define(bytes.into_boxed_slice());
+        let (hash, eq) = key_ids[key_tag(k)];
+        let functions = [
+            Some(hash),
+            Some(eq),
+            glue_fn_id(module, runtime, hir, drop_ids, k, true),
+            glue_fn_id(module, runtime, hir, drop_ids, v, true),
+            glue_fn_id(module, runtime, hir, copy_ids, k, false),
+            glue_fn_id(module, runtime, hir, copy_ids, v, false),
+        ];
+        for (i, id) in functions.into_iter().enumerate() {
+            if let Some(id) = id {
+                let reference = module.declare_func_in_data(id, &mut desc);
+                desc.write_function_addr(32 + i as u32 * ptr.bytes(), reference);
+            }
+        }
+        let name = format!("drachm_ops_{}", glue_name(mt));
+        let data = module.declare_data(&name, Linkage::Local, false, false).map_err(err)?;
+        module.define_data(data, &desc).map_err(err)?;
+        tables.insert(mt, data);
     }
-    let (hf, ef) = env.key_ids[key_tag(k)];
-    let fh = module.declare_func_in_func(hf, b.func);
-    let h = b.ins().func_addr(ptr, fh);
-    b.ins().stack_store(ptr, h, slot, 32);
-    let fe = module.declare_func_in_func(ef, b.func);
-    let e = b.ins().func_addr(ptr, fe);
-    b.ins().stack_store(ptr, e, slot, 40);
-    let fns = [(k, true, 48), (v, true, 56), (k, false, 64), (v, false, 72)];
-    for (ty, drop, off) in fns {
-        let f = glue_fn_addr(module, runtime, env, b, ty, drop);
-        b.ins().stack_store(ptr, f, slot, off);
-    }
-    b.ins().stack_addr(ptr, slot, 0)
+    Ok(tables)
+}
+
+fn map_ops_addr(module: &mut ObjectModule, b: &mut FunctionBuilder, tables: &HashMap<Type, DataId>, mt: Type) -> Value {
+    let global = module.declare_data_in_func(tables[&map_ops_type(mt)], b.func);
+    b.ins().symbol_value(module.target_config().pointer_type(), global)
 }
 
 /// The hash (`hash == true`) or equality function of one key tag: keys hash and
@@ -1715,6 +1756,7 @@ fn map_ops_addr(module: &mut ObjectModule, runtime: &mut HashMap<&'static str, F
 fn define_key_fns(module: &mut ObjectModule, ctx: &mut cranelift_codegen::Context, fctx: &mut FunctionBuilderContext, runtime: &mut HashMap<&'static str, FuncId>, tag: &'static str, hash: FuncId, eq: FuncId) -> Result<(), String> {
     let ptr = module.target_config().pointer_type();
     let wide = match tag {
+        "u128" => types::I128,
         "u8" => types::I8,
         "u16" => types::I16,
         "u32" => types::I32,
@@ -1743,11 +1785,25 @@ fn define_key_fns(module: &mut ObjectModule, ctx: &mut cranelift_codegen::Contex
                 b.ins().icmp(IntCC::Equal, x, y)
             } else {
                 let x = b.ins().load(wide, MEM, params[0], 0);
-                let x = if wide == types::I64 { x } else { b.ins().uextend(types::I64, x) };
+                let (low, high) = if wide == types::I128 {
+                    let (low, high) = b.ins().isplit(x);
+                    (low, Some(high))
+                } else {
+                    let low = if wide == types::I64 { x } else { b.ins().uextend(types::I64, x) };
+                    (low, None)
+                };
                 let rt = import_rt(module, runtime, "drachm_hash_u64", &[types::I64], &[types::I64]);
                 let f = module.declare_func_in_func(rt, b.func);
-                let call = b.ins().call(f, &[x]);
-                b.inst_results(call)[0]
+                let call = b.ins().call(f, &[low]);
+                let hash = b.inst_results(call)[0];
+                if let Some(high) = high {
+                    let rt = import_rt(module, runtime, "drachm_hash_combine", &[types::I64, types::I64], &[types::I64]);
+                    let f = module.declare_func_in_func(rt, b.func);
+                    let call = b.ins().call(f, &[hash, high]);
+                    b.inst_results(call)[0]
+                } else {
+                    hash
+                }
             };
             b.ins().return_(&[result]);
             b.seal_all_blocks();
@@ -1762,8 +1818,7 @@ fn define_key_fns(module: &mut ObjectModule, ctx: &mut cranelift_codegen::Contex
 impl Cg<'_, '_> {
     /// The address of the `drachm_map_ops` of map type `mt`.
     fn map_ops(&mut self, mt: Type) -> Value {
-        let env = GlueEnv { hir: self.hir, ids: self.ids, drop_ids: self.drop_ids, copy_ids: self.copy_ids, key_ids: self.key_ids };
-        map_ops_addr(self.module, self.runtime, &env, &mut self.b, mt)
+        map_ops_addr(self.module, &mut self.b, self.map_ops, mt)
     }
 
     /// The address of a value to pass by pointer: in memory already, or a fresh slot.
@@ -1803,20 +1858,23 @@ impl Cg<'_, '_> {
                 let n = self.rt("drachm_map_len", &[ptr], &[i64t], &[map])[0];
                 self.set_dest(dest, n);
             }
-            MapFn::Has => {
+            MapFn::Get(result) => {
                 let key = self.operand(&args[1].op);
                 let ops = self.map_ops(mt);
                 let p = self.rt("drachm_map_find", &[ptr, ptr, ptr], &[ptr], &[map, key, ops])[0];
-                let found = self.b.ins().icmp_imm(IntCC::NotEqual, p, 0);
-                self.set_dest(dest, found);
-            }
-            MapFn::Find => {
-                let key = self.operand(&args[1].op);
-                let ops = self.map_ops(mt);
-                let p = self.rt("drachm_map_find", &[ptr, ptr, ptr], &[ptr], &[map, key, ops])[0];
-                let (tmp, out) = self.item_out(v, dest);
-                self.copy_item(v, out, p);
-                self.item_done(v, dest, tmp);
+                let (tmp, out) = self.item_out(result, dest);
+                let found = self.b.ins().icmp_imm_u(IntCC::NotEqual, p, 0);
+                self.b.ins().store(MEM, found, out, 0);
+                let present = self.b.create_block();
+                let done = self.b.create_block();
+                self.b.ins().brif(found, present, &[], done, &[]);
+                self.b.switch_to_block(present);
+                let offset = self.hir.enum_def(result).variants[1].fields[0].offset;
+                let payload = self.b.ins().iadd_imm_u(out, i64::from(offset));
+                self.copy_item(v, payload, p);
+                self.b.ins().jump(done, &[]);
+                self.b.switch_to_block(done);
+                self.item_done(result, dest, tmp);
             }
             MapFn::Set => {
                 let key = self.operand_at(k, &args[1].op);

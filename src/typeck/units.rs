@@ -253,6 +253,7 @@ fn rational(c: &Const) -> BigRational {
     match c {
         Const::Int(i) => BigRational::from_integer(i.clone()),
         Const::Dec(r) => r.clone(),
+        Const::NegZero => BigRational::zero(),
     }
 }
 
@@ -360,6 +361,7 @@ fn is_zero_const(c: &Const) -> bool {
     match c {
         Const::Int(i) => i.is_zero(),
         Const::Dec(r) => r.is_zero(),
+        Const::NegZero => true,
     }
 }
 

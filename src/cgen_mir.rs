@@ -15,7 +15,7 @@ use crate::cgen_common::{bits, c_str_value, c_type, halves, main_fn, prelude, si
 use crate::hir::{self, BinOp};
 use crate::mir::drops::{copy_glue_types, drop_glue_types, glue_name, holds_string};
 use crate::mir::MapFn;
-use crate::codegen_common::key_tag;
+use crate::codegen_common::{key_tag, map_ops_type};
 use crate::mir::traversal::reverse_postorder;
 use crate::mir::ty::{operand_ty, place_ty};
 use crate::mir::*;
@@ -109,7 +109,7 @@ fn glue(hir: &hir::Program) -> String {
                 }
             }
             Type::Map { .. } => {
-                let _ = writeln!(defs, "    drachm_map_drop(p, {});", map_ops_c(hir, t));
+                let _ = writeln!(defs, "    drachm_map_drop(p, {});", map_ops_c(t));
             }
             _ => unreachable!(),
         }
@@ -156,11 +156,19 @@ fn glue(hir: &hir::Program) -> String {
                 let _ = writeln!(defs, "    default: break;\n    }}");
             }
             Type::Map { .. } => {
-                let _ = writeln!(defs, "    drachm_map_copy(dst, src, {});", map_ops_c(hir, t));
+                let _ = writeln!(defs, "    drachm_map_copy(dst, src, {});", map_ops_c(t));
             }
             _ => unreachable!(),
         }
         defs += "}\n";
+    }
+    let mut seen = std::collections::HashSet::new();
+    for mt in hir.collections.iter().copied().filter(|t| t.is_map()).map(map_ops_type) {
+        if seen.insert(mt) {
+            let name = glue_name(mt);
+            let _ = writeln!(protos, "static const drachm_map_ops drachm_ops_{name};");
+            let _ = writeln!(defs, "static const drachm_map_ops drachm_ops_{name} = {};", map_ops_init(hir, mt));
+        }
     }
     protos + &defs
 }
@@ -970,6 +978,10 @@ fn key_fns_c(hir: &hir::Program) -> String {
                 "return drachm_str_hash((const drachm_str *)p);".to_string(),
                 "return drachm_str_eq((const drachm_str *)a, (const drachm_str *)b);".to_string(),
             ),
+            "u128" => (
+                "drachm_u128 n; memcpy(&n, p, sizeof n); return drachm_hash_combine(drachm_hash_u64((uint64_t)n), (uint64_t)(n >> 64));".to_string(),
+                "return memcmp(a, b, sizeof(drachm_u128)) == 0;".to_string(),
+            ),
             _ => {
                 let c = match tag {
                     "u8" => "uint8_t",
@@ -977,7 +989,7 @@ fn key_fns_c(hir: &hir::Program) -> String {
                     "u32" => "uint32_t",
                     _ => "uint64_t",
                 };
-                (format!("return drachm_hash_u64(*(const {c} *)p);"), format!("return *(const {c} *)a == *(const {c} *)b;"))
+                (format!("{c} n; memcpy(&n, p, sizeof n); return drachm_hash_u64(n);"), format!("return memcmp(a, b, sizeof({c})) == 0;"))
             }
         };
         let _ = writeln!(out, "\nstatic uint64_t drachm_keyhash_{tag}(const void *p) {{ {hash} }}");
@@ -986,8 +998,12 @@ fn key_fns_c(hir: &hir::Program) -> String {
     out
 }
 
-/// The `drachm_map_ops` of map type `mt`, as a C compound literal's address.
-pub(crate) fn map_ops_c(hir: &hir::Program, mt: Type) -> String {
+/// The address of the static runtime operations table for this map.
+fn map_ops_c(mt: Type) -> String {
+    format!("&drachm_ops_{}", glue_name(map_ops_type(mt)))
+}
+
+fn map_ops_init(hir: &hir::Program, mt: Type) -> String {
     let (k, v) = mt.map_parts().expect("a map has key and value types");
     let (ks, ka) = hir.size_align(k);
     let (vs, va) = hir.size_align(v);
@@ -1005,7 +1021,7 @@ pub(crate) fn map_ops_c(hir: &hir::Program, mt: Type) -> String {
     };
     let tag = key_tag(k);
     format!(
-        "&(drachm_map_ops){{ .ksize = {ks}, .kalign = {ka}, .vsize = {vs}, .valign = {va}, .hash = drachm_keyhash_{tag}, .eq = drachm_keyeq_{tag}, .drop_key = {drop_k}, .drop_val = {drop_v}, .copy_key = {copy_k}, .copy_val = {copy_v} }}"
+        "{{ .ksize = {ks}, .kalign = {ka}, .vsize = {vs}, .valign = {va}, .hash = drachm_keyhash_{tag}, .eq = drachm_keyeq_{tag}, .drop_key = {drop_k}, .drop_val = {drop_v}, .copy_key = {copy_k}, .copy_val = {copy_v} }}"
     )
 }
 
@@ -1014,29 +1030,28 @@ impl Gen<'_> {
     fn map_call(&mut self, f: MapFn, mt: Type, args: &[Arg], dest: Option<&Place>, dest_lv: Option<&str>) {
         let (k, v) = mt.map_parts().expect("a map call is on a map");
         let map = self.operand(&args[0].op);
-        let ops = map_ops_c(self.hir, mt);
+        let ops = map_ops_c(mt);
         match f {
             MapFn::Len => {
                 let d = self.decl(dest.expect("a length has a destination"), Type::U64);
                 self.line(format!("{d} = drachm_map_len({map});"));
             }
-            MapFn::Has => {
+            MapFn::Get(result) => {
                 let key = self.operand(&args[1].op);
-                let d = self.decl(dest.expect("a test has a destination"), Type::Bool);
-                self.line(format!("{d} = drachm_map_find({map}, {key}, {ops}) != NULL;"));
-            }
-            MapFn::Find => {
-                let key = self.operand(&args[1].op);
-                let out = dest_lv.expect("a value has a destination");
+                let dst = dest_lv.expect("a lookup has a destination");
+                let field = &self.hir.enum_def(result).variants[1].fields[0].name;
+                let out = format!("{dst}.u.v1.f_{field}");
                 let copy = if self.hir_holds_string(v) {
                     match v {
                         Type::Str => format!("drachm_str_copy(&{out}, (const drachm_str *)at);"),
                         _ => format!("drachm_copy_{}(&{out}, (const {} *)at);", glue_name(v), c_type(v)),
                     }
                 } else {
-                    format!("{out} = *(const {} *)at;", c_type(v))
+                    format!("memcpy(&{out}, at, sizeof {out});")
                 };
-                self.line(format!("{{ const void *at = drachm_map_find({map}, {key}, {ops}); {copy} }}"));
+                self.line(format!(
+                    "{{ const void *at = drachm_map_find({map}, {key}, {ops}); if (at) {{ {copy} {dst}.tag = 1; }} else {{ {dst}.tag = 0; }} }}"
+                ));
             }
             MapFn::Set => {
                 let (key, val) = (self.operand(&args[1].op), self.operand(&args[2].op));

@@ -71,10 +71,10 @@ impl Checker<'_> {
                 Rank::Lossless
             }),
             // A decimal constant (`5.0`) is a float; as an integer it loses its fraction.
-            Val::Const(Const::Dec(_)) if to.is_int() => Some(Rank::Lossy),
+            Val::Const(Const::Dec(_) | Const::NegZero) if to.is_int() => Some(Rank::Lossy),
             Val::Const(c @ Const::Int(_)) if to.is_float() => Some(if c.fits(to) { Rank::Lossless } else { Rank::Lossy }),
-            Val::Const(Const::Dec(_)) if to == Type::F64 => Some(Rank::Exact),
-            Val::Const(Const::Dec(_)) if to.is_float() => Some(Rank::Lossy),
+            Val::Const(Const::Dec(_) | Const::NegZero) if to == Type::F64 => Some(Rank::Exact),
+            Val::Const(Const::Dec(_) | Const::NegZero) if to.is_float() => Some(Rank::Lossy),
             Val::Const(_) => None,
             Val::UConst(..) => to.is_numeric().then_some(Rank::Lossless),
             Val::NoneLit(_) => None,

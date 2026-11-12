@@ -1,0 +1,8 @@
+in io;
+
+none main() {
+    float64 zero = 0.0;
+    float64 nan = zero / zero;
+    Map<float64, uint32> entries = { nan: 42 };
+    io::outln((entries[nan] maybe 0)::text());
+}

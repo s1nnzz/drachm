@@ -1,10 +1,11 @@
 in io;
 
 none main() {
-    mut Map<float64, string> names = { 1.5: "one and a half" };
-    io::outln(names[1.5] maybe "none");
-    io::outln(names[-0.0] maybe "none");
-    mut OrderedMap<bool, uint32> flags = {};
-    flags[true] = 7;
-    io::outln((flags[true] maybe 0)::text());
+    Map<float64, string> zeros = { -0.0: "negative", 0.0: "positive" };
+    io::outln(zeros[-0.0] maybe "none");
+    io::outln(zeros[0.0] maybe "none");
+
+    Map<uint128, string> wide = { 1: "small", 18446744073709551617: "wide" };
+    io::outln(wide[1] maybe "none");
+    io::outln(wide[18446744073709551617] maybe "none");
 }

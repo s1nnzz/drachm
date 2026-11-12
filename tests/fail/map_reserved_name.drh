@@ -1,0 +1,6 @@
+struct Map<K, V> {
+    K key;
+    V value;
+}
+
+none main() {}

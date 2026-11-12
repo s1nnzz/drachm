@@ -155,15 +155,14 @@ are. A map declared without a value starts empty and can be used at once.
 `m[k] maybe 0` is the value or a fallback. `m::get(k)` is the same lookup as a
 method. `m[k] = v;` adds the entry or replaces its value, `m::set(k, v)` does
 the same as a method, `m::remove(k)` takes the entry out, and `m::len()`
-counts the entries. A map changes only through a binding that allows it
-(`mut`). Writing `m[k] op= v;` (for example `+=`) is E0901 for now, since a
-missing key has no value to add to.
+counts the entries. Changes require a `mut` or `open` binding, or an
+`&mut` borrow.
 
-Keys can be whole numbers, `bool`, `string` or floats. A float key is compared
+Keys can be whole numbers up to 128 bits, `bool`, `string` or floats. A float key is compared
 by its bits, so `NaN` finds itself and `-0.0` and `0.0` are different keys.
 A map owns its keys and values, which move in when they are added. Reading a
-value with `m[k]` copies it out, so for a `string` value that is a copy of
-the text.
+value with `m[k]` or `m::get(k)` returns an independent copy. This allocates
+for owned text and can allocate for nested collections.
 
 <!-- example: map-key -->
 
@@ -196,6 +195,13 @@ error[E0629]: this map literal has the key "Illy" twice
 
 An empty `{}` needs a type to take, as an empty list does (E0624).
 
+### Updating an entry with an operator
+
+<!-- status: not-implemented -->
+
+`m[k] += v;` will update the existing value and stop the program if the key is
+missing. Compound assignments through a map index currently give E0901.
+
 ### Walking a map
 
 <!-- status: not-implemented -->
@@ -203,12 +209,21 @@ An empty `{}` needs a type to take, as an empty list does (E0624).
 `for (string k, uint32 v of ages)` will visit each entry. Until it is built the
 loop is E0901. The `each` method form waits for lambdas.
 
-### Structs as keys
+### Composite keys and `key()`
 
 <!-- status: not-implemented -->
 
-A struct cannot be a key yet (E0901): the struct's hashing and its `key()`
-method are still to come.
+Structs, enums, optionals and arrays with hashable contents will be hashable.
+A struct's `key()` method will define how a map hashes and compares its keys,
+including when the struct has a custom `==` for ordinary comparisons. These
+key types currently give E0901.
+
+### Borrowed values
+
+<!-- status: not-implemented -->
+
+Maps that store borrowed values or structs that hold a borrow currently give
+E0901.
 
 ## Not built yet
 

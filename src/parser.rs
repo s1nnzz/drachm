@@ -2879,7 +2879,7 @@ mod tests {
                 Tok::Num(n, unit) => {
                     let text = match &n.value {
                         Const::Int(v) => v.to_string(),
-                        Const::Dec(_) => "dec".into(),
+                        Const::Dec(_) | Const::NegZero => "dec".into(),
                     };
                     unit.as_ref().map_or(text.clone(), |(u, _)| format!("{text}<{u}>"))
                 }

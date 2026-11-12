@@ -1,7 +1,7 @@
 //! Maps (S6D): `Map<K, V>` and `OrderedMap<K, V>`, hash tables of owned keys
 //! and values. The runtime is `runtime/lists.h` (`drachm_map_*`).
 //!
-//! Step 1 (this file): the type names, the key rule and the layout. A key is
+//! A key is
 //! a whole number, a float (hashed and compared by its bits, Q14), a `bool` or
 //! a `string`. Other key types wait (E0901) until their hashing is built.
 
@@ -10,23 +10,19 @@ use crate::ast::{self, BinOp};
 use crate::diag::{Diagnostic, Span, codes};
 use crate::hir;
 use crate::types::Type;
+use std::collections::HashMap;
 
 /// A constant key, for finding a repeated one in a literal.
-#[derive(PartialEq)]
+#[derive(PartialEq, Eq, Hash)]
 enum Constant {
     Int(u128),
+    Float(u64),
     Text(String),
     Bool(bool),
 }
 
-/// Is `t` written as `Map<K, V>` or `OrderedMap<K, V>` (and not a program's
-/// own type of that name)?
-pub(super) fn is_map_name(g: &Globals, t: &ast::TypeName) -> bool {
-    matches!(t.name.as_str(), "Map" | "OrderedMap")
-        && t.args.len() == 2
-        && !g.structs_by_name.contains_key(&t.name)
-        && !g.enums_by_name.contains_key(&t.name)
-        && !g.mono.type_templates.contains_key(&t.name)
+pub(super) fn is_map_name(name: &str) -> bool {
+    matches!(name, "Map" | "OrderedMap")
 }
 
 impl Globals {
@@ -38,12 +34,12 @@ impl Globals {
     }
 }
 
-/// Can a value of type `key` be a map key (step 1)? `Err` says why not, as
+/// Can a value of type `key` be a map key? `Err` says why not, as
 /// the diagnostic to report.
 pub(super) fn check_key(key: Type, at: crate::diag::Span) -> Result<(), Diagnostic> {
     match key.bare() {
         Type::Int { .. } | Type::Float(_) | Type::Bool | Type::Str => Ok(()),
-        Type::List { .. } | Type::Array { .. } | Type::Map { .. } | Type::Ref { .. } | Type::Ptr { .. } | Type::FixedPtr { .. } => Err(
+        Type::List { .. } | Type::Map { .. } | Type::Ref { .. } | Type::Ptr { .. } | Type::FixedPtr { .. } => Err(
             Diagnostic::at(&codes::E0626, at, format!("`{key}` cannot be a map key"))
                 .note(format!("`{key}` is not hashed"))
                 .help("use a whole number, a float, `bool` or `string` as the key"),
@@ -64,19 +60,27 @@ impl Globals {
             diags.push(d);
             return None;
         }
-        if val == Type::None {
-            diags.push(Diagnostic::at(&codes::E0104, t.args[1].span, "a map cannot hold `none`").note("`none` holds no value"));
-            return None;
-        }
-        if val.is_borrow() || self.holds_borrow(val) || key.is_borrow() {
-            diags.push(
-                Diagnostic::at(&codes::E0901, t.span, format!("a `{}` of borrows is not supported yet", t.name))
-                    .note("this map would hold a borrow")
-                    .help("keep the values themselves in the map, and borrow them where you use them"),
-            );
+        if let Err(d) = self.check_map_value(val, t.args[1].span, &t.name) {
+            diags.push(d);
             return None;
         }
         Some(self.make_map(key, val, ordered))
+    }
+
+    /// Map storage owns its entries. Check even when resolving quietly for
+    /// generic arguments, before recording a type for the backends.
+    pub(super) fn check_map_value(&self, val: Type, at: Span, map_name: &str) -> Result<(), Diagnostic> {
+        if val == Type::None {
+            return Err(Diagnostic::at(&codes::E0104, at, "a map cannot hold `none`").note("`none` holds no value"));
+        }
+        if self.holds_borrow(val) {
+            return Err(
+                Diagnostic::at(&codes::E0901, at, format!("a `{map_name}` of borrows is not supported yet"))
+                    .note("this map would hold a borrow")
+                    .help("keep the values themselves in the map, and borrow them where you use them"),
+            );
+        }
+        Ok(())
     }
 }
 
@@ -108,16 +112,16 @@ impl Checker<'_> {
                 let k = self.materialise(kv, k0.span)?;
                 let vv = self.expr(v0)?;
                 let v = self.materialise(vv, v0.span)?;
-                if k.ty == Type::None || v.ty == Type::None || k.ty.is_borrow() || v.ty.is_borrow() {
-                    self.diags.push(Diagnostic::at(&codes::E0901, span, "a map of borrows is not supported yet"));
+                let (kt, vt) = (k.ty, v.ty);
+                if let Err(d) = self.g.check_map_value(vt, v0.span, "Map") {
+                    self.diags.push(d);
                     return None;
                 }
-                let want = self.g.make_map(k.ty, v.ty, false);
-                let (kt, vt) = want.map_parts()?;
                 if let Err(d) = check_key(kt, k0.span) {
                     self.diags.push(d);
                     return None;
                 }
+                let want = self.g.make_map(kt, vt, false);
                 let mut out = vec![(k, v)];
                 for (k, v) in &pairs[1..] {
                     let k = self.coerce(k, kt);
@@ -148,25 +152,25 @@ impl Checker<'_> {
 
     /// The literal's pairs in order, with E0629 for a constant key written twice.
     fn finish_map_literal(&mut self, out: Vec<(hir::Expr, hir::Expr)>, pairs: &[(ast::Expr, ast::Expr)], want: Type, span: Span) -> Option<hir::Expr> {
-        let mut seen: Vec<(Constant, Span)> = Vec::new();
+        let mut seen = HashMap::new();
         for ((k, _), (ast_k, _)) in out.iter().zip(pairs) {
             let constant = match &k.kind {
                 hir::ExprKind::Int(n) => Some(Constant::Int(*n)),
+                hir::ExprKind::Float(n) => Some(Constant::Float(n.to_bits())),
                 hir::ExprKind::Str(s) => Some(Constant::Text(s.clone())),
                 hir::ExprKind::Bool(b) => Some(Constant::Bool(*b)),
                 _ => None,
             };
             let Some(c) = constant else { continue };
-            if let Some((_, first)) = seen.iter().find(|(s, _)| *s == c) {
+            if let Some(first) = seen.insert(c, ast_k.span) {
                 let shown = self.text(ast_k.span);
                 self.diags.push(
                     Diagnostic::at(&codes::E0629, ast_k.span, format!("this map literal has the key {shown} twice"))
-                        .label(*first, "the first one is here")
+                        .label(first, "the first one is here")
                         .help("remove one of them, or the later value would replace the first"),
                 );
                 return None;
             }
-            seen.push((c, ast_k.span));
         }
         Some(hir::Expr::new(hir::ExprKind::Map(out), want).at(span))
     }
@@ -189,6 +193,10 @@ impl Checker<'_> {
             "get" => (MapOp::Get, 1, optionals::optional_of(self.g, vt)?),
             "set" => (MapOp::Set, 2, Type::None),
             "remove" => (MapOp::Remove, 1, Type::None),
+            "each" => {
+                self.diags.push(Diagnostic::at(&codes::E0901, name_span, "walking a map with `each` is not supported yet"));
+                return None;
+            }
             _ => {
                 for a in args {
                     self.expr(a);
@@ -196,6 +204,7 @@ impl Checker<'_> {
                 self.diags.push(
                     Diagnostic::at(&codes::E0201, name_span, format!("`{ty}` has no method `{name}`"))
                         .label(recv.span, format!("this is `{ty}`"))
+                        .note("other map methods are not decided yet")
                         .help("the methods so far are `len()`, `get(key)`, `set(key, value)` and `remove(key)`"),
                 );
                 return None;

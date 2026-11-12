@@ -1,0 +1,3 @@
+none main() {
+    Map<string> missing_value_type;
+}

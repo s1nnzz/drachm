@@ -53,7 +53,7 @@ pub(super) fn join_and(items: &[String]) -> String {
 
 /// Register the name of enum `e`. Its variants wait until every type name exists.
 pub(super) fn declare_enum(g: &mut Globals, e: &ast::Enum, diags: &mut Vec<Diagnostic>) -> Option<EnumId> {
-    if e.name == "none" || !matches!(Type::from_name(&e.name), Err(TypeError::Unknown)) {
+    if e.name == "none" || super::maps::is_map_name(&e.name) || !matches!(Type::from_name(&e.name), Err(TypeError::Unknown)) {
         diags.push(
             Diagnostic::at(&codes::E0202, e.name_span, format!("`{}` is the name of a built-in type", e.name))
                 .note("already a type")

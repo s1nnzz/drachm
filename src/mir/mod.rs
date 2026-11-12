@@ -349,11 +349,8 @@ pub enum Rvalue {
 /// is `&Map`/`&mut Map`, a key `&K` (or `K` moved in for `Set`), a value `V`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MapFn {
-    /// `(&map, &key) -> bool`: whether the key is there.
-    Has,
-    /// `(&map, &key)`: writes a copy of the value under the key to the destination.
-    /// Only called when `Has` said so.
-    Find,
+    /// `(&map, &key) -> V?`: copies out the value if present.
+    Get(Type),
     /// `(&mut map, key, value)`: adds the entry or replaces the value.
     Set,
     /// `(&mut map, &key)`: removes the entry, dropping its key and value.
