@@ -33,7 +33,13 @@
     {
       "title": "Guides",
       "pages": [
-        "guide-ownership"
+        "guide-ownership",
+        "guide-errors-handling",
+        "guide-enums-optionals",
+        "guide-structs",
+        "guide-projects",
+        "guide-generics",
+        "guide-concurrency"
       ]
     },
     {

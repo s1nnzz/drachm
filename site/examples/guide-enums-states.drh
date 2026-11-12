@@ -1,0 +1,45 @@
+in io;
+
+enum Direction { North, East, South, West }
+
+enum Connection {
+    Closed,
+    Connecting(uint32 attempt),
+    Open(string peer, uint32 port),
+    Failed(string reason),
+}
+
+string describe(&Connection c) {
+    match (c) {
+        case Closed                              { return "closed"; }
+        case Connecting(uint32 n) if n > 3       { return "giving up soon"; }
+        case Connecting(uint32 n)                { return f"attempt ${n}"; }
+        case Open(copy string peer, uint32 port) { return f"open to ${peer}:${port}"; }
+        case Failed(copy string reason)          { return f"failed: ${reason}"; }
+    }
+}
+
+string finish(Connection c) {
+    match (c) {
+        case Failed(take string reason) { return reason; }
+        case _                          { return "nothing to report"; }
+    }
+}
+
+none main() {
+    Direction d = North;
+    if (d == North) { io::outln("heading north"); }
+
+    Connection a = Connecting(2);
+    Connection b = Connecting(5);
+    Connection c = Open("example.org", 443);
+    Connection e = Failed("timed out");
+
+    io::outln(describe(&Connection::Closed));
+    io::outln(describe(&a));
+    io::outln(describe(&b));
+    io::outln(describe(&c));
+    io::outln(describe(&e));
+    io::outln(finish(e));
+    io::outln(finish(c));
+}

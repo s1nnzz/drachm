@@ -1,0 +1,20 @@
+in io;
+
+struct Player {
+    string name;
+public:
+    mut uint32 hits;
+    uint32 score;
+
+    string label() { return f"${self.name}: ${self.score}"; }
+    none hit() { self.hits += 1; }
+    static uint32 startingScore() { return 100; }
+}
+
+none main() {
+    Player p = "Illy", 0, Player::startingScore();
+    p::hit();
+    p::hit();
+    io::outln(p::label());
+    io::outln(p.hits::text());
+}
