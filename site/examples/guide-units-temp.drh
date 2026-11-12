@@ -1,0 +1,27 @@
+in io;
+in si;
+
+none main() {
+    float64<degC> morning = 12.0<degC>;
+    float64<degC> noon = 21.5<degC>;
+
+    // Two points give a change.
+    float64<delta degC> rise = noon - morning;
+    io::outln(rise::text() + " " + rise::unitText());
+
+    // A point plus a change is a point.
+    float64<degC> evening = noon + rise;
+    io::outln(evening::text() + " " + evening::unitText());
+
+    // A change is the same size as a kelvin and converts freely.
+    float64<K> as_kelvin = rise::in<K>();
+    io::outln(as_kelvin::text() + " " + as_kelvin::unitText());
+
+    // A point converts with its offset.
+    float64<K> abs = morning::in<K>();
+    io::outln(abs::text());
+
+    // Zero degrees Celsius is a real temperature, so say so.
+    bool freezing = morning <= 0.0<degC>;
+    io::outln(freezing::text());
+}
