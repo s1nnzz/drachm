@@ -1,0 +1,14 @@
+enum Shape { Circle(float64 r), Rect(float64 w, float64 h), Empty }
+enum Dir { North, South }
+enum Msg { Text(string s), Quit }
+
+none main() {
+    Shape a = Shape::Triangle(1.0);
+    Shape b = Rect(2.0);
+    Shape c = Empty(1);
+    Shape d = Circle;
+    uint32 e = North;
+    if (Shape::Empty == Shape::Empty) { }
+    Shape g = Empty;
+    if (g == g) { }
+}
