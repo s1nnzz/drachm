@@ -1,0 +1,4 @@
+error[E0612]: `Hits::get` changes `self`, but `Counter::get` does not say `changes self`
+error[E0612]: `Hits::reset` changes `self`, but `Counter::reset` does not say `changes self`
+error[E0612]: `Outer::touch` changes `self`, but `Wrapper::touch` does not say `changes self`
+error[E0612]: `Flag::touch` changes `self`, but `Wrapper::touch` does not say `changes self`

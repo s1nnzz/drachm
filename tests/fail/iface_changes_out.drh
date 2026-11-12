@@ -1,0 +1,9 @@
+struct Hits {
+public:
+    uint32 n;
+    none bump() changes self { self.n += 1; }
+}
+
+none free() changes self { }
+
+none main() { }

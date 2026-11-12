@@ -1,0 +1,3 @@
+error[E0614]: `Dot::y` is private
+error[E0614]: `Pin::x` is `uint32`, but `Positioned` requires `float64`
+error[E0614]: `Empty` says `with Positioned`, but has no field `x` of type `float64`

@@ -33,6 +33,23 @@ pub struct Program {
     pub structs: Vec<StructDef>,
     pub enums: Vec<EnumDef>,
     pub main: FuncId,
+    /// Struct methods that implement an interface method which does not say
+    /// `changes self`: they must not change `self` (checked after `self_mode`).
+    pub conformances: Vec<Conformance>,
+}
+
+/// One struct method standing for an interface method that promises not to change `self`.
+#[derive(Debug, Clone)]
+pub struct Conformance {
+    pub func: FuncId,
+    /// `Circle::grow`
+    pub method: String,
+    /// `Shape::grow`
+    pub promised: String,
+    /// The interface method's line, unless the interface is built in.
+    pub promised_at: Option<Span>,
+    /// Where `grow` is declared in the interface (for the help text).
+    pub signature: String,
 }
 
 /// A struct's layout, C-style: fields in declaration order, each at the next

@@ -7,8 +7,6 @@ public:
     uint32 id = 5;
 }
 
-struct Shape with Drawable { }
-
 none main() {
     Circle c = 1.0;
     c = 2.0, 3.0;

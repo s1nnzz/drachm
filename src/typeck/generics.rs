@@ -26,7 +26,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::rc::Rc;
 
 use super::{
-    check_body, check_one_struct_lives, check_signature_extras, declare_methods, failures, method_symbol, never_uses_self, new_struct_info,
+    check_body, check_one_struct_lives, check_signature_extras, declare_methods, failures, interfaces, method_symbol, never_uses_self, new_struct_info,
     optionals, origin, units, Checker, Globals, MethodCtx, Sig, Val,
 };
 use crate::ast::{self, ExprKind};
@@ -185,13 +185,9 @@ fn check_tparams(g: &Globals, tparams: &[ast::TypeParam], diags: &mut Vec<Diagno
             diags.push(Diagnostic::at(&codes::E0901, p.span, "unit parameters (`unit U`) are not supported yet"));
             usable = false;
         }
-        if let Some(b) = p.bounds.first() {
-            diags.push(
-                Diagnostic::at(&codes::E0901, b.span, "constraints (`with`) on a type parameter are not supported yet")
-                    .help("leave `with` out: it is checked for each type it is used with"),
-            );
-            usable = false;
-        }
+    }
+    if !interfaces::check_param_bounds(g, tparams, diags) {
+        usable = false;
     }
     usable
 }
@@ -225,7 +221,7 @@ pub(super) fn drain(g: &mut Globals, src: &str, prog: &ast::Program, diags: &mut
             Body::Method { si, mi, ctx, symbol, id } => {
                 let m = &prog.structs[*si].methods[*mi];
                 let f = check_body(g, src, &mut local, &m.func, Some(*ctx), symbol.clone());
-                if m.is_static.is_none() && m.operator.is_none() && !m.ctor && !g.self_use[*id].used && m.func.name != "drop" {
+                if m.is_static.is_none() && m.operator.is_none() && !m.ctor && !g.self_use[*id].used && m.func.name != "drop" && !g.ifaces.implementing.contains(id) {
                     unused_self = Some(never_uses_self(src, &prog.structs[*si].name, m));
                 }
                 f
@@ -556,6 +552,10 @@ impl Checker<'_> {
             );
             return None;
         }
+        let tps = self.g.mono.templates[name].head.tparams.clone();
+        if !interfaces::check_bounds(self.g, name, &tps, &key.1, call, self.diags) {
+            return None;
+        }
         let t = self.g.mono.templates.remove(name).expect("a template");
         let tenv: HashMap<String, Type> = t.head.tparams.iter().map(|p| p.name.clone()).zip(types.iter().copied()).collect();
         let saved = std::mem::replace(&mut self.g.tenv, tenv.clone());
@@ -702,6 +702,7 @@ pub(super) fn declare_struct_template(g: &mut Globals, index: usize, s: &ast::St
         name_span: s.name_span,
         tparams: s.tparams.clone(),
         span: s.span,
+        with: s.with.clone(),
         lives: s.lives.clone(),
         stays: s.stays,
         defaults: s.defaults.clone(),
@@ -873,6 +874,11 @@ pub(super) fn instantiate_type(g: &mut Globals, name: &str, types: Vec<Type>, at
         );
         return None;
     }
+    let tps = g.mono.type_templates.get(name)?.tparams.clone();
+    if !interfaces::check_type_bounds(g, name, &tps, &types, at, &display, diags) {
+        g.mono.refused.insert(key);
+        return None;
+    }
     let (index, tparams, head) = {
         let t = g.mono.type_templates.get_mut(name)?;
         t.instances += 1;
@@ -903,6 +909,7 @@ pub(super) fn instantiate_type(g: &mut Globals, name: &str, types: Vec<Type>, at
             g.mono.type_depth -= 1;
             g.tenv = saved;
             g.mono.scope = saved_scope;
+            interfaces::on_instance(g, ty, &s.with, &display, at, &mut local);
             for (j, mid) in ids.into_iter().enumerate() {
                 let Some(mid) = mid else { continue };
                 let m = &s.methods[j];

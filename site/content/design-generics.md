@@ -38,49 +38,14 @@ float64 total<T with Shape>(T[?] shapes) { /* ... */ }
 
 ## Interfaces
 
-An interface lists method signatures, `static` methods and required fields. It
-has no default method bodies. A struct says which it implements with `with`,
-and several are joined with `and`.
-
-<!-- focus: 1-3,5 -->
-
-```drachm
-interface Shape {
-    float64 area();
-}
-
-struct Circle with Shape and Drawable {
-    float64 r;
-    float64 area() { return 3.14159 * self.r * self.r; }
-}
-```
+An interface lists method signatures, `static` methods and required fields, a
+struct says which it implements with `with`, `extends` builds one interface on
+others, `Self` names the implementing type, and `changes self` marks an
+interface method that may change `self`. These build today and are described in
+[Generics](reference-generics.md).
 
 An interface name used as a type means any struct that has it, dispatched while
-the program runs: `none report(&Shape s) { ... }`. An interface can require
-fields (`interface Positioned { float64 x; float64 y; }`) and can build on
-others: `interface Shape3D extends Shape { float64 volume(); }`.
-
-## Self
-
-`Self` names the implementing type inside an interface.
-
-```drachm
-interface Zero { static Self zero(); }
-```
-
-## Methods that change self
-
-Struct methods infer whether they only read `self` or change it. An interface
-cannot see a body, so a method that may change `self` says so after its
-parameters. A struct method may not change more than the interface allows.
-`changes self` is written only in interfaces.
-
-```drachm
-interface Counter {
-    none bump() changes self;
-    uint32 get();
-}
-```
+the program runs: `none report(&Shape s) { ... }`. That part is not built yet.
 
 ## Your own iterables
 

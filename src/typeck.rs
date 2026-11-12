@@ -8,6 +8,7 @@ mod enums;
 mod failures;
 mod fill;
 mod generics;
+mod interfaces;
 mod layout;
 mod optionals;
 mod overload;
@@ -120,6 +121,8 @@ struct Globals {
     fail: failures::FailState,
     /// Generic functions, instances and the bodies still to check (`generics.rs`).
     mono: generics::State,
+    /// Interfaces and who implements them (`interfaces.rs`).
+    ifaces: interfaces::State,
     /// The type parameters of the instance being resolved or checked, and what
     /// they stand for here.
     tenv: HashMap<String, Type>,
@@ -189,6 +192,9 @@ impl Globals {
                 return None;
             }
         }
+        if interfaces::as_value_type(self, t, diags) {
+            return None;
+        }
         if !t.args.is_empty() {
             match generics::check_type_args(self, t, diags) {
                 Some(true) => {}
@@ -229,6 +235,14 @@ impl Globals {
             Ok(ty) => Some(ty),
             Err(TypeError::NotYet) => {
                 diags.push(Diagnostic::at(&codes::E0901, t.span, format!("the type `{}` is not supported yet", t.name)));
+                None
+            }
+            Err(TypeError::Unknown) if t.name == "Self" => {
+                diags.push(
+                    Diagnostic::at(&codes::E0616, t.span, "`Self` only means something inside an interface")
+                        .note("not inside an interface")
+                        .help("write the struct's own name"),
+                );
                 None
             }
             Err(TypeError::Unknown) => {
@@ -394,6 +408,7 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
     let all_failures: Vec<&ast::Failure> = core.failures.iter().chain(&prog.failures).collect();
     let failure_ids: Vec<Option<hir::EnumId>> = all_failures.iter().map(|f| failures::declare_failure(&mut g, f, diags)).collect();
     g.fail.convert_error = g.enums_by_name.get("ConvertError").copied();
+    interfaces::declare(&mut g, src, &prog.interfaces, diags);
     generics::validate_type_templates(&mut g, diags);
     // Every `T?` and every `Name<args>` the file writes outside a template.
     g.mono.written_optionals = prog.optionals.clone();
@@ -416,6 +431,7 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
     }
     check_struct_lives(&mut g, prog, &struct_ids, diags);
     report_cycles(&g, diags);
+    interfaces::validate(&mut g, diags);
 
     // Signatures: functions, then methods.
     let mut func_ids = Vec::new();
@@ -453,6 +469,7 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
         })
         .collect();
 
+    interfaces::finish(&mut g, prog, &struct_ids, diags);
     fill::declare_defs(&mut g, src, prog, diags);
 
     match g.funcs_by_name.get("main").map(|&id| &g.sigs[id]) {
@@ -497,7 +514,7 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
             };
             let checked = check_body(&mut g, src, diags, &m.func, Some(ctx), symbol);
             emit(&mut funcs, mid, checked);
-            if m.is_static.is_none() && m.operator.is_none() && !m.ctor && !g.self_use[mid].used && m.func.name != "drop" {
+            if m.is_static.is_none() && m.operator.is_none() && !m.ctor && !g.self_use[mid].used && m.func.name != "drop" && !g.ifaces.implementing.contains(&mid) {
                 diags.push(never_uses_self(src, &s.name, m));
             }
         }
@@ -529,7 +546,8 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
     // `copy` depends on which structs have a `drop()`; the queries answer for
     // every type that exists now, including those made while bodies were checked.
     let (structs, enum_defs) = layout::lay_out(&g);
-    let mut program = hir::Program { funcs: funcs.into_iter().map(|f| f.unwrap_or_else(placeholder)).collect(), structs, enums: enum_defs, main };
+    let conformances = std::mem::take(&mut g.ifaces.records);
+    let mut program = hir::Program { funcs: funcs.into_iter().map(|f| f.unwrap_or_else(placeholder)).collect(), structs, enums: enum_defs, main, conformances };
     units::erase(&mut program);
     if cfg!(debug_assertions) {
         units::assert_erased(&mut program);
@@ -2577,8 +2595,14 @@ impl Checker<'_> {
                         }
                         return None;
                     }
+                    if let Some(&ty) = self.g.tenv.get(n) {
+                        return self.static_on_type(ty, n, name, *name_span, targs, args, e.span);
+                    }
                     if let Some(&s) = self.g.structs_by_name.get(n) {
                         return self.static_call(s, name, *name_span, targs, args, e.span);
+                    }
+                    if let Ok(ty) = Type::from_name(n) {
+                        return self.static_on_type(ty, n, name, *name_span, targs, args, e.span);
                     }
                     if let Some(&en) = self.g.enums_by_name.get(n) {
                         return self.qualified_variant(en, name, *name_span, args, e.span);

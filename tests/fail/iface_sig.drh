@@ -1,0 +1,13 @@
+interface Shape {
+    float64 area();
+    none grow(float64 k);
+}
+
+struct Circle with Shape {
+public:
+    float64 r;
+    uint32 area() { return 1; }
+    none grow(uint32 k) { }
+}
+
+none main() { }

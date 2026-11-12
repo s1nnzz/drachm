@@ -48,6 +48,7 @@ pub fn check(src: &str) -> (Option<hir::Program>, Vec<Diagnostic>) {
     let Some(checked) = checked else { return (None, diags) };
     // The ownership checks run on the MIR.
     let mut mir = mir::build_program(&checked, &mut diags);
+    ownership::conform::check(&checked, &mir.self_modes, &mut diags);
     if diag::has_errors(&diags) {
         return (None, diags);
     }

@@ -1,0 +1,17 @@
+interface Shape {
+    float64 area();
+}
+
+struct Sq with Shape {
+public:
+    float64 s;
+private:
+    float64 area() { return self.s; }
+}
+
+struct Odd with Nothing and Shape {
+public:
+    float64 s;
+}
+
+none main() { }

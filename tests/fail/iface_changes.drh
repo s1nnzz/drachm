@@ -1,0 +1,37 @@
+interface Counter {
+    none bump() changes self;
+    uint32 get();
+    none reset();
+}
+
+interface Wrapper {
+    none touch();
+}
+
+struct Hits with Counter {
+public:
+    uint32 n;
+    none bump() { self.n += 1; }
+    uint32 get() { self.n += 1; return self.n; }
+    none reset() { self.n = 0; }
+}
+
+struct Inner {
+public:
+    uint32 k;
+    none poke() { self.k = 1; }
+}
+
+struct Outer with Wrapper {
+public:
+    mut Inner i;
+    none touch() { self.i::poke(); }
+}
+
+struct Flag with Wrapper {
+public:
+    mut bool on;
+    none touch() { self.on = true; }
+}
+
+none main() { }

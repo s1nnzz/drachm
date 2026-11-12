@@ -1,0 +1,2 @@
+error[E0611]: `Circle::area` returns `uint32`, but `Shape::area` returns `float64`
+error[E0611]: `Circle::grow` takes `(uint32)`, but `Shape::grow` takes `(float64)`

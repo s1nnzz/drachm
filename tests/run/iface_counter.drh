@@ -1,0 +1,33 @@
+in io;
+
+interface Counter {
+    none bump() changes self;
+    uint32 get();
+}
+
+struct Hits with Counter {
+public:
+    uint32 n;
+    none bump() { self.n += 1; }
+    uint32 get() { return self.n; }
+}
+
+struct Calm with Counter {
+public:
+    uint32 n;
+    // Changing less than the interface allows is fine.
+    none bump() { }
+    uint32 get() { return self.n; }
+}
+
+none main() {
+    uint32 changes = 7;
+    mut Hits h = 0;
+    h::bump();
+    h::bump();
+    mut Calm c = 5;
+    c::bump();
+    io::outln(h::get()->text());
+    io::outln(c::get()->text());
+    io::outln(changes::text());
+}

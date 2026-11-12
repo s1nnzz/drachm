@@ -178,6 +178,86 @@ type, and can be mixed freely.
 
 <!-- example: gen-optional -->
 
+## Interfaces
+
+An interface lists what a type must have: method signatures, `static`
+signatures and required fields. It has no method bodies. A struct says which
+interfaces it implements with `with`, several joined by `and`, and the
+compiler checks it once every declaration has been read.
+
+<!-- example: iface-shape -->
+
+A struct implements an interface method with a method of the same name,
+`public`, with the same parameters and result and the same `static`ness.
+Operator methods can be listed too (`bool <(Self o);`). A struct's own `==`
+and `!=` need no method: every struct has them.
+
+- A method missing, or only written under `private:`, is E0610.
+- A method with other parameters, another result or a different `static` is
+  E0611.
+- A required field missing, of another type, or not `public` is E0614.
+- An unknown name after `with` or `extends` is E0201, and an interface name
+  can not be used as the name of a struct, enum or other interface (E0202).
+
+```text
+error[E0610]: `Circle` says `with Shape`, but has no method `unit`
+  --> iface_missing.drh:6:20
+   |
+ 3 |     static Self unit();
+   |            ----------- `Shape` promises `unit`
+  ...
+ 6 | struct Circle with Shape {
+   |                    ^^^^^ `Shape` needs a `static` method `unit`
+   |
+ help: add `static Circle unit() { ... }` to `Circle`
+```
+
+`extends` makes an interface include another's members: `interface Placed
+extends Shape and Positioned`. A struct that implements `Placed` implements
+`Shape` and `Positioned` too. Two parents with a member of the same name need
+equal signatures, and an interface that extends itself, directly or through
+others, is E0615.
+
+## Self
+
+Inside an interface, `Self` stands for the type that implements it, so
+`static Self zero();` means `static Circle zero()` for `Circle` and `static
+Cube zero()` for `Cube`. It is a reserved word with no meaning outside an
+interface (E0616): in a struct, write its name.
+
+## Methods that change self
+
+A struct method's mode is worked out from its body: it either reads `self` or
+changes it. An interface cannot see a body, so a method that may change
+`self` says so after its parameters. A struct method may change `self` only
+where the interface method says `changes self`; changing less is fine. A
+method that writes only `mut` fields counts as changing. Writing `changes
+self` anywhere but in an interface is E0613. (`changes` is an ordinary name
+everywhere else.)
+
+<!-- example: iface-counter -->
+
+```text
+error[E0612]: `Hits::get` changes `self`, but `Counter::get` does not say `changes self`
+   --> iface_changes.drh:15:20
+    |
+  3 |     uint32 get();
+    |     ------------ `Counter::get` promises not to change `self`
+   ...
+ 15 |     uint32 get() { self.n += 1; return self.n; }
+    |                    ^^^^^^ changes `self.n` here
+    |
+ help: add `changes self` to `Counter::get`: `uint32 get() changes self;`, or stop changing `self`
+```
+
+## Interfaces as types
+<!-- status: not-implemented -->
+
+An interface can only be borrowed, never held: `Shape s` and `Shape[?]` are
+E0617. Borrowing one, `&Shape`, would call the methods through the value's
+real type while the program runs, which is not built yet (E0901). A generic
+function constrained by an interface does not need it.
+
 ## Constraints
 <!-- status: not-implemented -->
 

@@ -1,0 +1,7 @@
+struct P {
+public:
+    Self next;
+    float64 x;
+}
+
+none main() { }

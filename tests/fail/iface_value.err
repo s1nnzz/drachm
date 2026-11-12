@@ -1,0 +1,2 @@
+error[E0617]: `Shape` is an interface, so a value cannot be one
+error[E0901]: `&Shape` is not supported yet

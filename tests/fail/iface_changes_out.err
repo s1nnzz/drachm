@@ -1,0 +1,1 @@
+error[E0613]: `changes self` is only written in interfaces

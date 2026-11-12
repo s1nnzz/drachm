@@ -15,6 +15,8 @@ pub fn parse(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>) -> Program {
         funcs: Vec::new(),
         structs: Vec::new(),
         enums: Vec::new(),
+        interfaces: Vec::new(),
+        impls: Vec::new(),
         failures: Vec::new(),
         defs: Vec::new(),
         unsafe_allowed: false,
@@ -27,6 +29,10 @@ pub fn parse(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>) -> Program {
             p.import().map(|i| program.imports.push(i))
         } else if p.peek() == &Tok::Kw("struct") {
             p.struct_decl().map(|s| program.structs.push(s))
+        } else if p.peek() == &Tok::Kw("interface") {
+            p.interface_decl().map(|i| program.interfaces.push(i))
+        } else if p.at_impl_item() {
+            p.impl_decl().map(|i| program.impls.push(i))
         } else if p.peek() == &Tok::Kw("enum") {
             p.enum_decl().map(|e| program.enums.push(e))
         } else if p.peek() == &Tok::Kw("failure") {
@@ -173,7 +179,7 @@ impl Parser<'_> {
             let unit = self.type_unit()?;
             return Ok(TypeName { mods, unit, ..TypeName::plain("none", span) });
         }
-        let (name, span) = self.ident("a type")?;
+        let (name, span) = if self.peek() == &Tok::Kw("Self") { ("Self".to_string(), self.bump().span) } else { self.ident("a type")? };
         // A `<` after a number type opens a unit (`float64<m/s>`); after any
         // other name it opens type arguments (`Map<string, uint32>`).
         let (mut unit, mut args) = (None, Vec::new());
@@ -527,7 +533,7 @@ impl Parser<'_> {
             return true;
         }
         match self.peek() {
-            Tok::Kw("in" | "struct" | "enum" | "failure") => true,
+            Tok::Kw("in" | "struct" | "enum" | "failure" | "interface") => true,
             Tok::Ident(_) | Tok::Kw("none" | "unsafe") | Tok::Sym("&" | "&&" | "*" | "**") => {
                 let from = (self.peek() == &Tok::Kw("unsafe")) as usize;
                 match self.type_end(from) {
@@ -662,6 +668,15 @@ impl Parser<'_> {
                         lives = self.name_list("a parameter name after `lives`")?;
                     }
                     lives_span = Some(at.to(self.prev_span()));
+                }
+                Tok::Ident(w) if w == "changes" && self.peek_at(1) == &Tok::Kw("self") => {
+                    let first = self.bump().span;
+                    let at = first.to(self.bump().span);
+                    self.diags.push(
+                        Diagnostic::at(&codes::E0613, at, "`changes self` is only written in interfaces")
+                            .note("not an interface method")
+                            .help("a method's mode is worked out from its body: remove `changes self`"),
+                    );
                 }
                 Tok::Kw("fails") => {
                     if let Some(first) = fails_span {
@@ -839,6 +854,150 @@ impl Parser<'_> {
             && matches!(self.peek_at(2), Tok::Kw("of" | "from") | Tok::Sym("{"))
     }
 
+    /// `A and B`: one or more types.
+    fn and_list(&mut self) -> Parsed<Vec<TypeName>> {
+        let mut out = vec![self.ty()?];
+        while matches!(self.peek(), Tok::Ident(w) if w == "and") {
+            self.bump();
+            out.push(self.ty()?);
+        }
+        Ok(out)
+    }
+
+    /// `TYPE with A and B {`: a type promising interfaces outside its own declaration.
+    fn at_impl_item(&self) -> bool {
+        matches!(self.peek(), Tok::Ident(_)) && self.type_end(0).is_some_and(|n| self.peek_at(n) == &Tok::Kw("with"))
+    }
+
+    fn impl_decl(&mut self) -> Parsed<ImplDecl> {
+        let start = self.span();
+        let ty = self.ty()?;
+        self.bump();
+        let with = self.and_list()?;
+        let open = self.expect("{")?;
+        // A scratch struct to collect the methods with the struct member rules.
+        let mut s = Struct {
+            name: ty.name.clone(),
+            name_span: ty.span,
+            tparams: Vec::new(),
+            span: start,
+            with: Vec::new(),
+            lives: Vec::new(),
+            stays: None,
+            defaults: None,
+            auto_ctor: None,
+            fields: Vec::new(),
+            methods: Vec::new(),
+        };
+        let mut section: Option<bool> = None;
+        while self.peek() != &Tok::Sym("}") {
+            if self.peek() == &Tok::Eof || matches!(self.peek(), Tok::Kw("struct" | "interface" | "enum")) {
+                return Err(Diagnostic::at(&codes::E0004, open, "this `{` is never closed")
+                    .label(self.span(), format!("expected `}}` before {}", self.peek().describe())));
+            }
+            if let Tok::Kw(k @ ("public" | "private")) = *self.peek()
+                && self.peek_at(1) == &Tok::Sym(":")
+            {
+                section = Some(k == "public");
+                self.bump();
+                self.bump();
+                continue;
+            }
+            if let Err(d) = self.member(&mut s, section) {
+                self.diags.push(d);
+                self.skip_statement();
+            }
+        }
+        self.bump();
+        if let Some(f) = s.fields.first() {
+            self.diags.push(Diagnostic::at(&codes::E0003, f.name_span, "a declaration like this adds methods, not fields").help("fields belong to the type's own declaration"));
+        }
+        Ok(ImplDecl { ty, with, methods: s.methods, span: start.to(self.prev_span()) })
+    }
+
+    /// `interface Name [extends A and B] { members }`
+    fn interface_decl(&mut self) -> Parsed<Interface> {
+        let start = self.bump().span;
+        let (name, name_span) = self.ident("an interface name")?;
+        let tparams = self.type_params()?;
+        let mut extends = Vec::new();
+        if self.peek() == &Tok::Kw("extends") {
+            self.bump();
+            extends = self.and_list()?;
+        }
+        let open = self.expect("{")?;
+        let mut methods = Vec::new();
+        let mut fields = Vec::new();
+        while self.peek() != &Tok::Sym("}") {
+            if self.peek() == &Tok::Eof || matches!(self.peek(), Tok::Kw("struct" | "interface" | "enum")) {
+                return Err(Diagnostic::at(&codes::E0004, open, "this `{` is never closed")
+                    .label(self.span(), format!("expected `}}` before {}", self.peek().describe())));
+            }
+            if let Err(d) = self.interface_member(&mut methods, &mut fields) {
+                self.diags.push(d);
+                self.skip_statement();
+            }
+        }
+        self.bump();
+        Ok(Interface { name, name_span, tparams, extends, methods, fields, span: start.to(self.prev_span()) })
+    }
+
+    fn interface_member(&mut self, methods: &mut Vec<IMethod>, fields: &mut Vec<IField>) -> Parsed<()> {
+        let is_static = if self.peek() == &Tok::Kw("static") { Some(self.bump().span) } else { None };
+        if matches!(self.peek(), Tok::Kw("public" | "private" | "mut")) {
+            return Err(Diagnostic::at(&codes::E0003, self.span(), "an interface member has no visibility or `mut`")
+                .help("interface members are public; a required field is written `float64 x;`"));
+        }
+        let ty = self.ty()?;
+        let operator = match *self.peek() {
+            Tok::Sym(sym) if self.peek_at(1) == &Tok::Sym("(") => binop(sym).map(|(op, _)| op),
+            _ => None,
+        };
+        let (name, name_span) = match operator {
+            Some(op) => (op.symbol().to_string(), self.bump().span),
+            None => self.ident("a method or field name")?,
+        };
+        let tps = self.type_params()?;
+        if self.peek() != &Tok::Sym("(") {
+            if let Some(st) = is_static {
+                return Err(Diagnostic::at(&codes::E0003, st, "a required field cannot be `static`").help("only methods can be `static`"));
+            }
+            self.expect(";")?;
+            fields.push(IField { ty, name, name_span });
+            return Ok(());
+        }
+        if let Some(tp) = tps.first() {
+            return Err(Diagnostic::at(&codes::E0901, tp.span, "interface methods with type parameters of their own are not supported yet")
+                .help("write the method for one type for now"));
+        }
+        self.bump();
+        let mut params = Vec::new();
+        while self.peek() != &Tok::Sym(")") {
+            let start = self.span();
+            let (mutable, open) = self.binding_words();
+            let pty = self.ty()?;
+            let (pname, _) = self.ident("a parameter name")?;
+            params.push(Param { mutable, open, ty: pty, name: pname, span: start.to(self.prev_span()) });
+            if !self.eat(",") {
+                break;
+            }
+        }
+        self.expect(")")?;
+        let mut changes_self = None;
+        if matches!(self.peek(), Tok::Ident(w) if w == "changes") && self.peek_at(1) == &Tok::Kw("self") {
+            let first = self.bump().span;
+            let at = first.to(self.bump().span);
+            if let Some(st) = is_static {
+                return Err(Diagnostic::at(&codes::E0613, at, "a `static` method has no `self` to change").label(st, "the method is `static`").help("remove `changes self` or `static`"));
+            }
+            changes_self = Some(at);
+        }
+        let span = ty.span.to(self.prev_span());
+        self.expect(";")?;
+        methods.push(IMethod { is_static, operator, name, name_span, ret: ty, params, changes_self, span });
+        Ok(())
+    }
+
     /// `def NAME [of STRUCT] [from BASE] { field = value; ... }`
     fn def_decl(&mut self) -> Parsed<DefDecl> {
         let start = self.bump().span;
@@ -885,6 +1044,7 @@ impl Parser<'_> {
         let mut lives: Vec<(String, Span)> = Vec::new();
         let mut lives_seen = false;
         let mut stays = None;
+        let mut with: Vec<TypeName> = Vec::new();
         loop {
             match self.peek() {
                 Tok::Ident(w) if w == "defaults" => {
@@ -895,7 +1055,11 @@ impl Parser<'_> {
                     defaults = Some(self.ident("the name of the default def after `defaults`")?);
                 }
                 Tok::Kw("with") => {
-                    return Err(Diagnostic::at(&codes::E0901, self.span(), "interfaces are not supported yet"));
+                    if let Some(first) = with.first() {
+                        return Err(Diagnostic::at(&codes::E0003, self.span(), "`with` is written twice").label(first.span, "first written here").help("list them with `and`: `with Shape and Drawable`"));
+                    }
+                    self.bump();
+                    with = self.and_list()?;
                 }
                 Tok::Kw("lives") => {
                     if lives_seen {
@@ -916,7 +1080,7 @@ impl Parser<'_> {
             }
         }
         let open = self.expect("{")?;
-        let mut s = Struct { name, name_span, tparams, span: start, lives, stays, defaults, auto_ctor: None, fields: Vec::new(), methods: Vec::new() };
+        let mut s = Struct { name, name_span, tparams, span: start, with, lives, stays, defaults, auto_ctor: None, fields: Vec::new(), methods: Vec::new() };
         // `Some(true)` after `public:`, `Some(false)` after `private:`. Before
         // any label, fields are private and methods public.
         let mut section: Option<bool> = None;

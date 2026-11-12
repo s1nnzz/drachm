@@ -991,6 +991,74 @@ instance of itself with a bigger type (`struct Bad<T> { Bad<Cell<T>> x; }`).
 `unit U` declares a unit, so it can only be used inside the `<>` of a
 number type: `float64<U>`. A type parameter would be written `<T>`.
 
+## E0606: beyond the constraint
+
+Inside a generic function or struct whose type parameter has a
+constraint (`T with Shape`), a value of type `T` can only do what the
+interface promises: call its methods, read its required fields, call
+its `static` methods as `T::zero()`. Anything else, such as another
+method or an operator the interface does not declare, is an error in
+the definition, even if every type used so far happens to allow it.
+
+    float64 total<T with Shape>(T a) { return a::perimeter(); }   // error
+
+## E0607: constraint not met
+
+A generic function or struct was used with a type that does not
+implement the interface its type parameter asks for (`T with Shape`).
+A struct implements an interface by naming it: `struct Triangle with
+Shape`, and giving it the methods the interface lists.
+
+## E0610: interface method missing
+
+A struct says `with Shape`, but has no public method for one of the
+methods `Shape` lists. A method under `private:` does not count: an
+interface's methods are public.
+
+## E0611: interface method differs
+
+A struct's method has the name of an interface method, but its
+parameters, its result or its `static` do not match. `Self` in the
+interface stands for the struct that implements it.
+
+## E0612: changes more than the interface allows
+
+A struct method changes `self`, but the interface method it
+implements does not say `changes self`, so callers holding a shared
+borrow would be promised something the method breaks. Either add
+`changes self` to the interface method, or make the struct method stop
+changing `self`. (A method that writes only `mut` fields counts as
+changing.)
+
+## E0613: changes self out of place
+
+`changes self` is only written after an interface method's
+parameters. A struct's methods and a function's mode are worked out
+from their bodies.
+
+## E0614: required field missing
+
+An interface lists a field (`float64 x;`), so a struct that implements
+it needs a `public` field of that name and type.
+
+## E0615: interfaces clash
+
+An interface extends itself (directly or through others), or extends
+two interfaces that have a member of the same name with different
+signatures, or lists the same member twice.
+
+## E0616: Self out of place
+
+`Self` stands for the implementing type, so it only means something
+inside an interface. In a struct, write the struct's name.
+
+## E0617: interface used as a value type
+
+An interface is only ever borrowed: a value, a field, a list item or a
+type argument cannot be `Shape` itself, because it could be any struct
+that implements it. Write `&Shape`, or use an enum for a closed set of
+choices.
+
 ## W0600: generic never used
 
 A generic function, struct or enum is only checked when something uses

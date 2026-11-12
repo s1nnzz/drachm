@@ -1,0 +1,42 @@
+in io;
+
+// An interface lists what a type must have. `Self` is the type that
+// implements it: here Circle in one struct and Square in the other.
+interface Shape {
+    float64 area();
+    static Self unit();
+}
+
+// An interface can build on others, and can require fields.
+interface Positioned {
+    float64 x;
+    float64 y;
+}
+
+interface Placed extends Shape and Positioned {
+    float64 perimeter();
+}
+
+struct Circle with Shape {
+    public:
+    float64 r;
+    float64 area() { return 3.0 * self.r * self.r; }
+    static Circle unit() { return new Circle of (1.0); }
+}
+
+struct Square with Placed {
+    public:
+    float64 side;
+    float64 x;
+    float64 y;
+    float64 area() { return self.side * self.side; }
+    float64 perimeter() { return 4.0 * self.side; }
+    static Square unit() { return new Square of (1.0, 0.0, 0.0); }
+}
+
+none main() {
+    Circle c = Circle::unit();
+    Square s = new Square of (2.0, 3.0, 4.0);
+    io::outln(f"circle ${c::area()}");
+    io::outln(f"square ${s::area()}, edge ${s::perimeter()}, at ${s.x},${s.y}");
+}
