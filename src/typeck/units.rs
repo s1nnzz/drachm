@@ -1270,6 +1270,12 @@ fn visit_stmt(s: &mut hir::Stmt, f: &mut dyn FnMut(&mut Type)) {
             }
         }
         hir::Stmt::Unsafe(body) => visit_block(body, f),
+        hir::Stmt::Resume(_, value) => {
+            if let Some(e) = value {
+                visit_expr(e, f);
+            }
+        }
+        hir::Stmt::Reraise(_) => {}
         hir::Stmt::Jump(_) | hir::Stmt::Decl(_) | hir::Stmt::Destroy(_) | hir::Stmt::Forget(_) | hir::Stmt::Check { .. } => {}
     }
 }
@@ -1278,6 +1284,11 @@ fn visit_expr(e: &mut hir::Expr, f: &mut dyn FnMut(&mut Type)) {
     f(&mut e.ty);
     for child in children_mut(e) {
         visit_expr(child, f);
+    }
+    if let hir::ExprKind::Handled { arms, .. } = &mut e.kind {
+        for a in arms {
+            visit_block(&mut a.body, f);
+        }
     }
 }
 
@@ -1306,7 +1317,7 @@ fn children_mut(e: &mut hir::Expr) -> Vec<&mut hir::Expr> {
         K::Out { arg, .. } => vec![&mut **arg],
         K::TryParse { text, .. } => vec![&mut **text],
         K::FailMaybe { call, fallback } => vec![&mut **call, &mut **fallback],
-        K::PassUp { call } => vec![&mut **call],
+        K::PassUp { call } | K::Handled { call, .. } => vec![&mut **call],
         K::CauseWrap { msg, slot } | K::Report { msg, slot } => vec![&mut **msg, &mut **slot],
         K::Borrow { place, .. } => vec![&mut **place],
         K::Binary(_, a, b) | K::IntPow(a, b) => vec![&mut **a, &mut **b],

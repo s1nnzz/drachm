@@ -904,6 +904,12 @@ impl Parser<'_> {
                 self.expect(";")?;
                 Ok(Stmt::Fail { value, because, span: start.to(self.prev_span()) })
             }
+            Tok::Kw("maybe") => {
+                self.bump();
+                let value = if self.peek() == &Tok::Sym(";") { None } else { Some(self.expr()?) };
+                self.expect(";")?;
+                Ok(Stmt::Resume { value, span: start.to(self.prev_span()) })
+            }
             Tok::Kw("return") => {
                 self.bump();
                 let value = if self.peek() == &Tok::Sym(";") { None } else { Some(self.expr()?) };
@@ -1459,7 +1465,8 @@ impl Parser<'_> {
         let mut e = self.primary()?;
         let mut calls = 0;
         loop {
-            if matches!(self.peek(), Tok::Kw("fails")) && (e.paren || matches!(e.kind, ExprKind::Call { .. } | ExprKind::Method { .. } | ExprKind::New { .. })) {
+            let ignore = self.peek() == &Tok::Ident("ignore".to_string()) && self.peek_at(1) == &Tok::Kw("failure");
+            if (ignore || matches!(self.peek(), Tok::Kw("fails"))) && (e.paren || matches!(e.kind, ExprKind::Call { .. } | ExprKind::Method { .. } | ExprKind::New { .. })) {
                 return self.call_suffix(e);
             }
             let sym = match self.peek() {
@@ -1539,14 +1546,69 @@ impl Parser<'_> {
     /// single operand; anything longer needs parentheses.
     fn call_suffix(&mut self, call: Expr) -> Parsed<Expr> {
         let word = self.bump();
+        if word.tok == Tok::Ident("ignore".to_string()) {
+            let end = self.bump().span;
+            let span = call.span.to(end);
+            let handler = Handler { kind: HandlerKind::Ignore, bind: None, body: Block { stmts: Vec::new(), end }, span: word.span.to(end) };
+            return Ok(Expr { kind: ExprKind::Handled { call: Box::new(call), handlers: vec![handler] }, span, paren: false });
+        }
         if word.tok == Tok::Kw("fails") {
             if self.peek() == &Tok::Kw("with") {
-                return Err(Diagnostic::at(&codes::E0901, self.span(), "`fails with` is not supported yet"));
+                return self.handlers(call, word.span);
             }
             let span = call.span.to(word.span);
             return Ok(Expr { kind: ExprKind::PassUp(Box::new(call)), span, paren: false });
         }
-        unreachable!("call_suffix is only for `fails`")
+        unreachable!("call_suffix is only for `fails` and `ignore failure`")
+    }
+
+    /// The handlers after `call fails`: `with none`, or one or more
+    /// `with (Type e) => { }` / `with (any e) => { }`, then optionally
+    /// `otherwise (any e) => { }`.
+    fn handlers(&mut self, call: Expr, mut start: Span) -> Parsed<Expr> {
+        let mut handlers = Vec::new();
+        let mut end;
+        loop {
+            let otherwise = self.peek() == &Tok::Kw("otherwise");
+            if !otherwise {
+                if self.peek() != &Tok::Kw("with") {
+                    return Err(self.unexpected("`with`"));
+                }
+                self.bump();
+            } else {
+                self.bump();
+            }
+            if !otherwise && self.peek() == &Tok::Kw("none") {
+                end = self.bump().span;
+                handlers.push(Handler { kind: HandlerKind::Ignore, bind: None, body: Block { stmts: Vec::new(), end }, span: start.to(end) });
+            } else {
+                self.expect("(")?;
+                let kind = if self.peek() == &Tok::Kw("any") {
+                    self.bump();
+                    if otherwise { HandlerKind::Otherwise } else { HandlerKind::Any }
+                } else if otherwise {
+                    return Err(self.unexpected("`any`").help("write `otherwise (any e) => { ... }`"));
+                } else {
+                    let (name, span) = self.ident("a failure type")?;
+                    HandlerKind::Type(name, span)
+                };
+                let bind = self.ident("a name for the failure")?;
+                self.expect(")")?;
+                self.expect("=>")?;
+                let body = self.block()?;
+                end = body.end;
+                handlers.push(Handler { kind, bind: Some(bind), body, span: start.to(end) });
+            }
+            if self.peek() == &Tok::Kw("fails") && self.peek_at(1) == &Tok::Kw("with") {
+                start = self.bump().span;
+            } else if self.peek() == &Tok::Kw("otherwise") {
+                start = self.span();
+            } else {
+                break;
+            }
+        }
+        let span = call.span.to(end);
+        Ok(Expr { kind: ExprKind::Handled { call: Box::new(call), handlers }, span, paren: false })
     }
 
     /// `(a, b, c)`

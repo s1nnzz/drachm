@@ -1,0 +1,68 @@
+in io;
+
+failure ParseError {
+    Empty "nothing to parse",
+}
+
+failure FileError {
+    Missing "missing",
+}
+
+failure Other {
+    Odd "odd",
+}
+
+uint32 parse(string s) fails ParseError {
+    return 1;
+}
+
+uint32 load(string s) fails ParseError, FileError {
+    return 1;
+}
+
+none check(string s) fails ParseError {
+}
+
+// E0545: parse cannot fail with FileError
+none impossible() {
+    uint32 n = parse("x") fails with (FileError e) => { maybe 0; };
+}
+
+// E0546: ParseError twice
+none twice() {
+    uint32 n = load("x")
+        fails with (ParseError e) => { maybe 0; }
+        fails with (ParseError e) => { maybe 1; }
+        fails with (FileError e) => { maybe 2; };
+}
+
+// E0550: maybe outside a handler
+none outside() {
+    maybe 3;
+}
+
+// E0553: otherwise is not last
+none otherwise_first() {
+    uint32 n = load("x")
+        fails with (FileError e) => { maybe 1; }
+        otherwise (any e) => { maybe 0; }
+        fails with (ParseError e) => { maybe 1; };
+}
+
+// E0544: FileError is not handled
+none missing() {
+    uint32 n = load("x") fails with (ParseError e) => { maybe 0; };
+}
+
+// E0547: a call returning a value cannot be ignored
+none ignore_value() {
+    parse("x") ignore failure;
+}
+
+// E0541: the caught failure is not in the list
+none reraise() fails ParseError {
+    uint32 n = load("x") fails with (any e) => { fail e; };
+}
+
+none main() {
+}

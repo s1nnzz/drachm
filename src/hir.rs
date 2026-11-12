@@ -293,6 +293,7 @@ impl Place {
 
 pub type Block = Vec<Stmt>;
 
+#[derive(Clone)]
 pub enum Stmt {
     /// Store a value in a place; the value the place held, if any, is dropped
     /// by the MIR builder.
@@ -323,6 +324,26 @@ pub enum Stmt {
     /// `local.field = e` inside a `fill` block or a constructor: gives the
     /// field its value (an initialisation, not a change).
     InitField(Place, Expr),
+    /// `maybe v;` in a failure handler: the value of the `Handled` expression
+    /// with this label (none for a call that returns nothing); leaves the handler.
+    Resume(Label, Option<Expr>),
+    /// `fail e;` with `e` a failure the function caught: returns it (moved out
+    /// of the place) as this function's failure.
+    Reraise(Place),
+}
+
+/// One arm of a `Handled` call.
+#[derive(Clone)]
+pub struct HandlerArm {
+    /// For a call that can fail with several types: the index of the failure
+    /// type this arm takes. `None` takes whatever no arm before it took, with
+    /// the whole failure (the failure itself when the call has one type).
+    pub member: Option<usize>,
+    /// The local the failure is moved into; `body` starts with its `Decl`.
+    pub bind: LocalId,
+    pub body: Block,
+    /// The closing `}` of the body.
+    pub end: Span,
 }
 
 /// Where a value that is being given its fields is checked (S5B).
@@ -338,6 +359,7 @@ pub enum CheckKind {
     CtorEnd,
 }
 
+#[derive(Clone)]
 pub struct Branch {
     pub test: Option<Expr>,
     pub body: Block,
@@ -519,6 +541,47 @@ pub enum ExprKind {
     /// (of tag `Some`), or `fallback` when it is `none`. `value` is a place
     /// (read where it is; only for Copy optionals) or an owned temporary.
     Maybe { value: Box<Expr>, fallback: Box<Expr> },
+    /// `call fails with (...) => { }`: the call's value, or what the arm for
+    /// its failure gives with `Resume(label, v)`. `call` is typed with its outcome.
+    Handled { call: Box<Expr>, arms: Vec<HandlerArm>, label: Label },
+}
+
+impl Expr {
+    /// The direct sub-expressions of this one (not the statements of handlers).
+    pub fn children(&self) -> Vec<&Expr> {
+        use ExprKind as K;
+        match &self.kind {
+            K::Int(_) | K::Float(_) | K::Bool(_) | K::Str(_) | K::Local(_) | K::NullPtr | K::InLine | K::InEnded | K::IncDec { .. } => Vec::new(),
+            K::Field(x, _)
+            | K::Neg(x)
+            | K::Not(x)
+            | K::BitNot(x)
+            | K::Convert(x)
+            | K::PtrConv(x)
+            | K::Text(x)
+            | K::DeepCopy(x)
+            | K::Deref(x)
+            | K::Lend(x)
+            | K::Discriminant(x)
+            | K::Payload { value: x, .. }
+            | K::AddressOf(x) => vec![&**x],
+            K::Variant { args, .. } => args.iter().collect(),
+            K::Radix { value, .. } => vec![&**value],
+            K::Out { arg, .. } => vec![&**arg],
+            K::TryParse { text, .. } => vec![&**text],
+            K::FailMaybe { call, fallback } => vec![&**call, &**fallback],
+            K::PassUp { call } | K::Handled { call, .. } => vec![&**call],
+            K::CauseWrap { msg, slot } | K::Report { msg, slot } => vec![&**msg, &**slot],
+            K::Borrow { place, .. } => vec![&**place],
+            K::Binary(_, a, b) | K::IntPow(a, b) => vec![&**a, &**b],
+            K::Logic { lhs, rhs, .. } | K::Maybe { value: lhs, fallback: rhs } => vec![&**lhs, &**rhs],
+            K::Shift { value, amount, .. } => vec![&**value, &**amount],
+            K::Struct(fields) => fields.iter().map(|(_, v)| v).collect(),
+            K::Call(_, args) | K::StrCall(_, args) => args.iter().collect(),
+            K::Join(parts) => parts.iter().collect(),
+            K::Take { leaving, .. } => leaving.as_deref().into_iter().collect(),
+        }
+    }
 }
 
 /// Runtime string functions with a fixed signature (`runtime/strings.h`, and

@@ -225,6 +225,12 @@ impl Cx<'_> {
             }
             Stmt::Expr(e) => self.expr(e, out),
             Stmt::Unsafe(b) => self.block(b, out),
+            Stmt::Resume(_, e) => {
+                if let Some(e) = e {
+                    self.expr(e, out);
+                }
+            }
+            Stmt::Reraise(_) => {}
             // Moving a value out through a borrow is an error later (E0310),
             // so `destroy` of a part of `self` is not evidence.
             Stmt::Destroy(_) | Stmt::Forget(_) | Stmt::Check { .. } => {}
@@ -261,6 +267,12 @@ impl Cx<'_> {
             | ExprKind::TryParse { text: inner, .. }
             | ExprKind::PassUp { call: inner }
             | ExprKind::Radix { value: inner, .. } => self.expr(inner, out),
+            ExprKind::Handled { call, arms, .. } => {
+                self.expr(call, out);
+                for a in arms {
+                    self.block(&a.body, out);
+                }
+            }
             ExprKind::FailMaybe { call: a, fallback: b } | ExprKind::CauseWrap { msg: a, slot: b } | ExprKind::Report { msg: a, slot: b } => {
                 self.expr(a, out);
                 self.expr(b, out);

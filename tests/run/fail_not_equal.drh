@@ -1,0 +1,55 @@
+// `!=` with an `==` that can fail takes `maybe`, `fails` and handlers
+// like any failing call; `match` takes a failure apart.
+in io;
+
+failure Mismatch {
+    Units "units differ" exit 6,
+    Sizes(uint32 a, uint32 b) f"sizes ${a} and ${b}",
+}
+
+struct Port {
+public:
+    uint32 n;
+    uint32 unit;
+
+    bool ==(Port o) fails Mismatch {
+        if (self.unit != o.unit) {
+            fail Units;
+        }
+        if (self.n > 100) {
+            fail Sizes(self.n, o.n);
+        }
+        return self.n == o.n;
+    }
+}
+
+bool differ(Port a, Port b) fails Mismatch {
+    return (a != b) fails;
+}
+
+none main() {
+    Port a = 1, 1;
+    Port b = 2, 1;
+    Port c = 2, 2;
+    Port big = 500, 1;
+    io::outln(((a != b) maybe false)::text());
+    io::outln(((a != a) maybe true)::text());
+    io::outln(((a != c) maybe true)::text());
+    io::outln(((a != c) maybe false)::text());
+    io::outln((differ(a, b) maybe false)::text());
+    bool d = differ(a, c) fails with (Mismatch e) => {
+        match (e) {
+            case Units { io::outln("units"); }
+            case Sizes(uint32 x, uint32 y) { io::outln(f"sizes ${x} ${y}"); }
+        }
+        maybe true;
+    };
+    bool f = differ(big, a) fails with (Mismatch e) => {
+        match (e) {
+            case Units { io::outln("units"); }
+            case Sizes(uint32 x, uint32 y) { io::outln(f"sizes ${x} ${y}"); }
+        }
+        maybe false;
+    };
+    io::outln(f"${d} ${f}");
+}

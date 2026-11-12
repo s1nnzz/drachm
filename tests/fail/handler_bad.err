@@ -1,0 +1,7 @@
+error[E0545]: `parse` cannot fail with `FileError`
+error[E0546]: `ParseError` is handled twice
+error[E0550]: `maybe` as a statement is only for the inside of a handler
+error[E0553]: `otherwise` has to be the last handler, and there is only one
+error[E0544]: `load` can fail with `FileError` here and nothing handles it
+error[E0547]: `parse` returns a value, so ignoring its failure leaves nothing to use
+error[E0541]: this function does not list `FileError` after `fails`

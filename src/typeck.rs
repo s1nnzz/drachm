@@ -1070,6 +1070,7 @@ fn check_body(g: &mut Globals, src: &str, diags: &mut Vec<Diagnostic>, f: &ast::
         fails,
         outcome,
         suffix_ok: None,
+        handlers: Vec::new(),
         method,
         scopes: vec![HashMap::new()],
         locals: Vec::new(),
@@ -1323,6 +1324,8 @@ struct Checker<'a> {
     outcome: Option<Type>,
     /// The call a `maybe` or `fails` is being checked for (an `ast::Expr` address).
     suffix_ok: Option<usize>,
+    /// The failure handlers around the statement being checked, innermost last.
+    handlers: Vec<failures::HandlerCtx>,
 }
 
 fn int_lit(bits: u128, ty: Type) -> hir::Expr {
@@ -1566,6 +1569,7 @@ impl Checker<'_> {
                     None => {}
                 }
             }
+            Stmt::Resume { value, span } => self.resume_stmt(value.as_ref(), *span, out),
             Stmt::Fail { value, because, span } => self.fail_stmt(value, because.as_ref(), *span, out),
             Stmt::Unsafe { body, span } => {
                 if !self.g.unsafe_allowed {
@@ -2381,6 +2385,7 @@ impl Checker<'_> {
         let typed = |kind, ty| Some(Val::Expr(hir::Expr::new(kind, ty)));
         match &e.kind {
             ExprKind::PassUp(call) => self.pass_up_expr(e, call),
+            ExprKind::Handled { call, handlers } => self.handled_expr(e, call, handlers),
             ExprKind::Num(n) if n.unit.is_some() => self.unit_literal(n, e.span),
             ExprKind::Num(n) => match n.suffix {
                 Some(ty) => Some(Val::Expr(self.fit_const(&n.value, ty, e.span, false))),
@@ -2940,6 +2945,7 @@ impl Checker<'_> {
                 self.pointer_convert(v, recv.span, name, name_span, args)
             }
             Some(Val::Expr(v)) if v.ty == Type::Str => self.string_method(v, name, name_span, targs, args),
+            Some(Val::Expr(v)) if self.is_failure_type(v.ty) => self.failure_method(v, recv.span, name, name_span, args),
             value => self.value_method(value, recv, name, name_span, targs, args),
         }
     }

@@ -1,0 +1,14 @@
+in io;
+
+failure ParseError {
+    Empty "nothing to parse",
+}
+
+uint32 parse(string s) fails ParseError {
+    return 1;
+}
+
+none main() {
+    // The handler can end without giving a value.
+    uint32 n = parse("x") fails with (ParseError e) => { io::outln("x"); };
+}

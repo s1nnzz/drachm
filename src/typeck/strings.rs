@@ -113,6 +113,7 @@ impl Checker<'_> {
                 self.struct_not_text(v.ty, e.span);
                 None
             }
+            Type::Enum { .. } if self.is_failure_type(v.ty) => Some(self.failure_message(v)),
             Type::Enum { .. } => {
                 self.enum_not_text(v.ty, e.span);
                 None

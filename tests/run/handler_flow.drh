@@ -1,0 +1,77 @@
+// Handlers that leave: `return`, `fail` (a new failure, and the caught one
+// again), `continue` and `break`; a call that returns nothing; `ignore failure`;
+// a handler inside a handler. Strings must not leak on any path.
+in io;
+
+failure ParseError {
+    Bad(string text) f"cannot parse ${text}",
+}
+
+failure AppError {
+    Broken(string what) f"broken: ${what}" exit 9,
+}
+
+uint32 parse(string s) fails ParseError {
+    if (s == "bad") { fail Bad(s + "!"); }
+    return 5;
+}
+
+none check(string s) fails ParseError {
+    if (s == "bad") { fail Bad(s); }
+}
+
+string early(string s) {
+    string keep = s + " kept";
+    uint32 n = parse(s) fails with (ParseError e) => {
+        io::outln(f"early: ${e}");
+        return keep + " (failed)";
+    };
+    return keep + f" ${n}";
+}
+
+uint32 renamed(string s) fails AppError {
+    uint32 n = parse(copy s) fails with (ParseError e) => {
+        fail Broken(s + "?") because e;
+    };
+    return n;
+}
+
+uint32 again(string s) fails ParseError {
+    return parse(s) fails with (ParseError e) => {
+        io::outln("passing it on");
+        fail e;
+    };
+}
+
+
+none main() {
+    io::outln(early("ok"));
+    io::outln(early("bad"));
+    uint32 x = renamed("ok") maybe 0;
+    uint32 y = renamed("bad") fails with (AppError e) => { io::outln(f"${e}"); maybe 1; };
+    io::outln(f"${x} ${y}");
+    uint32 z = again("bad") fails with (ParseError e) => { maybe 2; };
+    io::outln(f"${z}");
+    for (mut uint32 i = 0; i < 4; i++) {
+        mut string s = "ok";
+        if (i == 1) { s = "bad"; }
+        uint32 v = parse(s) fails with (ParseError e) => {
+            io::outln(f"skip ${i}");
+            continue;
+        };
+        io::outln(f"${i}: ${v}");
+    }
+    check("ok") fails with (ParseError e) => { io::outln("never"); };
+    check("bad") fails with (ParseError e) => { io::outln(f"none call: ${e}"); };
+    check("bad") fails with none;
+    check("bad") ignore failure;
+    uint32 outer = parse("ok") fails with (ParseError e) => { maybe 0; };
+    uint32 nested = parse("bad") fails with (ParseError e) => {
+        uint32 inner = parse("bad") fails with (ParseError e2) => {
+            io::outln(f"inner ${e2} in ${e}");
+            maybe 40;
+        };
+        maybe inner + 2;
+    };
+    io::outln(f"${outer} ${nested}");
+}

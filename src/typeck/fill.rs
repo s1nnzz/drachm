@@ -66,6 +66,7 @@ pub(super) fn declare_defs(g: &mut Globals, src: &str, prog: &ast::Program, diag
             fails: Vec::new(),
             outcome: None,
             suffix_ok: None,
+            handlers: Vec::new(),
         };
         kept.iter().map(|&i| cx.def_values(&prog.defs[i], owners[i].unwrap())).collect()
     };
