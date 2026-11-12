@@ -1,0 +1,4 @@
+none main() {
+    string[?] names = ["ann"];
+    bool found = names::contains("ann");
+}

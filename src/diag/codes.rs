@@ -758,6 +758,11 @@ codes! {
     E0625: "wrong number of items for an array",
         "An array has a fixed length, and its literal must give exactly that many\n\
          items: `uint8[4] a = [1, 2, 3, 4];`.";
+    E0630: "the loop variable's type is not the items' type",
+        "A loop over a list or array gives each item to the variable, so the\n\
+         variable must have the items' type: `for (uint32 n of xs)` over a\n\
+         `uint32[?]`. To look at each item write `&uint32 n`; no conversion\n\
+         happens inside a `for`.";
     W0600: "generic never used",
         "A generic function, struct or enum is only checked when something uses\n\
          it with particular types, so one nothing uses is not checked at all.";

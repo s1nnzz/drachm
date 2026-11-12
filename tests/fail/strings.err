@@ -16,7 +16,7 @@ error[E0201]: `string` has no method `length`
 help: Drachm calls this `len`
 error[E0201]: `string` has no method `shout`
 help: string methods are `len`, `isEmpty`
-error[E0901]: `split` returns a list of strings, and lists are not supported yet
+error[E0101]: expected `uint32`, found `string[?]`
 error[E0103]: `sub` takes 2 arguments, but 1 given
 error[E0103]: `padLeft` takes 1 or 2 arguments, but 3 given
 error[E0101]: expected `uint64`, found `string`

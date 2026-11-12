@@ -524,6 +524,7 @@ impl Checker<'_> {
         let ast::Stmt::ForEach { mutable, ty: ty_name, name, name_span, iter, body, span } = s else { unreachable!() };
         let source = match self.expr(iter) {
             Some(Val::Expr(e)) if e.ty == Type::Str => Some(e),
+            Some(Val::Expr(e)) if e.ty.is_list() || e.ty.is_array() => return self.for_list(s, ty, e, iter.span, out),
             Some(v) => {
                 self.not_iterable(v, iter);
                 None

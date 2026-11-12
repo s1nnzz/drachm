@@ -6,13 +6,15 @@
 //! its elements own and copies by bits when the element is Copy and the whole
 //! is at most 32 bytes (the struct rule). Neither can hold a borrow yet (Q3).
 
+use std::collections::HashMap;
+
 use num_traits::ToPrimitive;
 
-use super::{Checker, Globals, PlaceInfo, Val, optionals, origin};
+use super::{Checker, Globals, Origin, PlaceInfo, Sig, Val, optionals, origin};
 use crate::ast;
 use crate::consts::Const;
 use crate::diag::{Diagnostic, Span, codes};
-use crate::hir::{self, ExprKind as K};
+use crate::hir::{self, ExprKind as K, FuncId};
 use crate::types::Type;
 
 /// Arrays above this many bytes by value are refused (E0901).
@@ -95,7 +97,7 @@ impl Globals {
 }
 
 /// The list methods that are decided (Q10) but not built yet.
-const LATER: &[&str] = &["pop", "get", "insert", "remove", "clear", "contains", "join", "first", "last", "each", "swap"];
+const LATER: &[&str] = &["each", "swap"];
 
 impl Checker<'_> {
     /// `[a, b, c]`. With a type wanted (`to`, a list or an array) the items
@@ -337,6 +339,8 @@ impl Checker<'_> {
                 );
                 None
             }
+            "pop" | "get" | "first" | "last" | "insert" | "remove" | "clear" | "join" => self.list_runtime_method(v, recv, name, name_span, args),
+            "contains" => self.list_contains(v, recv, name_span, args),
             _ => {
                 for a in args {
                     self.expr(a);
@@ -354,6 +358,427 @@ impl Checker<'_> {
             }
         }
     }
+}
+
+impl Checker<'_> {
+    /// The methods that call the runtime (Q10, Q11): `pop()`, `get(i)`,
+    /// `first()`, `last()` (`T?`), `insert(i, v)`, `remove(i)`, `clear()` and
+    /// `join(sep)` of a `string[?]`. Negative indexes count from the end.
+    fn list_runtime_method(&mut self, v: hir::Expr, recv: &ast::Expr, name: &str, name_span: Span, args: &[ast::Expr]) -> Option<Val> {
+        use hir::ListOp;
+        let ty = v.ty;
+        let elem = ty.elem()?;
+        let (op, takes) = match name {
+            "pop" => (ListOp::Pop, 0),
+            "get" => (ListOp::Get, 1),
+            "first" | "last" => (ListOp::Get, 0),
+            "insert" => (ListOp::Insert, 2),
+            "remove" => (ListOp::Remove, 1),
+            "clear" => (ListOp::Clear, 0),
+            _ => (ListOp::Join, 1),
+        };
+        if args.len() != takes {
+            let s = if takes == 1 { "" } else { "s" };
+            self.diags.push(
+                Diagnostic::at(&codes::E0103, name_span, format!("`{name}` takes {takes} argument{s}, but {} given", args.len()))
+                    .note(format!("takes {takes} argument{s}")),
+            );
+            for a in args {
+                self.expr(a);
+            }
+            return None;
+        }
+        if ty.is_array() && op.changes() {
+            for a in args {
+                self.expr(a);
+            }
+            self.diags.push(
+                Diagnostic::at(&codes::E0201, name_span, format!("`{ty}` has no method `{name}`"))
+                    .label(recv.span, format!("this is `{ty}`, an array: its length is fixed"))
+                    .help("use a list (`T[?]`) for something that changes its length"),
+            );
+            return None;
+        }
+        if ty.is_array() {
+            for a in args {
+                self.expr(a);
+            }
+            self.diags.push(Diagnostic::at(&codes::E0901, name_span, format!("`{name}` on an array is not supported yet")));
+            return None;
+        }
+        if op == ListOp::Join && elem != Type::Str {
+            for a in args {
+                self.expr(a);
+            }
+            self.diags.push(
+                Diagnostic::at(&codes::E0201, name_span, format!("`{ty}` has no method `join`"))
+                    .label(recv.span, format!("this list holds `{elem}`"))
+                    .help("`join` puts a list of `string`s together, with the separator between them"),
+            );
+            return None;
+        }
+        if op == ListOp::Get && !self.g.plain_copy(Some(elem)) {
+            for a in args {
+                self.expr(a);
+            }
+            self.diags.push(
+                Diagnostic::at(&codes::E0901, name_span, format!("`{name}` on a list of `{elem}` is not supported yet"))
+                    .note("an item that owns memory cannot be copied or lent out by `get` yet"),
+            );
+            return None;
+        }
+        let mut all = vec![v];
+        let result = match op {
+            ListOp::Pop | ListOp::Get => {
+                if name == "first" || name == "last" {
+                    let at = if name == "first" { 0 } else { -1i64 as u64 as u128 };
+                    let ty_i = if name == "first" { Type::U64 } else { Type::S64 };
+                    all.push(hir::Expr::new(K::Int(at), ty_i).at(name_span));
+                } else if let Some(arg) = args.first() {
+                    let idx = self.index_arg(arg, ty, recv.span)?;
+                    all.push(idx);
+                }
+                optionals::optional_of(self.g, elem)?
+            }
+            ListOp::Insert => {
+                let idx = self.index_arg(&args[0], ty, recv.span)?;
+                let value = self.coerce(&args[1], elem)?;
+                all.push(idx);
+                all.push(value);
+                Type::None
+            }
+            ListOp::Remove => {
+                all.push(self.index_arg(&args[0], ty, recv.span)?);
+                elem
+            }
+            ListOp::Clear => Type::None,
+            ListOp::SwapRemove => elem,
+            ListOp::Join => {
+                all.push(self.coerce(&args[0], Type::Str)?);
+                Type::Str
+            }
+        };
+        Some(Val::Expr(hir::Expr::new(K::ListCall { op, args: all }, result).at(name_span)))
+    }
+}
+
+/// The functions the checker synthesises for lists and arrays: `==` of two
+/// of them, and `contains`. Their bodies are loops over the items, built once
+/// the other functions are checked (`list_func_body`).
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) enum ListFunc {
+    /// `(&L a, &L b) -> bool`: the same length and each item equal.
+    Eq,
+    /// `(&L a, E item) -> bool`: some item is equal to `item`.
+    Contains,
+}
+
+impl Globals {
+    /// The function for `kind` on the list or array type `list` (made now, its
+    /// body later).
+    pub(super) fn list_func(&mut self, kind: ListFunc, list: Type) -> FuncId {
+        if let Some(&f) = self.list_funcs.get(&(kind, list)) {
+            return f;
+        }
+        let elem = list.elem().expect("a list function is made for a list");
+        let borrowed = Type::borrow(false, list);
+        let (name, params) = match kind {
+            ListFunc::Eq => (format!("{list} =="), vec![Some(borrowed), Some(borrowed)]),
+            ListFunc::Contains => (format!("{list} contains"), vec![Some(borrowed), Some(elem)]),
+        };
+        let sig = Sig { name, params, ret: Some(Type::Bool), span: Span::new(0, 0), fails: Vec::new(), outcome: None };
+        let f = self.add_sig(sig);
+        self.list_funcs.insert((kind, list), f);
+        self.list_pending.push((kind, list, f));
+        f
+    }
+
+    /// `a == b` for two items of type `elem`, as a value of type `bool`.
+    fn item_same(&mut self, a: hir::Expr, b: hir::Expr, elem: Type) -> hir::Expr {
+        let eq = |a, b| hir::Expr::new(K::Binary(hir::BinOp::Eq, Box::new(a), Box::new(b)), Type::Bool);
+        if let Some(inner) = elem.struct_id() {
+            return self.struct_eq(inner, a, b);
+        }
+        if elem == Type::Str {
+            return hir::Expr::new(K::StrCall(hir::StrFn::Eq, vec![a, b]), Type::Bool);
+        }
+        if elem.is_list() || elem.is_array() {
+            let f = self.list_func(ListFunc::Eq, elem);
+            let borrow = |place: hir::Expr| hir::Expr::new(K::Borrow { mutable: false, place: Box::new(place) }, Type::borrow(false, elem));
+            return hir::Expr::new(K::Call(f, vec![borrow(a), borrow(b)]), Type::Bool);
+        }
+        eq(a, b)
+    }
+}
+
+/// The body of list function `f` (see `ListFunc`), with `list` the list type.
+/// Hidden locals: `i`, the index. Loop labels are unique within the function.
+pub(super) fn list_func_body(g: &mut Globals, kind: ListFunc, list: Type, f: FuncId) -> hir::Func {
+    let elem = list.elem().expect("a list function is made for a list");
+    let borrowed = Type::borrow(false, list);
+    let none = Span::new(0, 0);
+    let param = |name: &str, ty: Type| hir::Local { name: name.into(), ty, span: none, mutability: hir::Mutability::Fixed, is_param: true, written: None };
+    let mut locals = vec![param("a", borrowed), match kind {
+        ListFunc::Eq => param("b", borrowed),
+        ListFunc::Contains => param("item", elem),
+    }];
+    let i = locals.len();
+    locals.push(hir::Local { name: "i".into(), ty: Type::U64, span: none, mutability: hir::Mutability::Mut, is_param: false, written: None });
+
+    // `*a`, `*b`, the list the parameter refers to, and the items and length of it.
+    let whole = |l: usize| hir::Expr::new(K::Deref(Box::new(hir::Expr::new(K::Local(l), borrowed))), list);
+    let len = |e: hir::Expr| hir::Expr::new(K::Len(Box::new(e)), Type::U64);
+    let item = |e: hir::Expr| hir::Expr::new(K::Index(Box::new(e), Box::new(hir::Expr::new(K::Local(i), Type::U64))), elem);
+    let bin = |op, a, b, ty| hir::Expr::new(K::Binary(op, Box::new(a), Box::new(b)), ty);
+    let int = |v: u128| hir::Expr::new(K::Int(v), Type::U64);
+    let (label_loop, label_if) = (0, 1);
+    let step = vec![hir::Stmt::Assign(hir::Place::local(i), bin(hir::BinOp::Add, hir::Expr::new(K::Local(i), Type::U64), int(1), Type::U64))];
+    let cond = bin(hir::BinOp::Lt, hir::Expr::new(K::Local(i), Type::U64), len(whole(0)), Type::Bool);
+    let body = match kind {
+        ListFunc::Eq => {
+            let same = g.item_same(item(whole(0)), item(whole(1)), elem);
+            let differs = hir::Expr::new(K::Not(Box::new(same)), Type::Bool);
+            let lengths_differ = bin(hir::BinOp::Ne, len(whole(0)), len(whole(1)), Type::Bool);
+            vec![
+                hir::Stmt::If {
+                    label: label_if + 1,
+                    branches: vec![hir::Branch { test: Some(lengths_differ), body: vec![hir::Stmt::Return(Some(hir::Expr::new(K::Bool(false), Type::Bool)))], end: none }],
+                },
+                hir::Stmt::Decl(i),
+                hir::Stmt::Assign(hir::Place::local(i), int(0)),
+                hir::Stmt::Loop {
+                    label: label_loop,
+                    cond: Some(cond),
+                    body: vec![hir::Stmt::If {
+                        label: label_if,
+                        branches: vec![hir::Branch { test: Some(differs), body: vec![hir::Stmt::Return(Some(hir::Expr::new(K::Bool(false), Type::Bool)))], end: none }],
+                    }],
+                    step,
+                    end: none,
+                },
+                hir::Stmt::Return(Some(hir::Expr::new(K::Bool(true), Type::Bool))),
+            ]
+        }
+        ListFunc::Contains => {
+            let same = g.item_same(item(whole(0)), hir::Expr::new(K::Local(1), elem), elem);
+            vec![
+                hir::Stmt::Decl(i),
+                hir::Stmt::Assign(hir::Place::local(i), int(0)),
+                hir::Stmt::Loop {
+                    label: label_loop,
+                    cond: Some(cond),
+                    body: vec![hir::Stmt::If {
+                        label: label_if,
+                        branches: vec![hir::Branch { test: Some(same), body: vec![hir::Stmt::Return(Some(hir::Expr::new(K::Bool(true), Type::Bool)))], end: none }],
+                    }],
+                    step,
+                    end: none,
+                },
+                hir::Stmt::Return(Some(hir::Expr::new(K::Bool(false), Type::Bool))),
+            ]
+        }
+    };
+    hir::Func {
+        symbol: format!("drachm_list_{}", f),
+        params: 2,
+        has_self: false,
+        locals,
+        ret: Type::Bool,
+        body,
+        name_span: none,
+        span: none,
+        body_end: none,
+        is_unsafe: false,
+        lives: None,
+        lives_span: None,
+    }
+}
+
+impl Checker<'_> {
+    /// `a == b` / `a != b` for two lists (or arrays) of one type: the
+    /// synthesised function compares the lengths and then each item. The
+    /// items must have `==` (E0527 for an enum with values).
+    pub(super) fn list_compare(&mut self, op: ast::BinOp, lhs: hir::Expr, lo: Origin, rv: Val, ro: Origin) -> Option<Val> {
+        let t = lhs.ty;
+        let elem = t.elem()?;
+        if let Some(bad) = self.payload_enum_in(elem) {
+            self.diags.push(
+                Diagnostic::at(&codes::E0527, lo.span.to(ro.span), format!("`{t}` holds a `{bad}`, which has variants with values, so it cannot be compared with `{}`", op.symbol()))
+                    .label(lo.span, format!("this is a `{t}`"))
+                    .help("compare the items one by one with `match`, or give the enum no values"),
+            );
+            return None;
+        }
+        let rhs = self.into(rv, t, ro)?;
+        let f = self.g.list_func(ListFunc::Eq, t);
+        let borrow = |e: hir::Expr| hir::Expr::new(K::Borrow { mutable: false, place: Box::new(e) }, Type::borrow(false, t));
+        let eq = hir::Expr::new(K::Call(f, vec![borrow(lhs), borrow(rhs)]), Type::Bool);
+        let value = if op == ast::BinOp::Eq { eq } else { hir::Expr::new(K::Not(Box::new(eq)), Type::Bool) };
+        Some(Val::Expr(value))
+    }
+
+    /// `take xs[i] reorders` (Q11): the item moves out, the last item fills its
+    /// place, and the list is one shorter. `take xs[i] leaving v` is not built yet.
+    pub(super) fn take_item(&mut self, place: &ast::Expr, recv: &ast::Expr, index: &ast::Expr, leaving: Option<&ast::Expr>, reorders: bool) -> Option<Val> {
+        if leaving.is_some() {
+            self.diags.push(
+                Diagnostic::at(&codes::E0901, place.span, "`take xs[i] leaving v` is not supported yet")
+                    .note("it would put `v` in the item's place and keep the length, which is not built yet")
+                    .help("write `take xs[i] reorders`: the last item fills the place"),
+            );
+            return None;
+        }
+        if !reorders {
+            self.diags.push(
+                Diagnostic::at(&codes::E0901, place.span, "`take` of an item of a list is not supported yet")
+                    .help("write `take xs[i] reorders`, which fills its place with the last item, or copy it with `copy`"),
+            );
+            return None;
+        }
+        let base = match self.expr(recv)? {
+            Val::Expr(x) => x,
+            _ => {
+                self.expr(index);
+                return None;
+            }
+        };
+        if base.ty.is_array() {
+            self.diags.push(Diagnostic::at(&codes::E0901, place.span, "`take` of an item of an array is not supported yet").help("an array has a fixed length: copy the item with `copy`"));
+            self.expr(index);
+            return None;
+        }
+        if !base.ty.is_list() {
+            self.not_indexable(recv, base.ty);
+            self.expr(index);
+            return None;
+        }
+        let idx = self.index_arg(index, base.ty, recv.span)?;
+        let elem = base.ty.elem()?;
+        Some(Val::Expr(hir::Expr::new(K::ListCall { op: hir::ListOp::SwapRemove, args: vec![base, idx] }, elem).at(place.span)))
+    }
+
+    /// `xs::contains(item)`: some item of the list is equal to `item`. The
+    /// items must be Copy for now (an owning item would be moved into the search).
+    fn list_contains(&mut self, v: hir::Expr, recv: &ast::Expr, name_span: Span, args: &[ast::Expr]) -> Option<Val> {
+        let ty = v.ty;
+        let elem = ty.elem()?;
+        let [arg] = args else {
+            self.diags.push(
+                Diagnostic::at(&codes::E0103, name_span, format!("`contains` takes 1 argument, but {} given", args.len()))
+                    .note("takes 1 argument"),
+            );
+            for a in args {
+                self.expr(a);
+            }
+            return None;
+        };
+        if !self.g.plain_copy(Some(elem)) {
+            self.expr(arg);
+            self.diags.push(
+                Diagnostic::at(&codes::E0901, name_span, format!("`contains` on a list of `{elem}` is not supported yet"))
+                    .note("searching needs the items to be copied or lent out, which is not decided yet")
+                    .label(recv.span, format!("this is `{ty}`")),
+            );
+            return None;
+        }
+        let item = self.coerce(arg, elem)?;
+        let f = self.g.list_func(ListFunc::Contains, ty);
+        let borrow = hir::Expr::new(K::Borrow { mutable: false, place: Box::new(v) }, Type::borrow(false, ty));
+        Some(Val::Expr(hir::Expr::new(K::Call(f, vec![borrow, item]), Type::Bool)))
+    }
+}
+
+impl Checker<'_> {
+    /// `for (T x of xs) { }` over a list or array (Q8, S6C.2). The loop holds
+    /// a borrow of the list for its whole length (a hidden local), so the body
+    /// cannot change it. Each time round, `x` is:
+    /// - `T x` (`T` is the item type): a copy of the item (a plain read when
+    ///   the item is Copy). The copy is made every time; skipping it when the
+    ///   body never keeps `x` is not done yet.
+    /// - `&T x`: a view of the item; `&mut T x`: a changeable view (the list
+    ///   must be changeable: the loop then holds a `&mut` borrow).
+    ///
+    /// ```text
+    /// owned = list;              // only when the list is not a place
+    /// hidden = &list;            // or &mut list, the changeable views
+    /// i = 0;
+    /// loop while (i < len(*hidden)) {
+    ///     x = item(*hidden, i);  // or copy, or a borrow of it
+    ///     body
+    /// } step { i = i + 1; }
+    /// ```
+    pub(super) fn for_list(&mut self, s: &ast::Stmt, ty: Option<Type>, list: hir::Expr, iter_span: Span, out: &mut hir::Block) {
+        let ast::Stmt::ForEach { mutable, ty: ty_name, name, name_span, body, span, .. } = s else { unreachable!() };
+        let list_ty = list.ty;
+        let elem = list_ty.elem().expect("a list loop is over a list or array");
+        let (view, changing_view) = (Type::borrow(false, elem), Type::borrow(true, elem));
+        let kind = match ty {
+            Some(t) if t == elem => Some(if self.g.plain_copy(Some(elem)) { Item::Read } else { Item::Copy }),
+            Some(t) if t == view => Some(Item::View),
+            Some(t) if t == changing_view => Some(Item::ChangingView),
+            Some(t) => {
+                self.diags.push(
+                    Diagnostic::at(&codes::E0630, ty_name.span, format!("the items are `{elem}`, but the variable is `{t}`"))
+                        .label(iter_span, format!("this holds `{elem}`"))
+                        .note(format!("this is `{t}`"))
+                        .help(format!("write `{elem}` for a copy of each item, or `&{elem}` to look at each one")),
+                );
+                None
+            }
+            None => None,
+        };
+        self.scopes.push(HashMap::new());
+        let var = self.declare(name, ty, *mutable, *name_span, false);
+        let label = self.new_label();
+        let body_end = body.end;
+        let (body, _) = self.looped(label, *span, body, None);
+        self.scopes.pop();
+
+        let Some(kind) = kind else { return };
+        let mut list = list;
+        if !list.is_place() {
+            let owned = self.hidden_named("for list", list_ty);
+            out.push(hir::Stmt::Decl(owned));
+            out.push(hir::Stmt::Assign(hir::Place::local(owned), list));
+            list = hir::Expr::new(K::Local(owned), list_ty);
+        }
+        let changes = matches!(kind, Item::ChangingView);
+        let hidden = self.hidden_named("for list borrow", Type::borrow(changes, list_ty));
+        let index = self.hidden_named("for list index", Type::U64);
+        out.push(hir::Stmt::Assign(hir::Place::local(hidden), hir::Expr::new(K::Borrow { mutable: changes, place: Box::new(list) }, Type::borrow(changes, list_ty))));
+        out.push(hir::Stmt::Assign(hir::Place::local(index), hir::Expr::new(K::Int(0), Type::U64)));
+
+        let whole = || hir::Expr::new(K::Deref(Box::new(hir::Expr::new(K::Local(hidden), Type::borrow(changes, list_ty)))), list_ty);
+        let here = || hir::Expr::new(K::Local(index), Type::U64);
+        let cond = hir::Expr::new(K::Binary(hir::BinOp::Lt, Box::new(here()), Box::new(hir::Expr::new(K::Len(Box::new(whole())), Type::U64))), Type::Bool);
+        let item = hir::Expr::new(K::Index(Box::new(whole()), Box::new(here())), elem);
+        let value = match kind {
+            Item::Read => item,
+            Item::Copy => hir::Expr::new(K::DeepCopy(Box::new(item)), elem),
+            Item::View => hir::Expr::new(K::Borrow { mutable: false, place: Box::new(item) }, view),
+            Item::ChangingView => hir::Expr::new(K::Borrow { mutable: true, place: Box::new(item) }, changing_view),
+        };
+        let mut inner = vec![hir::Stmt::Decl(var), hir::Stmt::Assign(hir::Place::local(var), value)];
+        inner.extend(body);
+        let step = vec![hir::Stmt::Assign(
+            hir::Place::local(index),
+            hir::Expr::new(K::Binary(hir::BinOp::Add, Box::new(here()), Box::new(hir::Expr::new(K::Int(1), Type::U64))), Type::U64),
+        )];
+        out.push(hir::Stmt::Loop { label, cond: Some(cond), body: inner, step, end: body_end });
+    }
+}
+
+/// How a `for` over a list binds each item (see `for_list`).
+#[derive(Clone, Copy)]
+enum Item {
+    /// The item is Copy: a plain read.
+    Read,
+    /// The item owns memory: a copy of it.
+    Copy,
+    /// `&T`: a view.
+    View,
+    /// `&mut T`: a changeable view.
+    ChangingView,
 }
 
 #[cfg(test)]

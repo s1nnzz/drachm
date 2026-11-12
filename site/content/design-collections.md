@@ -62,11 +62,4 @@ for (string name of names) {
 
 ## Splitting strings
 
-Several string methods return lists: `split(sep)`, `lines()` and `chars()` (by
-grapheme), and `list::join(", ")` goes back. Looping over the characters of a
-string with `for` is planned along with them.
-
-```drachm
-string[?] parts = "a,b,c"::split(",");
-string back = parts::join("-");
-```
+Built: see [Arrays and lists](reference-collections.md#splitting-strings).

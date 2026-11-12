@@ -1,6 +1,6 @@
 ---
 title: Arrays and lists
-description: Array and list types, literals, indexing with bounds checks, changing a list, and copying. Methods beyond push and len, for over lists, maps and string splitting are marked as not built yet.
+description: Array and list types, literals, indexing with bounds checks, changing a list, its methods, comparing, for loops, and splitting strings into lists. Maps are marked as not built yet.
 ---
 
 # Arrays and lists
@@ -66,8 +66,8 @@ error[E0620]: index 5 is outside `uint8[4]`
 An item is a place: `xs[i] = v;`, `xs[i] += 1;`, `xs[i]++` and `xs[i].field = v;`
 write to it, and `&xs[i]` borrows it. Reading an item whose type owns memory
 (a `string`, a struct holding one) would leave a hole, so it is E0622: look
-at it with `&xs[i]`, copy it with `copy xs[i]`, or call a method on it. Taking
-an item out (`take xs[i]`) is E0901 for now.
+at it with `&xs[i]`, copy it with `copy xs[i]`, or call a method on it. To
+take one out, see [Taking an item out](#taking-an-item-out).
 
 <!-- example: list-owning -->
 
@@ -86,16 +86,70 @@ onto a list in `self` makes the method one that changes `self`.
 A borrow of an item keeps the list from changing: `push` while `&xs[0]` is
 still used is E0302.
 
+## Reading and removing items
+
+`xs::pop()` takes the last item out, and `xs::remove(i)` takes the item at
+`i` out (the items after it move down). Both give the item, `pop` as a `T?`
+that is `none` for an empty list; `remove` stops the program when `i` is
+outside the list. `xs::insert(i, item)` puts an item in at `i` (`i` may be
+the length, to add at the end). `xs::clear()` drops every item and keeps the
+list usable.
+
+`xs::get(i)`, `xs::first()` and `xs::last()` give the item as a `T?`, which is
+`none` when there is no such item, so they never stop the program. They copy
+the item, so they are for items that copy (numbers, `bool`, Copy structs); a
+list of `string`s is E0901 for now. `xs::join(sep)` puts the items of a
+`string[?]` together with `sep` between them (`""` for an empty list).
+
+<!-- example: list-methods -->
+
+`xs::contains(item)` is true when some item is equal to `item`. Lists and
+arrays compare with `==` and `!=`: they are equal when they have the same
+length and each item is equal to the item at its place. Items compare with
+their own `==` (numbers, `bool`, `string`, structs and lists of those; an
+enum with values is E0527). `contains` needs items that copy: on a list of
+`string`s it is E0901 for now.
+
+<!-- example: list-compare -->
+
+## Walking a list
+
+`for (T x of xs)` goes over the items in order, with `&T x` for a view and
+`&mut T x` for a changeable view; the [loops page](reference-control-flow.md#looping-over-a-list)
+has the rules and the example.
+
+## Taking an item out
+
+`take xs[i] reorders` moves the item at `i` out and gives it. The last item
+fills its place and the list gets one shorter, so the order of the other items
+is not kept. It is the way to take an owning item (a `string`, a struct holding
+one) out of a list. A plain `take xs[i]` is E0901 for now, and so is
+`take xs[i] leaving v`, which would keep the length and the order.
+
+<!-- example: list-take -->
+
+## Splitting strings
+
+`text::split(sep)` gives the pieces between the occurrences of `sep`, in order,
+as a `string[?]`. Empty pieces are kept, so `",a,,b,"` gives five pieces and
+`""` gives one empty piece. `text::lines()` gives the lines without their line
+ends (`\n` or `\r\n`); a last line without a line end counts, and an empty text
+has no lines. `text::chars()` gives the characters, one owned string each, counted
+the way `len()` counts them. Every piece is a copy, so the list keeps working
+after the text is gone. A separator that is empty stops the program.
+
+<!-- example: list-split -->
+
+`join` goes back: `parts::join(sep)` puts the items of a `string[?]` together.
+
 ## Not built yet
 
 <!-- status: not-implemented -->
 
-The rest of the list methods (`pop`, `get`, `insert`, `remove`, `clear`,
-`contains`, `join`, `first`, `last`), `for (T x of xs)` over a list or array,
-comparing lists with `==`, and `split`, `lines` and `chars` returning lists
-are designed (see [Collections](design-collections.md)) and not accepted yet:
-the methods say E0901. Generic structs holding a list (`Stack<T>`) wait for
-generic structs; generic functions over lists already work:
+Maps (`Map<K, V>`, see [Collections](design-collections.md)) are designed and
+not accepted yet.
+
+Generic functions over lists already work:
 
 ```drachm
 T add_first<T>(&T[?] xs) { return xs[0] + xs[1]; }

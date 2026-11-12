@@ -1,0 +1,19 @@
+in io;
+
+none main() {
+    // The item moves out; the last item fills its place.
+    mut uint32[?] xs = [1, 2, 3, 4];
+    uint32 gone = take xs[1] reorders;
+    io::outln(gone::text());
+    io::outln(xs::len()->text());
+    io::outln(xs[1]::text());
+
+    // Owning items move out too; a negative index counts from the end.
+    mut string[?] names = ["ann", "bo", "cy"];
+    string first = take names[0] reorders;
+    io::outln(first);
+    io::outln(names::join(","));
+    string last = take names[-1] reorders;
+    io::outln(last);
+    io::outln(names::join(","));
+}

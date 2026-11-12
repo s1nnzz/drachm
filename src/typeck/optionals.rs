@@ -40,24 +40,42 @@ pub(super) fn declare_optionals(g: &mut Globals, written: &[ast::TypeName]) {
         if inner == Type::None || g.optional_ids.contains_key(&inner) {
             continue;
         }
-        let id = g.enums.len();
-        let name = format!("{inner}?");
-        let ty = Type::Enum { id, name: types::intern(&name) };
-        let none = VariantInfo { name: "none".to_string(), name_span: t.span, fields: Vec::new() };
-        let some = VariantInfo {
-            name: "Some".to_string(),
-            name_span: t.span,
-            fields: vec![FieldInfo { name: "value".to_string(), ty: Some(inner), mutable: false, public: true, span: t.span }],
-        };
-        g.enums.push(super::enums::EnumInfo {
-            name,
-            name_span: t.span,
-            ty,
-            variants: vec![none, some],
-            kind: hir::EnumKind::Optional(inner),
-            owns: false,
-        });
-        g.optional_ids.insert(inner, id);
+        make_optional(g, inner, t.span);
+    }
+}
+
+/// Makes the optional of `inner` (`T?`) and returns its type.
+fn make_optional(g: &mut Globals, inner: Type, span: Span) -> Type {
+    let id = g.enums.len();
+    let name = format!("{inner}?");
+    let ty = Type::Enum { id, name: types::intern(&name) };
+    let none = VariantInfo { name: "none".to_string(), name_span: span, fields: Vec::new() };
+    let some = VariantInfo {
+        name: "Some".to_string(),
+        name_span: span,
+        fields: vec![FieldInfo { name: "value".to_string(), ty: Some(inner), mutable: false, public: true, span }],
+    };
+    g.enums.push(super::enums::EnumInfo {
+        name,
+        name_span: span,
+        ty,
+        variants: vec![none, some],
+        kind: hir::EnumKind::Optional(inner),
+        owns: false,
+    });
+    g.optional_ids.insert(inner, id);
+    ty
+}
+
+/// The optional of `inner`, made now if the file never wrote it: what
+/// `pop()` and `get(i)` give for any item type (S6C.2).
+pub(super) fn optional_of(g: &mut Globals, inner: Type) -> Option<Type> {
+    if inner == Type::None {
+        return None;
+    }
+    match g.optional_ids.get(&inner) {
+        Some(&id) => Some(g.enums[id].ty),
+        None => Some(make_optional(g, inner, Span::new(0, 0))),
     }
 }
 

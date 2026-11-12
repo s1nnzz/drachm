@@ -98,6 +98,8 @@ fn terminator(p: &Program, hir: &hir::Program, k: &TerminatorKind) -> String {
                 Callee::Radix { base, upper } => format!("Radix{base}{}", if *upper { "Upper" } else { "" }),
                 Callee::Join => "Join".to_string(),
                 Callee::ListPush(ty) => format!("ListPush<{ty}>"),
+                Callee::ListOp(op, ty) => format!("List{op:?}<{ty}>"),
+                Callee::ListHas(ty) => format!("ListHas<{ty}>"),
                 Callee::IndexPanic { unsigned: true } => "IndexPanicU".to_string(),
                 Callee::IndexPanic { unsigned: false } => "IndexPanic".to_string(),
             };

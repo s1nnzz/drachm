@@ -712,7 +712,7 @@ impl Gen<'_> {
                     .collect();
                 let a = a.join(", ");
                 match (&dest_lv, f.ret()) {
-                    (Some(d), Type::Str) => self.line(format!("{}(&{d}, {a});", f.name())),
+                    (Some(d), t) if crate::codegen_common::in_memory(t) => self.line(format!("{}(&{d}, {a});", f.name())),
                     (Some(_), t) if t != Type::None => {
                         let d = self.decl(dest.unwrap(), t);
                         self.line(format!("{d} = {}({a});", f.name()))
@@ -800,6 +800,12 @@ impl Gen<'_> {
                 let v = self.operand(&args[0].op);
                 self.line(format!("drachm_str_radix(&{dest}, {}, {}, {base}, {});", halves(&v, ty), signed(ty) as u8, upper as u8));
             }
+            Callee::ListOp(op, elem) => self.list_op(op, elem, args, dest_lv.as_deref()),
+            Callee::ListHas(elem) => {
+                let (list, idx) = (self.operand(&args[0].op), self.operand(&args[1].op));
+                let d = self.decl(dest.unwrap(), Type::Bool);
+                self.line(format!("{d} = drachm_list_get({list}, {idx}, sizeof({})) != NULL;", c_type(elem)));
+            }
             Callee::ListPush(elem) => {
                 let list = self.operand(&args[0].op);
                 let c = c_type(elem);
@@ -818,6 +824,46 @@ impl Gen<'_> {
                 let dest = dest_lv.expect("a string result has a destination");
                 let parts: Vec<String> = args.iter().map(|a| format!("*{}", self.operand(&a.op))).collect();
                 self.line(format!("drachm_str_join(&{dest}, (const drachm_str[]){{{}}}, {});", parts.join(", "), parts.len()));
+            }
+        }
+    }
+}
+
+impl Gen<'_> {
+    /// A list method with a runtime call (see `hir::ListOp`), as C.
+    fn list_op(&mut self, op: hir::ListOp, elem: Type, args: &[Arg], dest_lv: Option<&str>) {
+        use hir::ListOp;
+        let list = self.operand(&args[0].op);
+        let c = c_type(elem);
+        match op {
+            ListOp::Pop => unreachable!("`pop` is a test and a `Remove`, not a call"),
+            ListOp::Get => {
+                let (idx, dest) = (self.operand(&args[1].op), dest_lv.expect("an item has a destination"));
+                self.line(format!("{{ void *g = drachm_list_get({list}, {idx}, sizeof({c})); if (g) memcpy(&{dest}, g, sizeof({c})); }}"));
+            }
+            ListOp::Remove | ListOp::SwapRemove => {
+                let (idx, dest) = (self.operand(&args[1].op), dest_lv.expect("an item has a destination"));
+                let name = if op == ListOp::Remove { "drachm_list_remove" } else { "drachm_list_swap_remove" };
+                self.line(format!("{name}({list}, {idx}, &{dest}, sizeof({c}));"));
+            }
+            ListOp::Insert => {
+                let (idx, value) = (self.operand(&args[1].op), self.operand(&args[2].op));
+                self.line(format!("{{ {c} v = {value}; drachm_list_insert({list}, {idx}, &v, sizeof({c}), _Alignof({c})); }}"));
+            }
+            ListOp::Clear => {
+                let f = if !crate::mir::needs_drop(self.hir, elem) {
+                    "NULL".to_string()
+                } else if elem == Type::Str {
+                    "(drachm_drop_fn)drachm_str_drop".to_string()
+                } else {
+                    format!("(drachm_drop_fn)drachm_drop_{}", glue_name(elem))
+                };
+                self.line(format!("drachm_list_clear({list}, sizeof({c}), {f});"));
+            }
+            ListOp::Join => {
+                let dest = dest_lv.expect("a string result has a destination");
+                let sep = self.operand(&args[1].op);
+                self.line(format!("drachm_list_join(&{dest}, {list}, {sep});"));
             }
         }
     }

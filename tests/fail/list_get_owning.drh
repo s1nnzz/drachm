@@ -1,0 +1,4 @@
+none main() {
+    string[?] names = ["ann"];
+    string? first = names::get(0);
+}

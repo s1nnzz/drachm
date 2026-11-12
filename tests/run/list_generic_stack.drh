@@ -1,0 +1,75 @@
+in io;
+
+struct Stack<T> {
+    public:
+    T[?] items;
+
+    none push(T item) {
+        self.items::push(item);
+    }
+
+    uint64 size() {
+        return self.items::len();
+    }
+}
+
+enum Shape {
+    Empty,
+    Points(uint32[?] xs),
+}
+
+T first_of<T>(&T[?] xs) {
+    return copy xs[0];
+}
+
+&T first_ref<T>(&T[?] xs) {
+    return &xs[0];
+}
+
+uint32 total(Shape s) {
+    match (s) {
+        case Points(take uint32[?] xs) {
+            mut uint32 sum = 0;
+            for (uint32 x of xs) {
+                sum += x;
+            }
+            return sum;
+        }
+        case Empty {
+            return 0;
+        }
+    }
+}
+
+none main() {
+    uint32[?] none_yet = [];
+    mut Stack<uint32> nums = new Stack<uint32> of (copy none_yet);
+    nums::push(3);
+    nums::push(4);
+    io::outln(nums::size()->text());
+    io::outln(nums.items[1]::text());
+
+    string[?] empty_names = [];
+    mut Stack<string> names = new Stack<string> of (empty_names);
+    names::push("ann");
+    names::push("bo");
+    io::outln(names::size()->text());
+    io::outln(names.items[0]);
+
+    uint32[?] xs = [5, 6];
+    io::outln(first_of(&xs)::text());
+    uint32[?]? maybe_xs = copy xs;
+    io::outln((maybe_xs has value)::text());
+    io::outln(((maybe_xs maybe none_yet))::len()->text());
+
+    Shape s = Points([1, 2, 3]);
+    io::outln(total(s)::text());
+    io::outln(total(Empty)::text());
+
+    &uint32 r = first_ref(&xs);
+    io::outln(r::text());
+    string[?] words = ["hi", "there"];
+    io::outln(first_of(&words));
+    &string w = first_ref(&words);
+    io::outln(w);
+}

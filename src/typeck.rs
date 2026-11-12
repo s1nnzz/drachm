@@ -112,6 +112,10 @@ struct Globals {
     eq_funcs: HashMap<StructId, FuncId>,
     /// Automatic `==` functions asked for whose bodies are not built yet.
     eq_pending: Vec<StructId>,
+    /// List `==` and `contains` functions by kind and list type (S6C.2), and
+    /// those whose bodies are not built yet.
+    list_funcs: HashMap<(lists::ListFunc, Type), FuncId>,
+    list_pending: Vec<(lists::ListFunc, Type, FuncId)>,
     io_imported: bool,
     /// The file flag `//--!$unsafe: true`.
     unsafe_allowed: bool,
@@ -553,10 +557,18 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
     // Instances made while bodies were checked can hold themselves too.
     report_cycles(&g, diags);
 
-    while let Some(s) = g.eq_pending.pop() {
-        let f = auto_eq(&mut g, s);
-        let id = g.eq_funcs[&s];
-        emit(&mut funcs, id, f);
+    // A list function may ask for struct `==` and the other way round: take both until neither is left.
+    loop {
+        if let Some(s) = g.eq_pending.pop() {
+            let f = auto_eq(&mut g, s);
+            let id = g.eq_funcs[&s];
+            emit(&mut funcs, id, f);
+        } else if let Some((kind, list, id)) = g.list_pending.pop() {
+            let f = lists::list_func_body(&mut g, kind, list, id);
+            emit(&mut funcs, id, f);
+        } else {
+            break;
+        }
     }
 
     for (id, f) in failures::finish(&mut g) {
@@ -2702,7 +2714,7 @@ impl Checker<'_> {
                 }
             }
             ExprKind::CopyOf(inner) => self.copy_expr(e, inner),
-            ExprKind::Take { place, leaving } => self.take_expr(e, place, leaving.as_deref()),
+            ExprKind::Take { place, leaving, reorders } => self.take_expr(e, place, leaving.as_deref(), *reorders),
             ExprKind::Lend(inner) => self.lend_expr(e, inner),
             ExprKind::AddressOf(inner) => self.address_expr(e, inner),
             ExprKind::New { name, name_span, targs, values } => {
@@ -2828,7 +2840,7 @@ impl Checker<'_> {
     }
 
     /// `take p.f` / `take p.f leaving v`.
-    fn take_expr(&mut self, e: &ast::Expr, place: &ast::Expr, leaving: Option<&ast::Expr>) -> Option<Val> {
+    fn take_expr(&mut self, e: &ast::Expr, place: &ast::Expr, leaving: Option<&ast::Expr>, reorders: bool) -> Option<Val> {
         let unsupported = |cx: &mut Self| {
             cx.diags.push(Diagnostic::at(&codes::E0901, place.span, "this form of `take` is not supported yet"));
         };
@@ -2842,12 +2854,8 @@ impl Checker<'_> {
             self.expr(place);
             return None;
         }
-        if matches!(place.kind, ExprKind::Index { .. }) {
-            self.diags.push(
-                Diagnostic::at(&codes::E0901, place.span, "`take` of an item of a list is not supported yet")
-                    .help("copy it with `copy`, or borrow it with `&`"),
-            );
-            return None;
+        if let ExprKind::Index { recv, index } = &place.kind {
+            return self.take_item(place, recv, index, leaving, reorders);
         }
         if !matches!(place.kind, ExprKind::Field { .. }) {
             unsupported(self);
@@ -3463,14 +3471,6 @@ impl Checker<'_> {
         let sym = op.symbol();
         let class = op.class();
 
-        if let Val::Expr(x) = &lv && (x.ty.is_list() || x.ty.is_array()) && matches!(op, BinOp::Eq | BinOp::Ne) {
-            self.diags.push(
-                Diagnostic::at(&codes::E0901, lo.span, format!("comparing `{}` with `{sym}` is not supported yet", x.ty))
-                    .note(format!("this is `{}`", x.ty))
-                    .help("compare the lengths and the items one by one for now"),
-            );
-            return None;
-        }
         if let (Val::Const(a), Val::Const(b)) = (&lv, &rv) {
             return match Const::binary(op, a, b) {
                 Ok(Folded::Value(c)) => Some(Val::Const(c)),
@@ -3523,6 +3523,9 @@ impl Checker<'_> {
         }
         if lead.enum_id().is_some() && matches!(op, BinOp::Eq | BinOp::Ne) {
             return self.enum_compare(op, lhs, lo, rv, ro);
+        }
+        if (lead.is_list() || lead.is_array()) && matches!(op, BinOp::Eq | BinOp::Ne) {
+            return self.list_compare(op, lhs, lo, rv, ro);
         }
 
         // Two pointers compare their addresses (owner answers, Q14). `*T` and
