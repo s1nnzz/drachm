@@ -1,0 +1,42 @@
+in io;
+
+// Numbers and string already implement Zero, Equal, Ordered and Text.
+T first_or_zero<T with Zero>(T x, bool use) {
+    if (use) { return x; }
+    return T::zero();
+}
+
+T larger<T with Ordered>(T a, T b) {
+    if (a > b) { return a; }
+    return b;
+}
+
+// Your own interface, and a type you do not own promising it from outside.
+interface Describe {
+    string describe();
+}
+
+uint8 with Describe {
+    string describe() { return f"the byte ${self}"; }
+}
+
+struct Point {
+    public:
+    float64 x;
+    float64 y;
+}
+
+Point with Describe {
+    string describe() { return f"point ${self.x}, ${self.y}"; }
+}
+
+string say<T with Describe>(T v) { return v::describe(); }
+
+none main() {
+    io::outln(first_or_zero(8, false)::text());
+    io::outln(larger(2.5, 1.5)::text());
+    uint8 b = 7;
+    io::outln(say(b));
+    Point p = 1.5, 2.5;
+    io::outln(say(p));
+}

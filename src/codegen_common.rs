@@ -55,7 +55,9 @@ pub(crate) fn signature(module: &ObjectModule, f: &Func) -> Signature {
     if in_memory(f.ret) {
         s.params.push(AbiParam::new(ptr));
     }
-    s.params.extend(f.locals[..f.params].iter().map(|l| AbiParam::new(cl_type(l.ty).unwrap_or(ptr))));
+    // A method's `self` is passed as a borrow of the receiver, whatever its type
+    // (a struct is in memory anyway; a number added to by `uint32 with I { }` is not).
+    s.params.extend(f.locals[..f.params].iter().enumerate().map(|(i, l)| AbiParam::new(if i == 0 && f.has_self { ptr } else { cl_type(l.ty).unwrap_or(ptr) })));
     s.returns.extend(cl_type(f.ret).map(AbiParam::new));
     s
 }

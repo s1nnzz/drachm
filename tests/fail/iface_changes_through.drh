@@ -1,0 +1,30 @@
+interface Counter {
+    none bump() changes self;
+    uint32 get();
+}
+
+struct Calm with Counter {
+public:
+    uint32 n;
+    none bump() { }
+    uint32 get() { return self.n; }
+}
+
+// The interface says bump changes self, whatever Calm's own bump does.
+none shared<T with Counter>(&T c) {
+    c::bump();
+}
+
+none plain<T with Counter>(T c) {
+    c::bump();
+}
+
+none fine_mut<T with Counter>(&mut T c) {
+    c::bump();
+}
+
+none fine_binding<T with Counter>(mut T c) {
+    c::bump();
+}
+
+none main() { }

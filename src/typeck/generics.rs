@@ -937,7 +937,7 @@ pub(super) fn instantiate_type(g: &mut Globals, name: &str, types: Vec<Type>, at
             for (j, mid) in ids.into_iter().enumerate() {
                 let Some(mid) = mid else { continue };
                 let m = &s.methods[j];
-                let ctx = MethodCtx { struct_id: id, func: mid, static_span: m.is_static, ctor: m.ctor, no_fails: false };
+                let ctx = MethodCtx { struct_id: id, func: mid, static_span: m.is_static, ctor: m.ctor, no_fails: false, ext: None };
                 let symbol = method_symbol(&display, m, j);
                 g.mono.pending.push_back(Pending {
                     body: Body::Method { si: index, mi: j, ctx, symbol: symbol.clone(), id: mid },
@@ -1089,6 +1089,7 @@ fn rollback(g: &mut Globals, m: Mark) {
     g.ifaces.conforms.retain(|(t, _)| !is_new(*t, ns, ne));
     g.ifaces.records.truncate(m.records);
     g.ifaces.implementing.retain(|&f| f < nf);
+    g.ifaces.changing.retain(|&f| f < nf);
     g.mono.instances.retain(|k, &mut v| v < nf && !k.1.iter().any(|t| is_new(*t, ns, ne)));
     g.mono.type_instances.retain(|k, v| !is_new(*v, ns, ne) && !k.1.iter().any(|t| is_new(*t, ns, ne)));
     g.mono.origin.retain(|k, _| !is_new(*k, ns, ne));

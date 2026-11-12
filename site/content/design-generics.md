@@ -30,11 +30,10 @@ uint32 n = max<uint32>(5, 9);
 
 ## Constraints with with
 
-`with` after a type parameter requires the type to have an interface.
-
-```drachm
-float64 total<T with Shape>(T[?] shapes) { /* ... */ }
-```
+`with` after a type parameter requires the type to have an interface:
+`float64 total<T with Shape>(T a, T b)`. This builds today, and is described in
+[Generics](reference-generics.md), along with the built-in interfaces and with
+types you do not own promising an interface.
 
 ## Interfaces
 

@@ -1,0 +1,3 @@
+error[E0311]: cannot call `bump` through a `&` borrow: `bump` changes `self`
+error[E0312]: cannot call `bump` on `c`: `bump` changes `self`, and it is neither `mut` nor `open`
+in the definition of `shared`

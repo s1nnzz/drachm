@@ -2619,8 +2619,39 @@ mod tests {
             assert!(p.structs[0].stays.is_some());
             assert_eq!(p.structs[0].lives[0].0, "a");
         }
-        let (_, d) = parse_src("struct S with Foo { }");
-        assert_eq!(errors(&d), ["interfaces are not supported yet"]);
+        for src in ["struct S with A and B stays { }", "struct S stays with A and B lives a { &string a; }", "struct S defaults D with A { }"] {
+            let (p, d) = parse_src(src);
+            assert!(d.is_empty(), "{src}: {:?}", errors(&d));
+            assert!(!p.structs[0].with.is_empty());
+        }
+        let (p, _) = parse_src("struct S with A and B { }");
+        assert_eq!(p.structs[0].with.iter().map(|t| t.name.as_str()).collect::<Vec<_>>(), ["A", "B"]);
+    }
+
+    #[test]
+    fn interface_items() {
+        let (p, d) = parse_src(
+            "interface Shape extends Named and Solid { float64 area(); static Self unit(); bool <(Self o); none bump(uint32 n) changes self; float64 x; }\n\
+             uint32 with Zero { static uint32 zero() { return 0; } }\n\
+             none f() { uint32 changes = 3; changes += 1; }",
+        );
+        assert!(d.is_empty(), "{:?}", errors(&d));
+        let i = &p.interfaces[0];
+        assert_eq!(i.extends.len(), 2);
+        assert_eq!(i.methods.len(), 4);
+        assert_eq!(i.fields.len(), 1);
+        assert!(i.methods[1].is_static.is_some() && i.methods[1].ret.name == "Self");
+        assert!(i.methods[2].operator.is_some());
+        assert!(i.methods[3].changes_self.is_some() && i.methods[0].changes_self.is_none());
+        assert_eq!(p.impls[0].ty.name, "uint32");
+        assert_eq!(p.impls[0].with[0].name, "Zero");
+        assert_eq!(p.impls[0].methods.len(), 1);
+    }
+
+    #[test]
+    fn changes_self_only_in_interfaces() {
+        let (_, d) = parse_src("struct S { none f() changes self { } }");
+        assert_eq!(errors(&d), ["`changes self` is only written in interfaces"]);
     }
 
     #[test]

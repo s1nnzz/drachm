@@ -472,7 +472,6 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
         })
         .collect();
 
-    interfaces::finish(&mut g, prog, &struct_ids, diags);
     fill::declare_defs(&mut g, src, prog, diags);
 
     match g.funcs_by_name.get("main").map(|&id| &g.sigs[id]) {
@@ -488,6 +487,8 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
         _ => {}
     }
 
+    let impl_targets = interfaces::declare_impls(&mut g, prog, diags);
+    interfaces::finish(&mut g, prog, &struct_ids, &impl_targets, diags);
     generics::definition_pass(&mut g, src, prog, diags);
 
     // Bodies. Duplicates are still checked, but only the first definition is emitted.
@@ -516,11 +517,34 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
                 static_span: m.is_static,
                 ctor: m.ctor,
                 no_fails: false,
+                ext: None,
             };
             let checked = check_body(&mut g, src, diags, &m.func, Some(ctx), symbol);
             emit(&mut funcs, mid, checked);
             if m.is_static.is_none() && m.operator.is_none() && !m.ctor && !g.self_use[mid].used && m.func.name != "drop" && !g.ifaces.implementing.contains(&mid) {
                 diags.push(never_uses_self(src, &s.name, m));
+            }
+        }
+    }
+
+    for (decl, target) in prog.impls.iter().zip(&impl_targets) {
+        let Some(target) = target else { continue };
+        for (j, (m, mid)) in decl.methods.iter().zip(&target.ids).enumerate() {
+            let Some(mid) = *mid else { continue };
+            let sname = target.ty.to_string();
+            let symbol = method_symbol(&sname, m, 1000 + j);
+            let ctx = MethodCtx {
+                struct_id: target.struct_id.unwrap_or(usize::MAX),
+                func: mid,
+                static_span: m.is_static,
+                ctor: m.ctor,
+                no_fails: false,
+                ext: target.struct_id.is_none().then_some(target.ty),
+            };
+            let checked = check_body(&mut g, src, diags, &m.func, Some(ctx), symbol);
+            emit(&mut funcs, mid, checked);
+            if m.is_static.is_none() && m.operator.is_none() && !m.ctor && !g.self_use[mid].used && !g.ifaces.implementing.contains(&mid) {
+                diags.push(never_uses_self(src, &sname, m));
             }
         }
     }
@@ -824,10 +848,15 @@ fn declare_fields(g: &mut Globals, id: StructId, s: &ast::Struct, diags: &mut Ve
 
 /// Signatures of struct `id`'s methods, checking operator methods' shapes.
 fn declare_methods(g: &mut Globals, id: StructId, s: &ast::Struct, diags: &mut Vec<Diagnostic>) -> Vec<Option<FuncId>> {
+    declare_method_list(g, id, &s.methods, diags)
+}
+
+/// Signatures of `methods`, which belong to struct `id` (its own, or added by `T with I { }`).
+fn declare_method_list(g: &mut Globals, id: StructId, methods: &[ast::Method], diags: &mut Vec<Diagnostic>) -> Vec<Option<FuncId>> {
     let self_ty = g.structs[id].ty;
     let sname = g.structs[id].name.clone();
     let mut ids = Vec::new();
-    for m in &s.methods {
+    for m in methods {
         if m.ctor {
             ids.push(construct::declare_ctor(g, id, m, diags));
             continue;
@@ -1067,6 +1096,8 @@ struct MethodCtx {
     ctor: bool,
     /// Constructors, operators and `drop` may not say `fails` yet.
     no_fails: bool,
+    /// A method added to a built-in type (`uint32 with Zero { }`): the type of `self`.
+    ext: Option<Type>,
 }
 
 fn check_body(g: &mut Globals, src: &str, diags: &mut Vec<Diagnostic>, f: &ast::Func, method: Option<MethodCtx>, symbol: String) -> hir::Func {
@@ -1092,7 +1123,7 @@ fn check_body(g: &mut Globals, src: &str, diags: &mut Vec<Diagnostic>, f: &ast::
     };
     let has_self = method.is_some_and(|m| m.static_span.is_none() && !m.ctor);
     if let Some(m) = method.filter(|_| has_self) {
-        let ty = cx.g.structs[m.struct_id].ty;
+        let ty = m.ext.unwrap_or_else(|| cx.g.structs[m.struct_id].ty);
         let id = cx.declare("self", Some(ty), false, f.name_span, true);
         cx.locals[id].is_self = true;
     }
@@ -3078,6 +3109,9 @@ impl Checker<'_> {
 
     fn method(&mut self, recv: &ast::Expr, name: &str, name_span: Span, targs: &[ast::TypeName], args: &[ast::Expr], span: Span) -> Option<Val> {
         match self.expr(recv) {
+            Some(Val::Expr(v)) if self.g.ifaces.ext.get(&v.ty).is_some_and(|ms| ms.iter().any(|m| m.name == name)) => {
+                self.ext_method(v, recv.span, name, name_span, targs, args, span)
+            }
             Some(Val::Expr(v)) if v.ty.struct_id().is_some() => {
                 let s = v.ty.struct_id().unwrap();
                 self.struct_method(s, v, recv.span, name, name_span, targs, args, span)
@@ -3252,6 +3286,9 @@ impl Checker<'_> {
                 self.expr(a);
             }
             return None;
+        }
+        if self.g.ifaces.changing.contains(&m.func) {
+            self.changing_call(&recv, name, name_span);
         }
         let visible = self.check_method_visible(s, &m, name_span);
         self.no_targs(name, targs);

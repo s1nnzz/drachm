@@ -1,0 +1,43 @@
+in io;
+
+interface Shape {
+    float64 area();
+}
+
+struct Circle with Shape {
+    public:
+    float64 r;
+    float64 area() { return 3.0 * self.r * self.r; }
+}
+
+struct Square with Shape {
+    public:
+    float64 side;
+    float64 area() { return self.side * self.side; }
+}
+
+// `T with Shape`: any type that implements Shape. The body can use only what
+// Shape promises, and is checked once, here, even before anyone calls it.
+float64 total<T with Shape>(T a, T b) {
+    return a::area() + b::area();
+}
+
+// A generic struct can be constrained too, and can implement the interface
+// itself whenever what it holds does.
+struct Pair<T with Shape> with Shape {
+    public:
+    T first;
+    T second;
+    float64 area() { return total(self.first, self.second); }
+}
+
+none main() {
+    Circle c1 = 1.0;
+    Circle c2 = 2.0;
+    Square s = 3.0;
+    io::outln(f"circles ${total(c1, c2)}");
+    io::outln(f"square ${total(s, s)}");
+    Pair<Circle> pair = new Pair<Circle> of (c1, c2);
+    io::outln(f"pair ${pair::area()}");
+    io::outln(f"pairs ${total(pair, pair)}");
+}

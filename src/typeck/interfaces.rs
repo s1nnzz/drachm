@@ -25,7 +25,7 @@
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-use super::{similar, Checker, FieldInfo, Globals, MethodInfo, Sig, StructInfo, Val};
+use super::{check_signature_extras, declare_method_list, failures, similar, Checker, FieldInfo, Globals, MethodInfo, Sig, StructInfo, Val};
 use crate::ast;
 use crate::diag::{codes, Diagnostic, Span};
 use crate::hir::{self, StructId};
@@ -80,11 +80,15 @@ pub(super) struct State {
     pub records: Vec<hir::Conformance>,
     /// Methods that stand for an interface's: they need a `self` even if unused.
     pub implementing: HashSet<hir::FuncId>,
+    /// The placeholder methods whose interface says `changes self`.
+    pub changing: HashSet<hir::FuncId>,
     /// Every signature exists: conformance can be checked at once.
     pub ready: bool,
     deferred: Vec<Deferred>,
     /// The text of the file, to quote interface lines in messages.
     pub src: String,
+    /// Methods added to built-in types by `uint32 with Zero { }`.
+    pub ext: HashMap<Type, Vec<MethodInfo>>,
 }
 
 // ---- declarations ----------------------------------------------------------
@@ -434,10 +438,18 @@ fn promised(g: &Globals, owner: usize, what: &str) -> String {
 
 /// Checks that the methods and fields of `ty` (struct `sid`) are what the
 /// interfaces in `with` list, and records that it implements them.
-pub(super) fn check_conformance(g: &mut Globals, ty: Type, sid: StructId, with: &[ast::TypeName], diags: &mut Vec<Diagnostic>) {
-    let sname = g.structs[sid].name.clone();
+pub(super) fn check_conformance(g: &mut Globals, ty: Type, with: &[ast::TypeName], diags: &mut Vec<Diagnostic>) {
+    let sname = ty.to_string();
     for w in with {
         let Some(k) = lookup(g, w, diags) else { continue };
+        if g.ifaces.list[k].builtin && builtin_has(ty, &g.ifaces.list[k].name) {
+            diags.push(
+                Diagnostic::at(&codes::E0202, w.span, format!("`{sname}` already implements `{}`", g.ifaces.list[k].name))
+                    .note("it is built in for this type")
+                    .help("leave this one out"),
+            );
+            continue;
+        }
         let methods = g.ifaces.list[k].methods.clone();
         let fields = g.ifaces.list[k].fields.clone();
         let iname = g.ifaces.list[k].name.clone();
@@ -447,7 +459,7 @@ pub(super) fn check_conformance(g: &mut Globals, ty: Type, sid: StructId, with: 
             let builtin = g.ifaces.list[fm.owner].builtin;
             let owner_name = decl.name.clone();
             let secondary = |d: Diagnostic, what: String| if builtin { d } else { d.label(m.span, what) };
-            let found = g.structs[sid].methods.iter().find(|x| x.name == m.name).cloned();
+            let found = methods_of(g, ty).into_iter().find(|x| x.name == m.name);
             let Some(found) = found else {
                 // Every struct has `==` and `!=` by itself.
                 if matches!(m.operator, Some(ast::BinOp::Eq | ast::BinOp::Ne)) {
@@ -511,7 +523,7 @@ pub(super) fn check_conformance(g: &mut Globals, ty: Type, sid: StructId, with: 
             let builtin = g.ifaces.list[ff.owner].builtin;
             let want = field_for(g, f, ty);
             let want_text = want.map_or_else(|| f.ty.name.clone(), |t| t.to_string());
-            let have = g.structs[sid].fields.iter().find(|x| x.name == f.name).map(|x| (x.ty, x.public, x.span));
+            let have = ty.struct_id().and_then(|sid| g.structs[sid].fields.iter().find(|x| x.name == f.name).map(|x| (x.ty, x.public, x.span)));
             let owner_name = decl.name.clone();
             let secondary = |d: Diagnostic, what: String| if builtin { d } else { d.label(f.name_span, what) };
             match have {
@@ -560,22 +572,26 @@ fn written(t: &ast::TypeName, sname: &str) -> String {
 
 /// Checks the structs that name interfaces, once every signature exists, and
 /// then whatever was waiting for that.
-pub(super) fn finish(g: &mut Globals, prog: &ast::Program, struct_ids: &[Option<StructId>], diags: &mut Vec<Diagnostic>) {
+pub(super) fn finish(g: &mut Globals, prog: &ast::Program, struct_ids: &[Option<StructId>], impls: &[Option<ImplTarget>], diags: &mut Vec<Diagnostic>) {
     for (s, id) in prog.structs.iter().zip(struct_ids) {
         if let Some(id) = *id
             && !s.with.is_empty()
         {
             let ty = g.structs[id].ty;
-            check_conformance(g, ty, id, &s.with, diags);
+            check_conformance(g, ty, &s.with, diags);
+        }
+    }
+    for (decl, target) in prog.impls.iter().zip(impls) {
+        if let Some(t) = target {
+            check_conformance(g, t.ty, &decl.with, diags);
         }
     }
     g.ifaces.ready = true;
     for d in std::mem::take(&mut g.ifaces.deferred) {
         match d {
             Deferred::Conform { ty, with, display, at } => {
-                let Some(id) = ty.struct_id() else { continue };
                 let mut local = Vec::new();
-                check_conformance(g, ty, id, &with, &mut local);
+                check_conformance(g, ty, &with, &mut local);
                 for d in local {
                     diags.push(d.note_line(format!("while checking `{display}`, instantiated here")).label(at, "instantiated here"));
                 }
@@ -596,9 +612,8 @@ pub(super) fn on_instance(g: &mut Globals, ty: Type, with: &[ast::TypeName], dis
     if with.is_empty() {
         return;
     }
-    let Some(id) = ty.struct_id() else { return };
     if g.ifaces.ready {
-        check_conformance(g, ty, id, with, diags);
+        check_conformance(g, ty, with, diags);
     } else {
         g.ifaces.deferred.push(Deferred::Conform { ty, with: with.to_vec(), display: display.to_string(), at });
     }
@@ -749,6 +764,9 @@ impl Checker<'_> {
             Type::Struct { id, .. } => self.static_call(id, name, name_span, targs, args, span),
             Type::Enum { id, .. } => self.qualified_variant(id, name, name_span, args, span),
             _ => {
+                if self.g.ifaces.ext.get(&ty).is_some_and(|ms| ms.iter().any(|m| m.name == name && m.is_static)) {
+                    return self.ext_static(ty, name, args, span);
+                }
                 for a in args {
                     self.expr(a);
                 }
@@ -816,6 +834,9 @@ pub(super) fn placeholder(g: &mut Globals, tp: &ast::TypeParam) -> Type {
             }
             let (params, ret) = sig_for(g, m, ty);
             let func = g.add_sig(Sig { name: format!("{}::{}", tp.name, m.name), params, ret, span: m.span, fails: Vec::new(), outcome: None });
+            if fm.changes {
+                g.ifaces.changing.insert(func);
+            }
             g.structs[id].methods.push(method_info(&m.name, m.operator, func, m.is_static.is_some()));
         }
         for ff in fields {
@@ -862,5 +883,141 @@ impl Checker<'_> {
         let d = Diagnostic::at(&codes::E0606, at, message).note(format!("not offered by {all}")).label(first, format!("`{name}` is constrained here")).help(help);
         self.diags.push(d);
         true
+    }
+}
+
+/// The methods `ty` has: a struct's own and added ones, or those added to a built-in type.
+fn methods_of(g: &Globals, ty: Type) -> Vec<MethodInfo> {
+    match ty.struct_id() {
+        Some(sid) => g.structs[sid].methods.clone(),
+        None => g.ifaces.ext.get(&ty).cloned().unwrap_or_default(),
+    }
+}
+
+/// A type that `T with I { methods }` adds methods to.
+pub(super) struct ImplTarget {
+    pub ty: Type,
+    /// Set when it is a struct: the methods are added to it.
+    pub struct_id: Option<StructId>,
+    pub ids: Vec<Option<hir::FuncId>>,
+}
+
+/// Declares the signatures of the methods that `T with I { }` blocks add.
+pub(super) fn declare_impls(g: &mut Globals, prog: &ast::Program, diags: &mut Vec<Diagnostic>) -> Vec<Option<ImplTarget>> {
+    let mut out = Vec::new();
+    for decl in &prog.impls {
+        let t = &decl.ty;
+        if !t.mods.is_empty() || t.optional.is_some() || !t.dims.is_empty() || t.unit.is_some() {
+            diags.push(Diagnostic::at(&codes::E0901, t.span, "only a plain type name can promise an interface this way yet"));
+            out.push(None);
+            continue;
+        }
+        let Some(ty) = g.resolve(t, diags) else {
+            out.push(None);
+            continue;
+        };
+        let target = match ty {
+            Type::Struct { id, .. } if !g.mono.origin.contains_key(&ty) => {
+                let ids = declare_method_list(g, id, &decl.methods, diags);
+                Some(ImplTarget { ty, struct_id: Some(id), ids })
+            }
+            Type::Int { .. } | Type::Float(_) | Type::Bool | Type::Str => {
+                let mut ids = Vec::new();
+                for m in &decl.methods {
+                    ids.push(declare_ext_method(g, ty, m, diags));
+                }
+                Some(ImplTarget { ty, struct_id: None, ids })
+            }
+            _ => {
+                diags.push(
+                    Diagnostic::at(&codes::E0901, t.span, format!("`{ty}` cannot promise an interface this way yet"))
+                        .help("structs, numbers, `bool` and `string` can"),
+                );
+                None
+            }
+        };
+        out.push(target);
+    }
+    out
+}
+
+fn declare_ext_method(g: &mut Globals, ty: Type, m: &ast::Method, diags: &mut Vec<Diagnostic>) -> Option<hir::FuncId> {
+    let f = &m.func;
+    if m.ctor || m.operator.is_some() {
+        diags.push(Diagnostic::at(&codes::E0901, f.name_span, format!("`{ty}` cannot be given {} yet", if m.ctor { "constructors" } else { "operators" })));
+        return None;
+    }
+    let params = f.params.iter().map(|p| g.resolve_binding_type(&p.ty, diags)).collect();
+    let ret = g.resolve(&f.ret, diags);
+    let (fails, outcome) = failures::signature(g, f, ret, true, diags);
+    let sig = Sig { name: format!("{ty}::{}", f.name), params, ret, span: f.span, fails, outcome };
+    check_signature_extras(g, f, &sig.params, m.is_static.is_none(), diags);
+    if let Some(first) = g.ifaces.ext.get(&ty).and_then(|ms| ms.iter().find(|o| o.name == f.name)) {
+        diags.push(
+            Diagnostic::at(&codes::E0202, f.name_span, format!("`{ty}` has two methods named `{}`", f.name))
+                .note("defined again here")
+                .label(g.sigs[first.func].span, "first defined here"),
+        );
+        return None;
+    }
+    let func = g.add_sig(sig);
+    g.ifaces.ext.entry(ty).or_default().push(MethodInfo { name: f.name.clone(), operator: None, func, is_static: m.is_static.is_some(), public: true });
+    Some(func)
+}
+
+impl Checker<'_> {
+    /// `value::name(args)` for a method that `T with I { }` added to a built-in type.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn ext_method(&mut self, recv: hir::Expr, recv_span: Span, name: &str, name_span: Span, targs: &[ast::TypeName], args: &[ast::Expr], span: Span) -> Option<Val> {
+        let m = self.g.ifaces.ext.get(&recv.ty)?.iter().find(|m| m.name == name)?.clone();
+        if m.is_static {
+            self.diags.push(
+                Diagnostic::at(&codes::E0213, name_span, format!("`{name}` is a static method: it is called on the type, not on a value"))
+                    .note("called on a value")
+                    .label(self.g.sigs[m.func].span, "declared `static`")
+                    .help(format!("write `{}::{name}(...)`", recv.ty)),
+            );
+            for a in args {
+                self.expr(a);
+            }
+            return None;
+        }
+        let _ = (recv_span, targs);
+        let args = self.args(m.func, args, span);
+        let ty = self.g.sigs[m.func].ret?;
+        let mut all = vec![recv];
+        all.extend(args?);
+        Some(Val::Expr(hir::Expr::new(hir::ExprKind::Call(m.func, all), ty)))
+    }
+
+    /// `uint32::name(args)` for a `static` method that `T with I { }` added.
+    pub(super) fn ext_static(&mut self, ty: Type, name: &str, args: &[ast::Expr], span: Span) -> Option<Val> {
+        let m = self.g.ifaces.ext.get(&ty)?.iter().find(|m| m.name == name && m.is_static)?.clone();
+        let args = self.args(m.func, args, span);
+        let ret = self.g.sigs[m.func].ret?;
+        Some(Val::Expr(hir::Expr::new(hir::ExprKind::Call(m.func, args?), ret)))
+    }
+}
+
+impl Checker<'_> {
+    /// In the definition of a generic: a call of an interface method that says
+    /// `changes self` on a value that cannot be changed (a `&T`, or a `T` binding
+    /// that is neither `mut` nor `open`). The instance could not tell, because
+    /// its own method may change less than the interface allows.
+    pub(super) fn changing_call(&mut self, recv: &hir::Expr, name: &str, name_span: Span) {
+        let (code, message, note) = match &recv.kind {
+            hir::ExprKind::Deref(inner) if matches!(inner.ty, Type::Ref { mutable: false, .. }) => (
+                &codes::E0311,
+                format!("cannot call `{name}` through a `&` borrow: `{name}` changes `self`"),
+                "call attempted here".to_string(),
+            ),
+            hir::ExprKind::Local(id) if !self.locals[*id].mutable && !self.locals[*id].open && !self.locals[*id].is_self => (
+                &codes::E0312,
+                format!("cannot call `{name}` on `{}`: `{name}` changes `self`, and it is neither `mut` nor `open`", self.locals[*id].name),
+                "call attempted here".to_string(),
+            ),
+            _ => return,
+        };
+        self.diags.push(Diagnostic::at(code, name_span, message).note(note).help("the interface says `changes self`: borrow it as `&mut T`, or declare the binding `mut`"));
     }
 }
