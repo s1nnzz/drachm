@@ -89,6 +89,14 @@ and a `skip` inside a `match` leaves the `match`, not a loop.
 On an enum, a `case` names a variant and can bind, test and nest its values, and a
 missing variant is W0110 with the variants listed; see [Enums](reference-enums.md#missing-and-unreachable-cases).
 
+A `case` on a number or text can have a guard, an `if` after the value:
+`case 3 if x > 1 { }`. The case runs only when the value is equal and the
+condition holds; otherwise the next case is tried. A guarded case does not count
+as covering its values, so a `match` whose only cases for a value are guarded
+still gets W0110, and needs a plain case or `case _`.
+
+<!-- example: match-guard -->
+
 <!-- example: match-basic -->
 
 ### Matching text
