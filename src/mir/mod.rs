@@ -257,6 +257,8 @@ pub enum Callee {
     ListOp(hir::ListOp, Type),
     /// `(&list, index)`: whether `get(index)` finds an item of this type.
     ListHas(Type),
+    /// A map call on a map type (S6D, see `MapFn`).
+    MapOp(MapFn, Type),
     /// `(index, length)` of a failed bounds check: stops the program. `unsigned`
     /// when the index was an unsigned number (a signed one prints as it is).
     IndexPanic { unsigned: bool },
@@ -337,8 +339,27 @@ pub enum Rvalue {
     Len(Place),
     /// An empty list of this type with room for this many items.
     ListNew(Type, u64),
+    /// An empty map of this type.
+    MapNew(Type),
     /// An array of this type from its items, in order.
     Array(Type, Vec<Operand>),
+}
+
+/// The runtime calls behind a map (`runtime/lists.h`, `drachm_map_*`). The map
+/// is `&Map`/`&mut Map`, a key `&K` (or `K` moved in for `Set`), a value `V`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MapFn {
+    /// `(&map, &key) -> bool`: whether the key is there.
+    Has,
+    /// `(&map, &key)`: writes a copy of the value under the key to the destination.
+    /// Only called when `Has` said so.
+    Find,
+    /// `(&mut map, key, value)`: adds the entry or replaces the value.
+    Set,
+    /// `(&mut map, &key)`: removes the entry, dropping its key and value.
+    Remove,
+    /// `(&map) -> uint64`: the number of entries.
+    Len,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

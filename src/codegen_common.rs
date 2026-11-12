@@ -46,7 +46,7 @@ pub(crate) fn cl_type(t: Type) -> Option<ClType> {
 
 /// Strings and structs live in memory and are handled by address.
 pub(crate) fn in_memory(t: Type) -> bool {
-    t == Type::Str || t.is_list() || t.is_array() || t.struct_id().is_some() || t.enum_id().is_some()
+    t == Type::Str || t.is_list() || t.is_map() || t.is_array() || t.struct_id().is_some() || t.enum_id().is_some()
 }
 
 pub(crate) fn signature(module: &ObjectModule, f: &Func) -> Signature {
@@ -98,4 +98,20 @@ pub(crate) fn emit_c_main(
     module.define_function(id, ctx).map_err(err)?;
     module.clear_context(ctx);
     Ok(())
+}
+
+/// The key function tag of a map key type (S6D). Keys hash and compare by
+/// their bits, so a tag is the key's width; a `string` has its own.
+pub fn key_tag(k: crate::types::Type) -> &'static str {
+    use crate::types::Type;
+    match k.bare() {
+        Type::Str => "str",
+        t => match crate::hir::scalar_size(t) {
+            Some(1) => "u8",
+            Some(2) => "u16",
+            Some(4) => "u32",
+            Some(8) => "u64",
+            _ => unreachable!("a map key is a number, bool or string"),
+        },
+    }
 }

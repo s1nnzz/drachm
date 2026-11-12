@@ -2224,6 +2224,20 @@ impl Parser<'_> {
                 self.expect("]")?;
                 ExprKind::ListLit(items)
             }
+            Tok::Sym("{") => {
+                // In expression position `{` starts a map literal (a block is a statement).
+                let mut pairs = Vec::new();
+                while self.peek() != &Tok::Sym("}") {
+                    let k = self.expr()?;
+                    self.expect(":")?;
+                    pairs.push((k, self.expr()?));
+                    if !self.eat(",") {
+                        break;
+                    }
+                }
+                self.expect("}")?;
+                ExprKind::MapLit(pairs)
+            }
             Tok::Sym("(") => {
                 let mut e = self.expr()?;
                 self.expect(")")?;

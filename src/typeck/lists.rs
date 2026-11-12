@@ -269,6 +269,9 @@ impl Checker<'_> {
                 return None;
             }
         };
+        if base.ty.is_map() {
+            return self.map_index(base, index);
+        }
         if !(base.ty.is_list() || base.ty.is_array()) {
             self.not_indexable(recv, base.ty);
             self.expr(index);
@@ -291,6 +294,15 @@ impl Checker<'_> {
     pub(super) fn index_place(&mut self, recv: &ast::Expr, index: &ast::Expr) -> Option<PlaceInfo> {
         let mut p = self.lvalue(recv)?;
         Self::auto_deref(&mut p);
+        if p.ty.is_map() {
+            self.expr(index);
+            self.diags.push(
+                Diagnostic::at(&codes::E0901, recv.span, "a map item cannot be borrowed or moved yet")
+                    .note("only reading it (`map[key]`) and writing it (`map[key] = value;`) are supported")
+                    .help("copy the value out with `m[key]` and work with that"),
+            );
+            return None;
+        }
         if !(p.ty.is_list() || p.ty.is_array()) {
             self.not_indexable(recv, p.ty);
             self.expr(index);

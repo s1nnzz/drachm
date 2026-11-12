@@ -132,6 +132,6 @@ pub fn rvalue_ty(body: &Body, hir: &hir::Program, rv: &Rvalue) -> Result<Type, S
         }
         Rvalue::DeepCopy(p) => place_ty(body, hir, p)?,
         Rvalue::Len(_) => Type::U64,
-        Rvalue::ListNew(t, _) | Rvalue::Array(t, _) => *t,
+        Rvalue::ListNew(t, _) | Rvalue::MapNew(t) | Rvalue::Array(t, _) => *t,
     })
 }

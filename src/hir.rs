@@ -585,6 +585,10 @@ pub enum ExprKind {
     Array(Vec<Expr>),
     /// `list::push(value)`: `list` is a changeable list place; `value` is moved in.
     ListPush { list: Box<Expr>, value: Box<Expr> },
+    /// `{ k: v, ... }` of map type: a fresh map, the pairs inserted in order.
+    Map(Vec<(Expr, Expr)>),
+    /// A map method (`MapOp`): `args[0]` is the map, the rest its arguments.
+    MapCall { op: MapOp, args: Vec<Expr> },
     /// A list method with a runtime call (`ListOp`): `args[0]` is the list
     /// place, the rest are the method's arguments.
     ListCall { op: ListOp, args: Vec<Expr> },
@@ -619,6 +623,8 @@ impl Expr {
             K::Variant { args, .. } => args.iter().collect(),
             K::Len(x) => vec![&**x],
             K::Index(a, b) | K::ListPush { list: a, value: b } => vec![&**a, &**b],
+            K::Map(pairs) => pairs.iter().flat_map(|(k, v)| [k, v]).collect(),
+            K::MapCall { args, .. } => args.iter().collect(),
             K::ListCall { args, .. } => args.iter().collect(),
             K::List(items) | K::Array(items) => items.iter().collect(),
             K::Radix { value, .. } => vec![&**value],
@@ -637,6 +643,26 @@ impl Expr {
             K::Join(parts) => parts.iter().collect(),
             K::Take { leaving, .. } => leaving.as_deref().into_iter().collect(),
         }
+    }
+}
+
+/// The map methods (S6D). `Get` is `m[k]` and `m::get(k)`: a `V?`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MapOp {
+    /// `map[key]`: the value under `key`, or none (`V?`).
+    Get,
+    /// `map::len()`: the number of entries, a `uint64`.
+    Len,
+    /// `map::set(key, value)` and `map[key] = value`: adds or replaces.
+    Set,
+    /// `map::remove(key)`: the entry goes; its value is dropped.
+    Remove,
+}
+
+impl MapOp {
+    /// Does the call change the map (it needs a changeable map place)?
+    pub fn changes(self) -> bool {
+        matches!(self, MapOp::Set | MapOp::Remove)
     }
 }
 

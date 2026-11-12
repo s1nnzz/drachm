@@ -92,7 +92,7 @@ pub fn accesses(hir: &hir::Program, body: &Body, loc: Location) -> Vec<Access> {
                         operand_access(amount, s.span, loc, Via::Plain, &mut out);
                     }
                     Rvalue::Aggregate(_, ops) | Rvalue::Variant(_, _, ops) | Rvalue::Array(_, ops) => ops.iter().for_each(|o| operand_access(o, s.span, loc, Via::Plain, &mut out)),
-                    Rvalue::ListNew(..) => {}
+                    Rvalue::ListNew(..) | Rvalue::MapNew(_) => {}
                     Rvalue::Ref(BorrowKind::Shared, p) => out.push(acc(p, AccessKind::ShareBorrow, s.span, Via::Plain)),
                     Rvalue::Ref(BorrowKind::Mut { two_phase }, p) => {
                         // A receiver is only reserved here, which reads like a shared borrow.

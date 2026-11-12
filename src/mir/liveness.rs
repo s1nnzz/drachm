@@ -53,7 +53,7 @@ pub fn rvalue_locals(rv: &Rvalue, f: &mut impl FnMut(Local)) {
             operand_local(amount, f);
         }
         Rvalue::Aggregate(_, ops) | Rvalue::Variant(_, _, ops) | Rvalue::Array(_, ops) => ops.iter().for_each(|o| operand_local(o, f)),
-        Rvalue::ListNew(..) => {}
+        Rvalue::ListNew(..) | Rvalue::MapNew(_) => {}
         Rvalue::Ref(_, p) | Rvalue::RawRef(p) | Rvalue::DeepCopy(p) | Rvalue::Discriminant(p) | Rvalue::Len(p) => place_local(p, f),
     }
 }

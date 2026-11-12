@@ -1539,6 +1539,10 @@ impl Checker<'_> {
                 if value.is_none() && let Some(t) = ty && t.is_list() {
                     out.push(hir::Stmt::Assign(hir::Place::local(id), hir::Expr::new(hir::ExprKind::List(Vec::new()), t).at(*span)));
                 }
+                // A map declared without a value starts empty too (Q20).
+                if value.is_none() && let Some(t) = ty && t.is_map() {
+                    out.push(hir::Stmt::Assign(hir::Place::local(id), hir::Expr::new(hir::ExprKind::Map(Vec::new()), t).at(*span)));
+                }
                 // `uint32? x;` starts as `none`.
                 if value.is_none() && let Some(t) = ty && optionals::is_optional(self.g, t) {
                     out.push(hir::Stmt::Assign(hir::Place::local(id), optionals::none_value(t, *span)));
@@ -1787,6 +1791,9 @@ impl Checker<'_> {
 
     /// `p.x = v;` or `p.x op= v;`.
     fn assign_field(&mut self, target: &ast::Expr, op: Option<BinOp>, value: &ast::Expr, span: Span, out: &mut hir::Block) {
+        if let ExprKind::Index { recv, index } = &target.kind && self.map_assign(recv, index, op, value, span, out) {
+            return;
+        }
         let Some(place) = self.lvalue(target) else {
             self.expr(value);
             return;
@@ -2041,6 +2048,9 @@ impl Checker<'_> {
         }
         if to.is_borrow() {
             return self.coerce_borrow(e, to, None);
+        }
+        if let ExprKind::MapLit(pairs) = &e.kind {
+            return self.map_literal(pairs, Some(to), e.span);
         }
         if let ExprKind::ListLit(items) = &e.kind {
             return self.list_literal(items, Some(to), e.span);
@@ -2613,6 +2623,7 @@ impl Checker<'_> {
                 typed(hir::ExprKind::Field(Box::new(v), i), ty)
             }
             ExprKind::ListLit(items) => self.list_literal(items, None, e.span).map(Val::Expr),
+            ExprKind::MapLit(pairs) => self.map_literal(pairs, None, e.span).map(Val::Expr),
             ExprKind::Index { recv, index } => self.index_expr(recv, index),
             ExprKind::Unary(op, inner) => self.unary(*op, inner, e.span),
             ExprKind::Binary(op @ (BinOp::And | BinOp::Or), l, r) => {
@@ -3180,6 +3191,7 @@ impl Checker<'_> {
                 self.pointer_convert(v, recv.span, name, name_span, args)
             }
             Some(Val::Expr(v)) if v.ty == Type::Str => self.string_method(v, name, name_span, targs, args),
+            Some(Val::Expr(v)) if v.ty.is_map() => self.map_method(v, recv, name, name_span, args),
             Some(Val::Expr(v)) if v.ty.is_list() || v.ty.is_array() => self.list_method(v, recv, name, name_span, targs, args),
             Some(Val::Expr(v)) if self.is_failure_type(v.ty) => self.failure_method(v, recv.span, name, name_span, args),
             value => self.value_method(value, recv, name, name_span, targs, args),

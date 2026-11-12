@@ -1080,15 +1080,28 @@ holding one) would leave a hole in the list. Borrow the item with
 The items of `[a, b, c]` must all have one type. When the list is not
 given a type, the first item decides it.
 
-## E0624: an empty list has no type
+## E0624: an empty list or map has no type
 
 `[]` holds nothing to take a type from, so something has to say what the
-list holds: `string[?] xs = [];`.
+list holds: `string[?] xs = [];`. A map literal `{}` needs a type the same
+way: `Map<string, uint32> ages = {};`.
 
 ## E0625: wrong number of items for an array
 
 An array has a fixed length, and its literal must give exactly that many
 items: `uint8[4] a = [1, 2, 3, 4];`.
+
+## E0626: this type cannot be a map key
+
+A map finds an entry by hashing its key, so a key must be hashable: a whole
+number, a float (compared by its bits), `bool` or `string`. Lists, maps,
+borrows and pointers cannot be keys.
+
+## E0629: a map literal gives the same key twice
+
+Each key of a map literal is stored once: a second entry with the same
+constant key would replace the first, so the literal would not say what it
+means. Remove one of the two entries.
 
 ## E0630: the loop variable's type is not the items' type
 
