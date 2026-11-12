@@ -31,6 +31,12 @@
       ]
     },
     {
+      "title": "Guides",
+      "pages": [
+        "guide-errors"
+      ]
+    },
+    {
       "title": "Reference",
       "pages": [
         "reference-types",
