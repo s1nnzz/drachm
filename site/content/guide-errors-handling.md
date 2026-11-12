@@ -6,10 +6,8 @@ description: How failures work in Drachm and when to use maybe, a bare fails, or
 # Error handling without exceptions
 
 This guide is about designing code that can go wrong. `failure`, `fails`, `fail`,
-`maybe` and a bare `fails` on calls, and `because`, are built; see
-[Failures](reference-errors.md) for the rules. Handlers (`fails with`),
-`otherwise`, `any e` and `ignore failure` are designed but not built, and the
-sections about them are marked. The optional `T?` sibling of `maybe` is on
+`maybe`, a bare `fails` and handlers on calls, and `because`, are built; see
+[Failures](reference-errors.md) for the rules. The optional `T?` sibling of `maybe` is on
 [Designing with enums and optionals](guide-enums-optionals.md).
 
 Drachm has two kinds of things going wrong, and they are handled differently.
@@ -84,7 +82,7 @@ uint32 c = parse(input) fails with (ParseError e) => {
 - A bare `fails` **passes the failure up**. Use it when this function cannot do
   anything useful about it. The enclosing function must list the failure in its
   own `fails` (and so must `main`, if the failure reaches it).
-- `fails with` **handles** it (not built yet). Use it when you can recover, log, or turn the
+- `fails with` **handles** it. Use it when you can recover, log, or turn the
   failure into a different one.
 
 The fallback after `maybe` is only run when the call fails. It is a single value
@@ -102,7 +100,6 @@ Save d = load(p) maybe makeDefault(); // a single call is fine too
 `parse(s) maybe 0 + 1` is an error: it is not clear which you meant.
 
 ## Handling one kind of failure
-<!-- status: not-implemented -->
 
 Write the handler for the failure type, or for one variant of it. Several
 handlers in a row each take their own kind, and a `return` inside a handler
@@ -123,17 +120,14 @@ function. For a call that returns a value, a handler ends one of those three
 ways.
 
 ## Looking at the failure you caught
-<!-- status: not-implemented -->
 
 The name in a handler (`e` above) is the failure. It prints with `${e}`, which
-gives the message and, for a failure with causes, the whole chain. It also has
-members:
+gives the message. It also has members:
 
 - `e::message()` is the message on its own.
 - `e::exit()` is the exit code the failure carries.
-- `e::cause()` is what this failure was caused by, if anything.
-
-What exactly each member returns is not written down yet.
+- `e::cause()` is what this failure was caused by, if anything. It is not built
+  yet, and what it returns is not written down.
 
 To handle everything, use `any e`. A catch-all can also be written after
 specific handlers with `otherwise`, which takes whatever they did not name.
@@ -152,10 +146,6 @@ Save s = load(p) fails with (FileMissing e) => { maybe Save::empty(); }
 
 ## Keeping the cause
 
-`because` works today with a failure value you hold in a variable
-(`fail LoadFailed because cause;`, see [Failures](reference-errors.md#because));
-catching one with a handler and keeping it, as below, comes with handlers.
-
 When you turn one failure into another, keep the first as the cause with
 `because`. Nothing is lost on the way up, and the report at the end shows both.
 
@@ -171,7 +161,7 @@ If a failure reaches the end of `main`, the program prints it to the error
 stream with an `error:` prefix, then one `because:` line for each cause, and
 exits with the failure's exit code.
 
-```text title="intended output"
+```text title="on standard error"
 error: couldn't load save
   because: no such file "save.dat"
 ```
@@ -196,10 +186,9 @@ sint32 main() fails ToolError {
 ```
 
 ## Deliberately ignoring a failure
-<!-- status: not-implemented -->
 
 Sometimes a failure really does not matter, such as closing a file you are done
-with. Say so out loud, in either spelling:
+with. Say so out loud, in either spelling (for a call that returns nothing):
 
 <!-- focus: 1,2 -->
 
@@ -215,9 +204,8 @@ failure was forgotten.
 
 Reading a number from text can fail, so `::to<T>()` on text is a failing call
 with a built-in `ConvertError`. It has one variant for each cause, so a program
-can tell them apart: `Empty`, `NotANumber` and `OutOfRange`. Today, bad text
-stops the program with exit code 101 (see [Input and output](reference-io.md));
-failures replace that.
+can tell them apart: `Empty`, `NotANumber` and `OutOfRange` (see
+[Input and output](reference-io.md)).
 
 <!-- focus: 1,2,3 -->
 
@@ -232,27 +220,16 @@ uint32 b = line::to<uint32>() fails with (ConvertError e) => {
 ## Failing constructors and operators
 
 A failing function can be anything with a name: a constructor, an operator
-method, a `drop()`. A constructor that checks its argument is the usual case:
+method, a `drop()`. A constructor that checks its argument is the usual case,
+and the shorthand takes the suffix after the value:
 
-<!-- focus: 1,2 -->
-
-```drachm
-struct Port {
-    uint32 n;
-    Port(uint32 n) fails BadPort {
-        if (n > 65535) { fail BadPort; }
-        self.n = n;
-    }
-}
-
-Port p = 8080 maybe Port::default();
-```
+<!-- example: ctor-fails -->
 
 An operator that fails is handled the same way, around the whole expression:
 `(p == q) maybe false`. A failing `drop()` has no caller to hand the failure to
-when it runs at the end of a scope, so avoid it. Until the owner decides
-otherwise, a failure that escapes an automatic `drop()` is reported the way an
-escape from `main` is.
+when it runs at the end of a scope, so avoid it. A failure that escapes an
+automatic `drop()` is reported the way an escape from `main` is, and the program
+ends at once.
 
 ## Why there is no Result type and no unwinding
 

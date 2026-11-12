@@ -116,7 +116,21 @@ unless the struct says `Person(auto);`, which keeps it next to the written ones.
 
 A constructor under `private:` can be used only by the struct's own methods, as
 in `static Token make(...)` (otherwise E0212). A constructor cannot yet build its
-value by calling another constructor (E0901), and cannot yet declare `fails`.
+value by calling another constructor (E0901).
+
+### Constructors that fail
+
+A constructor may declare `fails` after its parameters, like any function. On a
+`fail`, the fields set so far are dropped and the constructor ends with the
+failure; the completeness check (E0504) only applies to paths that finish. The
+declaration shorthand and `new Type of (...)` are calls that can fail, so they
+need what any call needs: `maybe`, `fails` or `fails with`, written after the
+value (E0544 otherwise).
+
+<!-- example: ctor-fails -->
+
+With a list of several values, write `new Type of (a, b) maybe ...`; the
+shorthand `Type x = a, b maybe ...` is not built.
 
 ## Filling and defaults
 

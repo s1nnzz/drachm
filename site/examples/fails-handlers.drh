@@ -1,0 +1,54 @@
+in io;
+
+failure FileError {
+    Missing(string path) f"no such file ${path}" exit 4,
+}
+
+failure ParseError {
+    Bad(string text) f"cannot parse ${text}",
+}
+
+failure Other {
+    Odd "something odd",
+}
+
+uint32 load(uint32 which, string name) fails FileError, ParseError, Other {
+    if (which == 0) { fail Missing(name + ".dat"); }
+    if (which == 1) { fail Bad(name + "?"); }
+    if (which == 2) { fail Odd; }
+    return which * 10;
+}
+
+// One handler for each failure type, then `otherwise` for the rest.
+uint32 read(uint32 which) {
+    return load(which, "save")
+        fails with (FileError e) => {
+            io::outln(f"file: ${e}");
+            maybe 100;
+        }
+        fails with (ParseError e) => {
+            io::outln(f"parse: ${e}");
+            maybe 200;
+        }
+        otherwise (any e) => {
+            io::outln(f"other: ${e} (exit code ${e::exit()})");
+            maybe 300;
+        };
+}
+
+// A handler for a call that returns nothing just ends, or leaves with `return`.
+none check(uint32 which) fails FileError, ParseError, Other {
+    uint32 n = load(which, "check") fails;
+}
+
+none main() {
+    for (mut uint32 i = 0; i < 4; i++) {
+        io::outln(f"${read(i)}");
+    }
+    // Ignoring a failure is a decision, so it is written down.
+    check(1) fails with none;
+    check(2) ignore failure;
+    check(0) fails with (any e) => {
+        io::outln(f"check: ${e::message()}");
+    };
+}
