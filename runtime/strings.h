@@ -72,6 +72,16 @@ void drachm_str_repeat(drachm_str *out, const drachm_str *s, uint64_t n);
 void drachm_str_pad_left(drachm_str *out, const drachm_str *s, uint64_t width, const drachm_str *fill);
 void drachm_str_pad_right(drachm_str *out, const drachm_str *s, uint64_t width, const drachm_str *fill);
 
+// ---- characters for `for`, and globs for `match` ----
+uint64_t drachm_str_byte_len(const drachm_str *s);
+// The character that starts at byte `pos` (a character boundary), owned or a
+// static one-byte string; empty when `pos` is at or past the end.
+void drachm_str_next_char(drachm_str *out, const drachm_str *s, uint64_t pos);
+// The same character as a borrowed view into `s` (cap 0, never freed).
+void drachm_str_char_view(drachm_str *out, const drachm_str *s, uint64_t pos);
+// `*` in `pattern` matches any run of bytes, empty included; the whole value must match.
+uint8_t drachm_str_glob(const drachm_str *s, const drachm_str *pattern);
+
 // ---- input and text to number (the interim rules of the language) ----
 // Input lines arrive as bytes: any invalid UTF-8 becomes U+FFFD.
 void drachm_str_from_bytes(drachm_str *out, const uint8_t *p, uint64_t n);

@@ -633,6 +633,107 @@ pub unsafe extern "C-unwind" fn drachm_str_parse_f32(s: *const DrachmStr, out: *
     }
 }
 
+// ---- characters for `for`, and globs for `match` ------------------------------
+
+/// One-byte strings point into this table (`cap == 0`, never freed or written).
+static ONE_BYTE: [u8; 256] = {
+    let mut t = [0u8; 256];
+    let mut i = 0;
+    while i < 256 {
+        t[i] = i as u8;
+        i += 1;
+    }
+    t
+};
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn drachm_str_byte_len(s: *const DrachmStr) -> u64 {
+    unsafe { (*s).len }
+}
+
+/// The first character (grapheme cluster) of `rest`, which is not empty and
+/// starts on a character boundary. Only looks as far as the cluster goes.
+fn first_char(rest: &[u8]) -> &[u8] {
+    let first = rest[0];
+    // Fast path: an ASCII byte that is not followed by a non-ASCII byte is a
+    // whole character by itself, unless it is CR of a CR LF pair.
+    let next = rest.get(1).copied();
+    if first.is_ascii() && next.is_none_or(|b| b.is_ascii()) && !(first == b'\r' && next == Some(b'\n')) {
+        return &rest[..1];
+    }
+    let text = unsafe { std::str::from_utf8_unchecked(rest) };
+    text.graphemes(true).next().unwrap_or("").as_bytes()
+}
+
+/// The character (grapheme cluster) that starts at byte `pos`, as an owned
+/// string; empty past the end. `pos` must be a character boundary: the `for`
+/// loop only moves it by whole characters.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn drachm_str_next_char(out: *mut DrachmStr, s: *const DrachmStr, pos: u64) {
+    let all = unsafe { bytes(s) };
+    match all.get(pos as usize..) {
+        Some(rest) if !rest.is_empty() => {
+            let c = first_char(rest);
+            // A one-byte character is the static table, not a copy.
+            if let [b] = c {
+                unsafe { out.write(DrachmStr { ptr: ONE_BYTE.as_ptr().add(*b as usize) as *mut u8, len: 1, cap: 0 }) };
+            } else {
+                unsafe { emit(out, c) };
+            }
+        }
+        _ => unsafe { out.write(EMPTY) },
+    }
+}
+
+/// The character that starts at byte `pos` as a borrowed view: not owned
+/// (`cap == 0`), pointing into `s`, so it is valid only while `s` is.
+/// Empty past the end.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn drachm_str_char_view(out: *mut DrachmStr, s: *const DrachmStr, pos: u64) {
+    let all = unsafe { bytes(s) };
+    match all.get(pos as usize..) {
+        Some(rest) if !rest.is_empty() => {
+            let c = first_char(rest);
+            unsafe { out.write(DrachmStr { ptr: c.as_ptr() as *mut u8, len: c.len() as u64, cap: 0 }) };
+        }
+        _ => unsafe { out.write(EMPTY) },
+    }
+}
+
+/// Does `value` match `pattern`? Each `*` matches any run of bytes, empty
+/// included, and the whole value must match. Segments between the stars are
+/// found leftmost first; the last one must end the value.
+fn glob(value: &[u8], pattern: &[u8]) -> bool {
+    if !pattern.contains(&b'*') {
+        return value == pattern;
+    }
+    if let Some(prefix) = pattern.strip_suffix(b"*").filter(|p| !p.contains(&b'*')) {
+        return value.starts_with(prefix);
+    }
+    if let Some(suffix) = pattern.strip_prefix(b"*").filter(|p| !p.contains(&b'*')) {
+        return value.ends_with(suffix);
+    }
+    let mut parts = pattern.split(|&b| b == b'*').peekable();
+    let first = parts.next().unwrap_or(&[]);
+    let Some(mut rest) = value.strip_prefix(first) else { return false };
+    while let Some(seg) = parts.next() {
+        if parts.peek().is_none() {
+            return rest.ends_with(seg);
+        }
+        let at = if seg.is_empty() { Some(0) } else { rest.windows(seg.len()).position(|w| w == seg) };
+        match at {
+            Some(at) => rest = &rest[at + seg.len()..],
+            None => return false,
+        }
+    }
+    rest.is_empty()
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn drachm_str_glob(s: *const DrachmStr, pattern: *const DrachmStr) -> u8 {
+    unsafe { glob(bytes(s), bytes(pattern)) as u8 }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1132,5 +1233,125 @@ mod input_tests {
         let mut empty = DrachmStr { ptr: ptr::null_mut(), len: 1, cap: 1 };
         unsafe { drachm_str_from_bytes(&mut empty, ptr::null(), 0) };
         assert_eq!((empty.len, empty.cap), (0, 0));
+    }
+}
+
+#[cfg(test)]
+mod char_tests {
+    use super::*;
+
+    const FAMILY: &str = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}";
+
+    fn lit(s: &str) -> DrachmStr {
+        DrachmStr { ptr: s.as_ptr() as *mut u8, len: s.len() as u64, cap: 0 }
+    }
+
+    fn next(s: &str, pos: u64) -> String {
+        let mut out = EMPTY;
+        unsafe { drachm_str_next_char(&mut out, &lit(s), pos) };
+        let r = String::from_utf8(unsafe { bytes(&out) }.to_vec()).unwrap();
+        unsafe { drachm_str_drop(&mut out) };
+        r
+    }
+
+    /// Walk the string the way the `for` loop does: by byte_len and next_char.
+    fn walk(s: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        let mut pos = 0u64;
+        while pos < unsafe { drachm_str_byte_len(&lit(s)) } {
+            let c = next(s, pos);
+            pos += c.len() as u64;
+            out.push(c);
+        }
+        out
+    }
+
+    fn glob_of(v: &str, p: &str) -> bool {
+        glob(v.as_bytes(), p.as_bytes())
+    }
+
+    #[test]
+    fn globs() {
+        assert!(glob_of("abc", "abc"));
+        assert!(!glob_of("abc", "ab"));
+        assert!(glob_of("", "*"));
+        assert!(glob_of("anything", "*"));
+        assert!(glob_of("/api/", "/api/*"));
+        assert!(glob_of("/api/x/y", "/api/*"));
+        assert!(!glob_of("/api", "/api/*"));
+        assert!(glob_of("a.png", "*.png"));
+        assert!(!glob_of("png", "*.png"));
+        assert!(glob_of("ab", "a*"));
+        assert!(glob_of("ba", "*a"));
+        assert!(glob_of("a-b-c", "a*b*c"));
+        assert!(glob_of("abc", "a*b*c"));
+        assert!(!glob_of("acb", "a*b*c"));
+        assert!(glob_of("axxbyyc", "a**b*c"));
+        assert!(glob_of("xay", "*a*"));
+        assert!(glob_of("", "**"));
+        assert!(!glob_of("", "a*"));
+        assert!(!glob_of("ab", "abc*"));
+        assert!(!glob_of("a", "a*b"));
+        assert!(glob_of("abab", "*ab*ab"));
+        assert!(!glob_of("aab", "*ab*ab"));
+        assert!(glob_of("ababab", "*ab*ab"));
+        assert!(glob_of("", ""));
+        assert!(!glob_of("a", ""));
+        assert!(glob_of("a*b", "a*b"));
+    }
+
+    #[test]
+    fn next_char_over_text() {
+        assert_eq!(next("", 0), "");
+        assert_eq!(next("ab", 2), "");
+        assert_eq!(next("ab", 0), "a");
+        assert_eq!(walk("abc"), ["a", "b", "c"]);
+        assert_eq!(walk("\r\n"), ["\r\n"]);
+        assert_eq!(walk("a\r\nb"), ["a", "\r\n", "b"]);
+        assert_eq!(walk("e\u{301}x"), ["e\u{301}", "x"]);
+        assert_eq!(walk("\u{e9}!"), ["\u{e9}", "!"]);
+        assert_eq!(walk(FAMILY), [FAMILY]);
+        assert_eq!(walk(&format!("a{FAMILY}b")), ["a", FAMILY, "b"]);
+    }
+
+    #[test]
+    fn char_views_borrow_the_text() {
+        let s = format!("a{FAMILY}\u{e9}");
+        let src = lit(&s);
+        let mut out = EMPTY;
+        let mut pos = 0u64;
+        let mut seen = Vec::new();
+        while pos < unsafe { drachm_str_byte_len(&src) } {
+            unsafe { drachm_str_char_view(&mut out, &src, pos) };
+            assert_eq!(out.cap, 0);
+            let view = unsafe { bytes(&out) };
+            // The view points into the text itself.
+            assert!(view.as_ptr() >= s.as_ptr() && view.as_ptr() < unsafe { s.as_ptr().add(s.len()) });
+            seen.push(String::from_utf8(view.to_vec()).unwrap());
+            pos += out.len;
+        }
+        assert_eq!(seen, ["a", FAMILY, "\u{e9}"]);
+        unsafe { drachm_str_char_view(&mut out, &src, pos) };
+        assert_eq!(out.len, 0);
+        unsafe { drachm_str_drop(&mut out) };
+    }
+
+    #[test]
+    fn one_byte_strings_are_not_owned() {
+        let mut out = EMPTY;
+        unsafe { drachm_str_next_char(&mut out, &lit("q"), 0) };
+        assert_eq!(out.cap, 0);
+        assert_eq!(unsafe { bytes(&out) }, b"q".as_slice());
+        unsafe { drachm_str_drop(&mut out) };
+    }
+
+    #[test]
+    fn walking_counts_like_len() {
+        for s in ["", "hello", "a\r\nb\r\n", "e\u{301}e\u{301}", "\u{1F1EF}\u{1F1F5}\u{1F1EF}"] {
+            let n = unsafe { drachm_str_len(&lit(s)) } as usize;
+            assert_eq!(walk(s).len(), n, "{s:?}");
+        }
+        let long = "naïve ".repeat(2000);
+        assert_eq!(walk(&long).len(), unsafe { drachm_str_len(&lit(&long)) } as usize);
     }
 }

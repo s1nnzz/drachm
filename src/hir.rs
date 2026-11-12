@@ -399,6 +399,14 @@ pub enum StrFn {
     PadRight,
     /// A float with exactly N decimals (`io::outf`'s `%.N`).
     Fixed,
+    /// The byte length of a string (the `for` loop over its characters).
+    ByteLen,
+    /// The character starting at a byte offset (`for`).
+    NextChar,
+    /// The same character as a borrowed view into the string (`for (&string c of s)`).
+    CharView,
+    /// Whether a string matches a pattern with `*` (`match`).
+    Glob,
     /// Number text padded with zeros after the sign (`io::outf`'s `%0N`).
     ZeroPad,
 }
@@ -437,6 +445,10 @@ impl StrFn {
             PadRight => "drachm_str_pad_right",
             Fixed => "drachm_text_fixed",
             ZeroPad => "drachm_text_zero_pad",
+            ByteLen => "drachm_str_byte_len",
+            NextChar => "drachm_str_next_char",
+            CharView => "drachm_str_char_view",
+            Glob => "drachm_str_glob",
         }
     }
 
@@ -444,7 +456,7 @@ impl StrFn {
         use StrFn::*;
         match self {
             Len | IsEmpty | Reverse | Upper | Lower | Trim => &[S],
-            Concat | Append | Eq | Cmp | Find | Contains | StartsWith | EndsWith | Count => &[S, S],
+            Concat | Append | Eq | Cmp | Find | Contains | StartsWith | EndsWith | Count | Glob => &[S, S],
             Sub | Remove => &[S, S64, S64],
             Insert => &[S, S64, S],
             Replace => &[S, S, S],
@@ -452,6 +464,8 @@ impl StrFn {
             Repeat | ZeroPad => &[S, U64],
             PadLeft | PadRight => &[S, U64, S],
             Fixed => &[Type::F64, Type::U32],
+            ByteLen => &[S],
+            NextChar | CharView => &[S, U64],
         }
     }
 
@@ -459,9 +473,9 @@ impl StrFn {
         use StrFn::*;
         match self {
             Append => Type::None,
-            Eq | IsEmpty | Contains | StartsWith | EndsWith => Type::Bool,
+            Eq | IsEmpty | Contains | StartsWith | EndsWith | Glob => Type::Bool,
             Cmp => Type::S32,
-            Len | Count => U64,
+            Len | Count | ByteLen => U64,
             Find => S64,
             _ => S,
         }
