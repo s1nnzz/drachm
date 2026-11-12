@@ -1,0 +1,31 @@
+in io;
+
+T make<T>() {
+    return 7;
+}
+
+T max<T>(T a, T b) {
+    if (a > b) { return a; }
+    return b;
+}
+
+none first<A, B>(A a, B b) { }
+
+none main() {
+    // E0601: nothing shows what `T` is.
+    uint32 a = make();
+    // E0603: two arguments, two types.
+    uint8 small = 3;
+    string text = "x";
+    max(small, text);
+    // The first typed argument decides; a constant that does not fit fails.
+    max(small, 300);
+    // E0602: more type arguments than parameters.
+    max<uint32, uint8>(1, 2);
+    // E0901: only some of the type arguments.
+    first<uint32>(1, 2);
+    // E0604: the name alone.
+    uint32 v = max;
+    // E0103: wrong number of arguments.
+    max(1);
+}

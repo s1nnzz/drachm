@@ -1,0 +1,18 @@
+in io;
+
+// The same name with different types is different functions; the same types twice is one.
+T identity<T>(T x) {
+    return x;
+}
+
+uint32 size<T>(T x) {
+    return 1;
+}
+
+none main() {
+    uint8 a = 1;
+    uint16 b = 2;
+    io::outln(f"${identity(a)} ${identity(b)} ${identity(a)}");
+    io::outln(identity<string>("s"));
+    io::outln(f"${size(a)} ${size(b)} ${size(true)}");
+}

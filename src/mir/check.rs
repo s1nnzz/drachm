@@ -41,6 +41,10 @@ pub fn source_name(symbol: &str) -> (bool, String) {
         }
         return (true, rest.to_string());
     }
+    if let Some(rest) = symbol.strip_prefix("drachm_g_") {
+        // An instance of a generic function: `max_Luint32_R` is `max<uint32>`.
+        return (false, crate::types::demangle(rest));
+    }
     (false, symbol.strip_prefix("drachm_f_").unwrap_or(symbol).to_string())
 }
 

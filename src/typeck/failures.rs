@@ -576,7 +576,7 @@ impl Checker<'_> {
         }
         let (owner, vname, args, parens): (Option<&String>, &String, &[ast::Expr], bool) = match &value.kind {
             ExprKind::Var(n) => (None, n, &[], false),
-            ExprKind::Call { name, args } => (None, name, args, true),
+            ExprKind::Call { name, args, .. } => (None, name, args, true),
             ExprKind::Path { owner, name, .. } => (Some(owner), name, &[], false),
             ExprKind::Method { recv, name, args, targs, .. } if targs.is_empty() && matches!(recv.kind, ExprKind::Var(_)) => {
                 let ExprKind::Var(o) = &recv.kind else { unreachable!() };

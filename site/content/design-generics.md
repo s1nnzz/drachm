@@ -7,13 +7,16 @@ status: not-implemented
 # Generics and interfaces
 
 Generic code works for many types, and an interface describes what a type must
-be able to do. Both are designed for step 6; the compiler does not accept them
-yet.
+be able to do. Generic functions build (see [Generics](reference-generics.md));
+the rest of this page is designed for step 6 and the compiler does not accept
+it yet.
 
 ## Generic functions and structs
 
 Type parameters are written in `<>`. The compiler infers them from the
-arguments, and you write them out only when it cannot.
+arguments, and you write them out only when it cannot. Generic functions work
+today and are described in [Generics](reference-generics.md); generic structs
+are not built yet.
 
 <!-- focus: 1,5,6 -->
 

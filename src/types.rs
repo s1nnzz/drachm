@@ -295,9 +295,135 @@ impl fmt::Display for Type {
     }
 }
 
+/// A display name as a symbol-safe `[A-Za-z0-9_]` string. A name that is
+/// already plain (`Point`, `my_func`) is returned unchanged, so existing
+/// symbols do not move. Otherwise every `_` is doubled and the rest are
+/// spelled out: `<` `_L`, `>` `_R`, `, ` `_C`, `?` `_Q`, `[?]` `_List`,
+/// `[4]` `_A4`, `&` `_B`, `*` `_M`, `/` `_S`, `^` `_P`, `(` `_O`, `)` `_E`,
+/// `-` `_N`, a space `_Z`, and anything else becomes `_x<hex>_`.
+/// (A plain name that is itself a mangled form, like `a_Lb_R`, would collide
+/// with `a<b>`; nobody writes those.)
+pub fn mangle(name: &str) -> String {
+    if name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') {
+        return name.to_string();
+    }
+    let mut out = String::new();
+    let mut chars = name.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            c if c.is_ascii_alphanumeric() => out.push(c),
+            '_' => out.push_str("__"),
+            '<' => out.push_str("_L"),
+            '>' => out.push_str("_R"),
+            ',' => out.push_str("_C"),
+            '?' => out.push_str("_Q"),
+            '&' => out.push_str("_B"),
+            '*' => out.push_str("_M"),
+            '/' => out.push_str("_S"),
+            '^' => out.push_str("_P"),
+            '(' => out.push_str("_O"),
+            ')' => out.push_str("_E"),
+            '-' => out.push_str("_N"),
+            // The space after a comma is part of `_C`.
+            ' ' if out.ends_with("_C") => {}
+            ' ' => out.push_str("_Z"),
+            '[' => {
+                let mut inner = String::new();
+                for d in chars.by_ref() {
+                    if d == ']' {
+                        break;
+                    }
+                    inner.push(d);
+                }
+                if inner == "?" {
+                    out.push_str("_List");
+                } else {
+                    out.push_str("_A");
+                    out.push_str(&inner);
+                }
+            }
+            other => out.push_str(&format!("_x{:x}_", other as u32)),
+        }
+    }
+    out
+}
+
+/// The display name a symbol made by `mangle` stands for (`max_Luint32_R` is
+/// `max<uint32>`). Only for symbols known to be mangled: a plain name is not
+/// meant to be passed through it.
+pub fn demangle(mangled: &str) -> String {
+    let b = mangled.as_bytes();
+    let mut out = String::new();
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] != b'_' || i + 1 >= b.len() {
+            out.push(b[i] as char);
+            i += 1;
+            continue;
+        }
+        let rest = &mangled[i + 1..];
+        if let Some(r) = rest.strip_prefix("List") {
+            out.push_str("[?]");
+            i = mangled.len() - r.len();
+            continue;
+        }
+        if rest.starts_with('A') && rest[1..].starts_with(|c: char| c.is_ascii_digit()) {
+            let digits: String = rest[1..].chars().take_while(char::is_ascii_digit).collect();
+            out.push_str(&format!("[{digits}]"));
+            i += 2 + digits.len();
+            continue;
+        }
+        if let Some(hex) = rest.strip_prefix('x')
+            && let Some(end) = hex.find('_')
+            && let Some(c) = u32::from_str_radix(&hex[..end], 16).ok().and_then(char::from_u32)
+        {
+            out.push(c);
+            i += 3 + end;
+            continue;
+        }
+        let piece = match b[i + 1] {
+            b'_' => "_",
+            b'L' => "<",
+            b'R' => ">",
+            b'C' => ", ",
+            b'Q' => "?",
+            b'B' => "&",
+            b'M' => "*",
+            b'S' => "/",
+            b'P' => "^",
+            b'O' => "(",
+            b'E' => ")",
+            b'N' => "-",
+            b'Z' => " ",
+            _ => {
+                out.push('_');
+                i += 1;
+                continue;
+            }
+        };
+        out.push_str(piece);
+        i += 2;
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mangling_is_plain_for_plain_names() {
+        assert_eq!(mangle("Point"), "Point");
+        assert_eq!(mangle("my_func"), "my_func");
+        assert_eq!(mangle("max<uint32>"), "max_Luint32_R");
+        assert_eq!(mangle("Map<string, uint32[?]>"), "Map_Lstring_Cuint32_List_R");
+        assert_eq!(mangle("f<uint8[4]?>"), "f_Luint8_A4_Q_R");
+        assert_eq!(mangle("a_b<c>"), "a__b_Lc_R");
+        assert_eq!(mangle("f<float64<m/s>>"), "f_Lfloat64_Lm_Ss_R_R");
+        for name in ["max<uint32>", "Map<string, uint32[?]>", "f<uint8[4]?>", "a_b<c>", "f<float64<m/s>>", "f<&mut string, *uint8>"] {
+            assert_eq!(demangle(&mangle(name)), name);
+        }
+    }
 
     #[test]
     fn borrow_types_intern_and_print() {

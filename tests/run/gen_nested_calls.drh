@@ -1,0 +1,34 @@
+in io;
+
+// A generic function calling another with `T` and with `T?`.
+T? wrap<T>(T x) {
+    return x;
+}
+
+T unwrap<T>(T? x, T fallback) {
+    return x maybe fallback;
+}
+
+T round_trip<T>(T x, T fallback) {
+    T? boxed = wrap(x);
+    return unwrap(boxed, fallback);
+}
+
+T larger<T>(T a, T b) {
+    if (a > b) { return a; }
+    return b;
+}
+
+T larger_of_three<T>(T a, T b, T c) {
+    return larger(larger(a, b), c);
+}
+
+none main() {
+    uint32 a = 4;
+    io::outln(f"${round_trip(a, 0)}");
+    string s = "text";
+    io::outln(round_trip(s, "none"));
+    uint32? gone = none;
+    io::outln(f"${unwrap(gone, 99)}");
+    io::outln(f"${larger_of_three(3, 8, 5)} ${larger_of_three(1.5, 0.5, 0.75)}");
+}

@@ -7,4 +7,3 @@ error[E0405]: a unit's power is too large
 error[E0402]: unknown unit `parsec`
 error[E0405]: `string` cannot have a unit
 error[E0405]: `bool` cannot have a unit
-error[E0405]: `Vec` cannot have a unit

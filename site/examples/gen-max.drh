@@ -1,0 +1,23 @@
+in io;
+
+T max<T>(T a, T b) {
+    if (a > b) { return a; }
+    return b;
+}
+
+none main() {
+    uint32 a = 4;
+    uint32 b = 9;
+    io::outln(max(a, b)::text());
+
+    float64 x = 2.5;
+    float64 y = 1.5;
+    io::outln(max(x, y)::text());
+
+    // The type written out; the constants become uint8.
+    io::outln(max<uint8>(5, 200)::text());
+
+    string first = "apple";
+    string second = "pear";
+    io::outln(max(first, second));
+}

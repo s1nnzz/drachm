@@ -1,0 +1,26 @@
+in io;
+
+// Two type parameters, each worked out from its own arguments.
+A first<A, B>(A a, B b) {
+    return a;
+}
+
+B second<A, B>(A a, B b) {
+    return b;
+}
+
+none show<A, B>(A a, B b) {
+    io::outln(f"${a} and ${b}");
+}
+
+none main() {
+    uint8 n = 7;
+    string name = "seven";
+    io::outln(f"${first(n, copy name)}");
+    io::outln(second(n, copy name));
+    io::outln(f"${first(copy name, n)} ${second(copy name, n)}");
+    show(n, name);
+    show(2.5, true);
+    float64 f = 0.25;
+    show(f, n);
+}

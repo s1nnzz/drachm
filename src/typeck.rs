@@ -7,6 +7,8 @@ mod control;
 mod enums;
 mod failures;
 mod fill;
+mod generics;
+mod layout;
 mod optionals;
 mod overload;
 mod strings;
@@ -45,8 +47,6 @@ struct StructInfo {
     ty: Type,
     fields: Vec<FieldInfo>,
     methods: Vec<MethodInfo>,
-    /// Holds a `string` somewhere inside (see `hir`'s module comment).
-    owns: bool,
     /// Declared `stays`.
     stays: bool,
     /// Indexes of the borrow fields named by `lives`.
@@ -107,16 +107,19 @@ struct Globals {
     io_imported: bool,
     /// The file flag `//--!$unsafe: true`.
     unsafe_allowed: bool,
-    /// Which structs copy automatically (`hir::StructDef::copy`).
-    struct_copy: Vec<bool>,
-    /// Which enums copy automatically (`hir::EnumDef::copy`).
-    enum_copy: Vec<bool>,
+    /// Memoised layout, ownership and copy answers (`layout`).
+    layouts: std::cell::RefCell<layout::Cache>,
     /// The units declared in the file (`typeck::units`).
     units: std::cell::RefCell<units::UnitEnv>,
     /// The `def`s of the file (`fill.rs`).
     defs: Vec<fill::DefInfo>,
     /// Failures, outcomes and the functions that report them (`failures.rs`).
     fail: failures::FailState,
+    /// Generic functions, instances and the bodies still to check (`generics.rs`).
+    mono: generics::State,
+    /// The type parameters of the instance being resolved or checked, and what
+    /// they stand for here.
+    tenv: HashMap<String, Type>,
 }
 
 impl Globals {
@@ -127,6 +130,12 @@ impl Globals {
     }
 
     fn resolve_base_quiet(&self, t: &ast::TypeName) -> Option<Type> {
+        if !t.args.is_empty() || !t.dims.is_empty() {
+            return None;
+        }
+        if let Some(&ty) = self.tenv.get(&t.name) {
+            return Some(ty);
+        }
         if t.name == "none" {
             return Some(Type::None);
         }
@@ -159,9 +168,15 @@ impl Globals {
                 return None;
             }
         }
-        // `Optional<T>` is written `T?`; the spelled-out form waits for generics.
-        if t.name == "Optional" && t.unit.is_some() && t.optional.is_none() {
-            diags.push(Diagnostic::at(&codes::E0901, t.span, "`Optional<T>` is not supported yet").help("write `T?`, for example `uint32?`"));
+        if !t.args.is_empty() {
+            return self.type_args_error(t, diags);
+        }
+        if let Some(dim) = t.dims.first() {
+            let (at, what) = match dim {
+                ast::Dim::List(s) => (*s, "lists"),
+                ast::Dim::Array(_, s) => (*s, "arrays"),
+            };
+            diags.push(Diagnostic::at(&codes::E0901, at, format!("{what} are not supported yet")));
             return None;
         }
         if t.optional.is_some() {
@@ -196,6 +211,41 @@ impl Globals {
                 None
             }
         }
+    }
+
+    /// A type written with `<..>` arguments. Nothing generic exists as a type
+    /// yet, so this explains why: E0602 for a type that takes none, E0901 for
+    /// the library types that are still to come.
+    fn type_args_error(&self, t: &ast::TypeName, diags: &mut Vec<Diagnostic>) -> Option<Type> {
+        let at = t.span.to(t.args.last().map_or(t.span, |a| a.span));
+        let plain = ast::TypeName::plain(t.name.clone(), t.span);
+        let unit_arg = t.args.len() == 1 && self.resolve_quiet(&t.args[0]).is_none() && units::is_unit_name(self, &t.args[0].name);
+        if unit_arg && matches!(self.resolve_base_quiet(&plain), Some(Type::Str | Type::Bool)) {
+            // `string<m>`: a unit on something that is not a number.
+            diags.push(
+                Diagnostic::at(&codes::E0405, t.span, format!("`{}` cannot have a unit", t.name))
+                    .note("units go only on number types")
+                    .help("for example `float64<m>`"),
+            );
+        } else if t.name == "Optional" {
+            diags.push(Diagnostic::at(&codes::E0901, t.span, "`Optional<T>` is not supported yet").help("write `T?`, for example `uint32?`"));
+        } else if matches!(t.name.as_str(), "List" | "Array" | "Map" | "OrderedMap" | "Iterable") {
+            diags.push(Diagnostic::at(&codes::E0901, t.span, format!("`{}` is not supported yet", t.name)));
+        } else if self.tenv.contains_key(&t.name) {
+            diags.push(
+                Diagnostic::at(&codes::E0602, at, format!("`{}` is a type parameter, so it takes no type arguments", t.name))
+                    .note("type arguments written here"),
+            );
+        } else if self.resolve_base_quiet(&plain).is_some() {
+            diags.push(
+                Diagnostic::at(&codes::E0602, at, format!("`{}` takes no type arguments", t.name))
+                    .note("type arguments written here")
+                    .help(format!("`{}` is not generic: write just `{}`", t.name, t.name)),
+            );
+        } else {
+            self.resolve(&plain, diags);
+        }
+        None
     }
 
     /// The type of a binding, parameter or field, which cannot be `none`.
@@ -320,22 +370,27 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
         }
     }
     check_struct_lives(&mut g, prog, &struct_ids, diags);
-    let mut cyclic = report_cycles(&g, diags);
-    mark_owning(&mut g, &cyclic);
+    report_cycles(&g, diags);
 
     // Signatures: functions, then methods.
     let mut func_ids = Vec::new();
-    for f in &prog.funcs {
+    g.mono.written_optionals = prog.optionals.clone();
+    for (index, f) in prog.funcs.iter().enumerate() {
+        if !f.tparams.is_empty() {
+            generics::declare_template(&mut g, index, f, diags);
+            func_ids.push(None);
+            continue;
+        }
         let params = f.params.iter().map(|p| g.resolve_binding_type(&p.ty, diags)).collect();
         let ret = g.resolve(&f.ret, diags);
         let (fails, outcome) = failures::signature(&mut g, f, ret, true, diags);
         let sig = Sig { name: f.name.clone(), params, ret, span: f.span, fails, outcome };
         check_signature_extras(&g, f, &sig.params, false, diags);
-        if let Some(&first) = g.funcs_by_name.get(&f.name) {
+        if let Some(first) = g.funcs_by_name.get(&f.name).map(|&id| g.sigs[id].span).or_else(|| g.mono.templates.get(&f.name).map(|t| t.head.span)) {
             diags.push(
                 Diagnostic::at(&codes::E0202, f.name_span, format!("function `{}` is defined twice", f.name))
                     .note("defined again here")
-                    .label(g.sigs[first].span, "first defined here"),
+                    .label(first, "first defined here"),
             );
             func_ids.push(None);
             continue;
@@ -355,14 +410,6 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
         .collect();
 
     fill::declare_defs(&mut g, src, prog, diags);
-
-    // The outcome and failure-set enums made for the signatures are not in a cycle.
-    cyclic.resize(g.structs.len() + g.enums.len(), false);
-
-    // `copy` depends on which structs have a `drop()`, so layouts wait for the methods.
-    let (structs, enum_defs) = lay_out(&g, &cyclic);
-    g.struct_copy = structs.iter().map(|s| s.copy).collect();
-    g.enum_copy = enum_defs.iter().map(|e| e.copy).collect();
 
     match g.funcs_by_name.get("main").map(|&id| &g.sigs[id]) {
         None => diags.push(
@@ -384,6 +431,10 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
         funcs[id] = Some(f);
     };
     for (f, id) in prog.funcs.iter().zip(&func_ids) {
+        // A generic function is checked once per instance, below.
+        if !f.tparams.is_empty() {
+            continue;
+        }
         let checked = check_body(&mut g, src, diags, f, None, format!("drachm_f_{}", f.name));
         if let Some(id) = *id {
             emit(&mut funcs, id, checked);
@@ -418,6 +469,9 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
         }
     }
 
+    generics::drain(&mut g, src, prog, diags, &mut |id, f| emit(&mut funcs, id, f));
+    generics::warn_unused(&g, diags);
+
     while let Some(s) = g.eq_pending.pop() {
         let f = auto_eq(&mut g, s);
         let id = g.eq_funcs[&s];
@@ -436,6 +490,9 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
         emit(&mut funcs, id, f);
         main = id;
     }
+    // `copy` depends on which structs have a `drop()`; the queries answer for
+    // every type that exists now, including those made while bodies were checked.
+    let (structs, enum_defs) = layout::lay_out(&g);
     let mut program = hir::Program { funcs: funcs.into_iter().map(|f| f.unwrap_or_else(placeholder)).collect(), structs, enums: enum_defs, main };
     units::erase(&mut program);
     if cfg!(debug_assertions) {
@@ -641,7 +698,7 @@ fn declare_struct(g: &mut Globals, s: &ast::Struct, diags: &mut Vec<Diagnostic>)
     }
     let id = g.structs.len();
     let ty = Type::Struct { id, name: types::intern(&s.name) };
-    g.structs.push(StructInfo { name: s.name.clone(), name_span: s.name_span, ty, fields: Vec::new(), methods: Vec::new(), owns: false, stays: s.stays.is_some(), lives: Vec::new(), has_drop: None, ctors: Vec::new(), auto_ctor: s.auto_ctor.is_some(), default_def: None });
+    g.structs.push(StructInfo { name: s.name.clone(), name_span: s.name_span, ty, fields: Vec::new(), methods: Vec::new(), stays: s.stays.is_some(), lives: Vec::new(), has_drop: None, ctors: Vec::new(), auto_ctor: s.auto_ctor.is_some(), default_def: None });
     g.structs_by_name.insert(s.name.clone(), id);
     Some(id)
 }
@@ -762,7 +819,7 @@ fn operator_shape_ok(op: BinOp, m: &ast::Method, sig: &Sig, self_ty: Type, sname
 /// A struct or enum that contains itself (directly or through others) would
 /// be infinitely large. Reports each cycle once; returns which types are in
 /// one: the structs by id, then the enums (`structs.len() + id`).
-fn report_cycles(g: &Globals, diags: &mut Vec<Diagnostic>) -> Vec<bool> {
+fn report_cycles(g: &Globals, diags: &mut Vec<Diagnostic>) {
     let ns = g.structs.len();
     let n = ns + g.enums.len();
     let mut cyclic = vec![false; n];
@@ -849,163 +906,7 @@ fn report_cycles(g: &Globals, diags: &mut Vec<Diagnostic>) -> Vec<bool> {
     for s in 0..n {
         visit(g, s, &mut Vec::new(), &mut done, &mut cyclic, diags);
     }
-    cyclic
-}
-
-/// Which structs and enums own strings: those with a `string` field or
-/// payload, or one of a type that does. Types in a cycle (already reported)
-/// own nothing.
-fn mark_owning(g: &mut Globals, cyclic: &[bool]) {
-    let ns = g.structs.len();
-    loop {
-        let mut grew = false;
-        let holds = |g: &Globals, f: &FieldInfo| match f.ty {
-            Some(Type::Str) => true,
-            Some(Type::Struct { id, .. }) => g.structs[id].owns,
-            Some(Type::Enum { id, .. }) => g.enums[id].owns,
-            _ => false,
-        };
-        for s in 0..ns {
-            if g.structs[s].owns || cyclic[s] {
-                continue;
-            }
-            if g.structs[s].fields.iter().any(|f| holds(g, f)) {
-                g.structs[s].owns = true;
-                grew = true;
-            }
-        }
-        for e in 0..g.enums.len() {
-            if g.enums[e].owns || cyclic[ns + e] {
-                continue;
-            }
-            if g.enums[e].variants.iter().flat_map(|v| &v.fields).any(|f| holds(g, f)) {
-                g.enums[e].owns = true;
-                grew = true;
-            }
-        }
-        if !grew {
-            break;
-        }
-    }
-}
-
-/// Which structs and enums copy automatically, ignoring the size limit
-/// (`lay_out` adds it): a struct is not `stays`, has no `drop()`, and every
-/// field is Copy; an enum has only Copy payloads. Found by starting from
-/// "all" and removing, so a type only needs its fields' answers.
-fn copy_types(g: &Globals, cyclic: &[bool], defs: &[hir::StructDef], edefs: &[hir::EnumDef]) -> (Vec<bool>, Vec<bool>) {
-    let ns = g.structs.len();
-    let mut copy: Vec<bool> = g.structs.iter().enumerate().map(|(i, s)| !s.stays && s.has_drop.is_none() && !cyclic[i]).collect();
-    let mut ecopy: Vec<bool> = (0..g.enums.len()).map(|i| !cyclic[ns + i] && g.enums[i].kind != hir::EnumKind::Failure).collect();
-    loop {
-        let mut changed = false;
-        let field_ok = |copy: &[bool], ecopy: &[bool], f: &FieldInfo| match f.ty.map(Type::bare) {
-            Some(Type::Int { .. } | Type::Float(_) | Type::Bool | Type::Ref { mutable: false, .. }) => true,
-            Some(Type::Struct { id, .. }) => copy[id],
-            Some(Type::Enum { id, .. }) => ecopy[id],
-            _ => false,
-        };
-        for (i, s) in g.structs.iter().enumerate() {
-            if copy[i] && !(defs[i].size <= 32 && s.fields.iter().all(|f| field_ok(&copy, &ecopy, f))) {
-                copy[i] = false;
-                changed = true;
-            }
-        }
-        for (i, e) in g.enums.iter().enumerate() {
-            if ecopy[i] && !(edefs[i].size <= 32 && e.variants.iter().flat_map(|v| &v.fields).all(|f| field_ok(&copy, &ecopy, f))) {
-                ecopy[i] = false;
-                changed = true;
-            }
-        }
-        if !changed {
-            return (copy, ecopy);
-        }
-    }
-}
-
-/// Layouts for every struct and enum. Types in a cycle (already reported) get an empty one.
-fn lay_out(g: &Globals, cyclic: &[bool]) -> (Vec<hir::StructDef>, Vec<hir::EnumDef>) {
-    struct Memo {
-        structs: Vec<Option<(u32, u32)>>,
-        enums: Vec<Option<(u32, u32)>>,
-    }
-    fn size_of(g: &Globals, cyclic: &[bool], memo: &mut Memo, t: Option<Type>) -> (u32, u32) {
-        let Some(t) = t else { return (0, 1) };
-        if t == Type::Str {
-            return (hir::STR_SIZE, 8);
-        }
-        if let Some(n) = hir::scalar_size(t) {
-            return (n, n);
-        }
-        let ns = g.structs.len();
-        if let Type::Enum { id, .. } = t {
-            if cyclic[ns + id] {
-                return (0, 1);
-            }
-            if let Some(m) = memo.enums[id] {
-                return m;
-            }
-            let sizes: Vec<Vec<(u32, u32)>> = g.enums[id]
-                .variants
-                .iter()
-                .map(|v| v.fields.iter().map(|f| size_of(g, cyclic, memo, f.ty)).collect())
-                .collect();
-            let (_, size, align) = hir::enum_layout(hir::tag_size_for(sizes.len()), &sizes);
-            memo.enums[id] = Some((size, align));
-            return (size, align);
-        }
-        let Some(s) = t.struct_id() else { return (0, 1) };
-        if cyclic[s] {
-            return (0, 1);
-        }
-        if let Some(m) = memo.structs[s] {
-            return m;
-        }
-        let sizes: Vec<(u32, u32)> = g.structs[s].fields.iter().map(|f| size_of(g, cyclic, memo, f.ty)).collect();
-        let (_, size, align) = hir::layout(&sizes);
-        memo.structs[s] = Some((size, align));
-        (size, align)
-    }
-    let mut memo = Memo { structs: vec![None; g.structs.len()], enums: vec![None; g.enums.len()] };
-    let mut defs: Vec<hir::StructDef> = g
-        .structs
-        .iter()
-        .enumerate()
-        .map(|(id, s)| {
-            let sizes: Vec<(u32, u32)> = if cyclic[id] {
-                Vec::new()
-            } else {
-                s.fields.iter().map(|f| size_of(g, cyclic, &mut memo, f.ty)).collect()
-            };
-            let (offsets, size, align) = hir::layout(&sizes);
-            let fields = s
-                .fields
-                .iter()
-                .zip(offsets.into_iter().chain(std::iter::repeat(0)))
-                .map(|(f, offset)| hir::FieldDef { name: f.name.clone(), ty: f.ty.unwrap_or(Type::None), offset, mutable: f.mutable })
-                .collect();
-            hir::StructDef {
-                name: s.name.clone(),
-                fields,
-                size,
-                align,
-                owns: s.owns,
-                copy: false,
-                stays: s.stays,
-                has_drop: s.has_drop,
-                lives: s.lives.clone(),
-            }
-        })
-        .collect();
-    let mut edefs = enums::lay_out_enums(g, cyclic, &mut |t| size_of(g, cyclic, &mut memo, t));
-    let (copy, ecopy) = copy_types(g, cyclic, &defs, &edefs);
-    for (d, c) in defs.iter_mut().zip(copy) {
-        d.copy = c;
-    }
-    for (d, c) in edefs.iter_mut().zip(ecopy) {
-        d.copy = c;
-    }
-    (defs, edefs)
+    g.mark_cyclic(&cyclic);
 }
 
 /// The automatic `==` of struct `s`: every field equal, in order, with
@@ -2475,6 +2376,10 @@ impl Checker<'_> {
             ExprKind::Var(name) => match self.lookup(name) {
                 Some(id) => self.read_local(id, e.span).map(Val::Expr),
                 None if self.ambiguous_bare(name, e.span) => None,
+                None if self.g.mono.templates.contains_key(name) && !self.g.funcs_by_name.contains_key(name) => {
+                    self.generic_by_name(name, e.span);
+                    None
+                }
                 None => {
                     let mut d = Diagnostic::at(&codes::E0201, e.span, format!("unknown name `{name}`"));
                     if name == "io" {
@@ -2548,7 +2453,14 @@ impl Checker<'_> {
                 let ty = p.ty;
                 typed(hir::ExprKind::IncDec { place: p.hir_place(e.span), inc: *inc, prefix: *prefix }, ty)
             }
-            ExprKind::Call { name, args } => {
+            ExprKind::Call { name, targs, args } => {
+                if !self.g.funcs_by_name.contains_key(name) && self.g.mono.templates.contains_key(name) {
+                    return self.generic_call(name, targs, args, e.span);
+                }
+                if !targs.is_empty() {
+                    self.not_generic(name, targs, args.iter().collect(), e.span);
+                    return None;
+                }
                 let Some(&id) = self.g.funcs_by_name.get(name) else {
                     if !self.ambiguous_bare(name, e.span) {
                         let mut d = Diagnostic::at(&codes::E0201, e.span, format!("unknown function `{name}`"));
@@ -2601,7 +2513,17 @@ impl Checker<'_> {
             ExprKind::Take { place, leaving } => self.take_expr(e, place, leaving.as_deref()),
             ExprKind::Lend(inner) => self.lend_expr(e, inner),
             ExprKind::AddressOf(inner) => self.address_expr(e, inner),
-            ExprKind::New { name, name_span, values } => self.new_expr(name, *name_span, values, e.span),
+            ExprKind::New { name, name_span, targs, values } => {
+                if !targs.is_empty() {
+                    self.not_generic(name, targs, values.iter().map(|v| &v.value).collect(), e.span);
+                    return None;
+                }
+                self.new_expr(name, *name_span, values, e.span)
+            }
+            ExprKind::TypeArgs { name, targs } => {
+                self.not_generic(name, targs, Vec::new(), e.span);
+                None
+            }
             ExprKind::Now(inner) => {
                 self.now_depth += 1;
                 let v = self.expr(inner);
@@ -2701,8 +2623,7 @@ impl Checker<'_> {
         match t {
             // A number with a unit is a number (`of` is always Int or Float).
             Type::Int { .. } | Type::Float(_) | Type::Bool | Type::Unit { .. } | Type::Ref { mutable: false, .. } => true,
-            Type::Struct { id, .. } => self.g.struct_copy.get(id).copied().unwrap_or(false),
-            Type::Enum { id, .. } => self.g.enum_copy.get(id).copied().unwrap_or(false),
+            Type::Struct { .. } | Type::Enum { .. } => self.g.copy_of(t),
             _ => false,
         }
     }

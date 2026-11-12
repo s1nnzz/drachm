@@ -1,0 +1,18 @@
+in io;
+
+// Without constraints, `T` is checked at each call, as if it were written out.
+struct Opaque { public: uint32 n; }
+
+T biggest<T>(T a, T b) {
+    if (a > b) { return a; }
+    return b;
+}
+
+none main() {
+    uint32 x = 1;
+    uint32 y = 2;
+    io::outln(f"${biggest(x, y)}");
+    Opaque p = new Opaque of (1);
+    Opaque q = new Opaque of (2);
+    Opaque r = biggest(p, q);
+}

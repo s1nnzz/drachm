@@ -11,7 +11,7 @@ unit ftm = 5 xyz;
 unit big = m^40000;
 
 // Types: an unknown unit, and units on things that are not numbers.
-none f(float64<parsec> d, string<m> s, bool<m> flag, uint32<m^40000> w, Vec<uint32> v) {
+none f(float64<parsec> d, string<m> s, bool<m> flag, uint32<m^40000> w) {
     io::outln("f");
 }
 

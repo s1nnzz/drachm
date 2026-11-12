@@ -1,0 +1,10 @@
+// Two instances of one template: the symbols differ, the bodies are equal.
+T larger<T>(T a, T b) {
+    if (a > b) { return a; }
+    return b;
+}
+
+none main() {
+    uint32 a = larger(1, 2);
+    uint64 b = larger<uint64>(3, 4);
+}

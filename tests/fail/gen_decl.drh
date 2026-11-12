@@ -1,0 +1,27 @@
+in io;
+
+struct Point { sint32 x; sint32 y; }
+enum Colour { Red, Green }
+unit metre;
+
+// E0605: declared twice, and named like other things.
+T bad_twice<T, T>(T a) { return a; }
+Point bad_struct<Point>(sint32 a) { return new Point of (a, a); }
+T bad_enum<Colour>(T a) { return a; }
+T bad_type<uint32>(T a) { return a; }
+
+// E0901: constraints and unit parameters are not built yet.
+T bounded<T with Shape>(T a) { return a; }
+T unitful<unit U>(T a) { return a; }
+
+// E0202: defined twice.
+T dup<T>(T a) { return a; }
+T dup<T>(T a) { return a; }
+
+// E0602: a type that takes no type arguments.
+none takes(Point<uint32> p) { }
+none takes_too(string<uint32> n) { }
+
+none main() {
+    Point<sint32> p = new Point of (1, 2);
+}

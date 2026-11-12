@@ -14,8 +14,11 @@ use crate::diag::codes;
 use crate::hir::{Expr, ExprKind, Jump, Label, Stmt, StrFn};
 
 /// A function's name for dumps: free functions lose their `drachm_f_` prefix.
-pub fn display_name(symbol: &str) -> &str {
-    symbol.strip_prefix("drachm_f_").unwrap_or(symbol)
+pub fn display_name(symbol: &str) -> std::borrow::Cow<'_, str> {
+    if let Some(rest) = symbol.strip_prefix("drachm_g_") {
+        return std::borrow::Cow::Owned(crate::types::demangle(rest));
+    }
+    std::borrow::Cow::Borrowed(symbol.strip_prefix("drachm_f_").unwrap_or(symbol))
 }
 
 const NO_SPAN: Span = Span { start: 0, end: 0 };

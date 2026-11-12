@@ -1,0 +1,11 @@
+in io;
+
+// E0608: each instance asks for one with a bigger type.
+none grow<T>(T x) {
+    T? bigger = x;
+    grow(bigger);
+}
+
+none main() {
+    grow<uint32>(1);
+}

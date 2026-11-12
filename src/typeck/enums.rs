@@ -19,7 +19,8 @@ pub(super) struct EnumInfo {
     pub ty: Type,
     pub variants: Vec<VariantInfo>,
     pub kind: hir::EnumKind,
-    /// Some payload owns memory (see `hir::EnumDef::owns`).
+    /// Owns memory whatever its payloads are (failures); other enums own
+    /// when a payload does (`Globals::owns_of`).
     pub owns: bool,
 }
 
@@ -111,55 +112,6 @@ pub(super) fn declare_variants(g: &mut Globals, id: EnumId, e: &ast::Enum, diags
         }
         g.enums[id].variants.push(VariantInfo { name: v.name.clone(), name_span: v.name_span, fields });
     }
-}
-
-/// The `hir` form of the declared enums, given each payload type's size and
-/// alignment (`size_of`) and whether it copies.
-pub(super) fn lay_out_enums(
-    g: &Globals,
-    cyclic: &[bool],
-    size_of: &mut dyn FnMut(Option<Type>) -> (u32, u32),
-) -> Vec<hir::EnumDef> {
-    let base = g.structs.len();
-    g.enums
-        .iter()
-        .enumerate()
-        .map(|(id, e)| {
-            let sizes: Vec<Vec<(u32, u32)>> = if cyclic[base + id] {
-                e.variants.iter().map(|_| Vec::new()).collect()
-            } else {
-                e.variants.iter().map(|v| v.fields.iter().map(|f| size_of(f.ty)).collect()).collect()
-            };
-            let tag_size = hir::tag_size_for(e.variants.len());
-            let (offsets, size, align) = hir::enum_layout(tag_size, &sizes);
-            let variants = e
-                .variants
-                .iter()
-                .zip(offsets)
-                .map(|(v, offs)| hir::VariantDef {
-                    name: v.name.clone(),
-                    name_span: v.name_span,
-                    fields: v
-                        .fields
-                        .iter()
-                        .zip(offs.into_iter().chain(std::iter::repeat(0)))
-                        .map(|(f, offset)| hir::FieldDef { name: f.name.clone(), ty: f.ty.unwrap_or(Type::None), offset, mutable: false })
-                        .collect(),
-                })
-                .collect();
-            hir::EnumDef {
-                name: e.name.clone(),
-                variants,
-                kind: e.kind,
-                tag_size,
-                size,
-                align,
-                owns: e.owns,
-                copy: false,
-                name_span: e.name_span,
-            }
-        })
-        .collect()
 }
 
 impl Checker<'_> {
@@ -271,7 +223,7 @@ impl Checker<'_> {
         let en = to.enum_id()?;
         let (name, args, parens): (&String, &[ast::Expr], bool) = match &e.kind {
             ExprKind::Var(n) if self.lookup(n).is_none() => (n, &[], false),
-            ExprKind::Call { name, args } => (name, args, true),
+            ExprKind::Call { name, args, .. } => (name, args, true),
             _ => return None,
         };
         let vi = self.g.enums[en].variant(name)?;

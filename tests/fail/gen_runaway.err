@@ -1,0 +1,3 @@
+error[E0608]: `grow` keeps instantiating itself
+instantiated here again with a bigger type
+make the recursive call use the same type parameters

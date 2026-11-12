@@ -1,0 +1,31 @@
+in io;
+
+// A generic function that takes and returns an owning value: nothing leaks.
+struct Tag { public: string label; uint32 n; }
+
+T pass<T>(T x) {
+    return x;
+}
+
+T pick<T>(T a, T b, bool first) {
+    if (first) { return a; }
+    return b;
+}
+
+none consume<T>(T x) {
+    io::outln("consumed");
+}
+
+none main() {
+    string s = "owned text";
+    string t = pass(s);
+    io::outln(t);
+    Tag tag = new Tag of ("a tag", 1);
+    Tag back = pass(tag);
+    io::outln(f"${back.label} ${back.n}");
+    string one = "one";
+    string two = "two";
+    io::outln(pick(one, two, false));
+    string gone = "dropped";
+    consume(gone);
+}

@@ -36,6 +36,14 @@ if (answer > 40) {
 An `enum` is a type with a name of its own, a value that is exactly one of its
 variants. See [Enums](reference-enums.md).
 
+## Generic types
+
+A type name followed by `<` is read as a unit only after a number type
+(`float64<m/s>`); after any other name it opens type arguments
+(`Map<string, uint32>`), and a name that takes none is E0602. `[?]` and `[N]`
+after a type write a list and an array. Type arguments work for generic
+functions today; see [Generics](reference-generics.md).
+
 ## Optional types
 
 `T?` is a `T` that may be missing: a value of type `T`, or `none`. See
