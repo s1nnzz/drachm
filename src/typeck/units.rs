@@ -304,7 +304,7 @@ pub(super) fn has_unit(v: &Val) -> bool {
     match v {
         Val::UConst(..) => true,
         Val::Expr(e) => e.ty.mentions_unit(),
-        Val::Const(_) => false,
+        Val::Const(_) | Val::NoneLit(_) => false,
     }
 }
 
@@ -323,7 +323,7 @@ fn val_unit(v: &Val) -> Option<U> {
     match v {
         Val::UConst(_, u) => Some(u),
         Val::Expr(e) => e.ty.unit(),
-        Val::Const(_) => None,
+        Val::Const(_) | Val::NoneLit(_) => None,
     }
 }
 
@@ -461,6 +461,7 @@ impl Checker<'_> {
             Val::Const(_) => "a plain number".to_string(),
             Val::UConst(c, u) => format!("`{}`", self.g.unit_type(c.default_type().unwrap_or(Type::F64), u)),
             Val::Expr(e) => format!("`{}`", e.ty),
+            Val::NoneLit(_) => "`none`".to_string(),
         }
     }
 
@@ -698,6 +699,10 @@ impl Checker<'_> {
                 }
                 Val::Expr(e) => Some(retag(self.convert_value(e, to.bare(), false, from), to)),
                 Val::UConst(..) => unreachable!("a unit constant has a unit"),
+                Val::NoneLit(s) => {
+                    self.none_without_type(s);
+                    None
+                }
             };
         }
         // A plain target takes the base amount of any unit (Q1).
@@ -713,6 +718,8 @@ impl Checker<'_> {
         }
         match v {
             Val::Const(_) => unreachable!(),
+            // `none` has no unit, so it never reaches the unit path.
+            Val::NoneLit(_) => unreachable!("`none` has no unit"),
             Val::UConst(c, u) => {
                 let value = convert_const(&c, Some(u), tu);
                 let e = self.fit_const(&value, to.bare(), from.span, false);
@@ -756,6 +763,7 @@ impl Checker<'_> {
                     }
                     Val::Const(c) => Q { e: self.fit_const(&c, lead, ro.span, false) },
                     Val::UConst(c, _) => Q { e: self.fit_const(&c, lead, ro.span, false) },
+                    Val::NoneLit(_) => unreachable!("`none` has no unit"),
                 };
                 Some((q, b, lead))
             }
@@ -763,7 +771,7 @@ impl Checker<'_> {
                 let other = b.ty.bare();
                 let c = match lv {
                     Val::Const(c) | Val::UConst(c, _) => c,
-                    Val::Expr(_) => unreachable!(),
+                    Val::Expr(_) | Val::NoneLit(_) => unreachable!("a unit operand is a number"),
                 };
                 let ty = if c.fits(other) { other } else { c.default_type()? };
                 let a = Q { e: self.fit_const(&c, ty, lo.span, true) };
@@ -1051,6 +1059,7 @@ impl Checker<'_> {
                     None
                 }
             },
+            Val::NoneLit(_) => unreachable!("`none` has no unit"),
             Val::Expr(e) => {
                 let lead = e.ty.bare();
                 let Val::Expr(x) = self.binary_vals(BinOp::Pow, Val::Expr(strip(e)), lo, rv, ro, span)? else { return None };
@@ -1135,7 +1144,7 @@ impl Checker<'_> {
                 let to = self.g.unit_type(e.ty.bare(), target);
                 Some(Val::Expr(self.convert_value(e, to, true, o)))
             }
-            Val::Const(_) => unreachable!(),
+            Val::Const(_) | Val::NoneLit(_) => unreachable!("a unit value is a number"),
         }
     }
 
@@ -1173,7 +1182,7 @@ impl Checker<'_> {
                 );
                 None
             }
-            Val::Const(_) => unreachable!(),
+            Val::Const(_) | Val::NoneLit(_) => unreachable!("a unit value is a number"),
         }
     }
 

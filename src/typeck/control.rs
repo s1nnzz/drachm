@@ -573,6 +573,7 @@ impl Checker<'_> {
         let found = match &v {
             Val::Const(_) | Val::UConst(..) => "a number".to_string(),
             Val::Expr(e) => format!("`{}`", e.ty),
+            Val::NoneLit(_) => "`none`".to_string(),
         };
         let d = Diagnostic::at(&codes::E0101, iter.span, format!("cannot loop over {found}"))
             .note(format!("this is {found}"))
@@ -990,6 +991,7 @@ impl Checker<'_> {
                 let found = match &v {
                     Val::Const(_) | Val::UConst(..) => "a number".to_string(),
                     Val::Expr(h) => format!("`{}`", h.ty),
+                    Val::NoneLit(_) => "`none`".to_string(),
                 };
                 self.diags.push(
                     Diagnostic::at(&codes::E0101, e.span, "a `case` of a `string` match must be a string")
@@ -1076,6 +1078,10 @@ impl Checker<'_> {
         match v {
             Val::Const(c) => fold(self.into(Val::Const(c), ty, origin(e))?),
             v @ Val::UConst(..) => fold(self.into(v, ty, origin(e))?),
+            Val::NoneLit(s) => {
+                self.none_without_type(s);
+                None
+            }
             Val::Expr(h) => {
                 let from = h.ty;
                 let Some(lit) = fold(h) else {

@@ -174,6 +174,6 @@ Rules to know:
 - Using an optional where its value is wanted is E0531: `uint32 n = age;` and
   `age + 1` both need `maybe` or a test first.
 - `T??` is E0901, and `Optional<T>` spelled out is E0901: write `T?`.
-- `none` as a constructor argument needs an optional type in the constructor's
-  parameter list, which the compiler does not look at yet: give the field its
-  value with an assignment (`s.item = none;`).
+- `none` as a constructor argument is fine where the constructor takes a `T?`
+  (or a pointer): `new Pair of (3, none)`. Where nothing takes an optional, it
+  is E0530.

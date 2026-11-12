@@ -1184,6 +1184,9 @@ fn list(names: &[&str]) -> String {
 
 /// An expression is either still an untyped constant or already has a type.
 enum Val {
+    /// `none` among constructor values: it fits an optional or pointer
+    /// parameter, which only the chosen constructor says (see `construct`).
+    NoneLit(Span),
     Const(Const),
     /// An untyped constant with a unit (`9.6<s>`): it gets its number type
     /// when it meets one (`typeck::units`).
@@ -1613,7 +1616,7 @@ impl Checker<'_> {
                     place.proj.push(hir::HirProj::Deref);
                     self.read_local(id, name_span).and_then(|x| match self.read(Val::Expr(x)) {
                         Val::Expr(x) => Some(x),
-                        Val::Const(_) | Val::UConst(..) => None,
+                        Val::Const(_) | Val::UConst(..) | Val::NoneLit(_) => None,
                     })
                 } else {
                     self.read_local(id, name_span)
@@ -1674,7 +1677,7 @@ impl Checker<'_> {
             // `d *= 2` stays in `d`'s unit; anything else is converted to it.
             Val::Expr(e) if cur_ty.mentions_unit() && e.ty != cur_ty => self.unit_into(Val::Expr(e), cur_ty, origin(value)),
             Val::Expr(e) => Some(e),
-            Val::Const(_) | Val::UConst(..) => None,
+            Val::Const(_) | Val::UConst(..) | Val::NoneLit(_) => None,
         }
     }
 
@@ -1910,6 +1913,7 @@ impl Checker<'_> {
             other => {
                 let plain = match &other {
                     Val::Const(_) | Val::UConst(..) => true,
+                    Val::NoneLit(_) => false,
                     Val::Expr(x) => Some(x.ty) == to_target,
                 };
                 match call {
@@ -1956,7 +1960,7 @@ impl Checker<'_> {
                     Val::Expr(x) if x.ty == t => Some(x),
                     Val::Expr(x) if x.ty.is_borrow() && x.ty.target() == Some(t) => match self.read(Val::Expr(x)) {
                         Val::Expr(x) => Some(x),
-                        Val::Const(_) | Val::UConst(..) => None,
+                        Val::Const(_) | Val::UConst(..) | Val::NoneLit(_) => None,
                     },
                     // One value of another type builds a one-field struct.
                     Val::Expr(x) if self.g.structs[s].fields.len() != 1 && (x.ty.struct_id().is_some() || x.ty == Type::None) => {
@@ -2096,6 +2100,10 @@ impl Checker<'_> {
     fn materialise(&mut self, v: Val, span: Span) -> Option<hir::Expr> {
         match v {
             Val::Expr(e) => Some(e),
+            Val::NoneLit(s) => {
+                self.none_without_type(s);
+                None
+            }
             Val::UConst(c, u) => self.unit_materialise(&c, u, span),
             Val::Const(c) => match c.default_type() {
                 Some(ty) => Some(self.fit_const(&c, ty, span, true)),
@@ -2110,6 +2118,16 @@ impl Checker<'_> {
     }
 
     fn into(&mut self, v: Val, to: Type, from: Origin) -> Option<hir::Expr> {
+        if let Val::NoneLit(span) = v {
+            if optionals::is_optional(self.g, to) {
+                return Some(optionals::none_value(to, span));
+            }
+            if to.is_ptr() {
+                return Some(hir::Expr::new(hir::ExprKind::NullPtr, to).at(span));
+            }
+            self.none_without_type(span);
+            return None;
+        }
         // A `T` goes to a `T?` by itself (`uint32? x = 5;`, `return 5;`).
         if let Some(inner) = optionals::inner_of(self.g, to) && !matches!(&v, Val::Expr(e) if e.ty == to) {
             let x = self.into(v, inner, from)?;
@@ -2130,6 +2148,7 @@ impl Checker<'_> {
         match v {
             Val::Const(c) if to.is_numeric() => Some(self.fit_const(&c, to, from.span, false)),
             Val::UConst(..) => unreachable!("units are handled first"),
+            Val::NoneLit(_) => unreachable!("`none` is handled first"),
             Val::Const(_) => {
                 let mut d = Diagnostic::at(&codes::E0101, from.span, format!("expected `{to}`, found a number"))
                     .note("this is a number");
@@ -2326,6 +2345,10 @@ impl Checker<'_> {
             }
             ExprKind::Field { recv, name, name_span } => {
                 let v = match self.expr(recv)? {
+                    Val::NoneLit(s) => {
+                        self.none_without_type(s);
+                        return None;
+                    }
                     Val::Const(_) | Val::UConst(..) => {
                         self.diags.push(Diagnostic::at(&codes::E0201, *name_span, "numbers have no fields").label(recv.span, "this is a number"));
                         return None;
@@ -2586,6 +2609,7 @@ impl Checker<'_> {
                 let found = match &other {
                     Val::Const(_) | Val::UConst(..) => "a number".to_string(),
                     Val::Expr(x) => format!("`{}`", x.ty),
+                    Val::NoneLit(_) => "`none`".to_string(),
                 };
                 let mut d = Diagnostic::at(&codes::E0326, e.span, format!("`lend` passes on a `&mut` borrow you hold, and `{name}` is not one"))
                     .note("nothing to pass on");
@@ -2817,6 +2841,7 @@ impl Checker<'_> {
                 let found = match &other {
                     Val::Const(_) | Val::UConst(..) => "a number".to_string(),
                     Val::Expr(a) => format!("`{}`", a.ty),
+                    Val::NoneLit(_) => "`none`".to_string(),
                 };
                 let o = origin(&args[0]);
                 let text = self.text(o.span);
@@ -2825,6 +2850,7 @@ impl Checker<'_> {
                     .note(format!("this is {found}"));
                 let has_text = match &other {
                     Val::Const(_) | Val::UConst(..) => true,
+                    Val::NoneLit(_) => false,
                     Val::Expr(a) => match a.ty.struct_id() {
                         Some(s) => self.g.method(s, "text").is_some(),
                         None => a.ty != Type::None,
@@ -2937,6 +2963,7 @@ impl Checker<'_> {
                 match value {
                     Val::Const(c) => Some(Val::Expr(self.fit_const(&c, to, recv.span, true))),
                     Val::UConst(..) => unreachable!("handled by unit_to"),
+                    Val::NoneLit(_) => unreachable!("`none` is not a number"),
                     Val::Expr(v) if v.ty == to => Some(Val::Expr(v)),
                     Val::Expr(v) if v.ty.is_numeric() => {
                         Some(Val::Expr(hir::Expr::new(hir::ExprKind::Convert(Box::new(v)), to)))
@@ -2957,6 +2984,7 @@ impl Checker<'_> {
             _ => {
                 let on = match &value {
                     Val::Const(_) | Val::UConst(..) => "numbers have".to_string(),
+                    Val::NoneLit(_) => "`none` has".to_string(),
                     Val::Expr(v) => format!("`{}` has", v.ty),
                 };
                 self.diags.push(
@@ -3101,6 +3129,7 @@ impl Checker<'_> {
         };
         match value {
             Val::UConst(..) => unreachable!(),
+            Val::NoneLit(_) => unreachable!("`none` is not a number"),
             Val::Const(c) if op == UnOp::Neg => Some(Val::Const(c.neg())),
             Val::Const(c) => match c.bit_not() {
                 Ok(c) => Some(Val::Const(c)),
@@ -3256,6 +3285,7 @@ impl Checker<'_> {
                 other => {
                     let found = match &other {
                         Val::Const(_) | Val::UConst(..) => "a decimal".to_string(),
+                        Val::NoneLit(_) => "`none`".to_string(),
                         Val::Expr(r) => format!("`{}`", r.ty),
                     };
                     self.diags.push(

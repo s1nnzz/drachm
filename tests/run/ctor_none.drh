@@ -1,0 +1,30 @@
+in io;
+
+struct Item {
+public:
+    uint32 id;
+    uint32? qty;
+    string? label;
+    Item(uint32 id, uint32? qty) {
+        self.id = id;
+        self.qty = qty;
+        self.label = none;
+    }
+}
+
+struct Pair {
+public:
+    uint32 a;
+    uint32? b;
+}
+
+none main() {
+    Item i = new Item of (1, none);
+    io::outln((i.qty maybe 7)::text());
+    Item j = new Item of (2, 5);
+    io::outln((j.qty maybe 7)::text());
+    Pair p = new Pair of (3, none);
+    io::outln((p.b maybe 9)::text());
+    Pair q = new Pair of (a: 4, b: none);
+    io::outln((q.b maybe 8)::text());
+}
