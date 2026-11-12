@@ -1,0 +1,11 @@
+in io;
+
+T min<T>(T a, T b) {
+    if (a < b) { return a; }
+    return b;
+}
+
+none main() {
+    io::outln(min(4, 9)::text());
+    io::outln(min(2.5, 1.5)::text());
+}

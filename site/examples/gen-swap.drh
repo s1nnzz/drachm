@@ -1,0 +1,29 @@
+in io;
+
+// `&mut T` parameters: `T` is what the borrows point at.
+none swap<T>(&mut T a, &mut T b) {
+    T held = copy a;
+    a = copy b;
+    b = held;
+}
+
+// Two type parameters, each worked out from its own argument.
+B second<A, B>(A a, B b) {
+    return b;
+}
+
+none main() {
+    mut uint32 x = 1;
+    mut uint32 y = 2;
+    swap(&mut x, &mut y);
+    io::outln(f"${x} ${y}");
+
+    mut string left = "left";
+    mut string right = "right";
+    swap(&mut left, &mut right);
+    io::outln(f"${left} ${right}");
+
+    uint8 n = 7;
+    io::outln(second(n, "seven"));
+    io::outln(second("seven", n)::text());
+}

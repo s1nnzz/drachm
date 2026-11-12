@@ -409,7 +409,7 @@ impl Checker<'_> {
             );
             return None;
         }
-        let mut t = self.g.mono.templates.remove(name).expect("a template");
+        let t = self.g.mono.templates.remove(name).expect("a template");
         let tenv: HashMap<String, Type> = t.head.tparams.iter().map(|p| p.name.clone()).zip(types.iter().copied()).collect();
         let saved = std::mem::replace(&mut self.g.tenv, tenv.clone());
         declare_written_optionals(self.g);

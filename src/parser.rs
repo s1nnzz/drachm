@@ -488,16 +488,6 @@ impl Parser<'_> {
         }
     }
 
-    /// If a unit part starts at token offset `n` (a `<`) and its tokens run to
-    /// a `>` as a unit expression would, the offset after that `>`. Lookahead
-    /// only: nothing is consumed.
-    fn unit_part_end(&self, n: usize) -> Option<usize> {
-        match self.unit_close(n) {
-            Some(j) if self.peek_at(j) == &Tok::Sym(">") => Some(j + 1),
-            _ => None,
-        }
-    }
-
     /// The token offset of the `>` or `>>` that closes a unit part starting at
     /// `n` (a `<`), if the tokens between read as a unit. A `>>` closes a
     /// nested unit: `close_angle` splits it.
