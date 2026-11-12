@@ -131,6 +131,10 @@ impl Checker<'_> {
             };
             let v = self.expr(first)?;
             let x = self.materialise(v, first.span)?;
+            if x.ty.is_func() {
+                self.diags.push(Diagnostic::at(&codes::E0652, first.span, "a function value cannot be stored in a list"));
+                return None;
+            }
             if x.ty == Type::None || x.ty.is_borrow() {
                 self.diags.push(Diagnostic::at(&codes::E0901, first.span, "a list of borrows is not supported yet"));
                 return None;

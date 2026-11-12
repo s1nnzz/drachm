@@ -1146,24 +1146,9 @@ struct MethodCtx {
 fn check_body(g: &mut Globals, src: &str, diags: &mut Vec<Diagnostic>, f: &ast::Func, method: Option<MethodCtx>, symbol: String) -> hir::Func {
     let ret = g.resolve_return(&f.ret, &mut Vec::new());
     let (fails, outcome) = failures::signature(g, f, ret, !method.is_some_and(|m| m.no_fails), &mut Vec::new());
-    let mut cx = Checker {
-        src,
-        g,
-        diags,
-        ret,
-        fails,
-        outcome,
-        suffix_ok: None,
-        handlers: Vec::new(),
-        method,
-        scopes: vec![HashMap::new()],
-        locals: Vec::new(),
-        targets: Vec::new(),
-        labels: 0,
-        filling: Vec::new(),
-        now_depth: 0,
-        ctor_self: None,
-    };
+    let mut cx = Checker::new(g, src, diags, &symbol, ret, method);
+    cx.fails = fails;
+    cx.outcome = outcome;
     let has_self = method.is_some_and(|m| m.static_span.is_none() && !m.ctor);
     if let Some(m) = method.filter(|_| has_self) {
         let ty = m.ext.unwrap_or_else(|| cx.g.structs[m.struct_id].ty);
@@ -1209,24 +1194,7 @@ fn check_body(g: &mut Globals, src: &str, diags: &mut Vec<Diagnostic>, f: &ast::
         body.push(hir::Stmt::Check { local: id, kind: hir::CheckKind::CtorEnd, span: f.body.end });
         body.push(hir::Stmt::Return(cx.wrap_ok(Some(hir::Expr::new(hir::ExprKind::Local(id), ty)))));
     }
-    let locals = cx
-        .locals
-        .into_iter()
-        .map(|l| hir::Local {
-            name: l.name,
-            ty: l.ty.unwrap_or(Type::None),
-            span: l.span,
-            mutability: if l.open {
-                hir::Mutability::Open
-            } else if l.mutable {
-                hir::Mutability::Mut
-            } else {
-                hir::Mutability::Fixed
-            },
-            is_param: l.is_param,
-            written: l.written,
-        })
-        .collect();
+    let locals = cx.lower_locals();
     hir::Func {
         name_span: f.name_span,
         span: f.span,
@@ -1392,6 +1360,9 @@ struct Checker<'a> {
     src: &'a str,
     g: &'a mut Globals,
     diags: &'a mut Vec<Diagnostic>,
+    symbol: &'a str,
+    /// Present when checking a lambda whose result comes from its body.
+    lambda: Option<lambdas::Frame>,
     /// `None` if the return type did not resolve.
     ret: Option<Type>,
     method: Option<MethodCtx>,
@@ -1457,7 +1428,50 @@ fn plain_place(e: &hir::Expr) -> bool {
     }
 }
 
-impl Checker<'_> {
+impl<'a> Checker<'a> {
+    fn new(g: &'a mut Globals, src: &'a str, diags: &'a mut Vec<Diagnostic>, symbol: &'a str, ret: Option<Type>, method: Option<MethodCtx>) -> Self {
+        Self {
+            src,
+            g,
+            diags,
+            symbol,
+            lambda: None,
+            ret,
+            fails: Vec::new(),
+            outcome: None,
+            suffix_ok: None,
+            handlers: Vec::new(),
+            method,
+            scopes: vec![HashMap::new()],
+            locals: Vec::new(),
+            targets: Vec::new(),
+            labels: 0,
+            filling: Vec::new(),
+            now_depth: 0,
+            ctor_self: None,
+        }
+    }
+
+    fn lower_locals(&mut self) -> Vec<hir::Local> {
+        std::mem::take(&mut self.locals)
+            .into_iter()
+            .map(|l| hir::Local {
+                name: l.name,
+                ty: l.ty.unwrap_or(Type::None),
+                span: l.span,
+                mutability: if l.open {
+                    hir::Mutability::Open
+                } else if l.mutable {
+                    hir::Mutability::Mut
+                } else {
+                    hir::Mutability::Fixed
+                },
+                is_param: l.is_param,
+                written: l.written,
+            })
+            .collect()
+    }
+
     fn lookup(&self, name: &str) -> Option<LocalId> {
         self.scopes.iter().rev().find_map(|s| s.get(name).copied())
     }
@@ -1635,6 +1649,11 @@ impl Checker<'_> {
                 out.push(hir::Stmt::Return(self.wrap_ok(Some(hir::Expr::new(hir::ExprKind::Local(id), ty)))));
             }
             Stmt::Fill { partial, target, with, body, span } => self.fill(*partial, target, with.as_ref(), body, *span, out),
+            Stmt::Return { value, span } if self.lambda.is_some() => {
+                if let Some(v) = self.lambda_return(value.as_ref(), *span) {
+                    out.push(hir::Stmt::Return(v));
+                }
+            }
             Stmt::Return { value, span } => {
                 let v = match (value, self.ret) {
                     (Some(v), Some(Type::None)) => {
@@ -1848,6 +1867,9 @@ impl Checker<'_> {
         match &e.kind {
             ExprKind::Var(name) => {
                 let Some(id) = self.lookup(name) else {
+                    if self.unbuilt_capture(name, e.span) {
+                        return None;
+                    }
                     self.diags.push(Diagnostic::at(&codes::E0201, e.span, format!("unknown binding `{name}`")));
                     return None;
                 };
@@ -1954,6 +1976,9 @@ impl Checker<'_> {
 
     /// The `self` local, or an error if there is none here.
     fn self_local(&mut self, at: Span) -> Option<LocalId> {
+        if self.unbuilt_capture("self", at) {
+            return None;
+        }
         match self.method {
             None => {
                 self.diags.push(Diagnostic::at(&codes::E0209, at, "`self` only exists inside a struct's methods").note("not in a method"));
@@ -2587,8 +2612,10 @@ impl Checker<'_> {
             },
             ExprKind::Bool(b) => typed(hir::ExprKind::Bool(*b), Type::Bool),
             ExprKind::Str(parts) => self.string_literal(parts),
+            ExprKind::Lambda { moves, params, body } => self.lambda_expr(*moves, params, body, e.span).map(Val::Expr),
             ExprKind::Var(name) => match self.lookup(name) {
                 Some(id) => self.read_local(id, e.span).map(Val::Expr),
+                None if self.unbuilt_capture(name, e.span) => None,
                 None if self.ambiguous_bare(name, e.span) => None,
                 None if self.g.mono.templates.contains_key(name) && !self.g.funcs_by_name.contains_key(name) => {
                     self.generic_by_name(name, e.span);
@@ -2676,6 +2703,9 @@ impl Checker<'_> {
             ExprKind::Call { name, targs, args } => {
                 if let Some(id) = self.lookup(name) {
                     return self.call_value(id, name, targs, args, e.span);
+                }
+                if self.unbuilt_capture(name, e.span) {
+                    return None;
                 }
                 if !self.g.funcs_by_name.contains_key(name) && self.g.mono.templates.contains_key(name) {
                     return self.generic_call(name, targs, args, e.span);
@@ -2799,6 +2829,10 @@ impl Checker<'_> {
         let x = self.materialise(v, operand.span)?;
         let name = self.text(operand.span).to_string();
         match x.ty {
+            Type::Func(_) => {
+                self.diags.push(Diagnostic::at(&codes::E0652, operand.span, "a function value cannot be stored behind a borrow"));
+                None
+            }
             Type::None => {
                 self.diags.push(
                     Diagnostic::at(&codes::E0104, operand.span, "cannot borrow a value of type `none`").note("`none` holds no value"),

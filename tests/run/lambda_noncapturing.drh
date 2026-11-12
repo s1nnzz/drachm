@@ -1,0 +1,22 @@
+in io;
+
+T twice<T>(T n) {
+    return n + n;
+}
+
+uint32 apply((uint32) => uint32 f, uint32 n) {
+    return f(n);
+}
+
+none main() {
+    (uint32) => uint32 square = (uint32 x) => x * x;
+    io::outln(square(4)::text());
+    io::outln(apply((uint32 n) => {
+        return twice(n);
+    }, 5)::text());
+    () => none nested = () => {
+        () => none greet = move () => io::outln("hello");
+        greet();
+    };
+    nested();
+}

@@ -608,6 +608,12 @@ pub enum StrPart {
 }
 
 #[derive(Debug)]
+pub enum LambdaBody {
+    Expr(Box<Expr>),
+    Block(Block),
+}
+
+#[derive(Debug)]
 pub enum ExprKind {
     Num(NumLit),
     Bool(bool),
@@ -626,6 +632,7 @@ pub enum ExprKind {
     Binary(BinOp, Box<Expr>, Box<Expr>),
     /// `x++`, `++x`, `x--`, `--x`.
     IncDec { inc: bool, prefix: bool, target: Box<Expr> },
+    Lambda { moves: bool, params: Vec<Param>, body: LambdaBody },
     Call { name: String, targs: Vec<TypeName>, args: Vec<Expr> },
     /// `recv::name<targs>(args)` or `recv->name(args)`. `recv` may turn out
     /// to be a module (`io::outln`) or a struct name (`Point::origin()`).

@@ -137,7 +137,7 @@ impl Checker<'_> {
         };
         self.no_targs(name, targs);
         if args.len() != sig.params.len() {
-            self.diags.push(Diagnostic::at(&codes::E0650, span, format!("`{name}` takes {} arguments, but {} given", sig.params.len(), args.len())));
+            self.diags.push(Diagnostic::at(&codes::E0650, span, format!("`{name}` takes {} argument{}, but {} given", sig.params.len(), if sig.params.len() == 1 { "" } else { "s" }, args.len())));
             return None;
         }
         let mut values = vec![f];
@@ -145,5 +145,107 @@ impl Checker<'_> {
             values.push(self.coerce(a, p)?);
         }
         Some(Val::Expr(hir::Expr::new(K::FnCall(values), sig.ret).at(span)))
+    }
+}
+
+pub(super) struct Frame {
+    enclosing: std::collections::HashSet<String>,
+    returns: Option<(Type, Span)>,
+}
+
+impl Checker<'_> {
+    pub(super) fn unbuilt_capture(&mut self, name: &str, at: Span) -> bool {
+        if self.lambda.as_ref().is_some_and(|f| f.enclosing.contains(name)) {
+            self.diags.push(Diagnostic::at(&codes::E0901, at, format!("capturing `{name}` in a lambda is not supported yet")));
+            return true;
+        }
+        false
+    }
+
+    pub(super) fn lambda_return(&mut self, value: Option<&ast::Expr>, at: Span) -> Option<Option<hir::Expr>> {
+        let expr = match value {
+            Some(e) => {
+                let v = if matches!(e.kind, ast::ExprKind::Borrow { .. } | ast::ExprKind::Lend(_)) {
+                    self.expr_raw(e)?
+                } else {
+                    self.expr(e)?
+                };
+                Some(self.materialise(v, e.span)?)
+            }
+            None => None,
+        };
+        let ty = expr.as_ref().map_or(Type::None, |e| e.ty);
+        if ty.is_func() {
+            self.diags.push(Diagnostic::at(&codes::E0652, at, "a function value cannot be returned"));
+            return None;
+        }
+        if self.g.holds_borrow(ty) {
+            self.diags.push(Diagnostic::at(&codes::E0901, at, "a lambda returning a borrow is not supported yet"));
+            return None;
+        }
+        let frame = self.lambda.as_mut().expect("checking a lambda");
+        if let Some((first, span)) = frame.returns {
+            if first != ty {
+                self.diags.push(
+                    Diagnostic::at(&codes::E0651, at, format!("this lambda gives `{ty}` here"))
+                        .label(span, format!("another return gives `{first}`")),
+                );
+                return None;
+            }
+        } else {
+            frame.returns = Some((ty, at));
+        }
+        Some(expr)
+    }
+
+    pub(super) fn lambda_expr(&mut self, _moves: bool, params: &[ast::Param], body: &ast::LambdaBody, at: Span) -> Option<hir::Expr> {
+        let types: Vec<_> = params.iter().map(|p| self.g.resolve_binding_type(&p.ty, self.diags)).collect::<Option<_>>()?;
+        let id = self.g.add_sig(Sig {
+            name: "lambda".into(),
+            params: Vec::new(),
+            ret: None,
+            span: at,
+            fails: Vec::new(),
+            outcome: None,
+        });
+        let symbol = format!("drachm_l_{}_{id}", self.symbol.trim_start_matches("drachm_"));
+        let mut enclosing = self.lambda.as_ref().map(|f| f.enclosing.clone()).unwrap_or_default();
+        enclosing.extend(self.scopes.iter().flat_map(|s| s.keys().cloned()));
+        let mut child = Checker::new(self.g, self.src, self.diags, &symbol, None, self.method);
+        child.lambda = Some(Frame { enclosing, returns: None });
+        child.declare("_env", Some(Type::borrow(false, Type::U8)), false, Span::new(0, 0), true);
+        for (p, &ty) in params.iter().zip(&types) {
+            let local = child.declare(&p.name, Some(ty), p.mutable, p.span, true);
+            child.locals[local].open = p.open;
+        }
+        let (body, end) = match body {
+            ast::LambdaBody::Expr(e) => {
+                let value = child.lambda_return(Some(e), e.span)?;
+                let stmt = match value {
+                    Some(v) if v.ty == Type::None => hir::Stmt::Expr(v),
+                    v => hir::Stmt::Return(v),
+                };
+                (vec![stmt], e.span)
+            }
+            ast::LambdaBody::Block(b) => (child.block(b), b.end),
+        };
+        let ret = child.lambda.as_ref().and_then(|f| f.returns).map_or(Type::None, |(ty, _)| ty);
+        let locals = child.lower_locals();
+        child.g.sigs[id].ret = Some(ret);
+        child.g.lambdas.bodies.push((id, hir::Func {
+            symbol: symbol.clone(),
+            params: 1 + params.len(),
+            has_self: false,
+            locals,
+            ret,
+            body,
+            name_span: at,
+            span: at,
+            body_end: end,
+            is_unsafe: false,
+            lives: None,
+            lives_span: None,
+        }));
+        Some(hir::Expr::new(K::FuncRef(id), Type::func(types, ret)).at(at))
     }
 }

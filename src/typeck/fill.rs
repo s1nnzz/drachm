@@ -58,24 +58,7 @@ pub(super) fn declare_defs(g: &mut Globals, src: &str, prog: &ast::Program, diag
         kept.push(i);
     }
     let own: Vec<Vec<(usize, hir::Expr)>> = {
-        let mut cx = Checker {
-            src,
-            g: &mut *g,
-            diags: &mut *diags,
-            ret: None,
-            method: None,
-            scopes: vec![HashMap::new()],
-            locals: Vec::new(),
-            targets: Vec::new(),
-            labels: 0,
-            filling: Vec::new(),
-            now_depth: 0,
-            ctor_self: None,
-            fails: Vec::new(),
-            outcome: None,
-            suffix_ok: None,
-            handlers: Vec::new(),
-        };
+        let mut cx = Checker::new(g, src, diags, "def", None, None);
         kept.iter().map(|&i| cx.def_values(&prog.defs[i], owners[i].unwrap())).collect()
     };
     // `def X of S from Y`: Y's values, then X's own, which win.

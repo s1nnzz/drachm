@@ -422,11 +422,19 @@ or storing one inside another value is E0652.
 
 ### Lambda expressions
 
+Write the parameter types and names, followed by `=>`. An expression body
+takes its result type from the expression. A block body takes its result type
+from its `return` statements, which must agree. A block with no return
+statements gives `none`.
+
+<!-- example: lambda-expression -->
+
+### Captures
+
 <!-- status: not-implemented -->
 
-Write `(uint32 n) => n * n` for an expression body or use braces for a
-block body. Lambdas borrow captures by default, and `move` takes ownership.
-An assignment through a capture infers a mutable borrow.
+Lambdas borrow captures by default, and `move` takes ownership. An assignment
+through a capture infers a mutable borrow.
 
 ### Collection callbacks
 

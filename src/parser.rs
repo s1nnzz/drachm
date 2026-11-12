@@ -408,11 +408,11 @@ impl Parser<'_> {
                 Tok::Sym("&" | "&&" | "*" | "**") => n += 1,
                 Tok::Kw("mut") if n > 0 && matches!(self.peek_at(n - 1), Tok::Sym("&")) => n += 1,
                 Tok::Sym("(") => {
-                    let close = self.paren_close(n)?;
-                    if self.peek_at(close + 1) != &Tok::Sym("=>") {
+                    let after = self.after_open_paren(n + 1)?;
+                    if self.peek_at(after) != &Tok::Sym("=>") {
                         return None;
                     }
-                    n = close + 2;
+                    n = after + 1;
                 }
                 Tok::Ident(_) | Tok::Kw("none") => return Some(self.name_end(n)),
                 _ => return None,
@@ -420,15 +420,15 @@ impl Parser<'_> {
         }
     }
 
-    fn paren_close(&self, open: usize) -> Option<usize> {
+    fn after_open_paren(&self, first: usize) -> Option<usize> {
         let mut depth = 1;
-        for n in open + 1.. {
+        for n in first.. {
             match self.peek_at(n) {
                 Tok::Sym("(") => depth += 1,
                 Tok::Sym(")") => {
                     depth -= 1;
                     if depth == 0 {
-                        return Some(n);
+                        return Some(n + 1);
                     }
                 }
                 Tok::Eof | Tok::Sym(";" | "{" | "}") => return None,
@@ -670,10 +670,8 @@ impl Parser<'_> {
         self.func_rest(ret, name, name_span, is_unsafe)
     }
 
-    /// A function's parameters and body, after its return type and name.
-    fn func_rest(&mut self, ret: TypeName, name: String, name_span: Span, is_unsafe: Option<Span>) -> Parsed<Func> {
-        let tparams = self.type_params()?;
-        self.expect("(")?;
+    /// Parameters after the opening parenthesis, through the closing one.
+    fn params(&mut self) -> Parsed<Vec<Param>> {
         let mut params = Vec::new();
         while self.peek() != &Tok::Sym(")") {
             let start = self.span();
@@ -686,6 +684,14 @@ impl Parser<'_> {
             }
         }
         self.expect(")")?;
+        Ok(params)
+    }
+
+    /// A function's parameters and body, after its return type and name.
+    fn func_rest(&mut self, ret: TypeName, name: String, name_span: Span, is_unsafe: Option<Span>) -> Parsed<Func> {
+        let tparams = self.type_params()?;
+        self.expect("(")?;
+        let params = self.params()?;
         let span = ret.span.to(self.prev_span());
         let mut lives = Vec::new();
         let mut lives_span = None;
@@ -2220,6 +2226,17 @@ impl Parser<'_> {
         }
     }
 
+    fn lambda(&mut self, moves: bool) -> Parsed<ExprKind> {
+        let params = self.params()?;
+        self.expect("=>")?;
+        let body = if self.peek() == &Tok::Sym("{") {
+            LambdaBody::Block(self.block()?)
+        } else {
+            LambdaBody::Expr(Box::new(self.expr()?))
+        };
+        Ok(ExprKind::Lambda { moves, params, body })
+    }
+
     fn primary(&mut self) -> Parsed<Expr> {
         let t = self.bump();
         let kind = match t.tok {
@@ -2275,6 +2292,11 @@ impl Parser<'_> {
                 self.expect("]")?;
                 ExprKind::ListLit(items)
             }
+            Tok::Kw("move") => {
+                self.expect("(")?;
+                self.lambda(true)?
+            }
+            Tok::Sym("(") if self.after_open_paren(0).is_some_and(|n| self.peek_at(n) == &Tok::Sym("=>")) => self.lambda(false)?,
             Tok::Sym("(") => {
                 let mut e = self.expr()?;
                 self.expect(")")?;
