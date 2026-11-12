@@ -170,6 +170,9 @@ impl Program {
         if t == Type::Str || t.is_list() {
             return (STR_SIZE, 8);
         }
+        if t.is_map() {
+            return (MAP_SIZE, 8);
+        }
         if let Type::Array { elem, len } = t {
             let (size, align) = self.size_align(*elem);
             return ((size as u64 * len) as u32, align);
@@ -198,7 +201,7 @@ impl Program {
     /// Is `t` an owning type (see the module comment)?
     pub fn owns(&self, t: Type) -> bool {
         match t {
-            Type::Str | Type::List { .. } => true,
+            Type::Str | Type::List { .. } | Type::Map { .. } => true,
             Type::Array { elem, .. } => self.owns(*elem),
             Type::Struct { id, .. } => self.structs[id].owns,
             Type::Enum { id, .. } => self.enums[id].owns,
@@ -213,6 +216,8 @@ impl Program {
 
 /// Size of a `string` value (`drachm_str`: pointer, length, capacity).
 pub const STR_SIZE: u32 = 24;
+/// Size of a map in memory: the runtime's `drachm_map` (48 bytes, `runtime/lists.h`).
+pub const MAP_SIZE: u32 = 48;
 
 /// Size (which is also the alignment) of a number or bool; `None` for the rest.
 pub fn scalar_size(t: Type) -> Option<u32> {

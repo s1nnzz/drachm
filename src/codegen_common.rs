@@ -39,7 +39,7 @@ pub(crate) fn cl_type(t: Type) -> Option<ClType> {
         Type::Float(_) => Some(types::F64),
         Type::Bool => Some(types::I8),
         Type::Ref { .. } | Type::Ptr { .. } | Type::FixedPtr { .. } => Some(types::I64),
-        Type::None | Type::Str | Type::List { .. } | Type::Array { .. } | Type::Struct { .. } | Type::Enum { .. } => None,
+        Type::None | Type::Str | Type::List { .. } | Type::Map { .. } | Type::Array { .. } | Type::Struct { .. } | Type::Enum { .. } => None,
         Type::Unit { .. } => unreachable!("units are erased before the backends"),
     }
 }

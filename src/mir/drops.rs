@@ -43,7 +43,7 @@ pub fn has_drop(hir: &hir::Program, ty: Type) -> bool {
 /// more than copying its bits?
 pub fn holds_string(hir: &hir::Program, ty: Type) -> bool {
     match ty {
-        Type::Str | Type::List { .. } => true,
+        Type::Str | Type::List { .. } | Type::Map { .. } => true,
         Type::Array { elem, .. } => holds_string(hir, *elem),
         Type::Struct { id, .. } => hir.structs[id].fields.iter().any(|f| holds_string(hir, f.ty)),
         Type::Enum { id, .. } => hir.enums[id].variants.iter().flat_map(|v| &v.fields).any(|f| holds_string(hir, f.ty)),
@@ -59,7 +59,7 @@ pub fn drop_glue_types(hir: &hir::Program) -> Vec<Type> {
 
 /// Is `ty` a type with glue of its own (a struct, an enum, a list, an array)?
 pub fn has_glue_name(ty: Type) -> bool {
-    matches!(ty, Type::Struct { .. } | Type::Enum { .. } | Type::List { .. } | Type::Array { .. })
+    matches!(ty, Type::Struct { .. } | Type::Enum { .. } | Type::List { .. } | Type::Array { .. } | Type::Map { .. })
 }
 
 /// The structs and enums that get a copy glue function.
@@ -78,6 +78,7 @@ pub fn glue_name(ty: Type) -> String {
         Type::Struct { name, .. } => crate::types::mangle(name),
         Type::Enum { id, .. } => format!("_enum{id}"),
         Type::List { .. } | Type::Array { .. } => format!("_c_{}", crate::types::mangle(&ty.to_string())),
+        Type::Map { .. } => format!("_m_{}", crate::types::mangle(&ty.to_string())),
         _ => unreachable!("only structs, enums, lists and arrays have glue"),
     }
 }

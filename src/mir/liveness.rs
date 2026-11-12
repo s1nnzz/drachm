@@ -20,6 +20,7 @@ pub fn holds_user_drop(hir: &hir::Program, ty: Type) -> bool {
         }
         Type::Enum { id, .. } => hir.enums[id].variants.iter().flat_map(|v| &v.fields).any(|f| holds_user_drop(hir, f.ty)),
         Type::List { elem } | Type::Array { elem, .. } => holds_user_drop(hir, *elem),
+        Type::Map { key, val, .. } => holds_user_drop(hir, *key) || holds_user_drop(hir, *val),
         _ => false,
     }
 }

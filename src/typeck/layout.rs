@@ -75,7 +75,7 @@ impl Globals {
     /// one somewhere inside? Types in a cycle own nothing.
     pub(super) fn owns_of(&self, t: Type) -> bool {
         match t {
-            Type::Str | Type::List { .. } => return true,
+            Type::Str | Type::List { .. } | Type::Map { .. } => return true,
             Type::Array { elem, .. } => return self.owns_of(*elem),
             Type::Struct { .. } | Type::Enum { .. } => {}
             _ => return false,
@@ -99,6 +99,9 @@ impl Globals {
         let Some(t) = t else { return (0, 1) };
         if t == Type::Str || t.is_list() {
             return (hir::STR_SIZE, 8);
+        }
+        if t.is_map() {
+            return (hir::MAP_SIZE, 8);
         }
         if let Type::Array { elem, len } = t {
             let (size, align) = self.size_align(Some(*elem));

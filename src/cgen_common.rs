@@ -197,6 +197,7 @@ pub(crate) fn c_type(t: Type) -> String {
         Type::Bool => "uint8_t",
         Type::Str => "drachm_str",
         Type::List { .. } => "drachm_list",
+        Type::Map { .. } => "drachm_map",
         Type::Array { .. } => return array_name(t),
         Type::None => "void",
         Type::Unit { .. } => unreachable!("units are erased before the backends"),

@@ -403,7 +403,7 @@ pub fn validate(p: &Program, hir: &hir::Program) -> Result<(), Vec<String>> {
 /// `StructDef.copy` says so.
 pub fn is_copy(hir: &hir::Program, ty: Type) -> bool {
     match ty {
-        Type::Str | Type::List { .. } => false,
+        Type::Str | Type::List { .. } | Type::Map { .. } => false,
         Type::Array { elem, .. } => is_copy(hir, *elem) && hir.size_align(ty).0 <= 32,
         Type::Struct { id, .. } => hir.structs[id].copy,
         Type::Enum { id, .. } => hir.enums[id].copy,
@@ -417,7 +417,7 @@ pub fn is_copy(hir: &hir::Program, ty: Type) -> bool {
 /// `drop()`, or a struct holding either. Borrows and raw pointers never.
 pub fn needs_drop(hir: &hir::Program, ty: Type) -> bool {
     match ty {
-        Type::Str | Type::List { .. } => true,
+        Type::Str | Type::List { .. } | Type::Map { .. } => true,
         Type::Array { elem, .. } => needs_drop(hir, *elem),
         Type::Struct { id, .. } => {
             let s = &hir.structs[id];

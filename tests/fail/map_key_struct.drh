@@ -1,0 +1,7 @@
+struct Pos {
+    uint32 x;
+}
+
+none main() {
+    Map<Pos, string> m;
+}

@@ -11,6 +11,7 @@ mod generics;
 mod interfaces;
 mod layout;
 mod lists;
+mod maps;
 mod optionals;
 mod overload;
 mod strings;
@@ -170,6 +171,11 @@ impl Globals {
     fn instance_of(&self, t: &ast::TypeName) -> Option<Type> {
         let args: Option<Vec<Type>> = t.args.iter().map(|a| if a.is_number { None } else { self.resolve_quiet(a) }).collect();
         let args = args?;
+        if maps::is_map_name(self, t) {
+            let [key, val] = args[..] else { return None };
+            maps::check_key(key, t.span).ok()?;
+            return Some(self.make_map(key, val, t.name == "OrderedMap"));
+        }
         if t.name == "Optional" {
             let [inner] = args[..] else { return None };
             return self.optional_ids.get(&inner).map(|&id| self.enums[id].ty);
@@ -208,6 +214,15 @@ impl Globals {
         }
         if !t.dims.is_empty() {
             return self.resolve_dims(t, diags);
+        }
+        if maps::is_map_name(self, t) {
+            let base = self.resolve_map(t, diags)?;
+            let base = optionals::wrap(self, t, base)?;
+            return Some(t.mods.iter().rev().fold(base, |ty, (m, _)| match m {
+                ast::TypeMod::Ref { mutable } => Type::borrow(*mutable, ty),
+                ast::TypeMod::Ptr => Type::ptr(ty),
+                ast::TypeMod::FixedPtr => Type::fixed_ptr(ty),
+            }));
         }
         if !t.args.is_empty() {
             match generics::check_type_args(self, t, diags) {
