@@ -12,6 +12,9 @@ export const metadata: Metadata = {
   title: { default: 'Drachm', template: '%s | Drachm' },
   description:
     'Drachm is a statically typed, natively compiled language with wordy English keywords, ownership checked at compile time and no garbage collector.',
+  // The site has its own dark theme; ask Dark Reader not to restyle it (its
+  // injected attributes also caused hydration warnings).
+  other: { 'darkreader-lock': '' },
 };
 
 export default function Layout({ children }: { children: ReactNode }) {
