@@ -754,8 +754,9 @@ Pages: introduction and install, a tour (hello world through structs and
 methods, control flow, errors/diagnostics, the CLI), and the error index
 (generated from `src/diag/codes.rs`, matching `drachm explain`).
 
-Decided (2026-11-11): repo and site stay private for now; build locally with
-`npm run dev` in `site/`. The Pages workflow is kept but not enabled.
+Decided (2026-11-11): repo stays private. 2026-11-12: the docs site is published
+publicly on GitHub Pages (https://s1nnzz.github.io/drachm/) by
+`.github/workflows/docs.yml` on every push to master that touches `site/`.
 
 **Open (ask owner):** domain (docs.drachm.dev?) once it goes public.
 
