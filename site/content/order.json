@@ -34,7 +34,8 @@
       "title": "Guides",
       "pages": [
         "guide-from-python-js",
-        "guide-from-c"
+        "guide-from-c",
+        "guide-performance"
       ]
     },
     {
