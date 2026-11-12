@@ -1,0 +1,16 @@
+in io;
+
+struct Player {
+public:
+    string name;
+    uint32 hp;
+}
+
+&string name_of(&Player p) {
+    return &p.name;
+}
+
+none main() {
+    Player p = "Illy", 10;
+    io::outln(name_of(&p));
+}

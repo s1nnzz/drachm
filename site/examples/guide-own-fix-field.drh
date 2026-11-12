@@ -1,0 +1,13 @@
+in io;
+
+struct Player {
+public:
+    string name;
+    uint32 hp;
+}
+
+none main() {
+    Player p = "Illy", 10;
+    string n = copy p.name;
+    io::outln(n + " " + p.name);
+}

@@ -1,0 +1,48 @@
+in io;
+
+// One borrowed parameter: the compiler works out that the result comes from it.
+&string first_word(&string text) {
+    return text;
+}
+
+// Two candidates: say which with `lives`.
+&string longer(&string a, &string b) lives a, b {
+    if (a::len() > b::len()) { return a; }
+    return b;
+}
+
+// A struct that holds a borrow names the borrow field in its head.
+struct Reader lives src {
+public:
+    &string src;
+    mut uint64 pos;
+
+    uint64 left() {
+        return self.src::len() - self.pos;
+    }
+}
+
+struct Table {
+public:
+    string name;
+
+    // A method can return a borrow of itself or of a parameter.
+    &string pick(&string key) lives from self or key {
+        if (key::len() > 3) { return key; }
+        return &self.name;
+    }
+}
+
+none main() {
+    string x = "a long line";
+    string y = "short";
+    io::outln(first_word(&y));
+    io::outln(longer(&x, &y));
+
+    mut Reader r = &x, 2;
+    io::outln(r::left()->text());
+
+    Table t = "table";
+    io::outln(t::pick(&x));
+    io::outln(t::pick(&y));
+}

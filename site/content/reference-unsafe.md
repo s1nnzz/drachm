@@ -7,7 +7,9 @@ description: The unsafe file flag, raw pointers, address of, pointers to fixed v
 
 Raw pointers are the one place where Drachm trusts you instead of checking. This
 page states what the compiler accepts today. The [design](design-unsafe.md)
-page has the rest, including assembly functions, which are not built yet.
+page has the rest, including assembly functions, which are not built yet. The
+[ownership and borrowing guide](guide-ownership.md) explains why you rarely need
+any of this.
 
 ## The file flag
 

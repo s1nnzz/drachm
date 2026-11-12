@@ -1,0 +1,51 @@
+in io;
+
+struct Point {
+public:
+    float64 x;
+    float64 y;
+}
+
+struct Handle stays {
+public:
+    uint32 id;
+}
+
+struct Big {
+public:
+    float64 a;
+    float64 b;
+    float64 c;
+    float64 d;
+    float64 e;
+}
+
+none main() {
+    // numbers copy by themselves
+    uint32 a = 5;
+    uint32 b = a;
+    io::outln((a + b)::text());
+
+    // a 16-byte struct of Copy fields copies too
+    Point p = 1.0, 2.0;
+    Point q = p;
+    io::outln(p.x::text() + " " + q.y::text());
+
+    // a string moves; copy makes a second one
+    string s = "hi";
+    string t = copy s;
+    string u = s;
+    io::outln(t + u);
+
+    // a 40-byte struct is too big to copy by itself
+    Big big = 1.0, 2.0, 3.0, 4.0, 5.0;
+    Big other = copy big;
+    Big moved = big;
+    io::outln(other.e::text() + " " + moved.a::text());
+
+    // `stays` opts out: copying is always explicit
+    Handle h = 7;
+    Handle h2 = copy h;
+    Handle h3 = h;
+    io::outln(h2.id::text() + " " + h3.id::text());
+}

@@ -6,7 +6,8 @@ description: When a value moves, how to keep it with copy, taking a field out, a
 # Moves and copies
 
 The [ownership lesson](lesson-8-ownership.md) introduces these rules with
-examples. This page states them in full.
+examples, and the [ownership and borrowing guide](guide-ownership.md) explains
+the thinking behind them. This page states them in full.
 
 ## What moves
 

@@ -9,6 +9,7 @@ A function that returns a borrow must give the compiler a way to know which of
 its arguments the result points into. A caller needs that to keep those
 arguments alive while it uses the result. Mostly the compiler works it out by
 reading the body, and you write `lives` only when the answer is ambiguous.
+The [ownership and borrowing guide](guide-ownership.md) puts this in context.
 
 `lives` names whole parameters, never parts of them.
 

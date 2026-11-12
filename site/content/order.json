@@ -22,6 +22,12 @@
       ]
     },
     {
+      "title": "Guides",
+      "pages": [
+        "guide-ownership"
+      ]
+    },
+    {
       "title": "Reference",
       "pages": [
         "reference-types",

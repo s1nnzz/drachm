@@ -1,0 +1,15 @@
+in io;
+
+&string longer(&string a, &string b) lives a, b {
+    if (a::len() > b::len()) { return a; }
+    return b;
+}
+
+none main() {
+    string x = "long one";
+    mut string y = "short";
+    &string r = longer(&x, &y);
+    io::outln(r);
+    y = "changed";
+    io::outln(y);
+}

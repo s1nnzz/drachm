@@ -1,0 +1,29 @@
+in io;
+
+struct Bag {
+public:
+    string text;
+    &string first() { return &self.text; }
+    uint64 size() { return self.text::len(); }
+    none add(uint64 n) { self.text += n::text(); }
+    none put(string s) { self.text = s; }
+}
+
+none main() {
+    mut Bag b = "ab";
+
+    // fine: size() hands back a plain number, so no borrow is alive
+    // when add() starts changing the bag
+    b::add(b::size());
+    io::outln(b.text);
+
+    // fine: s::len() is finished before += runs
+    mut string s = "abc";
+    s += s::len()->text();
+    io::outln(s);
+
+    // fine: the copy is a separate string, not a borrow of b
+    string saved = copy b.text;
+    b::put(saved + "!");
+    io::outln(b.text);
+}
