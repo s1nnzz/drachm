@@ -453,6 +453,18 @@ private:
   Struct methods stay inferred and may not change more than the interface allows.
   `changes self` is written only in interfaces.
 - Interfaces build on others with `extends`: `interface Shape3D extends Shape { float64 volume(); }`.
+  Several parents are joined with `and`, as in `with` (implementer's reading, S6B):
+  `interface Placed extends Shape and Positioned { ... }`. Equal-named members from two
+  parents need equal signatures.
+- A type can promise an interface from outside its declaration (owner, step 6 Q6):
+  `uint32 with Zero { static uint32 zero() { return 0; } }`, anywhere in the project. Built in
+  for numbers and `string`, without a declaration (owner's reading, tentative set chosen in
+  S6B): `Zero` (`static Self zero()`), `Equal` (`bool ==(Self o)`), `Ordered extends Equal`
+  (`<`, `<=`, `>`, `>=`), `Text` (`string text()`). A program that declares a type or interface
+  of the same name uses its own.
+- An interface is only ever borrowed (`&Shape`); `Shape s` and `Shape[?]` are errors (E0617).
+  A constrained type parameter (`<T with Shape>`) is checked once at its definition, with only
+  what its interfaces promise; unconstrained parameters are checked per instance.
 - `==` is automatic for structs (field by field), and structs can be map keys
   automatically. A `bool ==(T o)` operator method overrides `==`.
 - A `key()` method (e.g. `string key() { return self.text::lower(); }`) defines
