@@ -737,6 +737,52 @@ A name is bound twice in one pattern, or the patterns of one `case`
 (`case A(float64 x), B(float64 y)`) do not bind the same names with
 the same types, so the body could not know which one it has.
 
+## E0530: `none` where no optional type is wanted
+
+`none` is the empty value of an optional type (`uint32? x = none;`).
+Where no optional type is expected there is nothing for it to be empty
+in, so the place needs an optional type.
+
+    uint32? x = none;                           // fine
+    uint32 y = none;                            // error: no optional type
+
+## E0531: an optional used as its value
+
+A `uint32?` may be `none`, so it is not a `uint32`. Arithmetic, a
+plain `uint32` argument or a plain declaration cannot take it.
+Give the empty case a value with `maybe`, or test it with `has value`
+and `is empty`.
+
+    uint32? age = 5;
+    uint32 n = age maybe 0;                     // fine
+    uint32 m = age;                             // error: may be `none`
+
+## E0532: `maybe` or `has value` on a value that is not optional
+
+`maybe`, `has value` and `is empty` work on an optional value (`T?`)
+only: they tell whether there is a value to take.
+
+    uint32 n = 5;
+    uint32 m = n maybe 0;                       // error: `n` is not optional
+
+## E0533: `none` compared with `==`
+
+An optional is not compared with `none`. Ask whether it has a value
+with `has value`, or whether it is empty with `is empty`.
+
+    if (age is empty) { }                       // instead of `age == none`
+    if (age has value) { }                      // instead of `age != none`
+
+## E0534: the fallback of `maybe` is more than one value
+
+The fallback after `maybe` is a single value, or a parenthesised
+expression. A binary operator after it would read as part of the
+fallback, so the fallback needs parentheses to say what it is.
+
+    uint32 n = (age maybe 0) + 1;               // fine
+    uint32 m = age maybe (n * 2);               // fine
+    uint32 k = age maybe 0 + 1;                 // error
+
 ## E0526: wrong type in a pattern
 
 A binding in a variant pattern must name exactly the type of the

@@ -7,8 +7,8 @@ description: Declaring enums, making values, matching with bindings, guards and 
 
 An enum is a value that is exactly one of several named variants, and a variant
 can carry values. The [enums lesson](lesson-13-enums.md) introduces them with
-exercises. This page states the rules. Optionals (`T?`) are enums too, but they
-are not built yet: see [Enums and optionals](design-enums.md).
+exercises. This page states the rules. Optionals (`T?`) are enums too, and they
+are [at the end of this page](#optionals).
 
 ## Declaring an enum
 
@@ -124,3 +124,55 @@ it moves all of it, and there is no `take` of a single payload outside of a `mat
 An enum is a tag (1 byte for up to 256 variants) followed by the values of the
 variant it holds, laid out like a struct's fields. The values start at the largest
 alignment among them, so the size of `Shape` above is 24 bytes.
+
+## Optionals
+
+`T?` is an optional `T`: a value of type `T`, or `none`. It is an enum with two
+variants, `none` (no value) and `Some` (one `T`), so everything above applies to
+it: layout, copying and dropping, `match`, and the warnings. Each `T` that you
+write with a `?` gets its own optional type, and the compiler prints it as `uint32?`.
+
+A `T` goes to a `T?` by itself wherever a `T?` is wanted: a declaration, an
+assignment, an argument, a `return`, a field value. `none` is the empty value and
+is only written where an optional type is expected (E0530 otherwise). A variable
+of optional type with no value starts as `none`: `mut uint32? age;` is `none`.
+
+<!-- example: option-basic -->
+
+Two words test an optional without a `match`. `x has value` is true when there is a
+value, and `x is empty` when it is `none`. `x == none` is an error (E0533) that
+says to write `x is empty`, because the whole value is not the thing to compare.
+
+`x maybe fallback` gives the value of `x`, or `fallback` when `x` is `none`. The
+fallback is a single value or a parenthesised expression: `(x maybe 0) + 1` adds
+one to the value, and `x maybe 0 + 1` is an error (E0534). A `maybe` on something
+that is not optional is E0532.
+
+<!-- example: option-maybe -->
+
+A `match` on an optional has two cases: `case uint32 a` for the value (typed like
+any binding in a `case`) and `case none`. Leaving one out is W0110, which says
+which one is missing, and `case _` covers the rest.
+
+```text title="drachm check"
+warning[W0110]: this `match` does not handle a value
+  --> age.drh:5:5
+   |
+ 5 |     match (age) {
+   |     ^^^^^ this case is missing
+   |
+ help: add `case uint32 value { }` or `case _ { }`
+```
+
+Rules to know:
+
+- An optional that owns memory, such as `string?`, is matched like any owning
+  enum: `case take string name` moves the text out, and `case copy string name`
+  copies it. A `string?` in a variable cannot be read with `maybe` yet (E0901);
+  one returned from a call can.
+- Using an optional where its value is wanted is E0531: `uint32 n = age;` and
+  `age + 1` both need `maybe` or a test first.
+- `T??` is E0901, and `Optional<T>` spelled out is E0901: write `T?`.
+- `none` as a constructor argument needs an optional type in the constructor's
+  parameter list, which the compiler does not look at yet: give the field its
+  value with an assignment (`s.item = none;`).
