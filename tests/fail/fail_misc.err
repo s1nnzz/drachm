@@ -1,0 +1,9 @@
+error[E0548]: `parse` can fail with `ParseError`, but this function does not list it
+error[E0541]: none of `ParseError` and `LoadError` has a variant `Missing`
+error[E0543]: `Empty` is a variant of more than one failure this function lists
+error[E0541]: this function does not list `LoadError` after `fails`
+error[E0542]: `fail` is used in a function that does not say `fails`
+error[E0540]: `Shape` is not a failure type
+error[E0540]: `Nothing` is not a type
+error[E0554]: `six` lists `ParseError` twice
+error[E0549]: `because` needs a failure, but this is a `uint32`

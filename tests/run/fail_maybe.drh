@@ -1,0 +1,58 @@
+// `call maybe value`: the call's value, or the fallback. The fallback runs
+// only when the call failed.
+in io;
+
+failure ParseError {
+    Empty "nothing to parse",
+    TooLong(string text) f"too long: ${text}",
+}
+
+uint32 parse(string s) fails ParseError {
+    if (s::len() == 0) {
+        fail Empty;
+    }
+    if (s::len() > 3) {
+        fail TooLong(s::upper());
+    }
+    return s::len()->to<uint32>();
+}
+
+string label(string s) fails ParseError {
+    if (s::len() == 0) {
+        fail Empty;
+    }
+    return s::upper();
+}
+
+none check(string s) fails ParseError {
+    if (s::len() > 2) {
+        fail TooLong(s::lower());
+    }
+}
+
+uint32 fallback() {
+    io::outln("fallback ran");
+    return 99;
+}
+
+none main() {
+    io::outln((parse("ab") maybe 7)::text());
+    io::outln((parse("") maybe 7)::text());
+    io::outln((parse("abcdef") maybe 8)::text());
+    io::outln(label("xyz") maybe "none");
+    io::outln(label("") maybe "none");
+    string made = 5::text();
+    io::outln(label("") maybe made);
+    // A fallback is evaluated only on failure.
+    uint32 a = parse("ab") maybe fallback();
+    uint32 b = parse("") maybe fallback();
+    io::outln(a::text());
+    io::outln(b::text());
+    // In arguments and operands, and in a loop condition.
+    io::outln(((parse("a") maybe 0) + (parse("") maybe 10))::text());
+    mut uint32 n = 0;
+    while ((parse("abc") maybe 0) > n) {
+        n++;
+    }
+    io::outln(n::text());
+}

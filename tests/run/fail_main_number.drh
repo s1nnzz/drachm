@@ -1,0 +1,22 @@
+// A `main` that returns a number and can fail: on success the number is the
+// exit code; on failure the failure's code wins.
+in io;
+
+failure Late {
+    Overslept(uint32 minutes) f"overslept by ${minutes} minutes" exit 12,
+}
+
+sint32 check(uint32 minutes) fails Late {
+    if (minutes > 10) {
+        fail Overslept(minutes);
+    }
+    return 3;
+}
+
+sint32 main() fails Late {
+    io::outln("start");
+    sint32 a = check(5) fails;
+    io::outln(a::text());
+    sint32 b = check(60) fails;
+    return b;
+}

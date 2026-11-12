@@ -1,0 +1,26 @@
+// `fail X because e;` puts the message of the failure `e` behind the new one.
+// The report of an escaping failure lists the causes.
+in io;
+
+failure FileError {
+    Missing(string path) f"no such file ${path}" exit 4,
+    Denied "permission denied",
+}
+
+failure AppError {
+    LoadFailed "couldn't load save" exit 5,
+}
+
+none load(string name) fails AppError {
+    FileError cause = Missing(name + ".dat");
+    fail LoadFailed because cause;
+}
+
+none other() fails AppError {
+    fail LoadFailed because FileError::Denied;
+}
+
+none main() fails AppError {
+    io::outln("loading");
+    load("save") fails;
+}

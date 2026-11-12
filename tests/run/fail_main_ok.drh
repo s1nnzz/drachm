@@ -1,0 +1,18 @@
+// A failing `main` that does not fail returns 0, or its number.
+in io;
+
+failure Late {
+    Overslept(uint32 minutes) f"overslept by ${minutes} minutes" exit 12,
+}
+
+sint32 check(uint32 minutes) fails Late {
+    if (minutes > 10) {
+        fail Overslept(minutes);
+    }
+    return 3;
+}
+
+sint32 main() fails Late {
+    io::outln("start");
+    return check(5) fails;
+}

@@ -1,0 +1,20 @@
+failure Config {
+    Missing(string key) f"missing ${port}",
+    Big "too big" exit 300,
+    Missing "again",
+    Odd(uint32 n) f"odd ${n}" exit 0,
+}
+
+failure Nothing {
+}
+
+failure Shape {
+    Round "round",
+}
+
+struct Shape {
+    float64 r;
+}
+
+none main() {
+}

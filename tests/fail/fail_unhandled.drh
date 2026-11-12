@@ -1,0 +1,19 @@
+in io;
+
+failure ParseError {
+    Empty "nothing to parse",
+}
+
+uint32 parse(string line) fails ParseError {
+    if (line::len() == 0) {
+        fail Empty;
+    }
+    return 1;
+}
+
+none main() {
+    uint32 n = parse("x");
+    parse("y");
+    io::outln((1 + parse("z"))::text());
+    uint32 q = "a"::to<uint32>();
+}

@@ -1,0 +1,29 @@
+// Failure types are types: they can be built, moved and dropped (a string
+// value inside one is freed, and so is a cause chain).
+in io;
+
+failure ToolError {
+    NoInput             "no input file" exit 2,
+    BadConfig(string k) f"bad config key ${k}" exit 3,
+    Size(uint32 n, bool big) f"size ${n}",
+    LoadFailed          "couldn't load save",
+}
+
+failure Other {
+    Plain "plain",
+}
+
+ToolError make(string key) {
+    return BadConfig(key);
+}
+
+none main() {
+    ToolError a = NoInput;
+    ToolError b = BadConfig(77::text());
+    ToolError c = b;
+    ToolError d = ToolError::Size(3, true);
+    ToolError e = make(1000::text());
+    ToolError f = ToolError::LoadFailed;
+    Other g = Plain;
+    io::outln("built");
+}

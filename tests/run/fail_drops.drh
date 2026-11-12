@@ -1,0 +1,47 @@
+// Owned strings are freed on every path: the failing function's own, the
+// caller's that are alive across the call, the failure's value, and the
+// arguments of a call when an earlier argument's call fails.
+in io;
+
+failure Oops {
+    Named(string who) f"oops ${who}" exit 7,
+    Plain "plain oops",
+}
+
+string make(uint32 n, bool fail_now) fails Oops {
+    string a = n::text() + "-a";
+    string b = a + "-b";
+    if (fail_now) {
+        fail Named(b);
+    }
+    if (n == 0) {
+        fail Plain;
+    }
+    return b;
+}
+
+string join3(string x, string y, string z) {
+    return x + y + z;
+}
+
+string chain(uint32 n, bool fail_now) fails Oops {
+    string mine = "mine" + n::text();
+    string got = make(n, fail_now) fails;
+    return mine + got;
+}
+
+string args(uint32 n) fails Oops {
+    return join3(make(n, false) fails, "-" + n::text(), make(n + 1, n == 5) fails);
+}
+
+none main() fails Oops {
+    string alive = "alive" + 1::text();
+    io::outln(chain(1, false) maybe "x");
+    io::outln(chain(1, true) maybe "recovered");
+    io::outln(chain(0, false) maybe "recovered again");
+    io::outln(args(2) maybe "args failed");
+    io::outln(args(0) maybe "args failed");
+    io::outln(args(5) maybe "args failed");
+    io::outln(alive);
+    io::outln(chain(3, true) fails);
+}

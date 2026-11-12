@@ -1,0 +1,71 @@
+// `call fails` passes a failure up. A function that lists several failure
+// types returns whichever happened; one that lists a subset of its callee's
+// list is not allowed (E0548), one that lists a superset re-wraps.
+in io;
+
+failure ParseError {
+    Empty "nothing to parse" exit 2,
+    Bad(string text) f"bad text ${text}" exit 3,
+}
+
+failure RangeError {
+    TooBig(uint32 n) f"${n} is too big" exit 4,
+}
+
+failure DiskError {
+    Full "the disk is full" exit 5,
+}
+
+uint32 parse(string s) fails ParseError {
+    if (s::len() == 0) {
+        fail Empty;
+    }
+    if (s::len() > 5) {
+        fail Bad(s::upper());
+    }
+    return s::len()->to<uint32>();
+}
+
+uint32 limited(string s) fails ParseError, RangeError {
+    uint32 n = parse(s) fails;
+    if (n > 3) {
+        fail TooBig(n);
+    }
+    return n;
+}
+
+uint32 store(string s) fails RangeError, DiskError, ParseError {
+    uint32 n = limited(s) fails;
+    if (n == 1) {
+        fail Full;
+    }
+    return n * 10;
+}
+
+string describe(string s) {
+    string note = "ok ";
+    uint32 n = store(s) maybe 0;
+    return note + n::text();
+}
+
+none run(string s) fails DiskError, RangeError, ParseError {
+    string keep = s + "!";
+    uint32 n = store(s) fails;
+    io::outln(keep + " -> " + n::text());
+}
+
+none attempt(string s) fails ParseError {
+    uint32 n = parse(s) fails;
+    io::outln(n::text());
+}
+
+none main() fails DiskError, RangeError, ParseError {
+    io::outln(describe("ab"));
+    io::outln(describe("a"));
+    io::outln(describe(""));
+    io::outln(describe("abcd"));
+    attempt("xyz") fails;
+    run("ab") fails;
+    run("") fails;
+    io::outln("not reached");
+}
