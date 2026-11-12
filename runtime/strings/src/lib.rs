@@ -19,7 +19,9 @@ use std::sync::{Mutex, Once};
 
 use unicode_segmentation::UnicodeSegmentation;
 
+mod hash;
 mod lists;
+mod maps;
 
 #[repr(C)]
 pub struct DrachmStr {
