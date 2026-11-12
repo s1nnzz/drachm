@@ -254,12 +254,64 @@ error[E0612]: `Hits::get` changes `self`, but `Counter::get` does not say `chang
 ```
 
 ## Interfaces as types
-<!-- status: not-implemented -->
 
 An interface can only be borrowed, never held: `Shape s` and `Shape[?]` are
-E0617. Borrowing one, `&Shape`, would call the methods through the value's
-real type while the program runs, which is not built yet (E0901). A generic
-function constrained by an interface does not need it.
+E0617. A borrow of one, `&Shape` or `&mut Shape`, accepts a borrow of any
+struct that implements it, and a call through it runs the method of the real
+struct while the program runs. Any interface can be borrowed this way.
+
+<!-- example: dyn-report -->
+
+Where a `&Shape` is wanted (an argument, a `&Shape s = &c;` declaration, a
+return) a `&Circle` or a `&Square` is converted by itself. A `&mut Counter`
+takes a `&mut` of a struct and can call the methods that say `changes self`;
+through a plain `&Counter` they are E0311, like any change through a `&`.
+
+<!-- example: dyn-mut -->
+
+A required field is read through the borrow (`p.x`), and a `&Placed` becomes
+a `&Shape` or a `&Positioned` where one of those is wanted, because `Placed`
+extends them. The borrow of the struct lasts as long as the `&Shape` is
+used, exactly as for a `&Circle`.
+
+<!-- example: dyn-fields -->
+
+What a `&Shape` cannot do:
+
+- A `static` method, a method that has `Self` in its signature, or an
+  operator method is not callable through it: the struct behind it is not
+  known (E0619). Call it on the struct, or in a generic constrained with the
+  interface.
+- A struct that does not implement the interface does not convert (E0640).
+- A method that returns a borrow, a required field written to, a `&Circle`
+  where `Circle` itself holds borrows, and a list of `&Shape` are E0901 for now.
+
+```text
+error[E0640]: `Plain` does not implement `Shape`, so `&p` is not a `&Shape`
+  --> dyn_errors.drh:63:10
+   |
+25 | struct Plain {
+   |        ----- `struct Plain` is declared here
+  ...
+63 |     look(&p);
+   |          ^^ this is `&Plain`
+   |
+ help: add `with Shape` to `struct Plain`
+```
+
+```text
+error[E0619]: `same` cannot be called through a `&Shape`: it has `Self` in its signature
+  --> dyn_errors.drh:44:8
+   |
+44 |     s::same(s);
+   |        ^^^^ the type behind the borrow is not known here
+   |
+ help: call it on a value of the struct, or in a function constrained with `<T with ...>`
+```
+
+A generic function constrained by an interface (`T with Shape`) is the other
+way to write code over several kinds: the kind is fixed for each call, and the
+call is not looked up while the program runs.
 
 ## Constraints
 

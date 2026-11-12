@@ -1,0 +1,34 @@
+in io;
+
+interface Counter {
+    none bump() changes self;
+    uint32 get();
+}
+
+struct Hits with Counter {
+    public:
+    uint32 n;
+    none bump() { self.n += 1; }
+    uint32 get() { return self.n; }
+}
+
+struct Steps with Counter {
+    public:
+    uint32 n;
+    none bump() { self.n += 5; }
+    uint32 get() { return self.n; }
+}
+
+// A method that changes `self` needs a `&mut`.
+none tick(&mut Counter c) {
+    c::bump();
+    c::bump();
+}
+
+none main() {
+    mut Hits h = 0;
+    mut Steps s = 100;
+    tick(&mut h);
+    tick(&mut s);
+    io::outln(f"${h::get()} ${s::get()}");
+}

@@ -1,0 +1,2 @@
+error[E0311]: cannot call `bump` through a `&` borrow: `bump` changes `self`
+dyn_borrows.drh: 1 error

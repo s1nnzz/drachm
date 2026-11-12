@@ -44,6 +44,11 @@ pub fn place_ty(body: &Body, hir: &hir::Program, p: &Place) -> Result<Type, Stri
                     t = fd.ty;
                     continue;
                 }
+                if let Type::Dyn { id, .. } = t {
+                    let fd = hir.dyn_ifaces.get(id).and_then(|d| d.fields.get(f)).ok_or_else(|| format!("interface #{id} has no field {f}"))?;
+                    t = fd.ty;
+                    continue;
+                }
                 let Type::Struct { id, .. } = t else {
                     return Err(format!("field {f} (projection {i}) of non-struct `{t}` in a place based on {}", p.local));
                 };
@@ -70,7 +75,10 @@ pub fn place_ty_in(locals: &IndexVec<Local, LocalDecl>, hir: &hir::Program, p: &
             }
             Proj::Field(f) => match variant.take() {
                 Some(v) => hir.enum_def(t).variants[v].fields[f].ty,
-                None => hir.struct_def(t).fields[f].ty,
+                None => match t {
+                    Type::Dyn { id, .. } => hir.dyn_ifaces[id].fields[f].ty,
+                    _ => hir.struct_def(t).fields[f].ty,
+                },
             },
         };
     }
@@ -114,7 +122,7 @@ pub fn rvalue_ty(body: &Body, hir: &hir::Program, rv: &Rvalue) -> Result<Type, S
         }
         Rvalue::Shift { value, .. } => operand_ty(body, hir, value)?,
         Rvalue::IntPow(base, _) => operand_ty(body, hir, base)?,
-        Rvalue::Convert(_, t) => *t,
+        Rvalue::Convert(_, t) | Rvalue::Unsize(_, t) => *t,
         Rvalue::Ref(kind, p) => {
             let t = place_ty(body, hir, p)?;
             if t.is_borrow() {

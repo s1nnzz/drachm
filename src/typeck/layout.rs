@@ -100,6 +100,9 @@ impl Globals {
         if t == Type::Str || t.is_list() {
             return (hir::STR_SIZE, 8);
         }
+        if t.is_fat() {
+            return (16, 8);
+        }
         if let Type::Array { elem, len } = t {
             let (size, align) = self.size_align(Some(*elem));
             return ((size as u64).saturating_mul(len).min(u32::MAX as u64 / 2) as u32, align);

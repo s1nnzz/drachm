@@ -1,0 +1,108 @@
+in io;
+
+interface Shape {
+    float64 area();
+    string name();
+}
+
+interface Positioned {
+    float64 x;
+    float64 y;
+    string label;
+}
+
+interface Solid extends Shape {
+    float64 volume();
+}
+
+interface Counter {
+    none bump() changes self;
+    uint32 get();
+}
+
+struct Circle with Shape {
+    public:
+    float64 r;
+    float64 area() { return 3.0 * self.r * self.r; }
+    string name() { return "circle"; }
+}
+
+struct Cube with Solid and Positioned {
+    public:
+    float64 side;
+    float64 x;
+    float64 y;
+    string label;
+    float64 area() { return 6.0 * self.side * self.side; }
+    string name() { return "cube"; }
+    float64 volume() { return self.side * self.side * self.side; }
+}
+
+struct Pin with Positioned {
+    public:
+    uint8 pad;
+    float64 x;
+    float64 y;
+    string label;
+}
+
+struct Hits with Counter {
+    public:
+    uint32 n;
+    none bump() { self.n += 1; }
+    uint32 get() { return self.n; }
+}
+
+struct Steps with Counter {
+    public:
+    uint64 gap;
+    uint32 n;
+    none bump() { self.n += 2; }
+    uint32 get() { return self.n; }
+}
+
+none describe(&Shape s) {
+    io::outln(f"${s::name()} has area ${s::area()}");
+}
+
+none solid(&Solid s) {
+    io::outln(f"volume ${s::volume()}");
+    describe(s);
+}
+
+none where(&Positioned p) {
+    io::outln(f"${p.label} at ${p.x}, ${p.y}");
+}
+
+none tick(&mut Counter c) {
+    c::bump();
+    c::bump();
+}
+
+none twice(&mut Counter c) {
+    tick(lend c);
+    io::outln(f"count ${c::get()}");
+}
+
+&Shape pick(&Circle a, &Cube b, bool first) lives a, b {
+    if (first) { return a; }
+    return b;
+}
+
+none main() {
+    Circle c = 1.0;
+    Cube cube = new Cube of (2.0, 5.0, 6.0, "box");
+    Pin pin = new Pin of (0, 1.5, 2.5, "pin");
+    describe(&c);
+    describe(&cube);
+    solid(&cube);
+    where(&cube);
+    where(&pin);
+    mut Hits h = 0;
+    mut Steps st = new Steps of (0, 10);
+    twice(&mut h);
+    twice(&mut st);
+    &Shape chosen = pick(&c, &cube, false);
+    describe(chosen);
+    describe(pick(&c, &cube, true));
+}

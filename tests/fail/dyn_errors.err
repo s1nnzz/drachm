@@ -1,0 +1,13 @@
+error[E0101]: expected `&string`, found `string`
+error[E0201]: `Shape` has no method `zero`
+error[E0619]: `unit` is `static`, so it needs a type, not a `&Shape`
+error[E0619]: `same` cannot be called through a `&Shape`: it has `Self` in its signature
+error[E0901]: `tag` returns a borrow, which cannot be called through a `&Shape` yet
+error[E0201]: `Shape` has no method `volume`
+error[E0103]: `Shape::area` takes 0 arguments, but 1 given
+error[E0901]: changing the field `x` through a borrow of an interface is not supported yet
+error[E0201]: `Positioned` has no field `nope`
+error[E0901]: a list of borrows of `Shape` is not supported yet
+error[E0640]: `Plain` does not implement `Shape`, so `&p` is not a `&Shape`
+error[E0901]: using a `&mut` where a `&` is expected is not supported yet
+dyn_errors.drh: 12 errors

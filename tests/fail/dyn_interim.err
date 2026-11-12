@@ -1,0 +1,3 @@
+error[E0901]: a `&Holder` cannot become a `&Shape` yet: `Holder` holds a borrow
+error[E0901]: a `&uint32` cannot become a `&Text` yet: `text` is built in for `uint32`
+dyn_interim.drh: 2 errors

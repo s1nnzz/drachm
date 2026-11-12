@@ -1,0 +1,42 @@
+in io;
+
+interface Describe {
+    string describe();
+}
+
+interface Zeroed {
+    bool zeroed();
+}
+
+uint32 with Describe {
+    string describe() { return f"number ${self}"; }
+}
+
+struct Boxed<T> with Zeroed {
+    public:
+    T value;
+    bool zeroed() { return true; }
+}
+
+struct Named with Describe {
+    public:
+    string n;
+    string describe() { return f"named ${self.n}"; }
+}
+
+none show(&Describe d) {
+    io::outln(d::describe());
+}
+
+none check(&Zeroed z) {
+    io::outln(z::zeroed()->text());
+}
+
+none main() {
+    uint32 n = 7;
+    Named w = "ann";
+    Boxed<uint32> b = new Boxed<uint32> of (3);
+    show(&n);
+    show(&w);
+    check(&b);
+}

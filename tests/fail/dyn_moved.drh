@@ -1,0 +1,31 @@
+in io;
+
+interface Shape {
+    float64 area();
+}
+
+interface Counter {
+    none bump() changes self;
+}
+
+struct Circle with Shape {
+    public:
+    float64 r;
+    string note;
+    float64 area() { return self.r; }
+}
+
+struct Hits with Counter {
+    public:
+    uint32 n;
+    none bump() { self.n += 1; }
+}
+
+none eat(Circle c) { }
+
+none main() {
+    Circle c = new Circle of (1.0, "x");
+    &Shape s = &c;
+    eat(c);
+    io::outln(s::area()->text());
+}

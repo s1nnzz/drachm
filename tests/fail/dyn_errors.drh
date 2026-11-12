@@ -1,0 +1,66 @@
+interface Shape {
+    float64 area();
+    static Self unit();
+    bool same(Self other);
+    &string tag();
+}
+
+interface Positioned {
+    float64 x;
+}
+
+interface Counter {
+    none bump() changes self;
+}
+
+struct Circle with Shape {
+    public:
+    float64 r;
+    float64 area() { return self.r; }
+    static Circle unit() { return new Circle of (1.0); }
+    bool same(Circle other) { return true; }
+    &string tag() { return "c"; }
+}
+
+struct Plain {
+    public:
+    float64 r;
+}
+
+struct Hits with Counter {
+    public:
+    uint32 n;
+    none bump() { self.n += 1; }
+}
+
+struct Spot with Positioned {
+    public:
+    float64 x;
+}
+
+none look(&Shape s) {
+    s::zero();
+    s::unit();
+    s::same(s);
+    s::tag();
+    s::volume();
+    s::area(1.0);
+}
+
+none poke(&Counter c) {
+    c::bump();
+}
+
+none shift(&mut Positioned p) {
+    p.x = 1.0;
+    p.nope;
+}
+
+none lists(&Shape[?] all) { }
+
+none main() {
+    Plain p = 1.0;
+    look(&p);
+    Circle c = 1.0;
+    look(&mut c);
+}

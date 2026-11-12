@@ -257,6 +257,7 @@ impl Cx<'_> {
             | ExprKind::BitNot(inner)
             | ExprKind::Convert(inner)
             | ExprKind::PtrConv(inner)
+            | ExprKind::Unsize(inner)
             | ExprKind::Text(inner)
             | ExprKind::DeepCopy(inner)
             | ExprKind::AddressOf(inner)
@@ -346,7 +347,7 @@ impl Cx<'_> {
                     self.expr(a, out);
                 }
             }
-            ExprKind::Join(args) | ExprKind::Variant { args, .. } => {
+            ExprKind::Join(args) | ExprKind::Variant { args, .. } | ExprKind::DynCall(_, _, args) => {
                 for a in args {
                     self.expr(a, out);
                 }

@@ -1,0 +1,33 @@
+in io;
+
+interface Shape {
+    float64 area();
+    string name();
+}
+
+struct Circle with Shape {
+    public:
+    float64 r;
+    float64 area() { return 3.0 * self.r * self.r; }
+    string name() { return "circle"; }
+}
+
+struct Square with Shape {
+    public:
+    float64 side;
+    float64 area() { return self.side * self.side; }
+    string name() { return "square"; }
+}
+
+// One function for every kind of shape: which `area` runs is decided
+// while the program runs.
+none report(&Shape s) {
+    io::outln(f"${s::name()} with area ${s::area()}");
+}
+
+none main() {
+    Circle c = 2.0;
+    Square q = 3.0;
+    report(&c);
+    report(&q);
+}

@@ -44,7 +44,8 @@ interface method that may change `self`. These build today and are described in
 [Generics](reference-generics.md).
 
 An interface name used as a type means any struct that has it, dispatched while
-the program runs: `none report(&Shape s) { ... }`. That part is not built yet.
+the program runs: `none report(&Shape s) { ... }`. This builds too; see
+[Generics](reference-generics.md#interfaces-as-types).
 
 ## Your own iterables
 

@@ -1,0 +1,2 @@
+error[E0901]: `exclusive` is not supported yet
+dyn_exclusive.drh: 1 error

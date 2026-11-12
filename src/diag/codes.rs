@@ -738,6 +738,16 @@ codes! {
          type argument cannot be `Shape` itself, because it could be any struct\n\
          that implements it. Write `&Shape`, or use an enum for a closed set of\n\
          choices.";
+    E0619: "not callable through a borrow of an interface",
+        "A `&Shape` stands for any struct that implements `Shape`, and the\n\
+         compiler does not know which one. A `static` method needs a type, not\n\
+         a value, and a method that mentions `Self` (or is an operator) has\n\
+         types that depend on the struct. Call these on the struct itself, or\n\
+         in a function with a constraint (`<T with Shape>`).";
+    E0640: "no conversion to a borrow of an interface",
+        "A `&Shape` is wanted, but the borrow given is of a struct that does not\n\
+         implement `Shape` (or of an interface that does not extend it). Add\n\
+         `with Shape` to the struct, or `extends Shape` to the interface.";
     E0620: "index outside an array",
         "An array has a fixed length, so an index written as a number can be\n\
          checked while the program is compiled. Valid indexes run from 0 to one\n\

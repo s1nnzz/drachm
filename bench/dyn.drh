@@ -1,0 +1,35 @@
+// Dynamic dispatch: 100 million `area()` calls through `&Shape`, the struct
+// chosen from the running sum so the call target depends on the data.
+in io;
+
+interface Shape {
+    uint64 area();
+}
+
+struct Square with Shape {
+    public:
+    uint64 side;
+    uint64 area() { return self.side * self.side; }
+}
+
+struct Strip with Shape {
+    public:
+    uint64 len;
+    uint64 area() { return self.len + 3; }
+}
+
+uint64 total(&Shape a, &Shape b, uint64 pairs) {
+    mut uint64 sum = 0;
+    for (mut uint64 i = 0; i < pairs; i++) {
+        mut &Shape s = a;
+        if (sum % 3 == 0) { s = b; }
+        sum += s::area();
+    }
+    return sum;
+}
+
+none main() {
+    Square q = 7;
+    Strip s = 11;
+    io::outln(total(&q, &s, 100000000)::text());
+}

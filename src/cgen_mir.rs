@@ -27,11 +27,42 @@ pub fn generate(hir: &hir::Program, mir: &Program) -> String {
         let _ = writeln!(out, "{};", signature(hir, body));
     }
     out += &glue(hir);
+    out += &vtables(hir);
     for &body in &bodies {
         let g = Gen { hir, mir, body, out: String::new(), jumped: vec![false; body.blocks.len()], branch_over: None, consts: Vec::new() };
         let _ = writeln!(out, "\n{} {{\n{}}}", signature(hir, body), g.function());
     }
     out += &main_fn(hir);
+    out
+}
+
+/// The read-only table of each (type, interface) a borrow is converted at
+/// (`hir::VTable`): `drachm_vt_N`, an array of words laid out as
+/// `hir::DynIface` says. The tables of an interface's ancestors come first,
+/// since a table points at them.
+fn vtables(hir: &hir::Program) -> String {
+    let mut out = String::new();
+    let mut order: Vec<usize> = (0..hir.vtables.len()).collect();
+    order.sort_by_key(|&i| hir.dyn_ifaces[hir.vtables[i].iface].ancestors.len());
+    for i in order {
+        let vt = &hir.vtables[i];
+        let iface = &hir.dyn_ifaces[vt.iface];
+        let (size, align) = hir.size_align(vt.ty);
+        let mut words = vec![format!("(const void *)(uintptr_t){size}"), format!("(const void *)(uintptr_t){align}")];
+        for &a in &iface.ancestors {
+            words.push(format!("(const void *)drachm_vt_{}", hir.vtable_index(vt.ty, a)));
+        }
+        for m in &vt.methods {
+            words.push(match m {
+                Some(f) => format!("(const void *){}", hir.funcs[*f].symbol),
+                None => "(const void *)0".to_string(),
+            });
+        }
+        for &off in &vt.fields {
+            words.push(format!("(const void *)(uintptr_t){off}"));
+        }
+        let _ = writeln!(out, "static const void *const drachm_vt_{i}[] = {{ {} }}; /* {} as {} */", words.join(", "), vt.ty, iface.name);
+    }
     out
 }
 
@@ -396,11 +427,20 @@ impl Gen<'_> {
                     let _ = write!(s, ".u.v{v}.f_{}", f.name);
                     ty = f.ty;
                 }
+                Proj::Field(i) if matches!(ty, Type::Dyn { .. }) => {
+                    let Type::Dyn { id, .. } = ty else { unreachable!() };
+                    let iface = &self.hir.dyn_ifaces[id];
+                    let fty = iface.fields[i].ty;
+                    s = format!("(*({} *)((uint8_t *){s}.data + (size_t)({s}.vt[{}])))", c_type(fty), iface.field_slot(i));
+                    ty = fty;
+                }
                 Proj::Field(i) => {
                     let f = &self.hir.struct_def(ty).fields[i];
                     let _ = write!(s, ".f_{}", f.name);
                     ty = f.ty;
                 }
+                // The fat borrow itself stands for the interface behind it.
+                Proj::Deref if ty.is_fat() => ty = ty.target().expect("a borrow"),
                 Proj::Deref => {
                     s = format!("(*{s})");
                     ty = ty.target().expect("deref of a non-pointer");
@@ -533,7 +573,25 @@ impl Gen<'_> {
                     _ => format!("({t}){v}"),
                 }
             }
+            // A reborrow of the interface behind a fat borrow is the fat borrow.
+            Rvalue::Ref(_, p) if matches!(place_ty(self.body, self.hir, p), Ok(Type::Dyn { .. })) => self.lvalue(p),
             Rvalue::Ref(_, p) | Rvalue::RawRef(p) => format!("&{}", self.lvalue(p)),
+            Rvalue::Unsize(op, to) => {
+                let from = self.op_ty(op);
+                let x = self.operand(op);
+                let Some(Type::Dyn { id: k, .. }) = to.target() else { unreachable!("unsized to an interface") };
+                match from.target() {
+                    // An upcast: the table of the same type for the ancestor.
+                    Some(Type::Dyn { id: j, .. }) => {
+                        let slot = self.hir.dyn_ifaces[j].ancestor_slot(k).expect("an ancestor");
+                        format!("(drachm_dyn){{ {x}.data, (const void *const *){x}.vt[{slot}] }}")
+                    }
+                    _ => {
+                        let src = from.target().expect("a borrow");
+                        format!("(drachm_dyn){{ (void *){x}, drachm_vt_{} }}", self.hir.vtable_index(src, k))
+                    }
+                }
+            }
             Rvalue::Aggregate(sid, ops) => {
                 let def = &self.hir.structs[*sid];
                 let parts: Vec<String> = ops.iter().enumerate().map(|(i, op)| format!(".f_{} = {}", def.fields[i].name, self.operand(op))).collect();
@@ -697,6 +755,25 @@ impl Gen<'_> {
                 let a: Vec<String> = args.iter().map(|a| self.operand(&a.op)).collect();
                 let call = format!("{}({})", f.symbol, a.join(", "));
                 match (&dest_lv, f.ret) {
+                    (Some(_), t) if t != Type::None => {
+                        let d = self.decl(dest.unwrap(), t);
+                        self.line(format!("{d} = {call};"))
+                    }
+                    _ => self.line(format!("{call};")),
+                }
+            }
+            Callee::Dyn { iface, method } => {
+                let m = &self.hir.dyn_ifaces[iface].methods[method];
+                let slot = self.hir.dyn_ifaces[iface].method_slot(method);
+                let fat = self.operand(&args[0].op);
+                let rest: Vec<String> = args[1..].iter().map(|a| self.operand(&a.op)).collect();
+                let mut params = vec!["void *".to_string()];
+                params.extend(m.params.iter().map(|&p| c_type(p)));
+                let fn_ty = format!("{} (*)({})", c_type(m.ret), params.join(", "));
+                let mut all = vec![format!("{fat}.data")];
+                all.extend(rest);
+                let call = format!("(({fn_ty}){fat}.vt[{slot}])({})", all.join(", "));
+                match (&dest_lv, m.ret) {
                     (Some(_), t) if t != Type::None => {
                         let d = self.decl(dest.unwrap(), t);
                         self.line(format!("{d} = {call};"))

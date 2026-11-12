@@ -66,6 +66,8 @@ pub fn compile(hir: &hir::Program, mir: &Program) -> Result<Vec<u8>, String> {
         copy_ids.insert(t, module.declare_function(&format!("drachm_copy_{}", glue_name(t)), Linkage::Local, &sig).map_err(err)?);
     }
 
+    let vt_ids = define_vtables(&mut module, hir, &ids)?;
+
     let mut ctx = module.make_context();
     let mut fctx = FunctionBuilderContext::new();
     let mut runtime = HashMap::new();
@@ -99,6 +101,8 @@ pub fn compile(hir: &hir::Program, mir: &Program) -> Result<Vec<u8>, String> {
                 ret_ptr: None,
                 drop_ids: &drop_ids,
                 copy_ids: &copy_ids,
+                vt_ids: &vt_ids,
+                dyn_vt: None,
             };
             g.prologue(&params, hf.ret);
             let first = g.blocks[0];
@@ -127,6 +131,43 @@ pub fn compile(hir: &hir::Program, mir: &Program) -> Result<Vec<u8>, String> {
 
     emit_c_main(&mut module, &mut ctx, &mut fctx, ids[hir.main], hir.funcs[hir.main].ret)?;
     module.finish().emit().map_err(err)
+}
+
+/// The read-only table of each (type, interface) a borrow is converted at
+/// (`hir::VTable`), as words laid out as `hir::DynIface` says: sizes and
+/// offsets as numbers, methods as function addresses, ancestors as the
+/// addresses of their tables.
+fn define_vtables(module: &mut ObjectModule, hir: &hir::Program, ids: &[FuncId]) -> Result<Vec<DataId>, String> {
+    let mut data = Vec::new();
+    for i in 0..hir.vtables.len() {
+        data.push(module.declare_data(&format!("drachm_vt_{i}"), Linkage::Local, false, false).map_err(err)?);
+    }
+    for (i, vt) in hir.vtables.iter().enumerate() {
+        let iface = &hir.dyn_ifaces[vt.iface];
+        let (size, align) = hir.size_align(vt.ty);
+        let words = 2 + iface.ancestors.len() + iface.methods.len() + iface.fields.len();
+        let mut bytes = vec![0u8; words * 8];
+        let mut put = |slot: usize, v: u64| bytes[slot * 8..slot * 8 + 8].copy_from_slice(&v.to_le_bytes());
+        put(0, size as u64);
+        put(1, align as u64);
+        for (f, &off) in vt.fields.iter().enumerate() {
+            put(iface.field_slot(f), off as u64);
+        }
+        let mut desc = DataDescription::new();
+        desc.define(bytes.into_boxed_slice());
+        for (m, f) in vt.methods.iter().enumerate() {
+            if let Some(f) = f {
+                let r = module.declare_func_in_data(ids[*f], &mut desc);
+                desc.write_function_addr((iface.method_slot(m) * 8) as u32, r);
+            }
+        }
+        for &a in &iface.ancestors {
+            let r = module.declare_data_in_data(data[hir.vtable_index(vt.ty, a)], &mut desc);
+            desc.write_data_addr((iface.ancestor_slot(a).expect("an ancestor") * 8) as u32, r, 0);
+        }
+        module.define_data(data[i], &desc).map_err(err)?;
+    }
+    Ok(data)
 }
 
 /// Call a runtime function, importing it on first use.
@@ -168,6 +209,10 @@ fn enum_chunks(hir: &hir::Program, ty: Type, at: u32, out: &mut Vec<(u32, ClType
 
 /// Scalar leaves of a value of type `ty` that holds no strings, relative to `at`.
 fn plain_leaves(hir: &hir::Program, ty: Type, at: u32, out: &mut Vec<(u32, ClType)>) {
+    if ty.is_fat() {
+        out.extend([(at, types::I64), (at + 8, types::I64)]);
+        return;
+    }
     if let Some(cl) = cl_type(ty) {
         out.push((at, cl));
         return;
@@ -496,6 +541,10 @@ struct Cg<'a, 'b> {
     /// The drop and copy glue functions, by `StructId`.
     drop_ids: &'a HashMap<Type, FuncId>,
     copy_ids: &'a HashMap<Type, FuncId>,
+    /// The data of each vtable, by index in `hir::Program::vtables`.
+    vt_ids: &'a [DataId],
+    /// The table word of the fat borrow the last `Deref` went through.
+    dyn_vt: Option<Value>,
 }
 
 impl Cg<'_, '_> {
@@ -542,7 +591,7 @@ impl Cg<'_, '_> {
                         Slot::Mem(addr)
                     }
                     // A struct parameter's memory is the callee's own.
-                    None if ty.struct_id().is_some() || ty.enum_id().is_some() || ty.is_list() || ty.is_array() => match incoming {
+                    None if ty.struct_id().is_some() || ty.enum_id().is_some() || ty.is_list() || ty.is_array() || ty.is_fat() => match incoming {
                         Some(p) => Slot::Mem(p),
                         None => Slot::Mem(self.mem(ty)),
                     },
@@ -577,6 +626,18 @@ impl Cg<'_, '_> {
         for pr in &p.proj {
             match *pr {
                 Proj::Downcast(v) => variant = Some(v),
+                Proj::Field(i) if matches!(ty, Type::Dyn { .. }) => {
+                    // A required field: its offset is in the table.
+                    let Type::Dyn { id, .. } = ty else { unreachable!() };
+                    let Loc::Mem(base, off) = loc else { unreachable!("behind a borrow") };
+                    let iface = &self.hir.dyn_ifaces[id];
+                    let (slot, fty) = (iface.field_slot(i), iface.fields[i].ty);
+                    let vt = self.dyn_vt.expect("a table behind the borrow");
+                    let word = self.b.ins().load(self.ptr, MEM, vt, (slot * 8) as i32);
+                    let at = self.b.ins().iadd(base, word);
+                    loc = Loc::Mem(at, off);
+                    ty = fty;
+                }
                 Proj::Field(i) => {
                     let Loc::Mem(base, off) = loc else { unreachable!("a field of a register") };
                     let f = match variant.take() {
@@ -585,6 +646,14 @@ impl Cg<'_, '_> {
                     };
                     loc = Loc::Mem(base, off + f.offset);
                     ty = f.ty;
+                }
+                Proj::Deref if ty.is_fat() => {
+                    // The borrow is two words in memory: the address, then the table.
+                    let Loc::Mem(base, off) = loc else { unreachable!("a fat borrow is in memory") };
+                    let data = self.b.ins().load(self.ptr, MEM, base, off as i32);
+                    self.dyn_vt = Some(self.b.ins().load(self.ptr, MEM, base, off as i32 + 8));
+                    loc = Loc::Mem(data, 0);
+                    ty = ty.target().expect("a borrow");
                 }
                 Proj::Deref => {
                     let ptr = match loc {
@@ -672,6 +741,10 @@ impl Cg<'_, '_> {
     // ---- values in memory --------------------------------------------------
 
     fn leaves(&self, ty: Type, at: u32, out: &mut Vec<(u32, Leaf)>) {
+        if ty.is_fat() {
+            out.extend([(at, Leaf::Scalar(types::I64)), (at + 8, Leaf::Scalar(types::I64))]);
+            return;
+        }
         if ty == Type::Str {
             out.push((at, Leaf::Str));
             return;
@@ -840,6 +913,37 @@ impl Cg<'_, '_> {
                 let src = self.operand_addr(op);
                 let d = self.addr_of(dest);
                 self.copy_bits(ty, d, src);
+            }
+            // A reborrow of the interface behind a fat borrow is the fat borrow.
+            Rvalue::Ref(_, p) => {
+                let mut q = p.clone();
+                assert_eq!(q.proj.pop(), Some(Proj::Deref), "a place of interface type is behind a borrow");
+                let src = self.addr_of(&q);
+                let d = self.addr_of(dest);
+                self.copy_bits(ty, d, src);
+            }
+            Rvalue::Unsize(op, to) => {
+                let from = self.op_ty(op);
+                let Some(Type::Dyn { id: k, .. }) = to.target() else { unreachable!("unsized to an interface") };
+                let (data, vt) = match from.target() {
+                    // An upcast: the table of the same type for the ancestor.
+                    Some(Type::Dyn { id: j, .. }) => {
+                        let src = self.operand_addr(op);
+                        let slot = self.hir.dyn_ifaces[j].ancestor_slot(k).expect("an ancestor");
+                        let data = self.b.ins().load(self.ptr, MEM, src, 0);
+                        let old = self.b.ins().load(self.ptr, MEM, src, 8);
+                        (data, self.b.ins().load(self.ptr, MEM, old, (slot * 8) as i32))
+                    }
+                    _ => {
+                        let data = self.operand(op);
+                        let table = self.hir.vtable_index(from.target().expect("a borrow"), k);
+                        let gv = self.module.declare_data_in_func(self.vt_ids[table], self.b.func);
+                        (data, self.b.ins().symbol_value(self.ptr, gv))
+                    }
+                };
+                let d = self.addr_of(dest);
+                self.b.ins().store(MEM, data, d, 0);
+                self.b.ins().store(MEM, vt, d, 8);
             }
             Rvalue::Aggregate(sid, ops) => {
                 let offs: Vec<u32> = self.hir.structs[*sid].fields.iter().map(|f| f.offset).collect();
@@ -1024,7 +1128,7 @@ impl Cg<'_, '_> {
             Rvalue::Ref(_, p) | Rvalue::RawRef(p) => self.addr_of(p),
             // `copy p` of a raw pointer: the bits.
             Rvalue::DeepCopy(p) if self.op_ty(&Operand::Copy(p.clone())).is_ptr() => self.operand(&Operand::Copy(p.clone())),
-            Rvalue::DeepCopy(_) | Rvalue::Aggregate(..) | Rvalue::Variant(..) | Rvalue::Array(..) | Rvalue::ListNew(..) => unreachable!("not a scalar rvalue: {rv:?}"),
+            Rvalue::DeepCopy(_) | Rvalue::Aggregate(..) | Rvalue::Variant(..) | Rvalue::Array(..) | Rvalue::ListNew(..) | Rvalue::Unsize(..) => unreachable!("not a scalar rvalue: {rv:?}"),
         }
     }
 
@@ -1077,36 +1181,72 @@ impl Cg<'_, '_> {
         self.addr_of(dest.expect("a call with a string result has a destination"))
     }
 
+    /// The values a Drachm function is called with: scalars as they are, strings
+    /// and structs by address (the callee owns them, see the module comment).
+    fn call_args(&mut self, args: &[Arg]) -> Vec<Value> {
+        let mut vals = Vec::new();
+        for a in args {
+            let ty = self.op_ty(&a.op);
+            let v = if !in_memory(ty) {
+                self.operand(&a.op)
+            } else {
+                match &a.op {
+                    // The source is dead afterwards: the callee may use it as its own.
+                    Operand::Move(p) => {
+                        assert!(!p.proj.contains(&Proj::Deref), "the callee would free memory a borrow owns (E0310 comes first)");
+                        self.addr_of(p)
+                    }
+                    Operand::Copy(_) | Operand::Const(_) => {
+                        let src = self.operand_addr(&a.op);
+                        let tmp = self.mem(ty);
+                        self.copy_bits(ty, tmp, src);
+                        tmp
+                    }
+                }
+            };
+            vals.push(v);
+        }
+        vals
+    }
+
     fn call(&mut self, callee: Callee, args: &[Arg], dest: Option<&Place>) {
         let (i32t, i64t, ptr) = (types::I32, types::I64, self.ptr);
         match callee {
+            Callee::Dyn { iface, method } => {
+                let (slot, m) = (self.hir.dyn_ifaces[iface].method_slot(method), &self.hir.dyn_ifaces[iface].methods[method]);
+                let (ret, params) = (m.ret, m.params.clone());
+                let fat = self.operand_addr(&args[0].op);
+                let data = self.b.ins().load(ptr, MEM, fat, 0);
+                let vt = self.b.ins().load(ptr, MEM, fat, 8);
+                let code = self.b.ins().load(ptr, MEM, vt, (slot * 8) as i32);
+                let mut sig = self.module.make_signature();
+                let mut vals = Vec::new();
+                if in_memory(ret) {
+                    sig.params.push(AbiParam::new(ptr));
+                    vals.push(self.dest_addr(dest));
+                }
+                sig.params.push(AbiParam::new(ptr));
+                vals.push(data);
+                for p in &params {
+                    sig.params.push(AbiParam::new(cl_type(*p).unwrap_or(ptr)));
+                }
+                sig.returns.extend(cl_type(ret).map(AbiParam::new));
+                vals.extend(self.call_args(&args[1..]));
+                let sigref = self.b.import_signature(sig);
+                let call = self.b.ins().call_indirect(sigref, code, &vals);
+                if let (Some(d), true) = (dest, cl_type(ret).is_some()) {
+                    let r = self.b.inst_results(call)[0];
+                    let (loc, _) = self.locate(d);
+                    self.store(loc, r);
+                }
+            }
             Callee::Func(id) => {
                 let ret = self.hir.funcs[id].ret;
                 let mut vals = Vec::new();
                 if in_memory(ret) {
                     vals.push(self.dest_addr(dest));
                 }
-                for a in args {
-                    let ty = self.op_ty(&a.op);
-                    let v = if !in_memory(ty) {
-                        self.operand(&a.op)
-                    } else {
-                        match &a.op {
-                            // The source is dead afterwards: the callee may use it as its own.
-                            Operand::Move(p) => {
-                                assert!(!p.proj.contains(&Proj::Deref), "the callee would free memory a borrow owns (E0310 comes first)");
-                                self.addr_of(p)
-                            }
-                            Operand::Copy(_) | Operand::Const(_) => {
-                                let src = self.operand_addr(&a.op);
-                                let tmp = self.mem(ty);
-                                self.copy_bits(ty, tmp, src);
-                                tmp
-                            }
-                        }
-                    };
-                    vals.push(v);
-                }
+                vals.extend(self.call_args(args));
                 let callee = self.module.declare_func_in_func(self.ids[id], self.b.func);
                 let call = self.b.ins().call(callee, &vals);
                 if let (Some(d), true) = (dest, cl_type(ret).is_some()) {

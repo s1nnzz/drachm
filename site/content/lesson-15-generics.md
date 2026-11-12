@@ -137,6 +137,7 @@ interface Shape {
 }
 
 struct Square {
+    public:
     float64 side;
     // your code here
 }
@@ -163,6 +164,7 @@ interface Shape {
 }
 
 struct Square with Shape {
+    public:
     float64 side;
     float64 area() { return self.side * self.side; }
 }

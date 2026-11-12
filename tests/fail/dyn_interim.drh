@@ -1,0 +1,21 @@
+interface Shape {
+    float64 area();
+}
+
+struct Holder with Shape lives h {
+    public:
+    &string h;
+    float64 area() { return 1.0; }
+}
+
+none show(&Shape s) { }
+
+none say(&Text t) { }
+
+none main() {
+    string text = "x";
+    Holder holder = &text;
+    show(&holder);
+    uint32 n = 5;
+    say(&n);
+}

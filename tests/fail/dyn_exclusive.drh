@@ -1,0 +1,7 @@
+interface Shape {
+    float64 area();
+}
+
+none show(exclusive &Shape s) { }
+
+none main() { }

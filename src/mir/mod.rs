@@ -222,6 +222,9 @@ pub struct Arg {
 pub enum Callee {
     /// User function or method (`self` is `args[0]`).
     Func(FuncId),
+    /// A method through a `&Iface`: slot `method` of the vtable of `args[0]`,
+    /// which is the borrow itself (`&Iface`, `&mut Iface` if the method changes `self`).
+    Dyn { iface: usize, method: usize },
     /// Runtime string function; string operands are `&string` temps.
     Str(hir::StrFn),
     /// `io::out` / `io::outln` of a `&string`.
@@ -322,6 +325,9 @@ pub enum Rvalue {
     IntPow(Operand, Operand),
     /// Numeric only.
     Convert(Operand, Type),
+    /// A `&S` made a `&Iface` of the given type: the borrow and the vtable
+    /// of `S` for the interface, two words.
+    Unsize(Operand, Type),
     Ref(BorrowKind, Place),
     /// `address of place`: makes a `*T`.
     RawRef(Place),
