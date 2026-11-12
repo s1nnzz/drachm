@@ -105,3 +105,7 @@ Q1 unconstrained `T`: checked per use (at each instantiation, as if `T` were wri
 Q2 unit arguments to your own generics are marked at the use: `Vec3<float64, unit m/s> v;` (declaration `struct Vec3<T, unit U>`).
 Q3 borrows as type arguments are allowed and the container becomes a borrower with inferred lifetime: `Stack<&string> s; s::push(&name);` ties `s` to `name`.
 Q4 interfaces are only ever borrowed (`&Shape`); owned interface values like `Shape[?]` are errors (use an enum or `&Shape`).
+Q6 built-in types and interfaces: a separate declaration lets any type promise an interface (`uint32 with Zero { static uint32 zero() { return 0; } }`, anywhere in the project), AND the standard ones are already built in for numbers and text (owner: "id say that would already be inbuilt"; my reading: `Zero`, `Ordered`, `Equal`, `Text` come predeclared for numbers/`string`).
+Q7 inferring `T`: the first argument that has a type decides; untyped constants adapt or fail (`max(a_u8, 300)` is an error like `uint8 x = 300;`); an all-constant call uses the default constant type.
+Q8 for-each over owning items: like text: `string n` gives a copy per item (skipped when never kept), `&string n` a view, `&mut string n` a changeable view.
+Q9 maps: `m[k] = v` adds or replaces; `m[k] += x` on a missing key stops the program; methods exist too (owner: "methods too"; my reading: `m::set(k, v)`, `m::remove(k)`, `m::get(k)` returning `T?`).
