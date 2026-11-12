@@ -1,0 +1,23 @@
+in io;
+
+none main() {
+    // The first line is a name.
+    string name = io::inln()->trim();
+    io::outln(f"Hello, ${name}!");
+
+    // Then one number per line until the input ends.
+    mut sint64 total = 0;
+    mut uint32 count = 0;
+    while (!io::ended()) {
+        string line = io::inln();
+        if (line::isEmpty()) {
+            continue;
+        }
+        total = total + line::to<sint64>();
+        count++;
+    }
+    io::outln(f"${count} numbers, total ${total}");
+    if (count > 0) {
+        io::outf("average %.2\n", total::to<float64>() / count::to<float64>());
+    }
+}

@@ -1,0 +1,29 @@
+in io;
+
+none main() {
+    string name = "Ada";
+    uint32 age = 36;
+    float64 height = 1.7;
+
+    // f"..." puts ${...} values into the text. Any expression works inside.
+    io::outln(f"${name} is ${age} and ${height} m tall");
+    io::outln(f"next year: ${age + 1}, half: ${age::to<float64>() / 2.0}");
+
+    // Backticks work like f"..."; a plain string leaves ${...} alone.
+    io::outln(`${name}!`);
+    io::outln("${name}");
+
+    // \$ and \% are a dollar and a percent sign.
+    io::outln(f"cost: \$5, ${age}\% done");
+
+    // Triple quotes run over several lines.
+    io::outln(f"""Name: ${name}
+Age:  ${age}""");
+
+    // io::outf fills each % in order. Options go between the % and the value.
+    io::outf("% is % years old\n", name, age);
+    io::outf("[%6] [%-6] [%06]\n", age, age, age);
+    io::outf("%.1 m, %8.3|\n", height, 2.71828);
+    io::outf("%x %X %b %o\n", 255, 255, 5, 8);
+    io::outf("100\% sure\n");
+}

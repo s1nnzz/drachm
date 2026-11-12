@@ -1,0 +1,27 @@
+in io;
+
+// Turn a title into a web-friendly name: "  Hello, Big World!  " -> "hello-big-world"
+string slug(&string title) {
+    return title::trim()->lower()->replace(", ", " ")->replace("!", "")->replace(" ", "-");
+}
+
+none main() {
+    string title = "  Hello, Big World!  ";
+    io::outln(slug(&title));
+
+    // find gives the index of the first match, or -1.
+    string line = "name=Ada";
+    sint64 eq = line::find("=");
+    io::outln(eq::text());
+    io::outln(line::sub(0, eq - 1));
+    io::outln(line::sub(eq + 1, -1));
+
+    // Methods never change the original.
+    io::outln(title::trim()->len()->text());
+    io::outln(title::len()->text());
+
+    // Layout helpers make columns.
+    io::outln("id"::padRight(6, ".") + "|");
+    io::outln("7"::padLeft(4, "0"));
+    io::outln("=-"::repeat(5));
+}

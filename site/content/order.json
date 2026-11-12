@@ -35,7 +35,8 @@
       "pages": [
         "guide-errors",
         "guide-numbers",
-        "guide-units"
+        "guide-units",
+        "guide-text"
       ]
     },
     {

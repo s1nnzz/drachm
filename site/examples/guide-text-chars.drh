@@ -1,0 +1,24 @@
+in io;
+
+none main() {
+    // Two ways to write the same visible word. The first is one code point
+    // for the e with an accent, the second is an e plus a combining accent.
+    string a = "caf\u{e9}";
+    string b = "cafe\u{301}";
+
+    // len counts characters (grapheme clusters), so both are 4 long.
+    io::outln(a::len()->text());
+    io::outln(b::len()->text());
+
+    // A family emoji joins three people with invisible joiners: one character.
+    string family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}";
+    io::outln(family::len()->text());
+
+    // Comparison goes by the underlying bytes, so the two spellings differ.
+    io::outln((a == b)::text());
+
+    // Editing works on whole characters: the accent stays with its letter.
+    io::outln(b::reverse());
+    io::outln(b::sub(3, 3));
+    io::outln(b::sub(-4, -2));
+}
