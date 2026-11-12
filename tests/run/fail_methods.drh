@@ -1,0 +1,50 @@
+// Methods and static methods can fail; the failure leaves the receiver as it was.
+in io;
+
+failure Empty {
+    Nothing "nothing there" exit 8,
+}
+
+struct Stack {
+public:
+    uint32 top;
+    uint32 size;
+
+    uint32 peek() fails Empty {
+        if (self.size == 0) {
+            fail Nothing;
+        }
+        return self.top;
+    }
+
+    none push(uint32 v) {
+        self.top = v;
+        self.size = self.size + 1;
+    }
+
+    static Stack starting(uint32 v) fails Empty {
+        if (v == 0) {
+            fail Nothing;
+        }
+        Stack made = v, 1;
+        return made;
+    }
+}
+
+uint32 total(Stack s) fails Empty {
+    return s::peek() fails + s::peek() fails;
+}
+
+none main() fails Empty {
+    mut Stack s = 0, 0;
+    io::outln((s::peek() maybe 100)::text());
+    s::push(4);
+    io::outln((s::peek() maybe 100)::text());
+    io::outln((total(s) fails)::text());
+    Stack t = Stack::starting(0) maybe s;
+    io::outln(t.top::text());
+    Stack u = Stack::starting(9) fails;
+    io::outln(u.top::text());
+    Stack none_left = 0, 0;
+    io::outln((total(none_left) fails)::text());
+}

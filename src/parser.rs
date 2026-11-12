@@ -1393,7 +1393,7 @@ impl Parser<'_> {
         let mut e = self.primary()?;
         let mut calls = 0;
         loop {
-            if matches!(self.peek(), Tok::Kw("maybe" | "fails")) && matches!(e.kind, ExprKind::Call { .. } | ExprKind::Method { .. } | ExprKind::New { .. }) {
+            if matches!(self.peek(), Tok::Kw("maybe" | "fails")) && (e.paren || matches!(e.kind, ExprKind::Call { .. } | ExprKind::Method { .. } | ExprKind::New { .. })) {
                 return self.call_suffix(e);
             }
             let sym = match self.peek() {
@@ -1926,8 +1926,21 @@ mod tests {
         assert!(q.funcs[0].lives_from);
         assert_eq!(q.funcs[0].lives.iter().map(|l| l.0.as_str()).collect::<Vec<_>>(), ["self", "k"]);
         assert_eq!(p.funcs[1].ret.mods.len(), 1);
-        let (_, d) = parse_src("none f() fails { }");
-        assert_eq!(errors(&d), ["`fails` is not supported yet"]);
+    }
+
+    #[test]
+    fn failures_and_call_suffixes_parse() {
+        let (p, d) = parse_src("failure E { A \"a\" exit 2, B(string k) f\"b ${k}\", } uint32 f() fails E, F lives x { fail A; }");
+        assert!(d.is_empty(), "{:?}", errors(&d));
+        assert_eq!(p.failures[0].variants.len(), 2);
+        assert_eq!(p.failures[0].variants[0].exit.map(|e| e.0), Some(2));
+        assert_eq!(p.funcs[0].fails.iter().map(|f| f.0.as_str()).collect::<Vec<_>>(), ["E", "F"]);
+        let (_, d) = parse_src("failure E { A } none f() { }");
+        assert_eq!(errors(&d), ["a failure variant needs a message"]);
+        let (_, d) = parse_src("none f() { g() maybe 1 + 2; }");
+        assert_eq!(errors(&d), ["a `maybe` fallback is a single value"]);
+        let (_, d) = parse_src("none f() { uint32 a = g() maybe (1 + 2); uint32 b = g() fails; (g() maybe 1) + 2; }");
+        assert!(d.is_empty(), "{:?}", errors(&d));
     }
 
     #[test]

@@ -1,0 +1,5 @@
+error[E0544]: `Port::+` can fail, and nothing says what to do when it does
+error[E0544]: `Port::+` can fail, and nothing says what to do when it does
+error[E0544]: `Port::==` can fail, and nothing says what to do when it does
+error[E0544]: `Port::<` can fail, and nothing says what to do when it does
+error[E0901]: `!=` with an `==` that can fail is not supported yet

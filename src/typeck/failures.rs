@@ -694,21 +694,37 @@ impl Checker<'_> {
 
     /// E0544: a call that can fail, with nothing after it.
     pub(super) fn check_unhandled(&mut self, e: &ast::Expr, x: &hir::Expr) {
+        if self.suffix_ok == Some(e as *const ast::Expr as usize) {
+            return;
+        }
+        // `a != b` with a failing `==` is the negation of the call.
+        if let hir::ExprKind::Not(inner) = &x.kind
+            && matches!(&inner.kind, hir::ExprKind::Call(fid, _) if !self.g.sigs[*fid].fails.is_empty())
+        {
+            self.diags.push(
+                Diagnostic::at(&codes::E0901, e.span, "`!=` with an `==` that can fail is not supported yet")
+                    .note("the `==` can fail here")
+                    .help("write the negation yourself: `!((a == b) maybe false)`"),
+            );
+            return;
+        }
+        self.report_unhandled(e.span, x);
+    }
+
+    /// E0544 for the failing call `x`, if it is one.
+    pub(super) fn report_unhandled(&mut self, span: Span, x: &hir::Expr) {
         let (name, fails): (String, Vec<EnumId>) = match &x.kind {
             hir::ExprKind::Call(fid, _) if !self.g.sigs[*fid].fails.is_empty() => (self.g.sigs[*fid].name.clone(), self.g.sigs[*fid].fails.clone()),
             hir::ExprKind::TryParse { fail, .. } => ("to".to_string(), vec![fail.enum_id().unwrap()]),
             _ => return,
         };
-        if self.suffix_ok == Some(e as *const ast::Expr as usize) {
-            return;
-        }
         let first = self.g.enums[fails[0]].name.clone();
-        let text = short_call(self.src, e.span);
-        let help = format!(
-            "give a fallback with `{text} maybe 0`, pass the failure up with `{text} fails` (and add `fails {first}` to the function)"
-        );
+        let text = short_call(self.src, span);
+        let nothing = matches!(&x.kind, hir::ExprKind::Call(fid, _) if self.g.sigs[*fid].ret == Some(Type::None));
+        let pass = format!("pass the failure up with `{text} fails` (and add `fails {first}` to the function)");
+        let help = if nothing { pass } else { format!("give a fallback with `{text} maybe 0`, or {pass}") };
         self.diags.push(
-            Diagnostic::at(&codes::E0544, e.span, format!("`{name}` can fail, and nothing says what to do when it does"))
+            Diagnostic::at(&codes::E0544, span, format!("`{name}` can fail, and nothing says what to do when it does"))
                 .note(format!("this call can fail with {}", self.fail_names(&fails)))
                 .help(help),
         );

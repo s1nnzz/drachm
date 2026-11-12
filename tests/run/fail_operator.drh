@@ -1,0 +1,45 @@
+// An operator method may fail like any other function; the operator
+// expression is parenthesised so that `maybe` or `fails` can follow it.
+in io;
+
+failure Mismatch {
+    Units "units differ" exit 6,
+}
+
+struct Port {
+public:
+    uint32 n;
+    uint32 unit;
+
+    bool ==(Port o) fails Mismatch {
+        if (self.unit != o.unit) {
+            fail Units;
+        }
+        return self.n == o.n;
+    }
+
+    Port +(Port o) fails Mismatch {
+        if (self.unit != o.unit) {
+            fail Units;
+        }
+        Port sum = self.n + o.n, self.unit;
+        return sum;
+    }
+}
+
+bool same(Port a, Port b) fails Mismatch {
+    return (a == b) fails;
+}
+
+none main() fails Mismatch {
+    Port a = 1, 1;
+    Port b = 1, 1;
+    Port c = 2, 2;
+    io::outln(((a == b) maybe false)::text());
+    io::outln(((a == c) maybe false)::text());
+    Port s = (a + b) maybe a;
+    io::outln(s.n::text());
+    Port t = (a + c) maybe a;
+    io::outln(t.n::text());
+    io::outln((same(a, c) fails)::text());
+}

@@ -697,6 +697,14 @@ impl Checker<'_> {
     pub(super) fn enum_match(&mut self, v: hir::Expr, value: &ast::Expr, cases: &[ast::Case], span: Span, out: &mut hir::Block) {
         let ty = v.ty;
         let en = ty.enum_id().unwrap();
+        if self.g.enums[en].kind == hir::EnumKind::Failure {
+            self.diags.push(
+                Diagnostic::at(&codes::E0901, value.span, "`match` on a failure is not supported yet")
+                    .note(format!("`{}` is a failure", self.g.enums[en].name))
+                    .help("handlers will take failures apart"),
+            );
+            return;
+        }
         // The value is matched where it is when it is a place (it is not
         // moved by `match`); anything else is kept in a hidden local.
         let rooted = {

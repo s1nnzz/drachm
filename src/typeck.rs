@@ -382,7 +382,7 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
                 func: mid,
                 static_span: m.is_static,
                 ctor: m.ctor,
-                no_fails: m.ctor || m.operator.is_some() || m.func.name == "drop",
+                no_fails: m.ctor || (m.operator.is_none() && m.func.name == "drop"),
             };
             let checked = check_body(&mut g, src, diags, &m.func, Some(ctx), symbol);
             emit(&mut funcs, mid, checked);
@@ -638,21 +638,13 @@ fn declare_methods(g: &mut Globals, id: StructId, s: &ast::Struct, diags: &mut V
         let f = &m.func;
         let params = f.params.iter().map(|p| g.resolve_binding_type(&p.ty, diags)).collect();
         let ret = g.resolve(&f.ret, diags);
-        let may_fail = !(m.operator.is_some() || f.name == "drop");
+        let may_fail = !(f.name == "drop" && m.operator.is_none());
         if !f.fails.is_empty() && !may_fail {
-            if f.name == "drop" && m.operator.is_none() {
-                diags.push(
-                    Diagnostic::at(&codes::E0328, f.span, "`drop` cannot say `fails`")
-                        .note("`drop` runs by itself, so nothing could handle a failure")
-                        .help("write `none drop() { ... }`"),
-                );
-            } else {
-                diags.push(
-                    Diagnostic::at(&codes::E0901, f.fails_span.unwrap_or(f.span), "a failing operator is not supported yet")
-                        .note("`fails` on an operator method")
-                        .help("write a method that fails and call it by name"),
-                );
-            }
+            diags.push(
+                Diagnostic::at(&codes::E0901, f.fails_span.unwrap_or(f.span), "a `drop()` that fails is not supported yet")
+                    .note("`fails` on `drop`")
+                    .help("write `none drop() { ... }`"),
+            );
         }
         let (fails, outcome) = failures::signature(g, f, ret, may_fail, diags);
         let sig = Sig { name: format!("{}::{}", s.name, f.name), params, ret, span: f.span, fails, outcome };
@@ -1572,6 +1564,11 @@ impl Checker<'_> {
 
     /// Store `e`, a new value for `place`. `compound` says it came from `x op= v`.
     fn store(&mut self, place: hir::Place, e: hir::Expr, compound: bool, out: &mut hir::Block) {
+        if compound {
+            // `x += v` calls the operator method: it may not fail unnoticed.
+            let at = e.span;
+            self.report_unhandled(at, &e);
+        }
         // A field of a value being filled (or built by a constructor) is an initialisation.
         if !compound && !place.proj.is_empty() && self.filling.contains(&place.local) {
             out.push(hir::Stmt::InitField(place, e));
