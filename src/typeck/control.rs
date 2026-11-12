@@ -21,11 +21,11 @@ use std::collections::HashMap;
 
 use num_rational::BigRational;
 
-use super::{int_lit, origin, Checker, Val};
-use crate::ast::{self, ExprKind, Pattern, SkipTarget};
+use super::{int_lit, origin, str_lit, Checker, Val};
+use crate::ast::{self, ExprKind, Pattern, SkipTarget, StrPart};
 use crate::consts::Const;
 use crate::diag::{codes, Diagnostic, Span};
-use crate::hir;
+use crate::hir::{self, StrFn};
 use crate::types::Type;
 
 /// Something a jump can go to.
@@ -74,6 +74,24 @@ fn binary(op: hir::BinOp, l: hir::Expr, r: hir::Expr) -> hir::Expr {
 
 fn logic(and: bool, lhs: hir::Expr, rhs: hir::Expr) -> hir::Expr {
     hir::Expr::new(hir::ExprKind::Logic { and, lhs: Box::new(lhs), rhs: Box::new(rhs) }, Type::Bool)
+}
+
+/// A call of a string runtime function; its result has the function's type.
+fn str_fn(f: StrFn, args: Vec<hir::Expr>) -> hir::Expr {
+    hir::Expr::new(hir::ExprKind::StrCall(f, args), f.ret())
+}
+
+const U64: Type = Type::Int { bits: 64, signed: false };
+
+/// `*text` for a hidden `&string` local.
+fn text_at(text: hir::LocalId, text_ty: Type) -> hir::Expr {
+    hir::Expr::new(hir::ExprKind::Deref(Box::new(local(text, text_ty))), Type::Str)
+}
+
+/// The shared borrow of `place` that a hidden local holds.
+fn shared_borrow(place: hir::Expr) -> hir::Expr {
+    let ty = Type::borrow(false, Type::Str);
+    hir::Expr::new(hir::ExprKind::Borrow { mutable: false, place: Box::new(place) }, ty)
 }
 
 fn mask(ty: Type) -> u128 {
@@ -225,6 +243,50 @@ impl Coverage {
     }
 }
 
+/// A `case` pattern of a `string` match: exact text, or a `globbed` pattern.
+#[derive(Clone)]
+enum TextPat {
+    Exact(String),
+    Glob(String),
+}
+
+impl TextPat {
+    /// `globbed "*"` matches every text, so its case is a catch-all.
+    fn matches_all(&self) -> bool {
+        matches!(self, TextPat::Glob(g) if g == "*")
+    }
+
+    /// Is every text that `p` matches also matched by `self`? Only the cases
+    /// the coverage rule covers (see `match_text`).
+    fn covers(&self, p: &TextPat) -> bool {
+        match (self, p) {
+            (TextPat::Exact(a), TextPat::Exact(b)) => a == b,
+            (TextPat::Glob(g), TextPat::Exact(t)) => glob_matches(g, t),
+            (TextPat::Glob(a), TextPat::Glob(b)) => a == b || a == "*",
+            (TextPat::Exact(_), TextPat::Glob(_)) => false,
+        }
+    }
+}
+
+/// Does `text` match `pattern`, where each `*` matches any run of text (none
+/// included) and the whole text must match? The runtime's `drachm_str_glob`
+/// does the same on bytes; for valid UTF-8 the answers agree.
+fn glob_matches(pattern: &str, text: &str) -> bool {
+    let mut parts = pattern.split('*').peekable();
+    let first = parts.next().unwrap_or("");
+    let Some(mut rest) = text.strip_prefix(first) else { return false };
+    while let Some(seg) = parts.next() {
+        if parts.peek().is_none() {
+            return rest.ends_with(seg);
+        }
+        match rest.find(seg) {
+            Some(at) => rest = &rest[at + seg.len()..],
+            None => return false,
+        }
+    }
+    rest.is_empty()
+}
+
 impl Checker<'_> {
     pub(super) fn new_label(&mut self) -> hir::Label {
         self.labels += 1;
@@ -314,29 +376,26 @@ impl Checker<'_> {
     pub(super) fn for_each(&mut self, s: &ast::Stmt, out: &mut hir::Block) {
         let ast::Stmt::ForEach { mutable, ty: ty_name, name, name_span, iter, body, span } = s else { unreachable!() };
         let ty = self.g.resolve_binding_type(ty_name, self.diags);
-        let bounds = match &iter.kind {
-            ExprKind::Range(lo, hi) => match ty {
-                Some(t) if t.is_int() => {
-                    let a = self.coerce(lo, t);
-                    let b = self.coerce(hi, t);
-                    a.zip(b)
-                }
-                _ => {
-                    self.expr(lo);
-                    self.expr(hi);
-                    if let Some(t) = ty {
-                        // Open: whether float (or other) range loops exist, and how they would step.
-                        self.diags.push(
-                            Diagnostic::at(&codes::E0101, ty_name.span, format!("a range loop counts in whole numbers, so its variable cannot be `{t}`"))
-                                .note(format!("this is `{t}`"))
-                                .help("use an integer type such as `uint32` or `sint64`"),
-                        );
-                    }
-                    None
-                }
-            },
+        let ExprKind::Range(lo, hi) = &iter.kind else {
+            return self.for_text(s, ty, out);
+        };
+        let bounds = match ty {
+            Some(t) if t.is_int() => {
+                let a = self.coerce(lo, t);
+                let b = self.coerce(hi, t);
+                a.zip(b)
+            }
             _ => {
-                self.not_iterable(iter);
+                self.expr(lo);
+                self.expr(hi);
+                if let Some(t) = ty {
+                    // Open: whether float (or other) range loops exist, and how they would step.
+                    self.diags.push(
+                        Diagnostic::at(&codes::E0101, ty_name.span, format!("a range loop counts in whole numbers, so its variable cannot be `{t}`"))
+                            .note(format!("this is `{t}`"))
+                            .help("use an integer type such as `uint32` or `sint64`"),
+                    );
+                }
                 None
             }
         };
@@ -382,23 +441,93 @@ impl Checker<'_> {
         });
     }
 
-    /// Report the thing after `of` that is not a range.
-    fn not_iterable(&mut self, iter: &ast::Expr) {
-        let Some(v) = self.expr(iter) else { return };
-        let d = match &v {
-            Val::Expr(e) if e.ty == Type::Str => {
-                Diagnostic::at(&codes::E0901, iter.span, "looping over a string is not supported yet")
+    /// `for (T name of text) { }` where `text` is not a range. `string`
+    /// gives an owned copy of each character, `&string` a borrowed view of
+    /// it; anything else is an error. Lowered to
+    ///
+    /// ```text
+    /// owned = text;              // only when `text` is not a place
+    /// hidden = &owned;           // a real shared borrow: the body cannot change it (E0302)
+    /// pos = 0;
+    /// loop while (pos < byte_len(*hidden)) {
+    ///     name = next_char(*hidden, pos);      // `&string`: view = char_view(*hidden, pos); name = &view
+    ///     pos = pos + byte_len(name);          // before the body, so `continue` is safe
+    ///     body
+    /// }
+    /// ```
+    fn for_text(&mut self, s: &ast::Stmt, ty: Option<Type>, out: &mut hir::Block) {
+        let ast::Stmt::ForEach { mutable, ty: ty_name, name, name_span, iter, body, span } = s else { unreachable!() };
+        let source = match self.expr(iter) {
+            Some(Val::Expr(e)) if e.ty == Type::Str => Some(e),
+            Some(v) => {
+                self.not_iterable(v, iter);
+                None
             }
-            _ => {
-                let found = match &v {
-                    Val::Const(_) | Val::UConst(..) => "a number".to_string(),
-                    Val::Expr(e) => format!("`{}`", e.ty),
-                };
-                Diagnostic::at(&codes::E0101, iter.span, format!("cannot loop over {found}"))
-                    .note(format!("this is {found}"))
-                    .help("to count, loop over a range: `for (uint32 i of 0..9) { }`")
-            }
+            None => None,
         };
+        let text_ref = Type::borrow(false, Type::Str);
+        // `string c`: an owned copy of each character. `&string c`: a view into the text.
+        let kind = ty.filter(|t| *t == Type::Str || *t == text_ref);
+        if let (Some(t), Some(_)) = (ty, &source)
+            && kind.is_none()
+        {
+            self.diags.push(
+                Diagnostic::at(&codes::E0101, ty_name.span, format!("a loop over text needs a `string` or `&string` variable, not `{t}`"))
+                    .note(format!("this is `{t}`"))
+                    .help("write `for (string c of text) { }` for a copy of each character, or `for (&string c of text) { }` for a view"),
+            );
+        }
+        self.scopes.push(HashMap::new());
+        let var = self.declare(name, ty, *mutable, *name_span, false);
+        let label = self.new_label();
+        let body_end = body.end;
+        let (body, _) = self.looped(label, *span, body, None);
+        self.scopes.pop();
+
+        let Some(mut text) = source.filter(|_| kind.is_some()) else { return };
+        let is_view = kind == Some(text_ref.clone());
+        if !text.is_place() {
+            let owned = self.hidden_named("for text", Type::Str);
+            out.push(hir::Stmt::Decl(owned));
+            out.push(hir::Stmt::Assign(hir::Place::local(owned), text));
+            text = local(owned, Type::Str);
+        }
+        let hidden = self.hidden_named("for text borrow", text_ref.clone());
+        let pos = self.hidden_named("for position", U64);
+        out.push(hir::Stmt::Assign(hir::Place::local(hidden), shared_borrow(text)));
+        out.push(hir::Stmt::Assign(hir::Place::local(pos), int_lit(0, U64)));
+
+        let cond = binary(hir::BinOp::Lt, local(pos, U64), str_fn(StrFn::ByteLen, vec![text_at(hidden, text_ref.clone())]));
+        let mut inner = Vec::new();
+        if is_view {
+            // The view is a hidden local made fresh each time round; `c` borrows it.
+            let view = self.hidden_named("for character view", Type::Str);
+            inner.push(hir::Stmt::Decl(view));
+            inner.push(hir::Stmt::Assign(hir::Place::local(view), str_fn(StrFn::CharView, vec![text_at(hidden, text_ref.clone()), local(pos, U64)])));
+            inner.push(hir::Stmt::Assign(hir::Place::local(pos), binary(hir::BinOp::Add, local(pos, U64), str_fn(StrFn::ByteLen, vec![local(view, Type::Str)]))));
+            inner.push(hir::Stmt::Decl(var));
+            inner.push(hir::Stmt::Assign(hir::Place::local(var), shared_borrow(local(view, Type::Str))));
+        } else {
+            inner.push(hir::Stmt::Decl(var));
+            inner.push(hir::Stmt::Assign(hir::Place::local(var), str_fn(StrFn::NextChar, vec![text_at(hidden, text_ref.clone()), local(pos, U64)])));
+            inner.push(hir::Stmt::Assign(
+                hir::Place::local(pos),
+                binary(hir::BinOp::Add, local(pos, U64), str_fn(StrFn::ByteLen, vec![local(var, Type::Str)])),
+            ));
+        }
+        inner.extend(body);
+        out.push(hir::Stmt::Loop { label, cond: Some(cond), body: inner, step: Vec::new(), end: body_end });
+    }
+
+    /// Report the thing after `of` that is not a range or a string.
+    fn not_iterable(&mut self, v: Val, iter: &ast::Expr) {
+        let found = match &v {
+            Val::Const(_) | Val::UConst(..) => "a number".to_string(),
+            Val::Expr(e) => format!("`{}`", e.ty),
+        };
+        let d = Diagnostic::at(&codes::E0101, iter.span, format!("cannot loop over {found}"))
+            .note(format!("this is {found}"))
+            .help("to count, loop over a range: `for (uint32 i of 0..9) { }`; to walk text, loop over a `string`");
         self.diags.push(d);
     }
 
@@ -510,11 +639,10 @@ impl Checker<'_> {
     pub(super) fn match_stmt(&mut self, value: &ast::Expr, cases: &[ast::Case], span: Span, out: &mut hir::Block) {
         let v = self.expr(value).and_then(|v| self.materialise(v, value.span));
         let v = match v {
+            Some(v) if v.ty == Type::Str => return self.match_text(v, cases, span, out),
             Some(v) if v.ty.is_numeric() || v.ty == Type::Bool => Some(v),
             Some(v) => {
-                let d = if v.ty == Type::Str {
-                    Diagnostic::at(&codes::E0901, value.span, "matching on text is not supported yet")
-                } else if v.ty == Type::None {
+                let d = if v.ty == Type::None {
                     Diagnostic::at(&codes::E0104, value.span, "`match` needs a value, but this produces none").note("returns `none`")
                 } else {
                     // OPEN: no struct patterns exist, so matching a struct is an error.
@@ -558,6 +686,14 @@ impl Checker<'_> {
                             );
                             ok = false;
                         }
+                    }
+                    Pattern::Glob(g) => {
+                        self.diags.push(
+                            Diagnostic::at(&codes::E0109, g.span, "`globbed` is only for a `match` on `string`")
+                                .note("this is a glob")
+                                .help("write the number as a plain value, such as `case 5`"),
+                        );
+                        ok = false;
                     }
                     Pattern::Expr(e) => match self.pattern(e, ty) {
                         Some((lo, hi)) => {
@@ -622,6 +758,168 @@ impl Checker<'_> {
         {
             out.push(hir::Stmt::If { label, branches });
         }
+    }
+
+    /// `match (text) { case ... }`. The text is borrowed for the whole match,
+    /// never moved, so a place stays usable afterwards. A plain string pattern
+    /// matches the text exactly; `globbed "..."` treats each `*` as a wildcard
+    /// (`drachm_str_glob`). Only `case _`, or a `case globbed "*"`, makes the
+    /// match exhaustive.
+    ///
+    /// The coverage check is deliberately partial (so it never gives a false
+    /// W0111): an exact pattern is covered by an earlier exact pattern with the
+    /// same text, or an earlier glob that matches it; a glob only by an earlier
+    /// glob with the same text, or an earlier `globbed "*"`. Cleverer cases
+    /// (does `globbed "a*"` cover `globbed "ab*"`?) are not checked.
+    fn match_text(&mut self, v: hir::Expr, cases: &[ast::Case], span: Span, out: &mut hir::Block) {
+        let text_ty = Type::borrow(false, Type::Str);
+        let text = if v.is_place() {
+            v
+        } else {
+            let owned = self.hidden_named("match value", Type::Str);
+            out.push(hir::Stmt::Decl(owned));
+            out.push(hir::Stmt::Assign(hir::Place::local(owned), v));
+            local(owned, Type::Str)
+        };
+        let hidden = self.hidden_named("match text", text_ty.clone());
+        out.push(hir::Stmt::Assign(hir::Place::local(hidden), shared_borrow(text)));
+
+        let mut cover: Vec<TextPat> = Vec::new();
+        let mut any: Option<Span> = None;
+        let mut clean = true;
+        let mut tests = Vec::new();
+        for case in cases {
+            let mut pats = Vec::new();
+            let mut wildcard = false;
+            let mut ok = true;
+            for p in &case.patterns {
+                match p {
+                    Pattern::Any(s) => {
+                        wildcard = true;
+                        if case.patterns.len() > 1 {
+                            self.diags.push(
+                                Diagnostic::at(&codes::E0109, *s, "`_` must be the only pattern in its `case`")
+                                    .note("this matches everything")
+                                    .help("`case _` already matches every value; remove the other patterns"),
+                            );
+                            ok = false;
+                        }
+                    }
+                    Pattern::Expr(e) => match self.text_pattern(e, false) {
+                        Some(pat) => pats.push(pat),
+                        None => ok = false,
+                    },
+                    Pattern::Glob(e) => match self.text_pattern(e, true) {
+                        Some(pat) => pats.push(pat),
+                        None => ok = false,
+                    },
+                }
+            }
+            wildcard |= pats.iter().any(TextPat::matches_all);
+            if ok {
+                let why = if any.is_some() {
+                    Some("it comes after a case that matches every text")
+                } else if !wildcard {
+                    pats.iter().all(|p| cover.iter().any(|c| c.covers(p))).then_some("every value it matches is handled by an earlier case")
+                } else {
+                    None
+                };
+                if let Some(why) = why {
+                    let mut d = Diagnostic::at(&codes::W0111, case.span, "this case can never run").note(why);
+                    if let Some(a) = any {
+                        d = d.label(a, "this matches everything");
+                    }
+                    self.diags.push(d.help("remove it, or move it above the case that handles its values"));
+                }
+                if wildcard && any.is_none() {
+                    any = Some(case.span);
+                }
+                cover.extend(pats.iter().cloned());
+            }
+            clean &= ok;
+            let test = if wildcard {
+                Test::Always
+            } else if ok {
+                let ands = pats.into_iter().map(|p| match p {
+                    TextPat::Exact(t) => str_fn(StrFn::Eq, vec![text_at(hidden, text_ty.clone()), str_lit(t)]),
+                    TextPat::Glob(g) => str_fn(StrFn::Glob, vec![text_at(hidden, text_ty.clone()), str_lit(g)]),
+                });
+                Test::Value(ands.reduce(|a, b| logic(false, a, b)))
+            } else {
+                Test::Value(None)
+            };
+            tests.push(test);
+        }
+
+        let exhaustive = any.is_some();
+        if clean && !exhaustive {
+            let d = Diagnostic::at(&codes::W0110, span, "this `match` on `string` does not handle every value")
+                .note("there is no `case _`")
+                .note_line("text has too many possible values to list")
+                .help("add `case _ { }` to handle every other value");
+            self.diags.push(d);
+        }
+        let label = self.new_label();
+        let parts = tests.into_iter().zip(cases).map(|(t, c)| (t, &c.body)).collect();
+        if let Some(branches) = self.chain(label, span, true, parts, exhaustive)
+            && !branches.is_empty()
+        {
+            out.push(hir::Stmt::If { label, branches });
+        }
+    }
+
+    /// One `case` pattern of a `string` match: a string literal with no
+    /// `${}` (`globbed` ones are globs). E0109 for interpolation and ranges,
+    /// E0101 for another type.
+    fn text_pattern(&mut self, e: &ast::Expr, glob: bool) -> Option<TextPat> {
+        if let ExprKind::Range(..) = e.kind {
+            self.diags.push(
+                Diagnostic::at(&codes::E0109, e.span, "a range pattern needs numbers, but this `match` is on `string`")
+                    .note("this is a range")
+                    .help("list the texts instead: `case \"a\", \"b\" { }`"),
+            );
+            return None;
+        }
+        if let ExprKind::Str(parts) = &e.kind {
+            if parts.iter().any(|p| matches!(p, StrPart::Interp(_))) {
+                self.diags.push(
+                    Diagnostic::at(&codes::E0109, e.span, "a pattern must be a plain string")
+                        .note("this has `${}` in it")
+                        .help("write the text out in full, without `${}`"),
+                );
+                return None;
+            }
+            let mut text = String::new();
+            for p in parts {
+                match p {
+                    StrPart::Raw(t, _) => text.push_str(t),
+                    StrPart::Escape(c, _) => text.push(*c),
+                    StrPart::Interp(_) => unreachable!("checked above"),
+                }
+            }
+            return Some(if glob { TextPat::Glob(text) } else { TextPat::Exact(text) });
+        }
+        match self.expr(e)? {
+            Val::Expr(h) if h.ty == Type::Str => {
+                self.diags.push(
+                    Diagnostic::at(&codes::E0109, e.span, "a pattern must be a plain string")
+                        .note("this is worked out when the program runs")
+                        .help("compare it in an `if` instead: `if (text == other) { }`"),
+                );
+            }
+            v => {
+                let found = match &v {
+                    Val::Const(_) | Val::UConst(..) => "a number".to_string(),
+                    Val::Expr(h) => format!("`{}`", h.ty),
+                };
+                self.diags.push(
+                    Diagnostic::at(&codes::E0101, e.span, "a `case` of a `string` match must be a string")
+                        .note(format!("this is {found}"))
+                        .help("write the text in quotes, such as `case \"/\"`"),
+                );
+            }
+        }
+        None
     }
 
     /// W0110 for a `match` whose cases leave values unhandled. Small types
@@ -732,6 +1030,25 @@ mod tests {
         c.add(u128::MAX - 1, u128::MAX);
         assert_eq!(c.gaps((0, u128::MAX)), [(21, u128::MAX - 2)]);
         assert_eq!(Coverage::default().gaps((0, 1)), [(0, 1)]);
+    }
+
+    #[test]
+    fn text_globs_match_the_runtime_rule() {
+        assert!(glob_matches("/api/*", "/api/"));
+        assert!(!glob_matches("/api/*", "/api"));
+        assert!(glob_matches("*.png", "a.png"));
+        assert!(glob_matches("a**b", "aXXb"));
+        assert!(!glob_matches("*ab*ab", "aab"));
+        assert!(glob_matches("*ab*ab", "abab"));
+        assert!(glob_matches("*", ""));
+        assert!(glob_matches("abc", "abc") && !glob_matches("abc", "abcd"));
+        // Coverage: an earlier glob covers an exact text it matches; a glob
+        // is covered only by the same glob or by "*".
+        let g = TextPat::Glob("a*".into());
+        assert!(g.covers(&TextPat::Exact("ab".into())));
+        assert!(!TextPat::Exact("ab".into()).covers(&TextPat::Glob("ab*".into())));
+        assert!(TextPat::Glob("*".into()).covers(&TextPat::Glob("x*".into())));
+        assert!(!g.covers(&TextPat::Glob("ab*".into())));
     }
 
     #[test]

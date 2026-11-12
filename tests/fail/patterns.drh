@@ -23,6 +23,7 @@ none main() {
         case _ { }
     }
     match ("text") {
+        case 1 { }
         case _ { }
     }
     match (nothing()) {

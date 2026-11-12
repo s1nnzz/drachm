@@ -1,0 +1,51 @@
+// `globbed` patterns: each `*` is a wildcard for any run of characters,
+// empty included, and the whole text must match. The first case that
+// matches runs.
+in io;
+
+none route(string path) {
+    match (path) {
+        case globbed "/api/*"         { io::outln("api"); }
+        case "/api"                   { io::outln("bare api"); }
+        case globbed "*.png", globbed "*.jpg" { io::outln("image"); }
+        case globbed "a*b*c"          { io::outln("abc shape"); }
+        case globbed "*ab*ab"         { io::outln("abab shape"); }
+        case globbed "a**b"           { io::outln("two stars"); }
+        case globbed "x*"             { io::outln("x"); }
+        case globbed "*"              { io::outln("anything else"); }
+    }
+}
+
+// A glob without a `*` is an exact match.
+none same(string s) {
+    match (s) {
+        case globbed "abc" { io::outln("same"); }
+        case _             { io::outln("differs"); }
+    }
+}
+
+none main() {
+    route("/api/");
+    route("/api/x/y");
+    route("/api");
+    route("cat.png");
+    route("a.jpg");
+    route("aXbYc");
+    route("abab");
+    route("aab");
+    route("x");
+    route("");
+    route("a");
+
+    same("abc");
+    same("abcd");
+    same("");
+
+    // A place is still usable after a glob match.
+    string file = "photo.png";
+    match (file) {
+        case globbed "*.png" { io::outln("png"); }
+        case _               { io::outln("other"); }
+    }
+    io::outln(file);
+}

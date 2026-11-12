@@ -1,0 +1,35 @@
+// Nested loops over the characters of two strings, with counted jumps.
+in io;
+
+none main() {
+    // `continue 2` goes on with the next character of the outer string.
+    for (string a of "xy") {
+        for (string b of "123") {
+            if (b == "2") { continue 2; }
+            io::out(a + b + " ");
+        }
+        io::out("| ");
+    }
+    io::outln("");
+
+    // `break 2` leaves both loops.
+    for (string a of "ab") {
+        for (string b of "xyz") {
+            if (a == "a" && b == "y") { break 2; }
+            io::out(a + b + " ");
+        }
+        io::out("| ");
+    }
+    io::outln("after");
+
+    // A borrowed view in the inner loop, and a match on each character.
+    for (string a of "k\u{301}!") {
+        for (&string b of "+-") {
+            match (b) {
+                case "+" { io::out(a + "plus "); }
+                case _   { io::out(a + "minus "); }
+            }
+        }
+    }
+    io::outln("");
+}

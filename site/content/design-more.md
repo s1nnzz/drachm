@@ -21,17 +21,19 @@ float16 half = 0.5f16;
 
 ## Strings in match
 
-`match` on a `string` takes whole strings and `*` globs. Today it reports
-E0901.
+`match` on a `string` takes whole strings. A plain string matches exactly, `*`
+included. A pattern with wildcards is written `globbed`, where each `*` matches
+any run of characters. The rules and the example are in
+[Matching text](reference-control-flow.md#matching-text).
 
 <!-- focus: 2-4 -->
 
 ```drachm
 match (path) {
-    case "/"        { home(); }
-    case "/api/*"   { api(path); }
-    case "*.png"    { image(path); }
-    case _          { missing(); }
+    case "/"                  { home(); }
+    case globbed "/api/*"     { api(path); }
+    case globbed "*.png"      { image(path); }
+    case _                    { missing(); }
 }
 ```
 

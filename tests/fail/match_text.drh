@@ -1,0 +1,26 @@
+// Text patterns and text loops that are not allowed.
+in io;
+
+none main() {
+    string s = "abc";
+
+    match (s) {
+        case 1 { }
+        case _ { }
+    }
+    match (s) {
+        case f"x${s}" { }
+        case _ { }
+    }
+    match (s) {
+        case "a".."f" { }
+        case _ { }
+    }
+    match (5) {
+        case globbed "5" { }
+        case _ { }
+    }
+    for (uint32 c of "abc") {
+        io::outln(c::text());
+    }
+}

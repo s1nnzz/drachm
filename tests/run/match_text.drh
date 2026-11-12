@@ -1,0 +1,57 @@
+// `match` on `string`: exact patterns, lists, `case _`, and the text
+// staying usable after the match.
+in io;
+
+none page(string route) {
+    match (route) {
+        case "/"               { io::outln("home"); }
+        case "/about", "/help" { io::outln("info"); }
+        case "a*b"             { io::outln("literal star"); }
+        case _                 { io::outln("not found"); }
+    }
+}
+
+none main() {
+    page("/");
+    page("/help");
+    page("a*b");
+    page("aXb");
+    page("/api/x");
+    page("");
+
+    // A value made on the spot is matched too, and so is `io::inln()`.
+    match ("b" + "c") {
+        case "bc" { io::outln("joined"); }
+        case _    { io::outln("no"); }
+    }
+    match (io::inln()) {
+        case "yes" { io::outln("said yes"); }
+        case _     { io::outln("said something else"); }
+    }
+
+    // A place is borrowed, not moved: it can be used after the match.
+    string name = "ann";
+    match (name) {
+        case "ann" { io::outln("it is ann"); }
+        case _     { io::outln("someone else"); }
+    }
+    io::outln(name);
+    string moved = name;
+    io::outln(moved);
+
+    // `skip to next` tests the next case; a match inside a loop.
+    for (uint32 i of 0..3) {
+        match (i::text()) {
+            case "0" {
+                io::outln("zero");
+                skip to next;
+            }
+            case "1", "2" {
+                if (i == 2) { continue; }
+                io::outln("one");
+            }
+            case _ { io::outln("other"); }
+        }
+        io::outln("again");
+    }
+}

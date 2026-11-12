@@ -3,7 +3,7 @@ error[E0101]: a range loop counts in whole numbers, so its variable cannot be `b
 help: use an integer type such as `uint32` or `sint64`
 error[E0101]: cannot loop over a number
 help: to count, loop over a range: `for (uint32 i of 0..9) { }`
-error[E0901]: looping over a string is not supported yet
+error[E0101]: a loop over text needs a `string` or `&string` variable, not `uint32`
 error[E0010]: a range can only be used after `of` in a `for`, or as a `case` pattern
 loops.drh:10:16
 loops.drh:11:15

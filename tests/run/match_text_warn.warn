@@ -1,0 +1,2 @@
+warning[W0110]: this `match` on `string` does not handle every value
+warning[W0111]: this case can never run

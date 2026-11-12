@@ -219,6 +219,8 @@ pub enum Pattern {
     Any(Span),
     /// A value or an inclusive range (`ExprKind::Range`).
     Expr(Expr),
+    /// `globbed "..."`: text in which each `*` is a wildcard (a `string` match only).
+    Glob(Expr),
 }
 
 /// What follows `=` in a declaration.

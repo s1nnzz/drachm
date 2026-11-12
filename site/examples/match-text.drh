@@ -1,0 +1,21 @@
+in io;
+
+// A plain string matches exactly. `globbed` makes each `*` a wildcard.
+none route(string path) {
+    match (path) {
+        case "/"               { io::outln("home"); }
+        case "/about", "/help" { io::outln("info"); }
+        case globbed "/api/*"  { io::outln("api"); }
+        case globbed "*.png", globbed "*.jpg" { io::outln("image"); }
+        case _                 { io::outln("not found"); }
+    }
+}
+
+none main() {
+    route("/");
+    route("/help");
+    route("/api/users");
+    route("cat.jpg");
+    route("/api");
+    route("a*b");
+}

@@ -8,6 +8,6 @@ error[E0109]: `_` must be the only pattern in its `case`
 error[E0101]: expected `uint32`, found `bool`
 error[E0101]: expected `bool`, found a number
 error[E0109]: a range pattern needs numbers, but this `match` is on `bool`
-error[E0901]: matching on text is not supported yet
+error[E0101]: a `case` of a `string` match must be a string
 error[E0104]: `match` needs a value, but this produces none
 9 errors

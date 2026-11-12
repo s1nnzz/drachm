@@ -1,0 +1,41 @@
+// Warnings for `match` on `string`: no `case _` (W0110), and cases that can
+// never run (W0111): a repeated text, and a text after a `globbed "*"`-like case.
+in io;
+
+none noDefault(string s) {
+    match (s) {
+        case "x" { io::outln("x"); }
+    }
+}
+
+none repeated(string s) {
+    match (s) {
+        case "x" { io::outln("first"); }
+        case "x" { io::outln("second"); }
+        case _   { io::outln("other"); }
+    }
+}
+
+none afterGlob(string s) {
+    match (s) {
+        case globbed "/api/*" { io::outln("api"); }
+        case "/api/x"         { io::outln("never"); }
+        case _                { io::outln("other"); }
+    }
+}
+
+// A glob covers a later glob only when the same, so this one is not flagged.
+none notCovered(string s) {
+    match (s) {
+        case globbed "a*" { io::outln("a"); }
+        case globbed "ab*" { io::outln("ab"); }
+        case _ { io::outln("other"); }
+    }
+}
+
+none main() {
+    noDefault("x");
+    repeated("x");
+    afterGlob("/api/x");
+    notCovered("ab");
+}

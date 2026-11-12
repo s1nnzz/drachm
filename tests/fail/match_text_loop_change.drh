@@ -1,0 +1,10 @@
+// A loop over text borrows the text: the body cannot change it.
+in io;
+
+none main() {
+    mut string t = "ab";
+    for (string c of t) {
+        t = "x";
+    }
+    io::outln(t);
+}

@@ -122,8 +122,10 @@ match (x) {
   may omit `by` (step 1); float ranges must give it.
 - `match` arms are `case` blocks with no fallthrough. A missing case is a
   **warning** (config can make warnings errors).
-- Patterns: values, `case 1, 2`, inclusive ranges `case 13..19`, strings, and
-  string globs with `*`: `case "/api/*"`, `case "*.png"`. `case _` = anything.
+- Patterns: values, `case 1, 2`, inclusive ranges `case 13..19`, strings (a
+  plain string matches exactly, `*` included), and globs written
+  `case globbed "/api/*"`, where each `*` is a wildcard. A literal `*` is matched
+  by a plain string. `case _` = anything.
 
 ### skip (original to Drachm)
 

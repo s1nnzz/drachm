@@ -1,0 +1,87 @@
+// `for (string c of text)`: one iteration per character (grapheme cluster).
+// `for (&string c of text)`: the same, with a borrowed view of each.
+in io;
+
+none main() {
+    for (string c of "abc") {
+        io::outln(c);
+    }
+
+    // Accents, combining marks, CR LF and an emoji family each count once.
+    for (string c of "n\u{ef}ve") {
+        io::outln(c);
+    }
+    for (string c of "e\u{301}x") {
+        io::outln(c);
+    }
+    for (string c of "a\r\nb") {
+        io::outln("[" + c + "]");
+    }
+    for (string c of "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}!") {
+        io::outln(c);
+    }
+
+    // An empty string runs zero times.
+    for (string c of "") {
+        io::outln("never");
+    }
+
+    // The number of iterations is the length.
+    string text = "h\u{e9}llo \u{1F600}";
+    mut uint64 n = 0;
+    for (string c of text) {
+        n++;
+    }
+    io::outln(n::text());
+    io::outln(text::len()->text());
+
+    string unit = "ab c ";
+    string long = unit::repeat(2000);
+    mut uint64 m = 0;
+    for (string c of long) {
+        m++;
+    }
+    io::outln(m::text());
+
+    // `break` and `continue` work as in any loop.
+    for (string c of "abcdef") {
+        if (c == "b") { continue; }
+        if (c == "e") { break; }
+        io::out(c);
+    }
+    io::outln("");
+
+    // `continue 1` is the same as `continue`.
+    for (string c of "pq") {
+        if (c == "p") { continue 1; }
+        io::outln(c);
+    }
+
+    // A character can be kept after the loop: `saved` owns its own copy.
+    mut string saved = "";
+    for (string c of "xyz") {
+        if (c == "y") {
+            saved = c;
+        }
+    }
+    io::outln(saved);
+
+    // A view: no copy, the same characters.
+    for (&string c of "q\u{1F600}") {
+        io::outln(c);
+    }
+
+    // The text is a place: it is still usable after the loop.
+    string word = "hey";
+    for (string c of word) {
+        io::out(c::text() + ".");
+    }
+    io::outln("");
+    io::outln(word);
+
+    // A text made on the spot is walked too.
+    for (string c of "ab" + "c") {
+        io::out(c);
+    }
+    io::outln("");
+}

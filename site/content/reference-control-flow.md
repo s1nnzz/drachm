@@ -36,6 +36,19 @@ changing it does not change the range.
 
 <!-- example: loops -->
 
+### Looping over characters
+
+`for (string c of text)` goes over the characters of a `string`, one at a time, in
+order. A character is a grapheme cluster, so an accent written as two code points,
+a `\r\n` pair and an emoji with joiners each count once; the number of rounds is
+the `len()` of the text, and an empty text runs zero times. Each `c` is a copy that
+can be kept or moved on. `for (&string c of text)` gives a borrowed view of each
+character instead, which cannot be kept: write `copy c` to keep one. The loop
+borrows the text, so the body cannot change it. `break`, `continue` and the rest
+work as in any loop.
+
+<!-- example: for-chars -->
+
 ## break and continue
 
 `break;` leaves the innermost loop and `continue;` starts its next round. A number
@@ -61,7 +74,7 @@ it is in. A `skip` with no level to leave is error E0012.
 
 ## match
 
-`match` works on whole numbers, `bool` and floats. Each `case` gives one value, a
+`match` works on whole numbers, `bool`, floats and `string`. Each `case` gives one value, a
 list separated by commas, or an inclusive range `a..b`, and `case _` matches
 anything. The first case that matches runs and cases never fall through. A value
 may be a constant expression such as `case 2 + 1`, and the matched value is
@@ -71,7 +84,27 @@ A `match` must handle every value, or the compiler gives warning W0110; add
 `case _` to catch the rest. On floats only `case _` covers every value. A case
 after one that already matches every value it could match is warning W0111.
 `break`, `continue` and `skip` inside a case act on the enclosing loop or `if`,
-and a `skip` inside a `match` leaves the `match`, not a loop. A `match` on
-`string` is not built yet, and reports E0901.
+and a `skip` inside a `match` leaves the `match`, not a loop.
 
 <!-- example: match-basic -->
+
+### Matching text
+
+On a `string`, each `case` gives plain strings, a list of them, or `case _`. A
+plain string matches the text exactly, `*` included: `case "a*b"` matches only
+`a*b`. To match a pattern, write `globbed` before the string: in
+`case globbed "*.png"`, each `*` matches any run of characters, none included,
+and the whole text must match. `globbed` applies to the one string after it, so a list writes
+it on each: `case globbed "*.png", globbed "*.jpg"`. Without a `*` a `globbed`
+string is an exact match too. The cases are tried in order, and the first one that
+matches runs.
+
+The text is borrowed by the `match`, not moved, so a variable is still usable after
+it. `string` cases are checked the same way as the others: only `case _` (or a
+`case globbed "*"`) makes the `match` handle every text, so any other `match` on
+`string` gets W0110 with the note that text has too many values to list. A text
+case that can never run is W0111, but only when an earlier case clearly covers it:
+a repeated text, or a text that an earlier `globbed` case matches. Other overlaps
+are not reported.
+
+<!-- example: match-text -->

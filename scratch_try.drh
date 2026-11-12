@@ -1,0 +1,9 @@
+in io;
+
+none main() {
+    mut string kept = "";
+    for (&string c of "ab") {
+        kept = c;
+    }
+    io::outln(kept);
+}

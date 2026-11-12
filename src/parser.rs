@@ -748,8 +748,9 @@ impl Parser<'_> {
         self.bump();
 
         let m = (self.peek() == &Tok::Kw("mut")) as usize;
-        let name_at = self.name_end(m);
-        if matches!(self.peek_at(m), Tok::Ident(_) | Tok::Kw("none"))
+        // `for (T name of ...)`, where `T` may start with `&` (`for (&string c of text)`).
+        let name_at = self.type_end(m);
+        if let Some(name_at) = name_at
             && matches!(self.peek_at(name_at), Tok::Ident(_))
             && self.peek_at(name_at + 1) == &Tok::Kw("of")
         {
@@ -819,6 +820,10 @@ impl Parser<'_> {
             loop {
                 if matches!(self.peek(), Tok::Ident(s) if s == "_") {
                     patterns.push(Pattern::Any(self.bump().span));
+                } else if matches!(self.peek(), Tok::Ident(s) if s == "globbed") && matches!(self.peek_at(1), Tok::Str(_)) {
+                    // `globbed` is a word only here, before a string: elsewhere it is a name.
+                    self.bump();
+                    patterns.push(Pattern::Glob(self.expr()?));
                 } else {
                     patterns.push(Pattern::Expr(self.expr()?));
                 }

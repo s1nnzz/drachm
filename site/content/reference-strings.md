@@ -43,7 +43,9 @@ Searching uses `find(text)` (the index, or -1), `contains`, `startsWith`,
 `remove(from, to)`, `repeat(n)` and `join(text)`. For layout there are
 `padLeft(width)` and `padRight(width)`, each with an optional fill string.
 `text()` returns the string itself. `to<T>()` reads the text as a number of type
-`T`, and [Input and output](reference-io.md) has the rules.
+`T`, and [Input and output](reference-io.md) has the rules. To go through the
+characters, use [`for` over text](reference-control-flow.md#looping-over-characters),
+and to match a string against cases, see [matching text](reference-control-flow.md#matching-text).
 
 <!-- example: string-methods -->
 

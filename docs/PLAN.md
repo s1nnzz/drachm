@@ -20,7 +20,7 @@ answers into `docs/SPEC.md` and the design doc, and note leftovers under that st
 | 1 | Migrate v0.1 to Drachm syntax | done (256-bit, float8/16 deferred) |
 | 2 | Strings and structs | done (`\u{NAME}` escapes, user `copy`, `split`/`lines`/`chars` later) |
 | 3 | Ownership and borrow checking | done: MIR, moves, drops, mutability, borrow checker, `lives` inference, pointers/`unsafe`/`*fixed T` (benchmarks to rerun on a quiet machine; pointer `==` between two pointers left) |
-| 4 | `for`, `skip`, `match` | control flow done; string patterns, `*` globs and for-each over strings left (lists: step 6) |
+| 4 | `for`, `skip`, `match` | done: `match` on text (exact patterns, `globbed` globs), `for` over characters (`string` copies, `&string` views), lists in step 6 |
 | 4.5 | Units of measure | done (`in si;`, points and deltas, scaled integers wrap; decisions in `docs/impl/step4.5-units.md`) |
 | 4.6 | Input: `io::inln()`, `io::ended()`, text `::to<T>()` | done (interim: bad text stops the program with exit 101; forgiving number text (spaces, `+`, `.5`); `\r\n` lines; invalid UTF-8 becomes U+FFFD) |
 | 5 | Constructors, enums, `fails` / `maybe` | not started |
@@ -480,7 +480,7 @@ walls, `match` levels and `skip to next` inside a case.
 Decided: `skip to next` from the last branch is a compile error; lambdas are
 walls for `skip`.
 
-**Open (ask owner):** how to match a literal `*` in a string pattern (assumed
+**Answered 2026-11-12:** a plain string pattern matches exactly (`*` is a character); `globbed "..."` makes `*` a wildcard. (Was: how to match a literal `*`, assumed
 `\*`). Found while building control flow (conservative for now):
 - range loop variables must be integers (floats and `bool` are an error);
 - `_` must be alone in its `case`;
@@ -498,10 +498,13 @@ ranges, `break N` / `continue N`, `skip` / `skip N` / `skip to next`, and
 `match` on integers, floats and bools (values, lists, ranges, `_`). Golden
 tests: `tests/run/{loops,ranges,skip,match,matchwarn}.drh`, `tests/fail/{jumps,
 loops,patterns,flow,forsyntax}.drh`. Notes for later steps:
-- Still to do in this step: `match` on strings (E0901 now), string patterns
-  and `*` globs, and for-each over strings (E0901 now); lists come in step 6
-  (via `Iterable<T>`). The for-each parser and `ForEach` node already take
-  any expression after `of`.
+- Step 4 done (2026-11-12): `match` on `string` (plain patterns are exact;
+  `case globbed "/api/*"` is a glob, `*` the only wildcard; W0110/W0111 by the
+  partial coverage rule) and `for (string c of text)` (an owned copy per
+  character, grapheme clusters, via `drachm_str_byte_len` / `drachm_str_next_char`)
+  and `for (&string c of text)` (a borrowed view, `drachm_str_char_view`).
+  Not done, optional and behaviour-neutral: the owner's "skip the copy when the
+  body never keeps `c`" optimisation. Lists come in step 6 (via `Iterable<T>`).
 - HIR: an `if` chain and a `match` are both `Stmt::If { label, branches }`
   (a branch with no test always runs); every loop is `Stmt::Loop { label,
   cond, body, step }`; jumps are `Stmt::Jump(Break | Continue | Leave | Next)`

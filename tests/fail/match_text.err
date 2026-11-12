@@ -1,0 +1,5 @@
+error[E0101]: a `case` of a `string` match must be a string
+error[E0109]: a pattern must be a plain string
+error[E0109]: a range pattern needs numbers, but this `match` is on `string`
+error[E0109]: `globbed` is only for a `match` on `string`
+error[E0101]: a loop over text needs a `string` or `&string` variable, not `uint32`

@@ -18,7 +18,7 @@ the compiler accepts what they show.
 | 1 | Drachm syntax, numbers up to 128 bits | done (256-bit and `float8`/`float16` later, see [More details](design-more.md)) |
 | 2 | Strings and structs | done (`split`, `lines`, `chars` later) |
 | 3 | Ownership, borrow checking, pointers | mostly done: WP8 lives inference left; see [Borrows](design-lifetimes.md) and [Unsafe and pointers](reference-unsafe.md) |
-| 4 | `for`, `skip`, `match` | control flow done; string patterns, globs and `for` over strings left |
+| 4 | `for`, `skip`, `match` | done, including `match` on text with `globbed` patterns and `for` over characters (see [Control flow](reference-control-flow.md)) |
 | 4.5 | Units of measure | done, see [Units](reference-units.md) |
 | 4.6 | Input: `io::inln()`, `io::ended()`, text `::to<T>()` | done, see [Input and output](reference-io.md) |
 | 5 | Constructors, enums, `fails` / `maybe` | not started: [Constructors](design-constructors.md), [Enums](design-enums.md), [Errors](design-errors.md) |

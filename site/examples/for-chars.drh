@@ -1,0 +1,16 @@
+in io;
+
+none main() {
+    // One iteration per character. The accent written as two code points is one character.
+    for (string c of "cafe\u{301}!") {
+        io::out("[" + c + "]");
+    }
+    io::outln("");
+
+    // `&string` gives a view of each character instead of a copy.
+    mut uint32 count = 0;
+    for (&string c of "h\u{e9}llo") {
+        count++;
+    }
+    io::outln(count::text() + " characters");
+}
