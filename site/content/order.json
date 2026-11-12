@@ -18,7 +18,16 @@
         "lesson-6-structs",
         "lesson-7-match-and-skip",
         "lesson-8-ownership",
-        "lesson-9-borrowing"
+        "lesson-9-borrowing",
+        "lesson-10-units",
+        "lesson-11-unsafe",
+        "lesson-12-constructors",
+        "lesson-13-enums",
+        "lesson-14-errors",
+        "lesson-15-generics",
+        "lesson-16-collections",
+        "lesson-17-modules",
+        "lesson-18-concurrency"
       ]
     },
     {

@@ -1,0 +1,9 @@
+in io;
+in si;
+
+none main() {
+    float64<m> distance = 90.0<m>;
+    float64<s> time = 12.0<s>;
+    float64<m/s> speed = distance / time;
+    io::outln(speed::text() + " " + speed::unitText());
+}

@@ -1,0 +1,9 @@
+in io;
+in si;
+
+none main() {
+    float64<degC> start = 18.0<degC>;
+    float64<degC> end = 23.5<degC>;
+    float64<delta degC> change = end - start;
+    io::outln(change::text() + " " + change::unitText());
+}

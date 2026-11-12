@@ -1,0 +1,9 @@
+in io;
+in si;
+
+none main() {
+    float64<km> run = 5.0<km>;
+    float64<m> extra = 750.0<m>;
+    float64<m> total = run::in<m>() + extra;
+    io::outln(total::text() + " " + total::unitText());
+}
