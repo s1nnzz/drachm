@@ -25,7 +25,7 @@
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-use super::{similar, Checker, Globals, MethodInfo, Val};
+use super::{similar, Checker, FieldInfo, Globals, MethodInfo, Sig, StructInfo, Val};
 use crate::ast;
 use crate::diag::{codes, Diagnostic, Span};
 use crate::hir::{self, StructId};
@@ -640,6 +640,22 @@ pub(super) fn check_bounds(g: &Globals, tname: &str, tparams: &[ast::TypeParam],
             }
             ok = false;
             let iname = &g.ifaces.list[k].name;
+            if let Some(p) = ty.struct_id().and_then(|id| g.structs[id].placeholder.as_ref()) {
+                // `ty` stands for a type parameter of the generic being checked.
+                let have: Vec<String> = p.bounds.iter().map(|(b, _)| format!("`{}`", g.ifaces.list[*b].name)).collect();
+                let (note, help) = if have.is_empty() {
+                    (format!("`{ty}` has no constraint"), format!("constrain it: `{ty} with {iname}`"))
+                } else {
+                    (format!("`{ty}` is only known to implement {}", have.join(" and ")), format!("add the interface to the constraint: `{ty} with {} and {iname}`", have.join(" and ").replace('`', "")))
+                };
+                diags.push(
+                    Diagnostic::at(&codes::E0607, at, format!("`{ty}` does not implement `{iname}`, which `{tname}` asks of `{}`", tp.name))
+                        .note(note)
+                        .label(bspan, format!("`{}` must implement `{iname}`", tp.name))
+                        .help(help),
+                );
+                continue;
+            }
             let help = if ty.struct_id().is_some() {
                 format!("write `struct {ty} with {iname}` and give it what `{iname}` lists")
             } else if g.ifaces.list[k].builtin {
@@ -757,5 +773,94 @@ impl Checker<'_> {
                 None
             }
         }
+    }
+}
+
+/// What a type parameter stands for while its generic is checked at its definition.
+pub(super) struct Placeholder {
+    /// It has at least one constraint: what it lacks is E0606.
+    pub constrained: bool,
+    pub bounds: Vec<(usize, Span)>,
+}
+
+/// A struct that has only what the constraints of `tp` promise: its required
+/// fields, its methods (as signatures), and the interfaces themselves.
+pub(super) fn placeholder(g: &mut Globals, tp: &ast::TypeParam) -> Type {
+    let bounds = bounds_of(g, tp);
+    let id = g.structs.len();
+    let ty = Type::Struct { id, name: crate::types::intern(&tp.name) };
+    g.structs.push(StructInfo {
+        name: tp.name.clone(),
+        name_span: tp.span,
+        ty,
+        fields: Vec::new(),
+        methods: Vec::new(),
+        // Nothing is known about copying a `T`, so it moves.
+        stays: true,
+        lives: Vec::new(),
+        has_drop: None,
+        ctors: Vec::new(),
+        auto_ctor: false,
+        default_def: None,
+        declared_lives: false,
+        placeholder: Some(Placeholder { constrained: !bounds.is_empty(), bounds: bounds.clone() }),
+    });
+    for &(k, _) in &bounds {
+        let methods = g.ifaces.list[k].methods.clone();
+        let fields = g.ifaces.list[k].fields.clone();
+        for fm in methods {
+            let decl = g.ifaces.list[fm.owner].decl.clone();
+            let m = &decl.methods[fm.idx];
+            if g.structs[id].methods.iter().any(|x| x.name == m.name) {
+                continue;
+            }
+            let (params, ret) = sig_for(g, m, ty);
+            let func = g.add_sig(Sig { name: format!("{}::{}", tp.name, m.name), params, ret, span: m.span, fails: Vec::new(), outcome: None });
+            g.structs[id].methods.push(method_info(&m.name, m.operator, func, m.is_static.is_some()));
+        }
+        for ff in fields {
+            let decl = g.ifaces.list[ff.owner].decl.clone();
+            let f = &decl.fields[ff.idx];
+            if g.structs[id].fields.iter().any(|x| x.name == f.name) {
+                continue;
+            }
+            let fty = field_for(g, f, ty);
+            g.structs[id].fields.push(FieldInfo { name: f.name.clone(), ty: fty, mutable: true, public: true, span: f.name_span });
+        }
+        let ancestors = g.ifaces.list[k].ancestors.clone();
+        for a in ancestors {
+            g.ifaces.conforms.insert((ty, a));
+        }
+    }
+    ty
+}
+
+impl Checker<'_> {
+    /// E0606 when `s` stands for a constrained type parameter and the program
+    /// asks for something its constraints do not promise. True if reported.
+    pub(super) fn beyond_constraint(&mut self, s: StructId, what: &str, at: Span) -> bool {
+        let info = &self.g.structs[s];
+        let Some(p) = info.placeholder.as_ref().filter(|p| p.constrained) else { return false };
+        let name = info.name.clone();
+        let names: Vec<String> = p.bounds.iter().map(|(k, _)| format!("`{}`", self.g.ifaces.list[*k].name)).collect();
+        let first = p.bounds[0].1;
+        let all = names.join(" and ");
+        let (message, help) = if what.ends_with("operator") {
+            let sym = what.trim_end_matches(" operator").trim_matches('`');
+            (
+                format!("`{name}` has no `{sym}`: operators need an interface that declares them"),
+                format!("add `bool {sym}(Self o);` (or the operator you need) to an interface, and constrain `{name}` with it"),
+            )
+        } else {
+            let plural = if names.len() == 1 { "constraint" } else { "constraints" };
+            let verb = if what.starts_with("field") { "requires" } else { "promises" };
+            (
+                format!("`{name}` has no {what} that its {plural} {all} {verb}"),
+                format!("add it to {all}, or constrain `{name}` with an interface that has it"),
+            )
+        };
+        let d = Diagnostic::at(&codes::E0606, at, message).note(format!("not offered by {all}")).label(first, format!("`{name}` is constrained here")).help(help);
+        self.diags.push(d);
+        true
     }
 }

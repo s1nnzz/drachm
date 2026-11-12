@@ -1,0 +1,5 @@
+error[E0606]: `T` has no method `perimeter` that its constraint `Shape` promises
+error[E0606]: `T` has no `>`: operators need an interface that declares them
+error[E0606]: `T` has no field `x` that its constraint `Shape` requires
+error[E0607]: `T` does not implement `Drawable`, which `draw_it` asks of `T`
+in the definition of `wrong_method`

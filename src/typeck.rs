@@ -63,6 +63,9 @@ struct StructInfo {
     /// Written with a `lives` clause: it is a holder, even before its
     /// fields are checked.
     declared_lives: bool,
+    /// Set for the stand-in of a type parameter while its generic is checked
+    /// at its definition (`interfaces::placeholder`).
+    placeholder: Option<interfaces::Placeholder>,
 }
 
 struct FieldInfo {
@@ -485,6 +488,8 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
         _ => {}
     }
 
+    generics::definition_pass(&mut g, src, prog, diags);
+
     // Bodies. Duplicates are still checked, but only the first definition is emitted.
     let mut funcs: Vec<Option<hir::Func>> = Vec::new();
     let emit = |funcs: &mut Vec<Option<hir::Func>>, id: FuncId, f: hir::Func| {
@@ -796,6 +801,7 @@ fn new_struct_info(g: &mut Globals, name: &str, s: &ast::Struct) -> StructId {
         auto_ctor: s.auto_ctor.is_some(),
         default_def: None,
         declared_lives: !s.lives.is_empty(),
+        placeholder: None,
     });
     id
 }
@@ -1883,6 +1889,13 @@ impl Checker<'_> {
     /// Field `name` of a value of type `ty`: its index and type. Reports an
     /// unknown field, or a private one used outside the struct's methods.
     fn field_of(&mut self, ty: Type, name: &str, name_span: Span, recv_span: Span) -> Option<(usize, Type)> {
+        if let Some(sid) = ty.struct_id()
+            && self.g.structs[sid].placeholder.is_some()
+            && !self.g.structs[sid].fields.iter().any(|f| f.name == name)
+            && self.beyond_constraint(sid, &format!("field `{name}`"), name_span)
+        {
+            return None;
+        }
         let Some(s) = self.g.struct_of(ty) else {
             self.diags.push(
                 Diagnostic::at(&codes::E0201, name_span, format!("`{ty}` has no fields")).note("not a struct").label(recv_span, format!("this is `{ty}`")),
@@ -2953,6 +2966,9 @@ impl Checker<'_> {
     }
 
     fn unknown_method(&mut self, s: StructId, name: &str, at: Span, shown: &str) {
+        if self.beyond_constraint(s, &format!("method `{name}`"), at) {
+            return;
+        }
         let info = &self.g.structs[s];
         let methods: Vec<&str> = info.methods.iter().filter(|m| m.operator.is_none()).map(|m| m.name.as_str()).collect();
         let mut d = Diagnostic::at(&codes::E0201, at, format!("`{}` has no method `{name}`", info.name));
@@ -3263,6 +3279,7 @@ impl Checker<'_> {
                 let m = self.g.operator(s, BinOp::Eq).cloned().unwrap();
                 self.operator_call(s, &m, lhs, rv, ro, span).map(|e| Val::Expr(not(e)))
             }
+            _ if self.beyond_constraint(s, &format!("`{}` operator", op.symbol()), lo.span.to(span)) => None,
             BinOp::Eq | BinOp::Ne => {
                 if let Some(bad) = self.payload_enum_in(t) {
                     self.diags.push(

@@ -124,6 +124,10 @@ pub(super) struct State {
     pub written_optionals: Vec<ast::TypeName>,
     /// The (code, place) pairs already reported from instances.
     reported: HashSet<(&'static str, usize, usize)>,
+    /// The template being checked at its definition (`definition_pass`).
+    defn: Option<String>,
+    /// Templates whose definition has errors: their instances are not reported again.
+    defn_failed: HashSet<String>,
 }
 
 /// The declaration of `f` without its body.
@@ -230,14 +234,14 @@ pub(super) fn drain(g: &mut Globals, src: &str, prog: &ast::Program, diags: &mut
         g.tenv.clear();
         g.mono.depth = 0;
         local.extend(unused_self);
+        let template = p.display.split('<').next().unwrap_or_default().to_string();
+        let failed = g.mono.defn.is_none() && g.mono.defn_failed.contains(&template);
         for d in local {
             // `copy` that does nothing for this `T` is needed for another one.
-            if d.code.id == "W0322" || !first_report(g, &d) {
+            if d.code.id == "W0322" || (failed && d.is_error()) || !first_report(g, &d) {
                 continue;
             }
-            let same = d.labels.first().is_some_and(|l| l.0 == p.call);
-            let d = d.note_line(format!("while checking `{}`, instantiated here", p.display));
-            diags.push(if same { d } else { d.label(p.call, "instantiated here") });
+            diags.push(instance_note(g, d, &p.display, p.call));
         }
         emit(p.id, f);
     }
@@ -245,7 +249,8 @@ pub(super) fn drain(g: &mut Globals, src: &str, prog: &ast::Program, diags: &mut
 
 /// W0601 for each usable template nothing instantiated.
 pub(super) fn warn_unused(g: &Globals, diags: &mut Vec<Diagnostic>) {
-    let mut unused: Vec<&Template> = g.mono.templates.values().filter(|t| t.usable && t.instances == 0).collect();
+    let bounded = |tps: &[ast::TypeParam]| tps.iter().any(|p| !p.bounds.is_empty());
+    let mut unused: Vec<&Template> = g.mono.templates.values().filter(|t| t.usable && t.instances == 0 && !bounded(&t.head.tparams)).collect();
     unused.sort_by_key(|t| t.index);
     for t in unused {
         diags.push(
@@ -254,7 +259,7 @@ pub(super) fn warn_unused(g: &Globals, diags: &mut Vec<Diagnostic>) {
                 .help("a generic function is only checked when it is called with a type: call it, or remove it"),
         );
     }
-    let mut unused: Vec<(&String, &TypeTemplate)> = g.mono.type_templates.iter().filter(|(_, t)| t.usable && t.instances == 0).collect();
+    let mut unused: Vec<(&String, &TypeTemplate)> = g.mono.type_templates.iter().filter(|(_, t)| t.usable && t.instances == 0 && !bounded(&t.tparams)).collect();
     unused.sort_by_key(|(_, t)| t.name_span.start);
     for (name, t) in unused {
         let what = if t.kind == Kind::Struct { "struct" } else { "enum" };
@@ -296,6 +301,20 @@ fn first_report(g: &mut Globals, d: &Diagnostic) -> bool {
     match d.labels.first() {
         Some((s, _)) => g.mono.reported.insert((d.code.id, s.start, s.end)),
         None => true,
+    }
+}
+
+/// Says where a diagnostic from inside an instance comes from: the instance
+/// and the place that made it, or, when a template is being checked at its
+/// definition, just that.
+fn instance_note(g: &Globals, d: Diagnostic, display: &str, call: Span) -> Diagnostic {
+    match &g.mono.defn {
+        Some(name) => d.note_line(format!("in the definition of `{name}`")),
+        None => {
+            let same = d.labels.first().is_some_and(|l| l.0 == call);
+            let d = d.note_line(format!("while checking `{display}`, instantiated here"));
+            if same { d } else { d.label(call, "instantiated here") }
+        }
     }
 }
 
@@ -535,56 +554,7 @@ impl Checker<'_> {
     /// The instance of generic function `name` for `types`, made on first use.
     /// Its body waits on the worklist.
     pub(super) fn instantiate_fn(&mut self, name: &str, types: Vec<Type>, call: Span) -> Option<FuncId> {
-        let key = (name.to_string(), types);
-        if let Some(&id) = self.g.mono.instances.get(&key) {
-            return Some(id);
-        }
-        let types = key.1.clone();
-        let list: Vec<String> = types.iter().map(Type::to_string).collect();
-        let display = format!("{name}<{}>", list.join(", "));
-        let depth = self.g.mono.depth + 1;
-        if depth > MAX_DEPTH {
-            self.diags.push(
-                Diagnostic::at(&codes::E0608, call, format!("`{name}` keeps instantiating itself"))
-                    .note("instantiated here again with a bigger type")
-                    .note_line(format!("{MAX_DEPTH} instances deep, the last is `{display}`"))
-                    .help("make the recursive call use the same type parameters"),
-            );
-            return None;
-        }
-        let tps = self.g.mono.templates[name].head.tparams.clone();
-        if !interfaces::check_bounds(self.g, name, &tps, &key.1, call, self.diags) {
-            return None;
-        }
-        let t = self.g.mono.templates.remove(name).expect("a template");
-        let tenv: HashMap<String, Type> = t.head.tparams.iter().map(|p| p.name.clone()).zip(types.iter().copied()).collect();
-        let saved = std::mem::replace(&mut self.g.tenv, tenv.clone());
-        let scope = self.g.mono.scopes.get(&format!("fn {name}")).cloned().unwrap_or_default();
-        let saved_scope = std::mem::replace(&mut self.g.mono.scope, scope.clone());
-        let mut local = Vec::new();
-        ensure_written(self.g, &mut local);
-        let params: Vec<Option<Type>> = t.head.params.iter().map(|p| self.g.resolve_binding_type(&p.ty, &mut local)).collect();
-        let ret = self.g.resolve(&t.head.ret, &mut local);
-        let (fails, outcome) = failures::signature(self.g, &t.head, ret, true, &mut local);
-        let sig = Sig { name: display.clone(), params, ret, span: t.head.span, fails, outcome };
-        check_signature_extras(self.g, &t.head, &sig.params, false, &mut local);
-        self.g.tenv = saved;
-        self.g.mono.scope = saved_scope;
-        for d in local {
-            if first_report(self.g, &d) {
-                self.diags.push(d.note_line(format!("while checking `{display}`, instantiated here")).label(call, "instantiated here"));
-            }
-        }
-        let broken = sig.params.iter().any(Option::is_none) || sig.ret.is_none();
-        let index = t.index;
-        let id = self.g.add_sig(sig);
-        self.g.mono.templates.insert(name.to_string(), t);
-        self.g.mono.instances.insert(key, id);
-        if !broken {
-            let symbol = format!("drachm_g_{}", types::mangle(&display));
-            self.g.mono.pending.push_back(Pending { body: Body::Func(index), id, scope, tenv, depth, call, display, symbol });
-        }
-        Some(id)
+        make_fn_instance(self.g, self.diags, name, types, call)
     }
 
     /// `name<types>` used as a function or a type that takes no type arguments.
@@ -615,6 +585,60 @@ impl Checker<'_> {
                 .help(format!("call it: `{name}(...)`, or `{name}<uint32>(...)` to say what the type parameters are")),
         );
     }
+}
+
+/// The instance of generic function `name` for `types`, made on first use.
+pub(super) fn make_fn_instance(g: &mut Globals, diags: &mut Vec<Diagnostic>, name: &str, types: Vec<Type>, call: Span) -> Option<FuncId> {
+    let key = (name.to_string(), types);
+    if let Some(&id) = g.mono.instances.get(&key) {
+        return Some(id);
+    }
+    let types = key.1.clone();
+    let list: Vec<String> = types.iter().map(Type::to_string).collect();
+    let display = format!("{name}<{}>", list.join(", "));
+    let depth = g.mono.depth + 1;
+    if depth > MAX_DEPTH {
+        diags.push(
+            Diagnostic::at(&codes::E0608, call, format!("`{name}` keeps instantiating itself"))
+                .note("instantiated here again with a bigger type")
+                .note_line(format!("{MAX_DEPTH} instances deep, the last is `{display}`"))
+                .help("make the recursive call use the same type parameters"),
+        );
+        return None;
+    }
+    let tps = g.mono.templates[name].head.tparams.clone();
+    if !interfaces::check_bounds(g, name, &tps, &key.1, call, diags) {
+        return None;
+    }
+    let t = g.mono.templates.remove(name).expect("a template");
+    let tenv: HashMap<String, Type> = t.head.tparams.iter().map(|p| p.name.clone()).zip(types.iter().copied()).collect();
+    let saved = std::mem::replace(&mut g.tenv, tenv.clone());
+    let scope = g.mono.scopes.get(&format!("fn {name}")).cloned().unwrap_or_default();
+    let saved_scope = std::mem::replace(&mut g.mono.scope, scope.clone());
+    let mut local = Vec::new();
+    ensure_written(g, &mut local);
+    let params: Vec<Option<Type>> = t.head.params.iter().map(|p| g.resolve_binding_type(&p.ty, &mut local)).collect();
+    let ret = g.resolve(&t.head.ret, &mut local);
+    let (fails, outcome) = failures::signature(g, &t.head, ret, true, &mut local);
+    let sig = Sig { name: display.clone(), params, ret, span: t.head.span, fails, outcome };
+    check_signature_extras(g, &t.head, &sig.params, false, &mut local);
+    g.tenv = saved;
+    g.mono.scope = saved_scope;
+    for d in local {
+        if first_report(g, &d) {
+            diags.push(instance_note(g, d, &display, call));
+        }
+    }
+    let broken = sig.params.iter().any(Option::is_none) || sig.ret.is_none();
+    let index = t.index;
+    let id = g.add_sig(sig);
+    g.mono.templates.insert(name.to_string(), t);
+    g.mono.instances.insert(key, id);
+    if !broken {
+        let symbol = format!("drachm_g_{}", types::mangle(&display));
+        g.mono.pending.push_back(Pending { body: Body::Func(index), id, scope, tenv, depth, call, display, symbol });
+    }
+    Some(id)
 }
 
 // ---- generic structs and enums -------------------------------------------
@@ -948,7 +972,7 @@ pub(super) fn instantiate_type(g: &mut Globals, name: &str, types: Vec<Type>, at
         if g.mono.type_depth > 0 {
             diags.push(d);
         } else if first_report(g, &d) {
-            diags.push(d.note_line(format!("while checking `{display}`, instantiated here")).label(at, "instantiated here"));
+            diags.push(instance_note(g, d, &display, at));
         }
     }
     Some(ty)
@@ -1005,5 +1029,135 @@ impl Checker<'_> {
             Some(Type::Enum { id, .. }) => self.qualified_variant(id, name, name_span, args, span),
             _ => fail(self),
         }
+    }
+}
+
+// ---- the definition pass ---------------------------------------------------
+
+/// Is `t` (or what it points at) a struct or enum made after `ns`, `ne` existed?
+fn is_new(t: Type, ns: usize, ne: usize) -> bool {
+    match t {
+        Type::Struct { id, .. } => id >= ns,
+        Type::Enum { id, .. } => id >= ne,
+        Type::Ref { to, .. } | Type::Ptr { to } | Type::FixedPtr { to } => is_new(*to, ns, ne),
+        Type::Unit { of, .. } => is_new(*of, ns, ne),
+        _ => false,
+    }
+}
+
+/// What to put back after a template was checked with stand-ins.
+struct Mark {
+    sigs: usize,
+    structs: usize,
+    enums: usize,
+    wrappers: usize,
+    records: usize,
+    pending: VecDeque<Pending>,
+    counts: Vec<(String, usize)>,
+    type_counts: Vec<(String, usize)>,
+}
+
+fn mark(g: &mut Globals) -> Mark {
+    Mark {
+        sigs: g.sigs.len(),
+        structs: g.structs.len(),
+        enums: g.enums.len(),
+        wrappers: g.fail.drop_wrappers.len(),
+        records: g.ifaces.records.len(),
+        pending: std::mem::take(&mut g.mono.pending),
+        counts: g.mono.templates.iter().map(|(n, t)| (n.clone(), t.instances)).collect(),
+        type_counts: g.mono.type_templates.iter().map(|(n, t)| (n.clone(), t.instances)).collect(),
+    }
+}
+
+/// Forgets every function, struct and enum made since `m`, and the tables that point at them.
+fn rollback(g: &mut Globals, m: Mark) {
+    let (nf, ns, ne) = (m.sigs, m.structs, m.enums);
+    g.sigs.truncate(nf);
+    g.self_use.truncate(nf);
+    g.structs.truncate(ns);
+    g.enums.truncate(ne);
+    g.optional_ids.retain(|k, &mut v| v < ne && !is_new(*k, ns, ne));
+    g.eq_funcs.retain(|&s, &mut f| s < ns && f < nf);
+    g.eq_pending.retain(|&s| s < ns);
+    g.fail.info.retain(|&k, _| k < ne);
+    g.fail.fns.retain(|&k, _| k < ne);
+    g.fail.pending.retain(|&k| k < ne);
+    g.fail.outcomes.retain(|(t, list), v| !is_new(*t, ns, ne) && list.iter().all(|&e| e < ne) && !is_new(*v, ns, ne));
+    g.fail.sets.retain(|list, v| list.iter().all(|&e| e < ne) && !is_new(*v, ns, ne));
+    g.fail.drop_wrappers.truncate(m.wrappers);
+    g.ifaces.conforms.retain(|(t, _)| !is_new(*t, ns, ne));
+    g.ifaces.records.truncate(m.records);
+    g.ifaces.implementing.retain(|&f| f < nf);
+    g.mono.instances.retain(|k, &mut v| v < nf && !k.1.iter().any(|t| is_new(*t, ns, ne)));
+    g.mono.type_instances.retain(|k, v| !is_new(*v, ns, ne) && !k.1.iter().any(|t| is_new(*t, ns, ne)));
+    g.mono.origin.retain(|k, _| !is_new(*k, ns, ne));
+    g.mono.refused.retain(|k| !k.1.iter().any(|t| is_new(*t, ns, ne)));
+    g.mono.pending = m.pending;
+    g.mono.depth = 0;
+    g.mono.type_depth = 0;
+    for (n, c) in m.counts {
+        if let Some(t) = g.mono.templates.get_mut(&n) {
+            t.instances = c;
+        }
+    }
+    for (n, c) in m.type_counts {
+        if let Some(t) = g.mono.type_templates.get_mut(&n) {
+            t.instances = c;
+        }
+    }
+    g.reset_layout_answers();
+}
+
+fn mentions_name(d: &Diagnostic, name: &str) -> bool {
+    let quoted = format!("`{name}`");
+    d.message.contains(&quoted) || d.labels.iter().any(|(_, t)| t.contains(&quoted))
+}
+
+/// Checks each generic that has a constrained type parameter once, where it is
+/// written: its body is checked with each parameter standing for a struct that
+/// has only what the parameter's interfaces promise. What it makes is thrown
+/// away. A parameter with no constraint in the same list stands for a struct
+/// with nothing, and what depends on it is left to the instances (Q1).
+pub(super) fn definition_pass(g: &mut Globals, src: &str, prog: &ast::Program, diags: &mut Vec<Diagnostic>) {
+    let bounded = |tps: &[ast::TypeParam]| tps.iter().any(|p| !p.bounds.is_empty());
+    let mut jobs: Vec<(usize, String, bool)> = Vec::new();
+    for (n, t) in &g.mono.templates {
+        if t.usable && bounded(&t.head.tparams) {
+            jobs.push((t.head.name_span.start, n.clone(), true));
+        }
+    }
+    for (n, t) in &g.mono.type_templates {
+        if t.usable && bounded(&t.tparams) {
+            jobs.push((t.name_span.start, n.clone(), false));
+        }
+    }
+    jobs.sort();
+    for (_, name, is_fn) in jobs {
+        let (tparams, at) = if is_fn {
+            let t = &g.mono.templates[&name];
+            (t.head.tparams.clone(), t.head.name_span)
+        } else {
+            let t = &g.mono.type_templates[&name];
+            (t.tparams.clone(), t.name_span)
+        };
+        let m = mark(g);
+        let types: Vec<Type> = tparams.iter().map(|tp| interfaces::placeholder(g, tp)).collect();
+        let loose: Vec<&str> = tparams.iter().filter(|tp| tp.bounds.is_empty()).map(|tp| tp.name.as_str()).collect();
+        g.mono.defn = Some(name.clone());
+        let mut local = Vec::new();
+        if is_fn {
+            make_fn_instance(g, &mut local, &name, types, at);
+        } else {
+            instantiate_type(g, &name, types, at, &mut local);
+        }
+        drain(g, src, prog, &mut local, &mut |_, _| {});
+        g.mono.defn = None;
+        rollback(g, m);
+        local.retain(|d| !loose.iter().any(|n| mentions_name(d, n)));
+        if local.iter().any(Diagnostic::is_error) {
+            g.mono.defn_failed.insert(name.clone());
+        }
+        diags.extend(local);
     }
 }
