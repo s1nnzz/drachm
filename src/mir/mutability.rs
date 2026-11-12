@@ -46,6 +46,15 @@ pub fn place_text(hir: &hir::Program, body: &Body, p: &Place) -> String {
     text
 }
 
+/// The declared type of a binding as the user wrote it (units included), for
+/// help text; the type itself when no text was kept.
+fn spelled(decl: &LocalDecl) -> String {
+    match &decl.kind {
+        LocalKind::Param { written: Some(w), .. } | LocalKind::User { written: Some(w), .. } => w.clone(),
+        _ => decl.ty.to_string(),
+    }
+}
+
 fn local_name(body: &Body, l: Local) -> Option<&str> {
     match &body.locals[l].kind {
         LocalKind::User { name, .. } | LocalKind::Param { name, .. } => Some(name),
@@ -288,8 +297,8 @@ impl Cx<'_> {
     fn whole_local(&self, out: &mut Vec<Diagnostic>, loc: Location, state: &BitSet, l: Local, rv: &Rvalue, at: Span) {
         let decl = &self.body.locals[l];
         match &decl.kind {
-            LocalKind::Param { name, mutability: Mutability::Fixed } => {
-                let ty = decl.ty;
+            LocalKind::Param { name, mutability: Mutability::Fixed, .. } => {
+                let ty = spelled(decl);
                 out.push(
                     Diagnostic::at(&codes::E0205, at, format!("cannot change parameter `{name}`: it is not `mut`"))
                         .note("changed here")
@@ -297,8 +306,8 @@ impl Cx<'_> {
                         .help(format!("declare it as `mut {ty} {name}` to allow changes")),
                 );
             }
-            LocalKind::Param { name, mutability: Mutability::Open } => {
-                let ty = decl.ty;
+            LocalKind::Param { name, mutability: Mutability::Open, .. } => {
+                let ty = spelled(decl);
                 out.push(
                     Diagnostic::at(&codes::E0205, at, format!("cannot reassign parameter `{name}`: it is `open`, not `mut`"))
                         .note("reassigned here")
@@ -306,14 +315,14 @@ impl Cx<'_> {
                         .help(format!("declare it `mut {ty} {name}` to allow reassigning")),
                 );
             }
-            LocalKind::User { name, mutability: mutability @ (Mutability::Fixed | Mutability::Open) } => {
+            LocalKind::User { name, mutability: mutability @ (Mutability::Fixed | Mutability::Open), .. } => {
                 let Some(declared_in) = self.declared[l] else { return };
                 let in_loop = self.cycles[loc.block].is_some() && self.cycles[loc.block] != declared_in;
                 let assigned = state.contains(self.md.local_path[l].index());
                 if !assigned && !in_loop {
                     return;
                 }
-                let ty = decl.ty;
+                let ty = spelled(decl);
                 let d = if in_loop {
                     // Its first assignment, but a loop would repeat it.
                     Diagnostic::at(&codes::E0205, at, format!("cannot assign `{name}` inside a loop: it is not `mut`"))
@@ -406,7 +415,7 @@ impl Cx<'_> {
         let root = place.local;
         let decl = &self.body.locals[root];
         let name = self.name(root);
-        let lty = decl.ty;
+        let lty = spelled(decl);
         let param = matches!(decl.kind, LocalKind::Param { .. });
         if place.proj.is_empty() {
             let head = if param {
@@ -476,7 +485,7 @@ impl Cx<'_> {
         let m = self.method_name(method);
         let decl = &self.body.locals[root];
         let name = self.name(root);
-        let ty = decl.ty;
+        let ty = spelled(decl);
         let d = Diagnostic::at(
             &codes::E0312,
             at,
@@ -500,7 +509,7 @@ impl Cx<'_> {
     fn lend_binding(&self, at: Span, place: &Place, root: Local) -> Diagnostic {
         let decl = &self.body.locals[root];
         let name = self.name(root);
-        let ty = decl.ty;
+        let ty = spelled(decl);
         Diagnostic::at(&codes::E0312, at, format!("cannot lend `{}` as `&mut`: it is neither `mut` nor `open`", self.text(place)))
             .note("`&mut` borrow here")
             .label(decl.span, "declared here without `mut` or `open`")

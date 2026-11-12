@@ -502,7 +502,7 @@ impl Checker<'_> {
     /// A local for a pattern binding (not in any scope yet).
     fn declare_binding(&mut self, name: &str, ty: Type, span: Span) -> hir::LocalId {
         let id = self.locals.len();
-        self.locals.push(super::LocalInfo { name: name.to_string(), ty: Some(ty), mutable: false, is_param: false, is_self: false, open: false, span });
+        self.locals.push(super::LocalInfo { name: name.to_string(), ty: Some(ty), mutable: false, is_param: false, is_self: false, open: false, span, written: None });
         id
     }
 

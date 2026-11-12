@@ -1,0 +1,6 @@
+unit m;
+
+none main() {
+    float64<m> d = 5;
+    d = 6;
+}

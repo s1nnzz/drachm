@@ -187,9 +187,9 @@ impl<'a> Builder<'a> {
         for (i, l) in func.locals.iter().enumerate() {
             let mutability = mutability(l.mutability);
             let kind = if i < func.params {
-                LocalKind::Param { name: l.name.clone(), mutability }
+                LocalKind::Param { name: l.name.clone(), mutability, written: l.written.clone() }
             } else if declared.contains(&i) || !is_hidden(&l.name) {
-                LocalKind::User { name: l.name.clone(), mutability }
+                LocalKind::User { name: l.name.clone(), mutability, written: l.written.clone() }
             } else {
                 LocalKind::Temp
             };

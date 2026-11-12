@@ -431,6 +431,21 @@ fn short(src: &str, span: Span) -> &str {
     &src[span.start.min(src.len())..span.end.min(src.len())]
 }
 
+/// A declared type as the user wrote it, unit and `?` included (`&float64<m>`).
+fn written_type(src: &str, ty: &ast::TypeName) -> String {
+    let start = ty.mods.first().map_or(ty.span.start, |(_, s)| s.start.min(ty.span.start));
+    let mut end = ty.span.end;
+    if ty.unit.is_some()
+        && let Some(i) = src.get(end..).and_then(|rest| rest.find('>'))
+    {
+        end += i + 1;
+    }
+    if let Some(q) = ty.optional {
+        end = end.max(q.end);
+    }
+    short(src, Span::new(start, end)).to_string()
+}
+
 fn op_word(op: BinOp) -> &'static str {
     match op {
         BinOp::Add => "add",
@@ -974,7 +989,7 @@ fn auto_eq(g: &mut Globals, s: StructId) -> hir::Func {
     }
     let result = all.unwrap_or(hir::Expr::new(hir::ExprKind::Bool(true), Type::Bool));
     let none = Span::new(0, 0);
-    let param = |n: &str| hir::Local { name: n.into(), ty, span: none, mutability: hir::Mutability::Fixed, is_param: true };
+    let param = |n: &str| hir::Local { name: n.into(), ty, span: none, mutability: hir::Mutability::Fixed, is_param: true, written: None };
     hir::Func {
         symbol: format!("drachm_eq_{name}"),
         params: 2,
@@ -1028,6 +1043,7 @@ fn check_body(g: &mut Globals, src: &str, diags: &mut Vec<Diagnostic>, f: &ast::
         let ty = cx.g.resolve_quiet(&p.ty).filter(|t| *t != Type::None);
         let id = cx.declare(&p.name, ty, p.mutable, p.span, true);
         cx.locals[id].open = p.open;
+        cx.locals[id].written = Some(written_type(src, &p.ty));
         if p.mutable && p.open {
             let at = short(src, p.span).find("open").map_or(p.span, |i| Span::new(p.span.start + i, p.span.start + i + 4));
             cx.diags.push(
@@ -1067,6 +1083,7 @@ fn check_body(g: &mut Globals, src: &str, diags: &mut Vec<Diagnostic>, f: &ast::
                 hir::Mutability::Fixed
             },
             is_param: l.is_param,
+            written: l.written,
         })
         .collect();
     hir::Func {
@@ -1201,6 +1218,8 @@ struct LocalInfo {
     /// Declared `open` (stored; checked like `mut` until WP5).
     open: bool,
     span: Span,
+    /// The declared type as written, for help text.
+    written: Option<String>,
 }
 
 impl PlaceInfo {
@@ -1292,7 +1311,7 @@ impl Checker<'_> {
 
     fn declare(&mut self, name: &str, ty: Option<Type>, mutable: bool, span: Span, is_param: bool) -> LocalId {
         let id = self.locals.len();
-        let info = LocalInfo { name: name.to_string(), ty, mutable, is_param, is_self: false, open: false, span };
+        let info = LocalInfo { name: name.to_string(), ty, mutable, is_param, is_self: false, open: false, span, written: None };
         self.locals.push(info);
         self.scopes.last_mut().unwrap().insert(name.to_string(), id);
         id
@@ -1303,7 +1322,7 @@ impl Checker<'_> {
     fn hidden_named(&mut self, name: &str, ty: Type) -> LocalId {
         let id = self.locals.len();
         let span = Span::new(0, 0);
-        let info = LocalInfo { name: name.to_string(), ty: Some(ty), mutable: true, is_param: false, is_self: false, open: false, span };
+        let info = LocalInfo { name: name.to_string(), ty: Some(ty), mutable: true, is_param: false, is_self: false, open: false, span, written: None };
         self.locals.push(info);
         id
     }
@@ -1355,12 +1374,14 @@ impl Checker<'_> {
                             .help(format!("write `mut {} {}`", short(self.src, ty.span), name)),
                     );
                 }
+                let written = written_type(self.src, ty);
                 let ty = self.g.resolve_binding_type(ty, self.diags);
                 // The value is checked before the name exists, so `uint32 x = x;`
                 // refers to an outer `x`.
                 let init = value.as_ref().map(|v| self.init(v, ty));
                 let id = self.declare(name, ty, *mutable, *name_span, false);
                 self.locals[id].open = *open;
+                self.locals[id].written = Some(written);
                 out.push(hir::Stmt::Decl(id));
                 if let Some(init) = init {
                     if let Some(e) = init {
