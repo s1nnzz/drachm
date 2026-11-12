@@ -348,6 +348,7 @@ pub fn is_copy(hir: &hir::Program, ty: Type) -> bool {
     match ty {
         Type::Str => false,
         Type::Struct { id, .. } => hir.structs[id].copy,
+        Type::Enum { id, .. } => hir.enums[id].copy,
         Type::Ref { mutable, .. } => !mutable,
         Type::Ptr { .. } | Type::FixedPtr { .. } => false,
         _ => true,
@@ -363,6 +364,7 @@ pub fn needs_drop(hir: &hir::Program, ty: Type) -> bool {
             let s = &hir.structs[id];
             s.has_drop.is_some() || s.fields.iter().any(|f| needs_drop(hir, f.ty))
         }
+        Type::Enum { id, .. } => hir.enums[id].variants.iter().flat_map(|v| &v.fields).any(|f| needs_drop(hir, f.ty)),
         _ => false,
     }
 }

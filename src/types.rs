@@ -21,6 +21,8 @@ pub enum Type {
     Str,
     /// A struct: its index in `hir::Program::structs`, and its name for messages.
     Struct { id: usize, name: &'static str },
+    /// An enum: its index in `hir::Program::enums`, and its name for messages.
+    Enum { id: usize, name: &'static str },
     /// `&T` / `&mut T`. `to` is never itself a `Ref`.
     Ref { mutable: bool, to: &'static Type },
     /// `*T`: a raw pointer, which may be written through and may be `none`.
@@ -220,6 +222,13 @@ impl Type {
         }
     }
 
+    pub fn enum_id(self) -> Option<usize> {
+        match self {
+            Type::Enum { id, .. } => Some(id),
+            _ => None,
+        }
+    }
+
     /// Smallest and largest value of an integer type.
     pub fn int_range(self) -> Option<(BigInt, BigInt)> {
         let Type::Int { bits, signed } = self.bare() else { return None };
@@ -274,7 +283,7 @@ impl fmt::Display for Type {
             Type::Bool => f.write_str("bool"),
             Type::None => f.write_str("none"),
             Type::Str => f.write_str("string"),
-            Type::Struct { name, .. } => f.write_str(name),
+            Type::Struct { name, .. } | Type::Enum { name, .. } => f.write_str(name),
             Type::Ref { mutable: false, to } => write!(f, "&{to}"),
             Type::Ref { mutable: true, to } => write!(f, "&mut {to}"),
             Type::Ptr { to } => write!(f, "*{to}"),

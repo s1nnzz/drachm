@@ -559,6 +559,14 @@ impl Checker<'_> {
                             ok = false;
                         }
                     }
+                    Pattern::Variant { span, .. } => {
+                        self.diags.push(Diagnostic::at(&codes::E0901, *span, "patterns on enums are not supported yet"));
+                        ok = false;
+                    }
+                    Pattern::Bind { name_span, .. } => {
+                        self.diags.push(Diagnostic::at(&codes::E0901, *name_span, "this pattern is not supported yet"));
+                        ok = false;
+                    }
                     Pattern::Expr(e) => match self.pattern(e, ty) {
                         Some((lo, hi)) => {
                             let t = ty.unwrap();

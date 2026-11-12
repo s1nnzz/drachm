@@ -14,6 +14,7 @@ pub fn parse(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>) -> Program {
         units: Vec::new(),
         funcs: Vec::new(),
         structs: Vec::new(),
+        enums: Vec::new(),
         unsafe_allowed: false,
     };
     while p.peek() != &Tok::Eof {
@@ -22,6 +23,8 @@ pub fn parse(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>) -> Program {
             p.import().map(|i| program.imports.push(i))
         } else if p.peek() == &Tok::Kw("struct") {
             p.struct_decl().map(|s| program.structs.push(s))
+        } else if p.peek() == &Tok::Kw("enum") {
+            p.enum_decl().map(|e| program.enums.push(e))
         } else if p.at_unit_item() {
             p.unit_decl().map(|u| program.units.push(u))
         } else {
@@ -317,7 +320,7 @@ impl Parser<'_> {
     /// Does a top-level item (a function, struct or import) start here?
     fn at_item_start(&self) -> bool {
         match self.peek() {
-            Tok::Kw("in" | "struct") => true,
+            Tok::Kw("in" | "struct" | "enum") => true,
             Tok::Ident(_) | Tok::Kw("none" | "unsafe") | Tok::Sym("&" | "&&" | "*" | "**") => {
                 let from = (self.peek() == &Tok::Kw("unsafe")) as usize;
                 match self.type_end(from) {
@@ -432,6 +435,59 @@ impl Parser<'_> {
             }
             self.bump();
         }
+    }
+
+    /// `enum Name { Variant, Variant(Type name, Type name), }`
+    fn enum_decl(&mut self) -> Parsed<Enum> {
+        let start = self.bump().span;
+        let (name, name_span) = self.ident("an enum name")?;
+        if self.peek() == &Tok::Sym("<") {
+            return Err(Diagnostic::at(&codes::E0901, self.span(), "generic enums are not supported yet"));
+        }
+        let open = self.expect("{")?;
+        let mut variants = Vec::new();
+        while self.peek() != &Tok::Sym("}") {
+            if self.peek() == &Tok::Eof || self.peek() == &Tok::Kw("struct") || self.peek() == &Tok::Kw("enum") {
+                return Err(Diagnostic::at(&codes::E0004, open, "this `{` is never closed")
+                    .label(self.span(), format!("expected `}}` before {}", self.peek().describe())));
+            }
+            let (vname, vspan) = match self.peek().clone() {
+                Tok::Ident(n) => (n, self.bump().span),
+                _ => return Err(self.unexpected("a variant name").help("each variant of an enum is written `Name` or `Name(Type value, ...)`")),
+            };
+            // `float64 area() { }` in an enum body: a method.
+            if matches!(self.peek(), Tok::Ident(_) | Tok::Sym("&" | "*")) {
+                return Err(Diagnostic::at(&codes::E0003, vspan, "an enum has variants only, not methods")
+                    .note("this looks like a method")
+                    .help("write a function that takes the enum: `float64 area(Shape s) { }`"));
+            }
+            let mut fields = Vec::new();
+            if self.eat("(") {
+                while self.peek() != &Tok::Sym(")") {
+                    let ty = self.ty()?;
+                    let (fname, fspan) = self.ident("a name for the value")?;
+                    fields.push(Field { public: true, mutable: false, ty, name: fname, name_span: fspan });
+                    if !self.eat(",") {
+                        break;
+                    }
+                }
+                self.expect(")")?;
+            }
+            variants.push(Variant { name: vname, name_span: vspan, fields });
+            if !self.eat(",") {
+                break;
+            }
+        }
+        if self.peek() != &Tok::Sym("}") {
+            return Err(self.unexpected("`,` or `}`").help("separate the variants with commas"));
+        }
+        self.bump();
+        if variants.is_empty() {
+            return Err(Diagnostic::at(&codes::E0003, start.to(name_span), "an enum needs at least one variant")
+                .note("this enum has none")
+                .help(format!("write one: `enum {name} {{ First, Second }}`")));
+        }
+        Ok(Enum { name, name_span, variants })
     }
 
     fn struct_decl(&mut self) -> Parsed<Struct> {
@@ -819,6 +875,8 @@ impl Parser<'_> {
             loop {
                 if matches!(self.peek(), Tok::Ident(s) if s == "_") {
                     patterns.push(Pattern::Any(self.bump().span));
+                } else if let Some(p) = self.enum_pattern()? {
+                    patterns.push(p);
                 } else {
                     patterns.push(Pattern::Expr(self.expr()?));
                 }
@@ -832,6 +890,65 @@ impl Parser<'_> {
         }
         self.bump();
         Ok(Stmt::Match { value, cases, span })
+    }
+
+    /// A `case` pattern that is not an expression: `Variant(Type name, _)`,
+    /// `Enum::Variant(..)`, or `Type name` (the value inside an optional).
+    fn enum_pattern(&mut self) -> Parsed<Option<Pattern>> {
+        if !matches!(self.peek(), Tok::Ident(_)) {
+            return Ok(None);
+        }
+        // `Type name` followed by `,` or `{`.
+        if let Some(n) = self.type_end(0)
+            && matches!(self.peek_at(n), Tok::Ident(_))
+            && matches!(self.peek_at(n + 1), Tok::Sym("," | "{"))
+        {
+            let ty = self.ty()?;
+            let (name, name_span) = self.ident("a name for the value")?;
+            return Ok(Some(Pattern::Bind { ty, name, name_span }));
+        }
+        let qualified = matches!(self.peek_at(1), Tok::Sym("::")) && matches!(self.peek_at(2), Tok::Ident(_));
+        let k = if qualified { 3 } else { 1 };
+        if self.peek_at(k) != &Tok::Sym("(") {
+            return Ok(None);
+        }
+        // Bindings look like `_` or `Type name`; anything else is a call.
+        let binding_ahead = match self.peek_at(k + 1) {
+            Tok::Sym(")") => true,
+            Tok::Ident(w) if w == "_" => matches!(self.peek_at(k + 2), Tok::Sym("," | ")")),
+            Tok::Ident(_) | Tok::Sym("&" | "*") => match self.type_end(k + 1) {
+                Some(n) => matches!(self.peek_at(n), Tok::Ident(_)) && matches!(self.peek_at(n + 1), Tok::Sym("," | ")")),
+                None => false,
+            },
+            _ => false,
+        };
+        if !binding_ahead {
+            return Ok(None);
+        }
+        let start = self.span();
+        let mut enum_name = None;
+        let (mut name, mut name_span) = self.ident("a variant name")?;
+        if qualified {
+            self.bump();
+            enum_name = Some((name, name_span));
+            (name, name_span) = self.ident("a variant name")?;
+        }
+        self.expect("(")?;
+        let mut bindings = Vec::new();
+        while self.peek() != &Tok::Sym(")") {
+            if matches!(self.peek(), Tok::Ident(w) if w == "_") && matches!(self.peek_at(1), Tok::Sym("," | ")")) {
+                bindings.push(PatBinding::Any(self.bump().span));
+            } else {
+                let ty = self.ty()?;
+                let (bname, bspan) = self.ident("a name for the value")?;
+                bindings.push(PatBinding::Named { ty, name: bname, name_span: bspan });
+            }
+            if !self.eat(",") {
+                break;
+            }
+        }
+        self.expect(")")?;
+        Ok(Some(Pattern::Variant { enum_name, name, name_span, bindings, span: start.to(self.prev_span()) }))
     }
 
     /// `Type name;` or `Type name = value;`, after any `mut`.
@@ -1089,6 +1206,19 @@ impl Parser<'_> {
                     }
                 }
                 self.close_angle()?;
+            }
+            // `Enum::Variant` without parentheses names a variant with no values.
+            if calls == 1
+                && targs.is_empty()
+                && unit.is_none()
+                && self.peek() != &Tok::Sym("(")
+                && let ExprKind::Var(owner) = &e.kind
+            {
+                let (owner, owner_span) = (owner.clone(), e.span);
+                let span = e.span.to(name_span);
+                e = Expr { kind: ExprKind::Path { owner, owner_span, name, name_span }, span, paren: false };
+                calls = 0;
+                continue;
             }
             let args = self.args()?;
             let span = e.span.to(self.prev_span());
@@ -1449,6 +1579,25 @@ mod tests {
         let Stmt::Let { value: Some(Init::Expr(e)), .. } = &s[1] else { panic!() };
         let ExprKind::Binary(_, _, rhs) = &e.kind else { panic!() };
         assert!(matches!(rhs.kind, ExprKind::NoneValue));
+    }
+
+    #[test]
+    fn enums_and_variant_patterns_parse() {
+        let (p, d) = parse_src("enum Shape { Circle(float64 r), Rect(float64 w, float64 h), Empty, }");
+        assert!(d.is_empty(), "{:?}", errors(&d));
+        let e = &p.enums[0];
+        assert_eq!(e.variants.iter().map(|v| v.fields.len()).collect::<Vec<_>>(), [1, 2, 0]);
+        let (_, d) = parse_src("enum E { }");
+        assert_eq!(d.len(), 1);
+        let (_, d) = parse_src("enum E { A, float64 area() { } }");
+        assert_eq!(d.len(), 1);
+        let (s, d) = body("match (s) { case Circle(float64 r) { } case Shape::Rect(_, float64 h) { } case Empty { } case f(1) { } }");
+        assert!(d.is_empty(), "{:?}", errors(&d));
+        let Stmt::Match { cases, .. } = &s[0] else { panic!() };
+        assert!(matches!(&cases[0].patterns[0], Pattern::Variant { bindings, .. } if bindings.len() == 1));
+        assert!(matches!(&cases[1].patterns[0], Pattern::Variant { enum_name: Some(_), bindings, .. } if bindings.len() == 2));
+        assert!(matches!(&cases[2].patterns[0], Pattern::Expr(_)));
+        assert!(matches!(&cases[3].patterns[0], Pattern::Expr(_)));
     }
 
     #[test]

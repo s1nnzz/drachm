@@ -12,6 +12,7 @@ pub struct Program {
     pub units: Vec<UnitDecl>,
     pub funcs: Vec<Func>,
     pub structs: Vec<Struct>,
+    pub enums: Vec<Enum>,
     /// The file flag `//--!$unsafe: true` is present (set by `lib::check`).
     pub unsafe_allowed: bool,
 }
@@ -27,6 +28,22 @@ pub struct Struct {
     pub stays: Option<Span>,
     pub fields: Vec<Field>,
     pub methods: Vec<Method>,
+}
+
+/// `enum Name { Variant, Variant(Type name, ...), }`
+#[derive(Debug)]
+pub struct Enum {
+    pub name: String,
+    pub name_span: Span,
+    pub variants: Vec<Variant>,
+}
+
+#[derive(Debug)]
+pub struct Variant {
+    pub name: String,
+    pub name_span: Span,
+    /// The payload fields, in order (`public` and `mutable` are not used).
+    pub fields: Vec<Field>,
 }
 
 /// `Type name;` or `mut Type name;` inside a struct.
@@ -217,8 +234,22 @@ pub struct Case {
 pub enum Pattern {
     /// `_`
     Any(Span),
-    /// A value or an inclusive range (`ExprKind::Range`).
+    /// A value or an inclusive range (`ExprKind::Range`). On an enum, a bare
+    /// `Variant` or `Enum::Variant` is a pattern of that variant.
     Expr(Expr),
+    /// `Variant(Type name, _)` or `Enum::Variant(...)`.
+    Variant { enum_name: Option<(String, Span)>, name: String, name_span: Span, bindings: Vec<PatBinding>, span: Span },
+    /// `Type name`: the value of an optional, bound to `name`.
+    Bind { ty: TypeName, name: String, name_span: Span },
+}
+
+/// One payload slot in a variant pattern.
+#[derive(Debug)]
+pub enum PatBinding {
+    /// `_`
+    Any(Span),
+    /// `Type name`
+    Named { ty: TypeName, name: String, name_span: Span },
 }
 
 /// What follows `=` in a declaration.
@@ -351,6 +382,8 @@ pub enum ExprKind {
     /// A string literal of any form; only `f` and backtick strings have `Interp` parts.
     Str(Vec<StrPart>),
     Var(String),
+    /// `Name::Variant` with no parentheses: a variant of an enum with no payload.
+    Path { owner: String, owner_span: Span, name: String, name_span: Span },
     /// The keyword `self`.
     SelfValue,
     /// `recv.name`

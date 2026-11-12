@@ -57,6 +57,11 @@ pub(crate) fn main_fn(prog: &Program) -> String {
     format!("\nint main(void) {{ {body} }}\n")
 }
 
+/// The C type of enum `id`.
+pub(crate) fn enum_name(id: usize) -> String {
+    format!("drachm_e{id}")
+}
+
 pub(crate) fn struct_name(name: &str) -> String {
     format!("drachm_s_{name}")
 }
@@ -103,6 +108,7 @@ pub(crate) fn c_type(t: Type) -> String {
         Type::None => "void",
         Type::Unit { .. } => unreachable!("units are erased before the backends"),
         Type::Struct { name, .. } => return struct_name(name),
+        Type::Enum { id, .. } => return enum_name(id),
         Type::Ref { to, .. } | Type::Ptr { to } | Type::FixedPtr { to } => return format!("{} *", c_type(*to)),
     };
     name.to_string()
