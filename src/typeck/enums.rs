@@ -274,7 +274,10 @@ impl Checker<'_> {
     /// E0523: a bare variant name with nothing to say which enum it is from.
     /// Returns true if `name` is a variant of some enum (and reports it).
     pub(super) fn ambiguous_bare(&mut self, name: &str, span: Span) -> bool {
-        let owners: Vec<usize> = (0..self.g.enums.len()).filter(|&i| self.g.enums[i].variant(name).is_some()).collect();
+        // An optional's `Some` is not a name anyone writes bare.
+        let owners: Vec<usize> = (0..self.g.enums.len())
+            .filter(|&i| self.g.enums[i].variant(name).is_some() && self.g.enums[i].kind == hir::EnumKind::User)
+            .collect();
         if owners.is_empty() {
             return false;
         }
@@ -503,7 +506,7 @@ impl Checker<'_> {
         id
     }
 
-    fn tag_test(&self, en: EnumId, vi: usize, place: &hir::Expr) -> hir::Expr {
+    pub(super) fn tag_test(&self, en: EnumId, vi: usize, place: &hir::Expr) -> hir::Expr {
         let ty = crate::mir::ty::tag_type(hir::tag_size_for(self.g.enums[en].variants.len()));
         let tag = hir::Expr::new(hir::ExprKind::Discriminant(Box::new(place.clone())), ty);
         let want = hir::Expr::new(hir::ExprKind::Int(vi as u128), ty);
@@ -660,6 +663,9 @@ impl Checker<'_> {
                 self.variant_pat(scrut, enum_name.as_ref(), name, *name_span, args, *parens, *span, alt)
             }
             ast::Pattern::Expr(e) => match &e.kind {
+                ExprKind::NoneValue if super::optionals::is_optional(self.g, scrut.ty) => {
+                    self.variant_pat(scrut, None, "none", e.span, &[], false, e.span, alt)
+                }
                 ExprKind::Var(n) => self.variant_pat(scrut, None, n, e.span, &[], false, e.span, alt),
                 ExprKind::Path { owner, owner_span, name, name_span } => {
                     self.variant_pat(scrut, Some(&(owner.clone(), *owner_span)), name, *name_span, &[], false, e.span, alt)
@@ -679,10 +685,24 @@ impl Checker<'_> {
                 self.diags.push(Diagnostic::at(&codes::E0109, g.span, format!("`globbed` is only for a `match` on `string`, not a `{ty}`")));
                 None
             }
-            ast::Pattern::Bind { name_span, .. } => {
-                let ty = scrut.ty;
-                self.diags.push(Diagnostic::at(&codes::E0525, *name_span, format!("this `case` cannot match a `{ty}`")).note("a binding like this is for optionals"));
-                None
+            ast::Pattern::Bind { mode, ty, name, name_span } => {
+                let scrut_ty = scrut.ty;
+                let Some(inner) = super::optionals::inner_of(self.g, scrut_ty) else {
+                    self.diags.push(Diagnostic::at(&codes::E0525, *name_span, format!("this `case` cannot match a `{scrut_ty}`")).note("a binding like this is for optionals"));
+                    return None;
+                };
+                // `case uint32 a` is the `Some` of an optional, with the value bound to `a`.
+                let want = self.g.resolve_binding_type(ty, self.diags)?;
+                if want != inner {
+                    self.diags.push(
+                        Diagnostic::at(&codes::E0526, ty.span, format!("`{scrut_ty}` holds a `{inner}`, not a `{want}`"))
+                            .note(format!("this binding is a `{want}`"))
+                            .help(format!("write `{inner} {name}`")),
+                    );
+                    return None;
+                }
+                let sub = ast::SubPat::Bind { mode: *mode, ty: ty.clone(), name: name.clone(), name_span: *name_span };
+                self.variant_pat(scrut, None, "Some", *name_span, std::slice::from_ref(&sub), true, *name_span, alt)
             }
         }
     }
@@ -820,6 +840,21 @@ impl Checker<'_> {
     /// W0110 for a `match` on an enum that leaves variants out.
     fn warn_missing_variants(&mut self, en: EnumId, missing: &[usize], value: &ast::Expr, span: Span) {
         let _ = value;
+        if let hir::EnumKind::Optional(inner) = self.g.enums[en].kind {
+            // `none` is named as written; `Some` is "a value", which is what `case T name` binds.
+            let names: Vec<String> = missing.iter().map(|&v| if v == super::optionals::SOME { "a value".to_string() } else { "`none`".to_string() }).collect();
+            let mut help: Vec<String> = missing
+                .iter()
+                .map(|&v| if v == super::optionals::SOME { format!("`case {inner} value {{ }}`") } else { "`case none { }`".to_string() })
+                .collect();
+            help.push("`case _ { }`".to_string());
+            self.diags.push(
+                Diagnostic::at(&codes::W0110, Span::new(span.start, span.start + 5), format!("this `match` does not handle {}", join_and(&names)))
+                    .note(if missing.len() == 1 { "this case is missing" } else { "these cases are missing" })
+                    .help(format!("add {}", join_or(&help))),
+            );
+            return;
+        }
         let names: Vec<String> = missing.iter().map(|&v| format!("`{}`", self.g.enums[en].variants[v].name)).collect();
         let cases: Vec<String> = missing.iter().map(|&v| format!("`case {} {{ }}`", self.variant_shape(en, v))).collect();
         let mut help = cases;

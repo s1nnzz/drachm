@@ -1,0 +1,20 @@
+in io;
+
+struct Slot {
+public:
+    uint32? item;
+    string tag;
+}
+
+none main() {
+    mut Slot s = new Slot of (4, "four");
+    io::outln((s.item maybe 0)::text());
+    s.item = none;
+    if (s.item is empty) { io::outln(s.tag); }
+    s.item = 3;
+    io::outln((s.item maybe 0)::text());
+    uint32? copy_of = s.item;
+    io::outln((copy_of maybe 9)::text());
+    Slot t = new Slot of (6, "six");
+    io::outln((t.item maybe 0)::text());
+}

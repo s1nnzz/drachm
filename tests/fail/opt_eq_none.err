@@ -1,0 +1,2 @@
+error[E0533]: an optional is not compared with `none`
+write `k is empty`

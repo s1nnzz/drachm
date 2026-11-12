@@ -1,0 +1,38 @@
+in io;
+
+struct Point {
+public:
+    float64 x;
+    float64 y;
+}
+
+// A Copy struct, an owning text and a plain number, each read with `maybe`.
+Point? origin(uint32 n) {
+    if (n == 0) { return new Point of (0.0, 0.0); }
+    return none;
+}
+
+string? label(uint32 n) {
+    if (n == 1) { return "one"; }
+    return none;
+}
+
+uint32 twice(uint32? v) {
+    return (v maybe 0) * 2;
+}
+
+none main() {
+    Point p = origin(0) maybe new Point of (9.5, 9.5);
+    io::outln(p.x::text());
+    Point q = origin(3) maybe new Point of (1.5, 2.5);
+    io::outln(q.y::text());
+    io::outln(label(1) maybe "none");
+    io::outln(label(2) maybe "none");
+    io::outln(twice(21)::text());
+    io::outln(twice(none)::text());
+    uint32? n = 4;
+    uint32 m = n maybe 0;
+    io::outln((m + 1)::text());
+    uint32? e;
+    io::outln((e maybe 99)::text());
+}

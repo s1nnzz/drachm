@@ -8,7 +8,7 @@ use crate::lexer::{StrPiece, Tok, Token};
 /// Never fails: syntax errors are reported to `diags` and the parser carries
 /// on at the next statement or function, so several can be found in one go.
 pub fn parse(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>) -> Program {
-    let mut p = Parser { tokens, pos: 0, diags };
+    let mut p = Parser { tokens, pos: 0, diags, optionals: Vec::new() };
     let mut program = Program {
         imports: Vec::new(),
         units: Vec::new(),
@@ -17,6 +17,7 @@ pub fn parse(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>) -> Program {
         enums: Vec::new(),
         defs: Vec::new(),
         unsafe_allowed: false,
+        optionals: Vec::new(),
     };
     while p.peek() != &Tok::Eof {
         let start = p.pos;
@@ -44,6 +45,7 @@ pub fn parse(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>) -> Program {
             }
         }
     }
+    program.optionals = p.optionals;
     program
 }
 
@@ -51,6 +53,8 @@ struct Parser<'a> {
     tokens: Vec<Token>,
     pos: usize,
     diags: &'a mut Vec<Diagnostic>,
+    /// Every `T?` seen so far (see `ast::Program::optionals`).
+    optionals: Vec<TypeName>,
 }
 
 type Parsed<T> = Result<T, Diagnostic>;
@@ -148,11 +152,26 @@ impl Parser<'_> {
         if self.peek() == &Tok::Kw("none") {
             let span = self.bump().span;
             let unit = self.type_unit()?;
-            return Ok(TypeName { name: "none".into(), span, mods, unit });
+            return Ok(TypeName { name: "none".into(), span, mods, unit, optional: None });
         }
         let (name, span) = self.ident("a type")?;
         let unit = self.type_unit()?;
-        Ok(TypeName { name, span, mods, unit })
+        let optional = self.type_optional(&name, span, &unit)?;
+        Ok(TypeName { name, span, mods, unit, optional })
+    }
+
+    /// The `?` after a type name: `uint32?`. Recorded for the checker, which
+    /// makes one optional type per distinct base type. `T??` is E0901.
+    fn type_optional(&mut self, name: &str, span: Span, unit: &Option<UnitSpec>) -> Parsed<Option<Span>> {
+        if self.peek() != &Tok::Sym("?") {
+            return Ok(None);
+        }
+        let q = self.bump().span;
+        if self.peek() == &Tok::Sym("?") {
+            return Err(Diagnostic::at(&codes::E0901, q.to(self.span()), "an optional of an optional is not supported yet"));
+        }
+        self.optionals.push(TypeName { name: name.to_string(), span, mods: Vec::new(), unit: unit.clone(), optional: None });
+        Ok(Some(q))
     }
 
     /// The optional `<unit>` after a type name.
@@ -281,7 +300,12 @@ impl Parser<'_> {
     /// The offset just after the type name at token offset `n`, with its
     /// unit part (`<m/s>`) if one is written there.
     fn name_end(&self, n: usize) -> usize {
-        self.unit_part_end(n + 1).unwrap_or(n + 1)
+        let mut end = self.unit_part_end(n + 1).unwrap_or(n + 1);
+        // Every `?` counts, so that `T??` reaches `ty` and is E0901 there.
+        while self.peek_at(end) == &Tok::Sym("?") {
+            end += 1;
+        }
+        end
     }
 
     /// If a unit part starts at token offset `n` (a `<`) and its tokens run to
@@ -631,7 +655,7 @@ impl Parser<'_> {
                 return Ok(());
             }
             let (name, name_span) = self.ident("a constructor name")?;
-            let ret = TypeName { name: s.name.clone(), span: name_span, mods: Vec::new(), unit: None };
+            let ret = TypeName { name: s.name.clone(), span: name_span, mods: Vec::new(), unit: None, optional: None };
             let func = self.func_rest(ret, name, name_span, None)?;
             s.methods.push(Method { public: section.unwrap_or(true), is_static: None, operator: None, ctor: true, func });
             return Ok(());
@@ -1306,6 +1330,43 @@ impl Parser<'_> {
 
     /// A primary expression followed by field accesses, method calls and `++`/`--`.
     fn postfix(&mut self) -> Parsed<Expr> {
+        let e = self.postfix_chain()?;
+        self.optional_suffix(e)
+    }
+
+    /// `value maybe fallback`, `value has value`, `value is empty` (after a
+    /// primary and its calls and fields). The fallback is one value, or a
+    /// parenthesised expression: a binary operator after it is E0534.
+    fn optional_suffix(&mut self, mut e: Expr) -> Parsed<Expr> {
+        loop {
+            let start = e.span;
+            if self.peek() == &Tok::Kw("maybe") {
+                self.bump();
+                let fallback = self.unary()?;
+                if let Tok::Sym(sym) = self.peek()
+                    && binop(sym).is_some()
+                {
+                    let op_span = self.span();
+                    return Err(Diagnostic::at(&codes::E0534, op_span, "the fallback of `maybe` is one value")
+                        .note("this operator would be part of the fallback")
+                        .help("put the fallback in parentheses: `(x maybe 0) + 1`, or `x maybe (n * 2)`"));
+                }
+                let span = start.to(fallback.span);
+                e = Expr { kind: ExprKind::Maybe { value: Box::new(e), fallback: Box::new(fallback) }, span, paren: false };
+                continue;
+            }
+            let has = match (self.peek(), self.peek_at(1)) {
+                (Tok::Ident(a), Tok::Ident(b)) if a == "has" && b == "value" => true,
+                (Tok::Ident(a), Tok::Ident(b)) if a == "is" && b == "empty" => false,
+                _ => return Ok(e),
+            };
+            self.bump();
+            let end = self.bump().span;
+            e = Expr { kind: ExprKind::OptionalTest { value: Box::new(e), has }, span: start.to(end), paren: false };
+        }
+    }
+
+    fn postfix_chain(&mut self) -> Parsed<Expr> {
         let mut e = self.primary()?;
         let mut calls = 0;
         loop {
@@ -1444,7 +1505,7 @@ impl Parser<'_> {
             tokens.push(Token { tok, span: Span::new(span.start + from, span.start + i) });
         }
         tokens.push(Token { tok: Tok::Eof, span: Span::new(span.end, span.end) });
-        let mut inner = Parser { tokens, pos: 0, diags: &mut *self.diags };
+        let mut inner = Parser { tokens, pos: 0, diags: &mut *self.diags, optionals: Vec::new() };
         let spec = inner.unit_spec()?;
         if inner.peek() != &Tok::Eof {
             return Err(inner.unexpected("the end of the unit"));
@@ -1605,8 +1666,10 @@ impl Parser<'_> {
                 .note("empty")
                 .help("for example `${name}`; write `\\$` for a plain dollar sign"));
         }
-        let mut inner = Parser { tokens, pos: 0, diags: &mut *self.diags };
+        let mut inner = Parser { tokens, pos: 0, diags: &mut *self.diags, optionals: Vec::new() };
         let e = inner.expr()?;
+        let found = std::mem::take(&mut inner.optionals);
+        self.optionals.extend(found);
         if inner.peek() != &Tok::Sym("}") {
             return Err(inner.unexpected("`}` to end the `${`"));
         }

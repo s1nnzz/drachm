@@ -1,0 +1,2 @@
+warning[W0110]: this `match` does not handle a value
+case uint32 value

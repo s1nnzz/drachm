@@ -13,6 +13,7 @@ use num_integer::Integer;
 use num_rational::BigRational;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
+use super::optionals;
 use super::{Checker, Globals, Origin, Val};
 use crate::ast::{BinOp, OpClass, UnOp};
 use crate::ast;
@@ -283,7 +284,7 @@ impl Globals {
             return None;
         };
         let unit = self.resolve_unit_spec(spec, t.span, diags)?;
-        let ty = self.unit_type(base, unit);
+        let ty = optionals::wrap(self, t, self.unit_type(base, unit))?;
         Some(t.mods.iter().rev().fold(ty, |ty, (m, _)| match m {
             ast::TypeMod::Ref { mutable } => Type::borrow(*mutable, ty),
             ast::TypeMod::Ptr => Type::ptr(ty),
@@ -1297,7 +1298,7 @@ fn children_mut(e: &mut hir::Expr) -> Vec<&mut hir::Expr> {
         K::ParseText { text, .. } => vec![&mut **text],
         K::Borrow { place, .. } => vec![&mut **place],
         K::Binary(_, a, b) | K::IntPow(a, b) => vec![&mut **a, &mut **b],
-        K::Logic { lhs, rhs, .. } => vec![&mut **lhs, &mut **rhs],
+        K::Logic { lhs, rhs, .. } | K::Maybe { value: lhs, fallback: rhs } => vec![&mut **lhs, &mut **rhs],
         K::Shift { value, amount, .. } => vec![&mut **value, &mut **amount],
         K::Struct(fields) => fields.iter_mut().map(|(_, v)| v).collect(),
         K::Call(_, args) | K::StrCall(_, args) => args.iter_mut().collect(),
