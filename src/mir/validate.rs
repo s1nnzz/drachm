@@ -573,7 +573,7 @@ mod tests {
         let l = body.locals.push(LocalDecl { ty: dest, kind: LocalKind::Temp, span: Span::new(0, 0), scope: ScopeId(0), in_memory: false });
         body.blocks[BlockId(0)].statements.insert(
             0,
-            Statement { kind: StatementKind::Assign(Place::local(l), rv), span: Span::new(0, 0), unsafe_ctx: false },
+            Statement { kind: StatementKind::Assign(Place::local(l), rv), span: Span::new(0, 0), unsafe_ctx: false, mark: Mark::None },
         );
     }
 

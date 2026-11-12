@@ -1,0 +1,13 @@
+struct Circle {
+    public:
+    float64 r;
+    float64 area;
+    Circle(float64 radius) {
+        self.r = radius;
+        self.area = self.r * 2.0;
+    }
+}
+
+sint32 main() {
+    return 0;
+}

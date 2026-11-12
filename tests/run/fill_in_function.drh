@@ -1,0 +1,23 @@
+in io;
+
+struct Player {
+    public:
+    string name;
+    uint32 hp;
+    string title;
+}
+
+none show(Player p) {
+    io::outln(p.name + " " + p.hp::text());
+}
+
+sint32 main() {
+    Player p;
+    fill p {
+        p.name = "Mia";
+        p.hp = 9;
+        p.title = "";
+    }
+    show(p);
+    return 0;
+}

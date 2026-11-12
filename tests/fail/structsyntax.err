@@ -1,4 +1,3 @@
-error[E0901]: constructors are not supported yet
 error[E0003]: a field cannot be `static`
 error[E0003]: a method cannot be `mut`
 error[E0003]: expected `;`, found `=`
@@ -6,4 +5,4 @@ help: fields have no default values
 error[E0901]: generic structs are not supported yet
 error[E0901]: interfaces are not supported yet
 help: building a struct from a list of values works only in a declaration
-7 errors
+6 errors

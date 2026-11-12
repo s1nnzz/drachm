@@ -95,6 +95,15 @@ struct Gone {
 
 fn check_body(hir: &hir::Program, body: &Body, modes: &[Option<SelfMode>], out: &mut Vec<Diagnostic>) {
     let md = MoveData::build(body);
+    // A local whose fields a `fill` or constructor gives values: its own parent
+    // path stays "uninitialised" until the value is complete, so a field that
+    // has its value is still readable.
+    let mut filled = vec![false; body.locals.len()];
+    for s in body.blocks.iter().flat_map(|b| b.statements.iter()) {
+        if let (Mark::InitWrite, StatementKind::Assign(dest, _)) = (s.mark, &s.kind) {
+            filled[dest.local.index()] = true;
+        }
+    }
     let cx = Cx { hir, body, md: &md };
     let preds = predecessors(body);
     let rpo = reverse_postorder(body);
@@ -110,6 +119,10 @@ fn check_body(hir: &hir::Program, body: &Body, modes: &[Option<SelfMode>], out: 
 
     let mut reported = BitSet::new(md.paths.len());
     mu.visit(body, |loc, st, _| {
+        if let Mark::Check(kind) = mark_at(body, loc) {
+            completion(&cx, kind, loc, st, &mut reported, out);
+            return;
+        }
         let mut here: Vec<Gone> = Vec::new();
         for ev in events(body, loc) {
             match ev {
@@ -118,14 +131,14 @@ fn check_body(hir: &hir::Program, body: &Body, modes: &[Option<SelfMode>], out: 
                         let m = md.prefix_path(&u.place);
                         let bad = st.contains(m.index())
                             || md.descendants(m).iter().any(|d| st.contains(d.index()))
-                            || ancestors(&md, m).any(|a| st.contains(a.index()));
+                            || ancestors(&md, m).any(|a| st.contains(a.index()) && !filled[md.paths[a].local.index()]);
                         let intra = here.iter().any(|g| cx.related(g.path, m));
                         if bad || intra {
                             use_failed(&cx, &mi, &rm, &rpo_pos, loc, &u, m, &here, &mut reported, out);
                         }
                     }
                     UseKind::FieldWriteBase => {
-                        if let Some(q) = md.path_of(&u.place) {
+                        if let Some(q) = md.path_of(&u.place).filter(|_| mark_at(body, loc) != Mark::InitWrite) {
                             field_write(&cx, &rm, loc, &u, q, st, &mut reported, out);
                         }
                     }
@@ -142,6 +155,29 @@ fn check_body(hir: &hir::Program, body: &Body, modes: &[Option<SelfMode>], out: 
         }
     });
 
+    // A field of a value being filled gets its value once: a second one needs `mut`.
+    mi.visit(body, |loc, st, _| {
+        if mark_at(body, loc) != Mark::InitWrite {
+            return;
+        }
+        let StatementKind::Assign(dest, _) = &body.blocks[loc.block].statements[loc.index as usize].kind else { return };
+        let (Some(p), Some(Proj::Field(i))) = (md.path_of(dest), dest.proj.last()) else { return };
+        if !st.contains(p.index()) {
+            return;
+        }
+        let Some(sid) = body.locals[dest.local].ty.struct_id() else { return };
+        let field = &hir.structs[sid].fields[*i];
+        if field.mutable {
+            return;
+        }
+        let name = cx.path_text(p);
+        out.push(
+            Diagnostic::at(&codes::E0205, stmt_span(body, loc), format!("cannot give `{name}` a second value: `{}` is not `mut`", field.name))
+                .note("it has a value already, on some path to here")
+                .help("declare the field `mut` in the struct if it may change"),
+        );
+    });
+
     borrow_moves_and_copies(&cx, out);
     let cycles = in_cycle(body);
     mutability::check(hir, body, &md, &ever, &cycles, modes, out);
@@ -156,6 +192,70 @@ fn check_body(hir: &hir::Program, body: &Body, modes: &[Option<SelfMode>], out: 
                     .note(format!("promises to return `{ret}`"))
                     .help("add a `return` at the end, or to every branch"),
             );
+        }
+    }
+}
+
+/// The span of the statement at `loc`.
+fn stmt_span(body: &Body, loc: Location) -> Span {
+    body.blocks[loc.block].statements.get(loc.index as usize).map_or(Span::new(0, 0), |s| s.span)
+}
+
+/// The mark of the statement at `loc`.
+fn mark_at(body: &Body, loc: Location) -> Mark {
+    body.blocks[loc.block].statements.get(loc.index as usize).map_or(Mark::None, |s| s.mark)
+}
+
+/// Is field `i` of the value at path `p` without a value on some path to here?
+fn field_missing(md: &MoveData, st: &BitSet, p: MovePathId, i: usize) -> bool {
+    match md.paths[p].children.iter().copied().find(|&c| md.paths[c].fields.last() == Some(&i)) {
+        Some(c) => md.descendants(c).iter().any(|d| st.contains(d.index())),
+        None => st.contains(p.index()),
+    }
+}
+
+/// The completeness checks of a value being filled or built (S5B): a `fill`
+/// begins on a value with no value yet (E0506); a `fill` or a constructor
+/// ends with every field given a value (E0505, E0504).
+fn completion(cx: &Cx, kind: hir::CheckKind, loc: Location, st: &BitSet, reported: &mut BitSet, out: &mut Vec<Diagnostic>) {
+    let stmt = &cx.body.blocks[loc.block].statements[loc.index as usize];
+    let StatementKind::FakeRead(place) = &stmt.kind else { return };
+    let (span, local) = (stmt.span, place.local);
+    let p = cx.md.local_path[local];
+    let name = cx.local_name(local).unwrap_or("self").to_string();
+    let ty = cx.body.locals[local].ty;
+    let Some(sid) = ty.struct_id() else { return };
+    let fields: Vec<String> = cx.hir.structs[sid].fields.iter().map(|f| f.name.clone()).collect();
+    let missing: Vec<&String> = (0..fields.len()).filter(|&i| field_missing(cx.md, st, p, i)).map(|i| &fields[i]).collect();
+    match kind {
+        hir::CheckKind::FillBegin => {
+            let complete = if fields.is_empty() { !st.contains(p.index()) } else { missing.is_empty() };
+            if complete && !reported.contains(p.index()) {
+                reported.insert(p.index());
+                out.push(
+                    Diagnostic::at(&codes::E0506, span, format!("`{name}` already has a value, so `fill` cannot give it fields"))
+                        .note("filled here")
+                        .help(format!("declare it without a value to fill it: `{} {name};`", cx.hir.structs[sid].name)),
+                );
+            }
+        }
+        hir::CheckKind::FillEnd | hir::CheckKind::CtorEnd => {
+            let fill = kind == hir::CheckKind::FillEnd;
+            for f in &missing {
+                let d = if fill {
+                    Diagnostic::at(&codes::E0505, span, format!("`fill` ends without giving `{f}` a value"))
+                        .note(format!("`{name}.{f}` has no value here"))
+                        .help(format!("give it a value in the block, or end with `fill partial {name} {{ ... }}` and complete it later"))
+                } else {
+                    Diagnostic::at(&codes::E0504, span, format!("the constructor ends without giving `{f}` a value"))
+                        .note(format!("`{f}` has no value when the constructor ends"))
+                        .help(format!("add `self.{f} = ...;` on every path that reaches the end"))
+                };
+                out.push(d);
+            }
+            if !missing.is_empty() {
+                reported.insert(p.index());
+            }
         }
     }
 }
@@ -338,8 +438,7 @@ fn field_write(
         if cx.local_name(cx.md.paths[off].local).is_some() {
             d = d.label(local.span, format!("`{off_text}` is declared here without a value"));
         }
-        d = d.note_line(format!("a struct with no value is filled with `fill {off_text} {{ ... }}` (not supported yet)"));
-        out.push(d.help(format!("give `{off_text}` a whole value first: `{off_text} = ...;`")));
+        out.push(d.help(format!("give its fields values in a block, `fill {off_text} {{ ... }}`, or give `{off_text}` a whole value first: `{off_text} = ...;`")));
     }
 }
 

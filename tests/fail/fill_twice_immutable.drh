@@ -1,0 +1,11 @@
+struct Pair {
+    public:
+    uint32 a;
+    uint32 b;
+}
+
+sint32 main() {
+    Pair p;
+    fill p { p.a = 1; p.a = 2; p.b = 3; }
+    return 0;
+}

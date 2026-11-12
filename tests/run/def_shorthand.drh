@@ -1,0 +1,21 @@
+in io;
+
+def Player {
+    hp = 3;
+    title = "rookie";
+}
+struct default Player {
+    public:
+    string name;
+    uint32 hp;
+    string title;
+}
+
+sint32 main() {
+    Player p;
+    fill p with defaults {
+        p.name = "Ola";
+    }
+    io::outln(p.name + " " + p.hp::text() + " " + p.title);
+    return 0;
+}

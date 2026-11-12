@@ -1,0 +1,30 @@
+in io;
+
+struct Vec2 {
+    public:
+    float64 x;
+    float64 y;
+    Vec2(float64 a, float64 b) {
+        self.x = a;
+        self.y = b;
+    }
+    Vec2 +(Vec2 o) {
+        return new Vec2 of (self.x + o.x, self.y + o.y);
+    }
+    bool ==(Vec2 o) {
+        return self.x == o.x && self.y == o.y;
+    }
+}
+
+sint32 main() {
+    Vec2 a = 1.0, 2.0;
+    Vec2 b = new Vec2 of (0.5, 0.5);
+    Vec2 c = a + b;
+    io::outln(c.x::text() + " " + c.y::text());
+    if (c == b) {
+        io::outln("same");
+    } else {
+        io::outln("different");
+    }
+    return 0;
+}

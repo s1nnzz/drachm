@@ -167,11 +167,12 @@ mod tests {
             kind: StatementKind::Assign(Place::local(Local(0)), Rvalue::Use(Operand::Const(Constant::Bool(true)))),
             span: Span::new(0, 0),
             unsafe_ctx: false,
+            mark: Mark::None,
         }
     }
 
     fn nop() -> Statement {
-        Statement { kind: StatementKind::Nop, span: Span::new(0, 0), unsafe_ctx: false }
+        Statement { kind: StatementKind::Nop, span: Span::new(0, 0), unsafe_ctx: false, mark: Mark::None }
     }
 
     fn body_of(blocks: Vec<BasicBlock>) -> Body {

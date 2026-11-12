@@ -1,0 +1,10 @@
+struct Circle {
+    public:
+    float64 r;
+    Circle(float64 radius) { self.r = radius; }
+}
+
+sint32 main() {
+    Circle c = new Circle (5.0);
+    return 0;
+}

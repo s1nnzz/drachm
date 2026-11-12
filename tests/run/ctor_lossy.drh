@@ -1,0 +1,16 @@
+in io;
+
+struct Port {
+    public:
+    uint32 n;
+    Port(uint32 whole) {
+        self.n = whole;
+    }
+}
+
+sint32 main() {
+    float64 x = 2.5;
+    Port p = x;
+    io::outln(p.n::text());
+    return 0;
+}

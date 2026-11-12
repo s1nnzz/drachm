@@ -1,0 +1,31 @@
+in io;
+
+struct Vector3 {
+public:
+    float64 x;
+    float64 y;
+    float64 z;
+}
+
+struct Person {
+public:
+    string name;
+    uint32 age;
+    Person(string n) {
+        self.name = n;
+        self.age = 0;
+    }
+    Person(auto);
+}
+
+sint32 main() {
+    Vector3 p = z: 3.0, x: 1.0, y: 2.0;
+    Vector3 q = new Vector3 of (x: 1.0, y: 2.0, z: 3.0);
+    Person a = "Sam";
+    Person b = "Ann", 30;
+    io::outln(p.x::text() + " " + p.y::text() + " " + p.z::text());
+    io::outln(q.z::text());
+    io::outln(a.name + " " + a.age::text());
+    io::outln(b.name + " " + b.age::text());
+    return 0;
+}

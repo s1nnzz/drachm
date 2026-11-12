@@ -23,7 +23,7 @@ answers into `docs/SPEC.md` and the design doc, and note leftovers under that st
 | 4 | `for`, `skip`, `match` | done: `match` on text (exact patterns, `globbed` globs), `for` over characters (`string` copies, `&string` views), lists in step 6 |
 | 4.5 | Units of measure | done (`in si;`, points and deltas, scaled integers wrap; decisions in `docs/impl/step4.5-units.md`) |
 | 4.6 | Input: `io::inln()`, `io::ended()`, text `::to<T>()` | done (interim: bad text stops the program with exit 101; forgiving number text (spaces, `+`, `.5`); `\r\n` lines; invalid UTF-8 becomes U+FFFD) |
-| 5 | Constructors, enums, `fails` / `maybe` | in progress: S5A.1 done (enums with data, `match` with bindings/`take`/`copy`/guards/nesting/alternatives/values, exhaustiveness, `Switch`; `==` for payload-free enums); optionals, constructors, failures not started |
+| 5 | Constructors, enums, `fails` / `maybe` | in progress: S5A.1 done (enums with data, `match` with bindings/`take`/`copy`/guards/nesting/alternatives/values, exhaustiveness, `Switch`; `==` for payload-free enums) and S5B done (constructors, overloads, `new ... of`, named values, `Person(auto);`, `fill`, `fill partial`, `def`, `defaults`, `now`); optionals, failures, `maybe` and handlers not started |
 | 6 | Generics, interfaces, collections | not started |
 | 7 | Modules, config, scripts, stdlib | not started |
 | 7.5 | MIR optimiser: SSA, inlining, scalar replacement, constant folding, loop opts, check elimination, alias info from borrows | not started |
@@ -605,6 +605,17 @@ declared without a value, and `def` templates of default values (`def X of
 Player { }`, `struct Player defaults X { }`, shorthand `def Player { }` +
 `struct default Player { }`, `fill p with defaults { }`). Details in
 `docs/impl/owner-answers.md`.
+
+Done (S5B, 2026-11-12, `docs/impl/step5-B-constructors.md`): constructors
+(`src/typeck/construct.rs`), the shared overload ranking (`src/typeck/overload.rs`,
+exact, lossless, lossy; ties E0502), `new Type of (...)`, the automatic
+constructor (kept only when no constructor is written, or `Person(auto);`),
+named values matching parameter names, `fill` / `fill partial` / `now`, `def`
+with `from`, `struct ... defaults` (`src/typeck/fill.rs`). Initialisation checks
+in the MIR (`Mark::InitWrite`, `hir::CheckKind`) reuse the per-field analysis in
+`mir/moves.rs`; no new analysis pass. Interims: delegation between constructors
+is E0901; `fails` on a constructor is E0901; `fill` only of local bindings (E0901
+for parameters, fields, `self` and derefs); `def` values must not read fields.
 
 **Open (ask owner):** none.
 

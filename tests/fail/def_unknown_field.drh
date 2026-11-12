@@ -1,0 +1,8 @@
+def Start of Pair { c = 1; }
+struct Pair {
+    public:
+    uint32 a;
+    uint32 b;
+}
+
+sint32 main() { return 0; }

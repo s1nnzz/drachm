@@ -1,0 +1,11 @@
+struct Player {
+    public:
+    string name;
+    uint32 hp;
+    Player(string n) { self.name = n; }
+}
+
+sint32 main() {
+    Player p = "Sam";
+    return 0;
+}

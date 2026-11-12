@@ -1,0 +1,8 @@
+struct Circle {
+    public:
+    float64 r;
+    Circle(float64 a) { self.r = a; }
+    Circle(float64 b) { self.r = b; }
+}
+
+sint32 main() { return 0; }

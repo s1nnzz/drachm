@@ -1,0 +1,1 @@
+error[E0332]: cannot give `p.hp` a value: `p` has no value yet

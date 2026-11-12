@@ -1,0 +1,19 @@
+in io;
+
+struct Player {
+public:
+    string name;
+    uint32 hp;
+    string title;
+}
+
+sint32 main() {
+    Player q;
+    fill partial q { q.name = "Ana"; }
+    fill q {
+        q.hp = 7;
+        q.title = "t";
+    }
+    io::outln(q.name + " " + q.hp::text() + " " + q.title);
+    return 0;
+}

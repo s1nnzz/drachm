@@ -1,0 +1,4 @@
+sint32 main() {
+    uint32 x = new uint32 of (3);
+    return 0;
+}

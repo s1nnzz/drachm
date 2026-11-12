@@ -1,0 +1,19 @@
+in io;
+
+struct Player {
+    public:
+    string name;
+    uint32 hp;
+    string title;
+}
+
+sint32 main() {
+    Player p;
+    fill p {
+        p.name = "Sam";
+        p.hp = 5;
+        p.title = "";
+    }
+    io::outln(p.name + " " + p.hp::text() + " [" + p.title + "]");
+    return 0;
+}

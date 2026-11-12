@@ -15,6 +15,7 @@ pub fn parse(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>) -> Program {
         funcs: Vec::new(),
         structs: Vec::new(),
         enums: Vec::new(),
+        defs: Vec::new(),
         unsafe_allowed: false,
     };
     while p.peek() != &Tok::Eof {
@@ -27,6 +28,8 @@ pub fn parse(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>) -> Program {
             p.enum_decl().map(|e| program.enums.push(e))
         } else if p.at_unit_item() {
             p.unit_decl().map(|u| program.units.push(u))
+        } else if p.at_def_item() {
+            p.def_decl().map(|d| program.defs.push(d))
         } else {
             p.func().map(|f| program.funcs.push(f))
         };
@@ -319,6 +322,9 @@ impl Parser<'_> {
 
     /// Does a top-level item (a function, struct or import) start here?
     fn at_item_start(&self) -> bool {
+        if self.at_def_item() {
+            return true;
+        }
         match self.peek() {
             Tok::Kw("in" | "struct" | "enum") => true,
             Tok::Ident(_) | Tok::Kw("none" | "unsafe") | Tok::Sym("&" | "&&" | "*" | "**") => {
@@ -490,14 +496,62 @@ impl Parser<'_> {
         Ok(Enum { name, name_span, variants })
     }
 
+    /// Does a `def` declaration start here? `def` is a context word: elsewhere
+    /// it is an ordinary name.
+    fn at_def_item(&self) -> bool {
+        matches!(self.peek(), Tok::Ident(w) if w == "def")
+            && matches!(self.peek_at(1), Tok::Ident(_))
+            && matches!(self.peek_at(2), Tok::Kw("of" | "from") | Tok::Sym("{"))
+    }
+
+    /// `def NAME [of STRUCT] [from BASE] { field = value; ... }`
+    fn def_decl(&mut self) -> Parsed<DefDecl> {
+        let start = self.bump().span;
+        let (name, name_span) = self.ident("a name for the def")?;
+        let mut of = None;
+        if self.peek() == &Tok::Kw("of") {
+            self.bump();
+            of = Some(self.ident("a struct name after `of`")?);
+        }
+        let mut from = None;
+        if self.peek() == &Tok::Kw("from") {
+            self.bump();
+            from = Some(self.ident("the name of the def to extend after `from`")?);
+        }
+        self.expect("{")?;
+        let mut assigns = Vec::new();
+        while self.peek() != &Tok::Sym("}") {
+            if self.peek() == &Tok::Eof {
+                return Err(self.unexpected("`}`"));
+            }
+            let (fname, fspan) = self.ident("a field name")?;
+            self.expect("=")?;
+            let value = self.expr()?;
+            self.expect(";")?;
+            assigns.push(DefAssign { name: fname, name_span: fspan, value });
+        }
+        self.bump();
+        Ok(DefDecl { name, name_span, of, from, assigns, span: start.to(self.prev_span()) })
+    }
+
     fn struct_decl(&mut self) -> Parsed<Struct> {
         self.bump();
+        // `struct default Player { }`: the default def is the one named like the struct.
+        let default_word = if matches!(self.peek(), Tok::Ident(w) if w == "default") { Some(self.bump().span) } else { None };
         let (name, name_span) = self.ident("a struct name")?;
+        let mut defaults = default_word.map(|_| (name.clone(), name_span));
         let mut lives: Vec<(String, Span)> = Vec::new();
         let mut lives_seen = false;
         let mut stays = None;
         loop {
             match self.peek() {
+                Tok::Ident(w) if w == "defaults" => {
+                    if let Some((_, first)) = defaults {
+                        return Err(Diagnostic::at(&codes::E0003, self.span(), "the default is named twice").label(first, "first named here"));
+                    }
+                    self.bump();
+                    defaults = Some(self.ident("the name of the default def after `defaults`")?);
+                }
                 Tok::Sym("<") => {
                     return Err(Diagnostic::at(&codes::E0901, self.span(), "generic structs are not supported yet"));
                 }
@@ -523,7 +577,7 @@ impl Parser<'_> {
             }
         }
         let open = self.expect("{")?;
-        let mut s = Struct { name, name_span, lives, stays, fields: Vec::new(), methods: Vec::new() };
+        let mut s = Struct { name, name_span, lives, stays, defaults, auto_ctor: None, fields: Vec::new(), methods: Vec::new() };
         // `Some(true)` after `public:`, `Some(false)` after `private:`. Before
         // any label, fields are private and methods public.
         let mut section: Option<bool> = None;
@@ -555,8 +609,32 @@ impl Parser<'_> {
         let is_unsafe = if self.peek() == &Tok::Kw("unsafe") { Some(self.bump().span) } else { None };
         let mutable = if self.peek() == &Tok::Kw("mut") { Some(self.bump().span) } else { None };
         if matches!(self.peek(), Tok::Ident(n) if *n == s.name) && self.peek_at(1) == &Tok::Sym("(") {
-            return Err(Diagnostic::at(&codes::E0901, self.span(), "constructors are not supported yet")
-                .help(format!("build values with the declaration shorthand for now: `{} p = 1, 2;`", s.name)));
+            if let Some(st) = is_static {
+                return Err(Diagnostic::at(&codes::E0003, st, "a constructor cannot be `static`").help("constructors build the value themselves"));
+            }
+            if let Some(u) = is_unsafe {
+                return Err(Diagnostic::at(&codes::E0003, u, "a constructor cannot be `unsafe`"));
+            }
+            if let Some(m) = mutable {
+                return Err(Diagnostic::at(&codes::E0003, m, "a constructor cannot be `mut`"));
+            }
+            // `Person(auto);` keeps the automatic constructor next to the written ones.
+            if self.peek_at(2) == &Tok::Ident("auto".to_string()) && self.peek_at(3) == &Tok::Sym(")") && self.peek_at(4) == &Tok::Sym(";") {
+                let at = self.span();
+                for _ in 0..5 {
+                    self.bump();
+                }
+                if let Some(first) = s.auto_ctor {
+                    return Err(Diagnostic::at(&codes::E0003, at, "`auto` is written twice").label(first, "first written here"));
+                }
+                s.auto_ctor = Some(at);
+                return Ok(());
+            }
+            let (name, name_span) = self.ident("a constructor name")?;
+            let ret = TypeName { name: s.name.clone(), span: name_span, mods: Vec::new(), unit: None };
+            let func = self.func_rest(ret, name, name_span, None)?;
+            s.methods.push(Method { public: section.unwrap_or(true), is_static: None, operator: None, ctor: true, func });
+            return Ok(());
         }
         let ty = self.ty()?;
         // An operator method is named by its symbol: `Vector3 +(Vector3 o)`.
@@ -574,7 +652,7 @@ impl Parser<'_> {
                     .help("`mut` goes on fields: `mut uint32 hp;`"));
             }
             let func = self.func_rest(ty, name, name_span, is_unsafe)?;
-            s.methods.push(Method { public: section.unwrap_or(true), is_static, operator, func });
+            s.methods.push(Method { public: section.unwrap_or(true), is_static, operator, ctor: false, func });
             return Ok(());
         }
         if let Some(u) = is_unsafe {
@@ -664,6 +742,7 @@ impl Parser<'_> {
     fn stmt(&mut self) -> Parsed<Stmt> {
         let start = self.span();
         match self.peek() {
+            _ if self.at_fill() => self.fill_stmt(),
             _ if self.at_binding() => {
                 let (mutable, open) = self.binding_words();
                 self.binding(start, mutable, open)
@@ -729,6 +808,40 @@ impl Parser<'_> {
                 Ok(s)
             }
         }
+    }
+
+    /// Does a `fill` statement start here? `fill` is a context word: `fill(3)`
+    /// and `fill = 3;` are ordinary.
+    fn at_fill(&self) -> bool {
+        let word = |n: usize, w: &str| self.peek_at(n) == &Tok::Ident(w.to_string());
+        word(0, "fill")
+            && ((matches!(self.peek_at(1), Tok::Ident(_)) && matches!(self.peek_at(2), Tok::Sym("{") | Tok::Kw("with")))
+                || (word(1, "partial") && matches!(self.peek_at(2), Tok::Ident(_))))
+    }
+
+    /// `fill [partial] x { ... }` or `fill x with defaults { ... }`.
+    fn fill_stmt(&mut self) -> Parsed<Stmt> {
+        let start = self.bump().span;
+        let partial = if self.peek() == &Tok::Ident("partial".to_string()) {
+            self.bump();
+            true
+        } else {
+            false
+        };
+        let target = self.ident("a binding to fill")?;
+        let with = if self.peek() == &Tok::Kw("with") {
+            self.bump();
+            if self.peek() == &Tok::Ident("defaults".to_string()) {
+                Some(FillWith::Defaults(self.bump().span))
+            } else {
+                let (n, sp) = self.ident("`defaults` or the name of a def after `with`")?;
+                Some(FillWith::Named(n, sp))
+            }
+        } else {
+            None
+        };
+        let body = self.block()?;
+        Ok(Stmt::Fill { partial, target, with, body, span: start.to(self.prev_span()) })
     }
 
     fn eat_kw(&mut self, kw: &'static str) -> bool {
@@ -1060,6 +1173,12 @@ impl Parser<'_> {
     /// An expression, or an inclusive range `a..b` (which the checker
     /// accepts only in a `for` and in `case` patterns).
     fn expr(&mut self) -> Parsed<Expr> {
+        // `now` covers the whole expression after it: `p.max = now p.hp * 2;`.
+        if matches!(self.peek(), Tok::Ident(w) if w == "now") && matches!(self.peek_at(1), Tok::Ident(_) | Tok::Kw("self")) {
+            let start = self.bump().span;
+            let e = self.expr()?;
+            return Ok(Expr { span: start.to(e.span), kind: ExprKind::Now(Box::new(e)), paren: false });
+        }
         let lhs = self.binary(0)?;
         if !self.eat("..") {
             return Ok(lhs);
@@ -1409,6 +1528,32 @@ impl Parser<'_> {
             Tok::Kw("true") => ExprKind::Bool(true),
             Tok::Kw("false") => ExprKind::Bool(false),
             Tok::Kw("none") => ExprKind::NoneValue,
+            Tok::Kw("new") => {
+                let (name, name_span) = self.ident("a struct name after `new`")?;
+                if self.peek() != &Tok::Kw("of") {
+                    return Err(self.unexpected("`of`").help(format!("write `new {name} of (...)`: the values go in parentheses")));
+                }
+                self.bump();
+                self.expect("(")?;
+                let mut values = Vec::new();
+                while self.peek() != &Tok::Sym(")") {
+                    let name = match self.peek().clone() {
+                        Tok::Ident(n) if self.peek_at(1) == &Tok::Sym(":") => {
+                            let span = self.bump().span;
+                            self.bump();
+                            Some((n, span))
+                        }
+                        _ => None,
+                    };
+                    let value = self.expr()?;
+                    values.push(FieldValue { name, value });
+                    if !self.eat(",") {
+                        break;
+                    }
+                }
+                self.expect(")")?;
+                ExprKind::New { name, name_span, values }
+            }
             Tok::Sym("(") => {
                 let mut e = self.expr()?;
                 self.expect(")")?;
@@ -1825,6 +1970,25 @@ mod tests {
     }
 
     /// Tokens of a source text, unit literals shown as `3<m>`.
+    #[test]
+    fn fill_and_def_are_context_words() {
+        // `fill` is a statement only before a name and a block; elsewhere it is a name.
+        let (s, d) = body("uint32 fill = 3; fill(3); fill = 4; fill p { p.x = 1; }");
+        assert!(d.is_empty(), "{:?}", errors(&d));
+        assert!(matches!(&s[0], Stmt::Let { name, .. } if name == "fill"));
+        assert!(matches!(&s[1], Stmt::Expr(_)));
+        assert!(matches!(&s[2], Stmt::Assign { .. }));
+        assert!(matches!(&s[3], Stmt::Fill { partial: false, .. }));
+        let (_, d) = body("fill partial p with defaults { }");
+        assert!(d.is_empty(), "{:?}", errors(&d));
+    }
+
+    #[test]
+    fn new_needs_of_and_parentheses() {
+        let (_, d) = body("Circle c = new Circle (5);");
+        assert_eq!(errors(&d), ["expected `of`, found `(`"]);
+    }
+
     fn lexed(src: &str) -> Vec<String> {
         let mut diags = Vec::new();
         let toks = crate::lexer::lex(src, &mut diags);

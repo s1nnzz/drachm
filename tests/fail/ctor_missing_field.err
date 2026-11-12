@@ -1,0 +1,1 @@
+error[E0504]: the constructor ends without giving `hp` a value

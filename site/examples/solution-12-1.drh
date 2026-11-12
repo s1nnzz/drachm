@@ -1,0 +1,15 @@
+in io;
+
+struct Temperature {
+public:
+    float64 degrees;
+    Temperature(float64 d) { self.degrees = d; }
+    Temperature(uint32 d)  { self.degrees = d; }
+}
+
+none main() {
+    Temperature a = 20;
+    Temperature b = 21.5;
+    io::outln(a.degrees::text());
+    io::outln(b.degrees::text());
+}

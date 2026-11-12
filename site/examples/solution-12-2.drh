@@ -1,0 +1,16 @@
+in io;
+
+def MonsterStart of Monster { hp = 10; title = "grunt"; }
+
+struct Monster defaults MonsterStart {
+public:
+    string name;
+    uint32 hp;
+    string title;
+}
+
+none main() {
+    Monster m;
+    fill m with defaults { m.name = "Bob"; }
+    io::outln(m.name + " " + m.hp::text() + " " + m.title);
+}

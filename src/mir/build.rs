@@ -139,6 +139,8 @@ struct Builder<'a> {
     just_declared: Option<Local>,
     /// The statement being lowered initialises the local `Decl` just declared.
     decl_init: bool,
+    /// The local whose fields a `fill` or constructor is giving values now.
+    init_local: Option<Local>,
 }
 
 impl<'a> Builder<'a> {
@@ -169,6 +171,7 @@ impl<'a> Builder<'a> {
             unsafe_depth: 0,
             just_declared: None,
             decl_init: false,
+            init_local: None,
         };
         b.cur = b.new_block();
         b
@@ -324,7 +327,22 @@ impl<'a> Builder<'a> {
     }
 
     fn push(&mut self, kind: StatementKind) {
-        let s = Statement { kind, span: self.span, unsafe_ctx: self.unsafe_depth > 0 };
+        let mark = match (&kind, self.init_local) {
+            (StatementKind::Assign(dest, _), Some(l)) if dest.local == l => Mark::InitWrite,
+            _ => Mark::None,
+        };
+        let s = Statement { kind, span: self.span, unsafe_ctx: self.unsafe_depth > 0, mark };
+        self.blocks[self.cur.index()].statements.push(s);
+    }
+
+    /// A `FakeRead` of `local` that the checks of `check.rs` act on.
+    fn check_stmt(&mut self, local: Local, kind: hir::CheckKind) {
+        let s = Statement {
+            kind: StatementKind::FakeRead(Place::local(local)),
+            span: self.span,
+            unsafe_ctx: self.unsafe_depth > 0,
+            mark: Mark::Check(kind),
+        };
         self.blocks[self.cur.index()].statements.push(s);
     }
 
@@ -529,6 +547,22 @@ impl<'a> Builder<'a> {
                 let ty = crate::mir::ty::place_ty_in(&self.locals, self.hir, &pl);
                 let gone = self.decl(ty, LocalKind::Temp);
                 self.assign_stmt(Place::local(gone), Rvalue::Use(Operand::Move(pl)));
+            }
+            Stmt::Check { local, kind, span } => {
+                let l = self.local(*local);
+                self.at(*span);
+                self.check_stmt(l, *kind);
+            }
+            Stmt::InitField(p, e) => {
+                // A field given its value by `fill` or a constructor: the local
+                // has no value yet, so the write is an initialisation.
+                let dest = self.hir_place(p);
+                self.at(p.span);
+                self.init_local = Some(dest.local);
+                // The old value of a `mut` field a def gave is dropped; a field
+                // with no value has nothing to drop (the drop flags know).
+                self.in_stmt(|b| b.assign(dest, e, true));
+                self.init_local = None;
             }
             Stmt::Destroy(p) => {
                 let pl = self.hir_place(p);
