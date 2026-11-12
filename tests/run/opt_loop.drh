@@ -1,0 +1,31 @@
+in io;
+
+uint32? nth_square(uint32 n) {
+    if (n > 4) { return none; }
+    return n * n;
+}
+
+none main() {
+    mut uint32 total = 0;
+    mut uint32 i = 0;
+    while (i < 8) {
+        uint32? sq = nth_square(i);
+        if (sq is empty) {
+            io::outln(f"stop at ${i}");
+            i++;
+            continue;
+        }
+        total = total + (sq maybe 0);
+        i++;
+    }
+    io::outln(total::text());
+    mut uint32 found = 0;
+    for (uint32 k of 0..10) {
+        uint32? hit = nth_square(k);
+        match (hit) {
+            case uint32 v { found = v; }
+            case none     { break; }
+        }
+    }
+    io::outln(found::text());
+}

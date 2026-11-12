@@ -5,8 +5,7 @@ description: Values that are one of several variants, taking them apart with mat
 
 # Lesson 13: Enums and optionals
 
-Enums work in the compiler today. The last part, on optionals (`T?`), is still
-the planned design and is marked.
+Enums and optionals (`T?`) both work in the compiler today.
 
 **Goal:** model a value that is one of several shapes, and handle a value that
 might not be there.
@@ -152,35 +151,23 @@ patterns. The [reference page on enums](reference-enums.md) has them all.
 <!-- example: enum-owning -->
 
 ## A value that might be missing
-<!-- status: not-implemented -->
 
-`T?` is an optional: either a value of type `T` or `none`. It is an ordinary
-enum of the standard library, `enum Optional<T> { Some(T value), none, }`, so
-everything above applies to it. The word `none` is both the "returns nothing"
-type and the empty optional.
+`T?` is an optional: either a value of type `T` or `none`. It is an enum with two
+variants, so everything above applies to it. The word `none` is both the "returns
+nothing" type and the empty optional.
 
-A variable of optional type with no value starts as `none`. Looking up a key
-that a map does not have also gives `none`.
+A variable of optional type with no value starts as `none`. A `T` goes to a `T?`
+by itself: `uint32? age = 42;` needs no wrapping.
 
-<!-- focus: 1 -->
-`age` has no value, so it is `none`.
+`age` has no value, so it is `none`, and `maybe` unwraps an optional and gives a
+fallback when it is `none`. `has value` and `is empty` ask the same question in
+words. Or `match` on it, as with any enum: a case with a typed name for the value,
+and `case none` for the empty one.
 
-<!-- focus: 2 -->
-`maybe` unwraps an optional and gives a fallback when it is `none`.
+<!-- example: option-basic -->
 
-<!-- focus: 4-7 -->
-Or `match` on it, as with any enum: a case with a typed name for the value, and
-`case none` for the empty one.
-
-```drachm
-uint32? age;
-uint32 n = age maybe 0;
-
-match (age) {
-    case uint32 a { io::outln(a::text()); }
-    case none     { io::outln("no age"); }
-}
-```
+`x == none` is not how you test for it: the compiler says to write `is empty`.
+The [optionals part of the reference](reference-enums.md#optionals) lists the rest.
 
 ### Your turn: a fallback
 
@@ -223,5 +210,5 @@ none main() {
 }
 ```
 
-See [Enums and optionals](design-enums.md) for the whole design. The next lesson
-is about functions that can fail: [Lesson 14: Errors](lesson-14-errors.md).
+The next lesson is about functions that can fail:
+[Lesson 14: Errors](lesson-14-errors.md).

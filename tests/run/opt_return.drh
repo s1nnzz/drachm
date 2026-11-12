@@ -1,0 +1,53 @@
+in io;
+
+struct Person {
+    string name;
+    uint32 age;
+}
+
+// Returns on two paths: a value (wrapped by itself) and `none`.
+uint32? halve(uint32 n) {
+    if (n % 2 == 1) { return none; }
+    return n / 2;
+}
+
+// A string? returned from a function, with the owned text moved out.
+string? name_of(uint32 id) {
+    if (id == 7) { return "seven"; }
+    return none;
+}
+
+// An optional of a struct, returned from a loop.
+Person? oldest(uint32 limit) {
+    mut uint32 i = 0;
+    while (i < limit) {
+        if (i == 3) { return new Person of ("Ann", i); }
+        i++;
+    }
+    return none;
+}
+
+uint32? first_big(uint32 a, uint32 b) {
+    if (a > b) { return a; }
+    if (b > 10) { return b; }
+    return none;
+}
+
+none main() {
+    io::outln((halve(10) maybe 0)::text());
+    io::outln((halve(3) maybe 0)::text());
+    io::outln(name_of(7) maybe "unknown");
+    io::outln(name_of(8) maybe "unknown");
+    Person? p = oldest(5);
+    if (p has value) { io::outln("found one"); }
+    Person? none_found = oldest(2);
+    if (none_found is empty) { io::outln("nobody"); }
+    match (first_big(2, 20)) {
+        case uint32 v { io::outln(v::text()); }
+        case none     { io::outln("none"); }
+    }
+    match (first_big(5, 1)) {
+        case uint32 v { io::outln(v::text()); }
+        case none     { io::outln("none"); }
+    }
+}

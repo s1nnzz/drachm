@@ -265,7 +265,7 @@ impl Cx<'_> {
                     self.expr(v, out);
                 }
             }
-            ExprKind::Binary(_, a, b) | ExprKind::IntPow(a, b) | ExprKind::Logic { lhs: a, rhs: b, .. } => {
+            ExprKind::Binary(_, a, b) | ExprKind::IntPow(a, b) | ExprKind::Logic { lhs: a, rhs: b, .. } | ExprKind::Maybe { value: a, fallback: b } => {
                 self.expr(a, out);
                 self.expr(b, out);
             }

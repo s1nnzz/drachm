@@ -50,6 +50,13 @@ impl Checker<'_> {
                 _ => None,
             };
         }
+        // A `T` fits a `T?` parameter: the wrap is part of the conversion.
+        if let Some(inner) = super::optionals::inner_of(self.g, to) {
+            return match v {
+                Val::Expr(x) if x.ty == to => Some(Rank::Exact),
+                _ => self.rank_val(v, inner),
+            };
+        }
         match v {
             // A whole constant adapts to any integer type it fits; its default
             // type (`uint32` for 5) is the exact one.

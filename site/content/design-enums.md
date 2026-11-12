@@ -1,44 +1,29 @@
 ---
 title: Enums and optionals
-description: Enums that carry data, match on their variants, and the optional type T?.
+description: The decisions behind enums and the optional type T?, which are built now.
 ---
 
 # Enums and optionals
 
-Enums that carry data, `match` on their variants, guards and nested patterns
-are built: see [Enums](reference-enums.md). What is still designed only is
-the optional type `T?`, below. The compiler does not accept `T?` or `none` as a
-value yet.
+Enums, `match` on their variants, guards, nested patterns and optionals (`T?`) are
+built: see [Enums](reference-enums.md), where the rules are stated. This page keeps
+the decisions the owner made about them.
 
 ## Optionals
-<!-- status: not-implemented -->
 
-`T?` is the optional type `Optional<T>`, and it is an ordinary enum of the
-standard library: either a value (`Some`) or `none`. The word `none` is both
-the "returns nothing" type and the empty optional.
-
-```drachm
-enum Optional<T> { Some(T value), none, }
-```
-
-A variable of optional type with no value starts as `none`. A map lookup with a
-missing key gives `none`. `maybe` unwraps an optional with a fallback, and
-`match` can test it.
-
-<!-- focus: 1,2,4,6 -->
-
-```drachm
-uint32? age;                           // none
-uint32? found = ages["Bob"];
-uint32 n = found maybe 0;
-
-match (found) {
-    case uint32 a { io::outln(a::text()); }
-    case none     { io::outln("no age"); }
-}
-```
+`T?` is the optional type `Optional<T>`: either a value (`Some`) or `none`. The
+word `none` is both the "returns nothing" type and the empty optional.
 
 Two decisions from the owner shape this part. A `T` wraps to a `T?` automatically
-wherever a `T?` is expected (`uint32? x = 5;`, `return 5;`), and the test
-for a missing value is written in words, `x has value` and `x is empty`, rather
-than `x == none`.
+wherever a `T?` is expected (`uint32? x = 5;`, `return 5;`), and the test for a
+missing value is written in words, `x has value` and `x is empty`, rather than
+`x == none`.
+
+```drachm
+uint32? age;                 // none, until it gets a value
+uint32? found = 5;           // 5 wraps to Some(5)
+uint32 n = found maybe 0;    // 5
+
+if (found has value) { }     // the test in words
+if (age is empty) { }        // and the other one
+```

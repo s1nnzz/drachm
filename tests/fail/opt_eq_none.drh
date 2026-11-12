@@ -1,0 +1,4 @@
+none main() {
+    uint32? k = 5;
+    if (k == none) { }
+}

@@ -23,7 +23,7 @@ answers into `docs/SPEC.md` and the design doc, and note leftovers under that st
 | 4 | `for`, `skip`, `match` | done: `match` on text (exact patterns, `globbed` globs), `for` over characters (`string` copies, `&string` views), lists in step 6 |
 | 4.5 | Units of measure | done (`in si;`, points and deltas, scaled integers wrap; decisions in `docs/impl/step4.5-units.md`) |
 | 4.6 | Input: `io::inln()`, `io::ended()`, text `::to<T>()` | done (interim: bad text stops the program with exit 101; forgiving number text (spaces, `+`, `.5`); `\r\n` lines; invalid UTF-8 becomes U+FFFD) |
-| 5 | Constructors, enums, `fails` / `maybe` | in progress: S5A.1 done (enums with data, `match` with bindings/`take`/`copy`/guards/nesting/alternatives/values, exhaustiveness, `Switch`; `==` for payload-free enums) and S5B done (constructors, overloads, `new ... of`, named values, `Person(auto);`, `fill`, `fill partial`, `def`, `defaults`, `now`); optionals, failures, `maybe` and handlers not started |
+| 5 | Constructors, enums, `fails` / `maybe` | in progress: S5A.1 done (enums with data, `match` with bindings/`take`/`copy`/guards/nesting/alternatives/values, exhaustiveness, `Switch`; `==` for payload-free enums) and S5B done (constructors, overloads, `new ... of`, named values, `Person(auto);`, `fill`, `fill partial`, `def`, `defaults`, `now`); optionals done (S5A.2, below); failures, `maybe` on failing calls and handlers not started |
 | 6 | Generics, interfaces, collections | not started |
 | 7 | Modules, config, scripts, stdlib | not started |
 | 7.5 | MIR optimiser: SSA, inlining, scalar replacement, constant folding, loop opts, check elimination, alias info from borrows | not started |
@@ -119,6 +119,14 @@ pattern matrix (guarded cases never cover), `Switch` for three or more variants 
 Interims taken: a guard sees copied bindings but not `take`n ones (they exist after the guard); text constants inside variant patterns
 are E0901; a variant cannot hold a borrow or pointer (E0901); no niche optimisation (a `string?` will be bigger than a `string`,
 later item under Performance); E0210 reads "`Tree` contains itself" when an enum is in the cycle.
+
+**Step 5 progress, S5A.2 (optionals):** `T?` is an enum per distinct `T` (`src/typeck/optionals.rs`, variants `none` = tag 0 and
+`Some` = tag 1), with `none` as a value, `uint32? x;` starting as `none`, a `T` wrapping to `T?` wherever a `T?` is expected
+(owner Q5), `x has value` / `x is empty`, `case uint32 a` / `case none` (W0110 says "does not handle a value"), and
+`x maybe fallback` as an HIR node `ExprKind::Maybe` lowered in `mir/build.rs` (E0530-E0534). Interims taken: `maybe` on an
+owning optional in a variable is E0901 (only rvalues and Copy places); `none` as a constructor argument is E0530 (the
+constructor's parameter types are not used for it yet; a `T` argument does wrap); `T??` and spelled-out `Optional<T>` are E0901;
+`x == none` is E0533 (the owner's `is empty` fix-it). Also fixed: a number with a unit is Copy in a `case` binding.
 
 **Open (ask owner):** none.
 

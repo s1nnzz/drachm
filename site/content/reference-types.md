@@ -36,6 +36,11 @@ if (answer > 40) {
 An `enum` is a type with a name of its own, a value that is exactly one of its
 variants. See [Enums](reference-enums.md).
 
+## Optional types
+
+`T?` is a `T` that may be missing: a value of type `T`, or `none`. See
+[Optionals](reference-enums.md#optionals).
+
 ## Borrow types
 
 `&T` is a shared borrow of a `T`: it reads. `&mut T` is a unique borrow: it

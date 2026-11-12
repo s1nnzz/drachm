@@ -1,0 +1,18 @@
+in io;
+
+none main() {
+    mut uint32? age;
+    uint32 n = age maybe 0;
+    io::outln(n::text());
+    if (age is empty) { io::outln("no age"); }
+    match (age) {
+        case uint32 a { io::outln(a::text()); }
+        case none     { io::outln("no age"); }
+    }
+    age = 42;
+    if (age has value) { io::outln("age is set"); }
+    match (age) {
+        case uint32 a { io::outln(a::text()); }
+        case none     { io::outln("no age"); }
+    }
+}
