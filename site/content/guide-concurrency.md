@@ -37,8 +37,8 @@ thread::spawn(move () => { prepare(); work(); });
 ## Why ownership is the point
 
 The language already says who owns every value: one place at a time, with many
-shared borrows or one `&mut`, never both (see [Ownership](reference-ownership.md)
-and [Borrowing](reference-lives.md)). The design is that **data races are
+shared borrows or one `&mut`, never both (see [Moves and copies](reference-ownership.md)
+and [Where a borrow comes from](reference-lives.md)). The design is that **data races are
 compile errors**, and that those same rules are what make it so:
 
 - a value moved into a thread is no longer usable by the thread that sent it, so
