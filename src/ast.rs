@@ -13,6 +13,8 @@ pub struct Program {
     pub funcs: Vec<Func>,
     pub structs: Vec<Struct>,
     pub enums: Vec<Enum>,
+    /// `failure Name { ... }` declarations.
+    pub failures: Vec<Failure>,
     /// `def NAME of STRUCT { ... }` declarations, in the order written.
     pub defs: Vec<DefDecl>,
     /// The file flag `//--!$unsafe: true` is present (set by `lib::check`).
@@ -44,6 +46,24 @@ pub struct Enum {
     pub name: String,
     pub name_span: Span,
     pub variants: Vec<Variant>,
+}
+
+/// `failure Name { Variant "message" exit N, Variant(Type v) "msg ${v}", }`
+#[derive(Debug)]
+pub struct Failure {
+    pub name: String,
+    pub name_span: Span,
+    pub variants: Vec<FailVariant>,
+}
+
+#[derive(Debug)]
+pub struct FailVariant {
+    pub name: String,
+    pub name_span: Span,
+    pub fields: Vec<Field>,
+    /// The message, a string literal that interpolates `${value}`.
+    pub message: Expr,
+    pub exit: Option<(u64, Span)>,
 }
 
 #[derive(Debug)]
@@ -187,6 +207,10 @@ pub struct Func {
     pub lives_span: Option<Span>,
     /// Written `lives from a or b`, the form that may name `self`.
     pub lives_from: bool,
+    /// `fails A, B`: the failure types the function may end with.
+    pub fails: Vec<(String, Span)>,
+    /// From `fails` to the end of its list, if written.
+    pub fails_span: Option<Span>,
     /// From the return type to the closing `)`.
     pub span: Span,
 }
@@ -234,6 +258,8 @@ pub enum Stmt {
     Break { cont: bool, count: Option<(u64, Span)>, span: Span },
     Skip { target: SkipTarget, span: Span },
     Return { value: Option<Expr>, span: Span },
+    /// `fail X;`, `fail X(args);`, `fail Type::X;`, with `because e` if given.
+    Fail { value: Expr, because: Option<Expr>, span: Span },
     /// `unsafe { }`
     Unsafe { body: Block, span: Span },
     /// `destroy x;`: runs `drop()` now and ends `x`.
@@ -475,6 +501,10 @@ pub enum ExprKind {
     NoneValue,
     /// `new Type of (values)`: a constructor call, with the values as written.
     New { name: String, name_span: Span, values: Vec<FieldValue> },
+    /// `call maybe fallback`: the call's value, or the fallback when it fails.
+    Maybe { call: Box<Expr>, fallback: Box<Expr> },
+    /// `call fails`: pass a failure of the call up to the caller.
+    PassUp(Box<Expr>),
     /// `now e`: a field already set may be read inside a constructor or `fill`.
     Now(Box<Expr>),
 }

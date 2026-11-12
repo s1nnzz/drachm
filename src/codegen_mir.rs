@@ -330,6 +330,14 @@ fn define_glue(
                             glue_drop_field(module, runtime, &env, b, p, f.offset, f.ty);
                         }
                     });
+                    let def = hir.enum_def(ty);
+                    if def.kind == hir::EnumKind::Failure {
+                        // The cause word is at the same offset in every variant.
+                        let word = b.ins().load(types::I64, MEM, p, def.variants[0].fields[0].offset as i32);
+                        let rt = import_rt(module, runtime, "drachm_cause_drop", &[types::I64], &[]);
+                        let callee = module.declare_func_in_func(rt, b.func);
+                        b.ins().call(callee, &[word]);
+                    }
                 }
             }
         } else {
@@ -1031,6 +1039,33 @@ impl Cg<'_, '_> {
                     let (loc, _) = self.locate(d);
                     self.store(loc, v);
                 }
+            }
+            Callee::ParseStatus(ty) => {
+                let text = self.operand(&args[0].op);
+                let (kind, signed, bits) = match ty {
+                    Type::Float(32) => (1, 0, 32),
+                    Type::Float(_) => (2, 0, 64),
+                    Type::Int { bits, signed } => (0, signed as i64, bits as i64),
+                    _ => unreachable!("checked by typeck"),
+                };
+                let (kind, signed, bits) = (self.b.ins().iconst(types::I8, kind), self.b.ins().iconst(types::I8, signed), self.b.ins().iconst(i32t, bits));
+                let r = self.rt("drachm_parse_status", &[ptr, types::I8, types::I8, i32t], &[types::I8], &[text, kind, signed, bits]);
+                if let Some(d) = dest {
+                    let (loc, _) = self.locate(d);
+                    self.store(loc, r[0]);
+                }
+            }
+            Callee::CauseWrap => {
+                let (msg, slot) = (self.operand(&args[0].op), self.operand(&args[1].op));
+                let r = self.rt("drachm_cause_wrap", &[ptr, ptr], &[i64t], &[msg, slot]);
+                if let Some(d) = dest {
+                    let (loc, _) = self.locate(d);
+                    self.store(loc, r[0]);
+                }
+            }
+            Callee::Report => {
+                let (msg, slot) = (self.operand(&args[0].op), self.operand(&args[1].op));
+                self.rt("drachm_report", &[ptr, ptr], &[], &[msg, slot]);
             }
             Callee::Text => {
                 let value_ty = self.op_ty(&args[0].op);

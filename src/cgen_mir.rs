@@ -86,6 +86,9 @@ fn glue(hir: &hir::Program) -> String {
                     }
                 }
                 let _ = writeln!(defs, "    default: break;\n    }}");
+                if hir.enums[id].kind == hir::EnumKind::Failure {
+                    let _ = writeln!(defs, "    drachm_cause_drop(p->u.v0.f_{});", hir::CAUSE_FIELD);
+                }
             }
             _ => unreachable!(),
         }
@@ -690,6 +693,26 @@ impl Gen<'_> {
                     }
                     _ => unreachable!("checked by typeck"),
                 }
+            }
+            Callee::ParseStatus(ty) => {
+                let dest = dest_lv.expect("a status has a destination");
+                let text = self.operand(&args[0].op);
+                let (kind, signed, bits) = match ty {
+                    Type::Float(32) => (1, 0, 32),
+                    Type::Float(_) => (2, 0, 64),
+                    Type::Int { bits, signed } => (0, signed as u8, bits as u32),
+                    _ => unreachable!("checked by typeck"),
+                };
+                self.line(format!("{dest} = drachm_parse_status({text}, {kind}, {signed}, {bits});"));
+            }
+            Callee::CauseWrap => {
+                let dest = dest_lv.expect("a word result has a destination");
+                let (msg, slot) = (self.operand(&args[0].op), self.operand(&args[1].op));
+                self.line(format!("{dest} = drachm_cause_wrap({msg}, {slot});"));
+            }
+            Callee::Report => {
+                let (msg, slot) = (self.operand(&args[0].op), self.operand(&args[1].op));
+                self.line(format!("drachm_report({msg}, {slot});"));
             }
             Callee::Text => {
                 let dest = dest_lv.expect("a string result has a destination");

@@ -15,6 +15,7 @@ pub fn parse(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>) -> Program {
         funcs: Vec::new(),
         structs: Vec::new(),
         enums: Vec::new(),
+        failures: Vec::new(),
         defs: Vec::new(),
         unsafe_allowed: false,
     };
@@ -26,6 +27,8 @@ pub fn parse(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>) -> Program {
             p.struct_decl().map(|s| program.structs.push(s))
         } else if p.peek() == &Tok::Kw("enum") {
             p.enum_decl().map(|e| program.enums.push(e))
+        } else if p.peek() == &Tok::Kw("failure") {
+            p.failure_decl().map(|f| program.failures.push(f))
         } else if p.at_unit_item() {
             p.unit_decl().map(|u| program.units.push(u))
         } else if p.at_def_item() {
@@ -326,7 +329,7 @@ impl Parser<'_> {
             return true;
         }
         match self.peek() {
-            Tok::Kw("in" | "struct" | "enum") => true,
+            Tok::Kw("in" | "struct" | "enum" | "failure") => true,
             Tok::Ident(_) | Tok::Kw("none" | "unsafe") | Tok::Sym("&" | "&&" | "*" | "**") => {
                 let from = (self.peek() == &Tok::Kw("unsafe")) as usize;
                 match self.type_end(from) {
@@ -376,6 +379,8 @@ impl Parser<'_> {
         let mut lives = Vec::new();
         let mut lives_span = None;
         let mut lives_from = false;
+        let mut fails = Vec::new();
+        let mut fails_span = None;
         loop {
             match self.peek() {
                 Tok::Kw("lives") => {
@@ -394,13 +399,19 @@ impl Parser<'_> {
                     lives_span = Some(at.to(self.prev_span()));
                 }
                 Tok::Kw("fails") => {
-                    return Err(Diagnostic::at(&codes::E0901, self.span(), "`fails` is not supported yet"));
+                    if let Some(first) = fails_span {
+                        return Err(Diagnostic::at(&codes::E0003, self.span(), "`fails` is written twice")
+                            .label(first, "first written here"));
+                    }
+                    let at = self.bump().span;
+                    fails = self.name_list("a failure type name after `fails`")?;
+                    fails_span = Some(at.to(self.prev_span()));
                 }
                 _ => break,
             }
         }
         let body = self.block()?;
-        Ok(Func { ret, name, name_span, params, body, is_unsafe, lives, lives_span, lives_from, span })
+        Ok(Func { ret, name, name_span, params, body, is_unsafe, lives, lives_span, lives_from, fails, fails_span, span })
     }
 
     /// `self or key or other`, after `lives from`.
@@ -494,6 +505,67 @@ impl Parser<'_> {
                 .help(format!("write one: `enum {name} {{ First, Second }}`")));
         }
         Ok(Enum { name, name_span, variants })
+    }
+
+    /// `failure Name { Variant "message" exit N, Variant(Type v) "msg ${v}", }`
+    fn failure_decl(&mut self) -> Parsed<Failure> {
+        self.bump();
+        let (name, name_span) = self.ident("a failure name")?;
+        let open = self.expect("{")?;
+        let mut variants = Vec::new();
+        while self.peek() != &Tok::Sym("}") {
+            if matches!(self.peek(), Tok::Eof | Tok::Kw("struct" | "enum" | "failure")) {
+                return Err(Diagnostic::at(&codes::E0004, open, "this `{` is never closed")
+                    .label(self.span(), format!("expected `}}` before {}", self.peek().describe())));
+            }
+            let (vname, vspan) = match self.peek().clone() {
+                Tok::Ident(n) => (n, self.bump().span),
+                _ => {
+                    return Err(self
+                        .unexpected("a variant name")
+                        .help("each variant of a failure is written `Name \"message\"` or `Name(Type value) \"message\"`"))
+                }
+            };
+            let mut fields = Vec::new();
+            if self.eat("(") {
+                while self.peek() != &Tok::Sym(")") {
+                    let ty = self.ty()?;
+                    let (fname, fspan) = self.ident("a name for the value")?;
+                    fields.push(Field { public: true, mutable: false, ty, name: fname, name_span: fspan });
+                    if !self.eat(",") {
+                        break;
+                    }
+                }
+                self.expect(")")?;
+            }
+            if !matches!(self.peek(), Tok::Str(_)) {
+                return Err(Diagnostic::at(&codes::E0003, vspan, "a failure variant needs a message")
+                    .note(format!("`{vname}` has no message"))
+                    .help(format!("write the message after the name: `{vname} \"what went wrong\"`")));
+            }
+            let message = self.primary()?;
+            let exit = if self.peek() == &Tok::Kw("exit") {
+                self.bump();
+                match self.peek().clone() {
+                    Tok::Num(NumLit { value: Const::Int(v), suffix: None, .. }, None) => {
+                        let span = self.bump().span;
+                        Some((v.to_u64().unwrap_or(u64::MAX), span))
+                    }
+                    _ => return Err(self.unexpected("an exit code").help("write the number the program exits with: `exit 2`")),
+                }
+            } else {
+                None
+            };
+            variants.push(FailVariant { name: vname, name_span: vspan, fields, message, exit });
+            if !self.eat(",") {
+                break;
+            }
+        }
+        if self.peek() != &Tok::Sym("}") {
+            return Err(self.unexpected("`,` or `}`").help("separate the variants with commas"));
+        }
+        self.bump();
+        Ok(Failure { name, name_span, variants })
     }
 
     /// Does a `def` declaration start here? `def` is a context word: elsewhere
@@ -795,6 +867,18 @@ impl Parser<'_> {
                 };
                 self.end_jump("skip")?;
                 Ok(Stmt::Skip { target, span: start.to(self.prev_span()) })
+            }
+            Tok::Kw("fail") => {
+                self.bump();
+                let value = self.expr()?;
+                let because = if self.peek() == &Tok::Kw("because") {
+                    self.bump();
+                    Some(self.expr()?)
+                } else {
+                    None
+                };
+                self.expect(";")?;
+                Ok(Stmt::Fail { value, because, span: start.to(self.prev_span()) })
             }
             Tok::Kw("return") => {
                 self.bump();
@@ -1309,6 +1393,9 @@ impl Parser<'_> {
         let mut e = self.primary()?;
         let mut calls = 0;
         loop {
+            if matches!(self.peek(), Tok::Kw("maybe" | "fails")) && matches!(e.kind, ExprKind::Call { .. } | ExprKind::Method { .. } | ExprKind::New { .. }) {
+                return self.call_suffix(e);
+            }
             let sym = match self.peek() {
                 Tok::Sym(s @ ("::" | "->" | "++" | "--" | ".")) => *s,
                 _ => return Ok(e),
@@ -1380,6 +1467,34 @@ impl Parser<'_> {
             let span = e.span.to(self.prev_span());
             e = Expr { kind: ExprKind::Method { recv: Box::new(e), name, name_span, targs, unit, args }, span, paren: false };
         }
+    }
+
+    /// `call maybe fallback` or `call fails`, after the call. The fallback is a
+    /// single operand; anything longer needs parentheses.
+    fn call_suffix(&mut self, call: Expr) -> Parsed<Expr> {
+        let word = self.bump();
+        if word.tok == Tok::Kw("fails") {
+            if self.peek() == &Tok::Kw("with") {
+                return Err(Diagnostic::at(&codes::E0901, self.span(), "`fails with` is not supported yet"));
+            }
+            let span = call.span.to(word.span);
+            return Ok(Expr { kind: ExprKind::PassUp(Box::new(call)), span, paren: false });
+        }
+        if matches!(self.peek(), Tok::Sym(";" | ")" | "," | "}")) {
+            return Err(Diagnostic::at(&codes::E0003, word.span, "`maybe` needs a value to fall back to")
+                .note("nothing after `maybe`")
+                .help("write the value to use when the call fails: `parse(s) maybe 0`"));
+        }
+        let fallback = self.unary()?;
+        if let Tok::Sym(s) = self.peek()
+            && binop(s).is_some()
+        {
+            return Err(Diagnostic::at(&codes::E0003, fallback.span, "a `maybe` fallback is a single value")
+                .note(format!("the `{s}` after it would continue the fallback"))
+                .help("put the fallback in parentheses, `call maybe (a + b)`, or the call and its fallback, `(call maybe a) + b`"));
+        }
+        let span = call.span.to(fallback.span);
+        Ok(Expr { kind: ExprKind::Maybe { call: Box::new(call), fallback: Box::new(fallback) }, span, paren: false })
     }
 
     /// `(a, b, c)`
