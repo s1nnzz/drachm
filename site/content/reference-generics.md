@@ -8,8 +8,8 @@ description: Generic functions, type arguments and how they are worked out, how 
 A generic function is written once and works for many types. The compiler
 makes one real function for each set of types it is called with, so a generic
 call is exactly as fast as one written out by hand. This page states the
-rules for what builds today; constraints and generic units are at the end,
-marked. The [lesson](lesson-15-generics.md) and
+rules for what builds today, then interfaces and constraints; generic units
+are at the end, marked. The [lesson](lesson-15-generics.md) and
 the [guide](guide-generics.md) introduce the ideas.
 
 ## Generic functions
@@ -76,8 +76,9 @@ write `&T` in the parameter instead.
 
 ## How a generic function is checked
 
-A generic function has no constraints yet, so nothing is checked where it is
-written. Each call makes an instance, a function for those types, and the
+A generic function with no constraint on its parameters is not checked where
+it is written (see [Constraints](#constraints) for the ones that have one).
+Each call makes an instance, a function for those types, and the
 instance is checked as if the types had been written in the function by hand.
 Two calls with the same types share one instance. Calls with different types
 make different functions, named `max<uint32>` and `max<float64>` in messages
@@ -180,12 +181,173 @@ type, and can be mixed freely.
 
 <!-- example: gen-optional -->
 
-## Constraints
+## Interfaces
+
+An interface lists what a type must have: method signatures, `static`
+signatures and required fields. It has no method bodies. A struct says which
+interfaces it implements with `with`, several joined by `and`, and the
+compiler checks it once every declaration has been read.
+
+<!-- example: iface-shape -->
+
+A struct implements an interface method with a method of the same name,
+`public`, with the same parameters and result and the same `static`ness.
+Operator methods can be listed too (`bool <(Self o);`). A struct's own `==`
+and `!=` need no method: every struct has them.
+
+- A method missing, or only written under `private:`, is E0610.
+- A method with other parameters, another result or a different `static` is
+  E0611.
+- A required field missing, of another type, or not `public` is E0614.
+- An unknown name after `with` or `extends` is E0201, and an interface name
+  can not be used as the name of a struct, enum or other interface (E0202).
+
+```text
+error[E0610]: `Circle` says `with Shape`, but has no method `unit`
+  --> iface_missing.drh:6:20
+   |
+ 3 |     static Self unit();
+   |            ----------- `Shape` promises `unit`
+  ...
+ 6 | struct Circle with Shape {
+   |                    ^^^^^ `Shape` needs a `static` method `unit`
+   |
+ help: add `static Circle unit() { ... }` to `Circle`
+```
+
+`extends` makes an interface include another's members: `interface Placed
+extends Shape and Positioned`. A struct that implements `Placed` implements
+`Shape` and `Positioned` too. Two parents with a member of the same name need
+equal signatures, and an interface that extends itself, directly or through
+others, is E0615.
+
+## Self
+
+Inside an interface, `Self` stands for the type that implements it, so
+`static Self zero();` means `static Circle zero()` for `Circle` and `static
+Cube zero()` for `Cube`. It is a reserved word with no meaning outside an
+interface (E0616): in a struct, write its name.
+
+## Methods that change self
+
+A struct method's mode is worked out from its body: it either reads `self` or
+changes it. An interface cannot see a body, so a method that may change
+`self` says so after its parameters. A struct method may change `self` only
+where the interface method says `changes self`; changing less is fine. A
+method that writes only `mut` fields counts as changing. Writing `changes
+self` anywhere but in an interface is E0613. (`changes` is an ordinary name
+everywhere else.)
+
+<!-- example: iface-counter -->
+
+```text
+error[E0612]: `Hits::get` changes `self`, but `Counter::get` does not say `changes self`
+   --> iface_changes.drh:15:20
+    |
+  3 |     uint32 get();
+    |     ------------ `Counter::get` promises not to change `self`
+   ...
+ 15 |     uint32 get() { self.n += 1; return self.n; }
+    |                    ^^^^^^ changes `self.n` here
+    |
+ help: add `changes self` to `Counter::get`: `uint32 get() changes self;`, or stop changing `self`
+```
+
+## Interfaces as types
 <!-- status: not-implemented -->
 
-`T with Shape and Drawable` requires the type to implement interfaces, and is
-checked once at the definition. Today a `with` in a type parameter list is
-E0901. See [Generics and interfaces](design-generics.md).
+An interface can only be borrowed, never held: `Shape s` and `Shape[?]` are
+E0617. Borrowing one, `&Shape`, would call the methods through the value's
+real type while the program runs, which is not built yet (E0901). A generic
+function constrained by an interface does not need it.
+
+## Constraints
+
+`T with Shape` after a type parameter asks for a type that implements the
+interface; `T with Shape and Drawable` asks for several. It works on generic
+functions and on generic structs, and `T` can be given a constraint while
+another parameter in the same list has none.
+
+<!-- example: iface-total -->
+
+A constrained generic is checked twice, in two different ways.
+
+**Where it is written**, once, whether or not anything uses it. The body is
+checked with `T` standing for a type that has only what the constraints
+promise: the methods of the interfaces and of the interfaces they extend,
+their required fields, and their `static` methods, called as `T::zero()`.
+Anything else is E0606, even if every type used so far happens to allow it.
+An operator on a `T` is E0606 unless an interface declares that operator
+method. A `T` can be passed to another constrained generic only if its own
+constraints include the other's; a method that says `changes self` needs a
+`&mut T` or a `mut` binding (E0311, E0312), whatever the type that is used
+later does. A constrained template nothing uses is therefore not reported as
+unused (no W0600).
+
+```text
+error[E0606]: `T` has no method `perimeter` that its constraint `Shape` promises
+  --> define.drh:9:53
+   |
+ 9 | float64 wrong_method<T with Shape>(T v) { return v::perimeter(); }
+   |                             ----- `T` is constrained here
+   |                                                     ^^^^^^^^^ not offered by `Shape`
+   |
+ note: in the definition of `wrong_method`
+ help: add it to `Shape`, or constrain `T` with an interface that has it
+```
+
+**At each use**, the type given for `T` must implement the interfaces
+(E0607). The instance is then an ordinary function or struct, so a call of
+`s::area()` is a direct call, with nothing looked up while the program runs.
+
+```text
+error[E0607]: `Triangle` does not implement `Shape`, which `total` asks of `T`
+   --> unmet.drh:26:5
+    |
+ 22 | float64 total<T with Shape>(T a) { return a::area(); }
+    |                      ----- `T` must implement `Shape`
+   ...
+ 26 |     total(t);
+    |     ^^^^^^^^ `T` is `Triangle` here
+    |
+ help: write `struct Triangle with Shape` and give it what `Shape` lists
+```
+
+A parameter with no constraint is checked per use, as before: what the body
+does with it is checked when a call gives it a type, and the error points at
+the body and the call. In a list that mixes the two, what depends on the
+unconstrained parameter waits for a use, and the rest is checked at the
+definition.
+
+## Types you do not own
+<!-- status: tentative -->
+
+Any type can promise an interface from outside its own declaration, by
+writing its name, `with`, the interface and the methods:
+`uint8 with Describe { string describe() { ... } }`. The declaration can be
+anywhere in the project. For a number type, `bool` or `string` the methods
+get the value as `self`; for a struct they join the struct's own methods
+(including its private fields). Operators and constructors cannot be given
+to a built-in type yet, and enums and generic instances cannot promise
+interfaces this way yet (E0901).
+
+The standard interfaces below are already built in for numbers and `string`,
+so `T with Ordered` works with `uint32` and `float64` without a declaration.
+A program that declares its own struct, enum or interface with one of these
+names uses its own instead; `uint32 with Zero { ... }` then promises that
+one.
+
+| Interface | Members | Implemented by |
+|---|---|---|
+| `Zero` | `static Self zero();` | numbers, `string` (`""`) |
+| `Equal` | `bool ==(Self o);` | numbers, `bool`, `string` |
+| `Ordered` (extends `Equal`) | `bool <(Self o);` and `<=`, `>`, `>=` | numbers |
+| `Text` | `string text();` | numbers, `bool` |
+
+The set and members above are the first attempt and may change. A struct can
+implement `Equal` without writing `==`, because every struct has one.
+
+<!-- example: iface-zero -->
 
 ## Generic over units
 <!-- status: tentative -->

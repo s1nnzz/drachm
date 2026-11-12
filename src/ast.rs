@@ -13,6 +13,11 @@ pub struct Program {
     pub funcs: Vec<Func>,
     pub structs: Vec<Struct>,
     pub enums: Vec<Enum>,
+    /// `interface Name { ... }` declarations.
+    pub interfaces: Vec<Interface>,
+    /// `TYPE with Interface { ... }` declarations: a type promising an interface
+    /// from outside its own declaration.
+    pub impls: Vec<ImplDecl>,
     /// `failure Name { ... }` declarations.
     pub failures: Vec<Failure>,
     /// `def NAME of STRUCT { ... }` declarations, in the order written.
@@ -37,6 +42,8 @@ pub struct Struct {
     pub tparams: Vec<TypeParam>,
     /// From `struct` to the closing `}`.
     pub span: Span,
+    /// `with A and B`: the interfaces it implements.
+    pub with: Vec<TypeName>,
     /// `lives a, b`: the borrow fields it names.
     pub lives: Vec<(String, Span)>,
     /// The `stays` clause: never copied automatically.
@@ -49,6 +56,54 @@ pub struct Struct {
     pub auto_ctor: Option<Span>,
     pub fields: Vec<Field>,
     pub methods: Vec<Method>,
+}
+
+/// `interface Name extends A and B { signatures; static signatures; fields; }`
+#[derive(Debug, Clone)]
+pub struct Interface {
+    pub name: String,
+    pub name_span: Span,
+    /// `<T>` after the name (not supported yet).
+    pub tparams: Vec<TypeParam>,
+    pub extends: Vec<TypeName>,
+    pub methods: Vec<IMethod>,
+    /// Required fields.
+    pub fields: Vec<IField>,
+    /// From `interface` to the closing `}`.
+    pub span: Span,
+}
+
+/// A method an interface lists: a signature, no body.
+#[derive(Debug, Clone)]
+pub struct IMethod {
+    pub is_static: Option<Span>,
+    pub operator: Option<BinOp>,
+    pub name: String,
+    pub name_span: Span,
+    pub ret: TypeName,
+    pub params: Vec<Param>,
+    /// `changes self` after the parameters.
+    pub changes_self: Option<Span>,
+    /// From the return type to the end of the signature.
+    pub span: Span,
+}
+
+/// A field an interface requires.
+#[derive(Debug, Clone)]
+pub struct IField {
+    pub ty: TypeName,
+    pub name: String,
+    pub name_span: Span,
+}
+
+/// `TYPE with A and B { methods }`: the methods that make `TYPE` implement
+/// the interfaces, written outside the type's own declaration.
+#[derive(Debug)]
+pub struct ImplDecl {
+    pub ty: TypeName,
+    pub with: Vec<TypeName>,
+    pub methods: Vec<Method>,
+    pub span: Span,
 }
 
 /// `enum Name { Variant, Variant(Type name, ...), }`

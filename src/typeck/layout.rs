@@ -22,6 +22,14 @@ pub(super) struct Cache {
 }
 
 impl Globals {
+    /// Forgets the memoised answers (after types were removed again).
+    pub(super) fn reset_layout_answers(&self) {
+        let mut c = self.layouts.borrow_mut();
+        c.owns.clear();
+        c.size.clear();
+        c.copy.clear();
+    }
+
     /// Records which types `report_cycles` found in a cycle: the structs by id,
     /// then the enums (`structs.len() + id`).
     pub(super) fn mark_cyclic(&self, cyclic: &[bool]) {

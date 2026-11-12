@@ -1,0 +1,12 @@
+interface Shape {
+    float64 area();
+}
+
+struct Pair<T with Shape> {
+public:
+    T a;
+    T b;
+    float64 sum() { return self.a::area() + self.b::volume(); }
+}
+
+none main() { }

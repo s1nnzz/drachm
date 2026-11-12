@@ -1,0 +1,25 @@
+in io;
+
+// A program can declare its own Zero, and then structs implement it.
+interface Zero { static Self zero(); }
+
+struct Metres with Zero {
+public:
+    float64 v;
+    static Metres zero() { return new Metres of (0.0); }
+}
+
+struct Count with Zero {
+public:
+    uint32 n;
+    static Count zero() { return new Count of (0); }
+}
+
+T zero_of<T with Zero>() { return T::zero(); }
+
+none main() {
+    Metres m = zero_of<Metres>();
+    Count c = zero_of<Count>();
+    io::outln(m.v::text());
+    io::outln(c.n::text());
+}

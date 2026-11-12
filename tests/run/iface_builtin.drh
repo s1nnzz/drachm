@@ -1,0 +1,51 @@
+in io;
+
+struct Version with Ordered {
+public:
+    uint32 major;
+    uint32 minor;
+    bool ==(Version o) { return self.major == o.major && self.minor == o.minor; }
+    bool <(Version o) { return self.major < o.major || (self.major == o.major && self.minor < o.minor); }
+    bool <=(Version o) { return self.major < o.major || (self.major == o.major && self.minor <= o.minor); }
+    bool >(Version o) { return o < self; }
+    bool >=(Version o) { return o <= self; }
+}
+
+struct Tag with Equal and Text {
+public:
+    uint32 id;
+    string text() { return f"tag${self.id}"; }
+}
+
+T biggest<T with Ordered>(T a, T b) {
+    if (a > b) { return a; }
+    return b;
+}
+
+bool same<T with Equal>(T a, T b) { return a == b && !(a != b) == true; }
+
+string show<T with Text>(T v) { return v::text(); }
+
+T smallest_or_zero<T with Ordered and Zero>(T a) {
+    if (a < T::zero()) { return T::zero(); }
+    return a;
+}
+
+none main() {
+    io::outln(biggest(3, 9)::text());
+    io::outln(biggest(2.5, 1.5)::text());
+    Version a = 1, 4;
+    Version b = 1, 10;
+    Version c = biggest(a, b);
+    io::outln(c.minor::text());
+    io::outln(same(7, 7)::text());
+    io::outln(same("ab", "ab")::text());
+    Tag t1 = 1;
+    Tag t2 = 1;
+    io::outln(same(t1, t2)::text());
+    io::outln(show(t1));
+    io::outln(show(true));
+    io::outln(show(12));
+    sint32 neg = -4;
+    io::outln(smallest_or_zero(neg)::text());
+}

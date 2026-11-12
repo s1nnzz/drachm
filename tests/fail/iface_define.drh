@@ -1,0 +1,25 @@
+interface Shape {
+    float64 area();
+}
+
+interface Drawable {
+    none draw();
+}
+
+float64 wrong_method<T with Shape>(T v) { return v::perimeter(); }
+
+bool wrong_operator<T with Shape>(T a, T b) { return a > b; }
+
+float64 wrong_field<T with Shape>(T a) { return a.x; }
+
+none draw_it<T with Drawable>(T d) { d::draw(); }
+
+none needs_draw<T with Shape>(T a) { draw_it(a); }
+
+// Checked here even though nothing calls it, and fine.
+float64 fine<T with Shape, U>(T a, U b) { return a::area(); }
+
+// `U` has no constraint, so what depends on it waits for a call (Q1).
+float64 loose<T with Shape, U>(T a, U b) { return b::foo(); }
+
+none main() { }

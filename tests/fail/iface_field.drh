@@ -1,0 +1,24 @@
+interface Positioned {
+    float64 x;
+    float64 y;
+}
+
+struct Dot with Positioned {
+public:
+    float64 x;
+private:
+    float64 y;
+}
+
+struct Pin with Positioned {
+public:
+    uint32 x;
+    float64 y;
+}
+
+struct Empty with Positioned {
+public:
+    float64 z;
+}
+
+none main() { }

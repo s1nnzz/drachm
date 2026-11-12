@@ -1,0 +1,1 @@
+error[E0616]: `Self` only means something inside an interface

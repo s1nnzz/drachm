@@ -1,0 +1,51 @@
+in io;
+
+interface Shape {
+    float64 area();
+}
+
+interface Named {
+    string name();
+}
+
+struct Sq with Shape and Named {
+public:
+    float64 s;
+    float64 area() { return self.s * self.s; }
+    string name() { return "square"; }
+}
+
+struct Rect with Shape {
+public:
+    float64 w;
+    float64 h;
+    float64 area() { return self.w * self.h; }
+}
+
+// Box2 implements Shape when what it holds does.
+struct Box2<T with Shape> with Shape {
+public:
+    T inner;
+    float64 area() { return self.inner::area() * 2.0; }
+}
+
+float64 total<T with Shape>(T a, T b) { return a::area() + b::area(); }
+
+float64 describe<T with Shape and Named>(T x) {
+    io::outln(x::name());
+    return x::area();
+}
+
+float64 twice_total<T with Shape>(T a) { return total(a, a); }
+
+none main() {
+    Sq a = 2.0;
+    Sq b = 3.0;
+    io::outln(total(a, b)::text());
+    Rect r = 2.0, 5.0;
+    io::outln(twice_total(r)::text());
+    io::outln(describe(a)::text());
+    Box2<Sq> bx = new Box2<Sq> of (a);
+    io::outln(bx::area()->text());
+    io::outln(total<Box2<Sq>>(bx, bx)::text());
+}

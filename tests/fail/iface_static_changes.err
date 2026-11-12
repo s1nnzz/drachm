@@ -1,0 +1,1 @@
+error[E0613]: a `static` method has no `self` to change

@@ -1,0 +1,40 @@
+in io;
+
+interface Shape {
+    float64 area();
+    static Self unit();
+}
+
+interface Named {
+    string name();
+}
+
+interface Solid extends Shape and Named {
+    float64 volume();
+}
+
+struct Circle with Shape and Named {
+public:
+    float64 r;
+    float64 area() { return 3.0 * self.r * self.r; }
+    static Circle unit() { return new Circle of (1.0); }
+    string name() { return "circle"; }
+}
+
+struct Cube with Solid {
+public:
+    float64 side;
+    float64 area() { return 6.0 * self.side * self.side; }
+    static Cube unit() { return new Cube of (1.0); }
+    string name() { return "cube"; }
+    float64 volume() { return self.side * self.side * self.side; }
+}
+
+none main() {
+    Circle c = 2.0;
+    Cube k = 2.0;
+    io::outln(c::area()->text());
+    io::outln(k::volume()->text());
+    io::outln(k::name());
+    io::outln(Circle::unit()->area()->text());
+}

@@ -1,0 +1,22 @@
+in io;
+
+// A method that may change `self` says so in the interface. The struct's
+// own methods stay inferred: `bump` writes a field, `get` only reads.
+interface Counter {
+    none bump() changes self;
+    uint32 get();
+}
+
+struct Hits with Counter {
+    public:
+    uint32 n;
+    none bump() { self.n += 1; }
+    uint32 get() { return self.n; }
+}
+
+none main() {
+    mut Hits h = 0;
+    h::bump();
+    h::bump();
+    io::outln(f"${h::get()} hits");
+}

@@ -1,0 +1,8 @@
+interface Shape {
+    float64 area();
+}
+
+none show(Shape s) { }
+none borrowed(&Shape s) { }
+
+none main() { }

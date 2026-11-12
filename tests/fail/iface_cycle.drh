@@ -1,0 +1,8 @@
+interface A extends B { none a(); }
+interface B extends A { none b(); }
+interface C extends C { none c(); }
+interface D { uint32 f(); }
+interface E { string f(); }
+interface F extends D and E { none g(); }
+
+none main() { }

@@ -10,7 +10,7 @@ Point bad_struct<Point>(sint32 a) { return new Point of (a, a); }
 T bad_enum<Colour>(T a) { return a; }
 T bad_type<uint32>(T a) { return a; }
 
-// E0901: constraints and unit parameters are not built yet.
+// E0201: an unknown interface; E0901: unit parameters are not built yet.
 T bounded<T with Shape>(T a) { return a; }
 T unitful<unit U>(T a) { return a; }
 

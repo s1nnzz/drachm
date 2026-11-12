@@ -1,0 +1,49 @@
+in io;
+
+// The program's own Zero. Types it does not own promise it from outside.
+interface Zero { static Self zero(); }
+
+interface Label {
+    string label();
+}
+
+struct Point {
+public:
+    float64 x;
+    float64 y;
+}
+
+uint32 with Zero {
+    static uint32 zero() { return 0; }
+}
+
+string with Zero {
+    static string zero() { return "none"; }
+}
+
+// Point's own declaration did not say it, but it can promise from here.
+Point with Zero and Label {
+    static Point zero() { return new Point of (0.0, 0.0); }
+    string label() { return f"point ${self.x},${self.y}"; }
+}
+
+uint8 with Label {
+    string label() { return f"byte ${self}"; }
+}
+
+T zero_of<T with Zero>() { return T::zero(); }
+
+string show<T with Label>(T v) { return v::label(); }
+
+none main() {
+    uint32 a = zero_of<uint32>();
+    string s = zero_of<string>();
+    Point p = zero_of<Point>();
+    io::outln(a::text());
+    io::outln(s);
+    io::outln(show(p));
+    uint8 b = 7;
+    io::outln(show(b));
+    io::outln(b::label());
+    io::outln(uint32::zero()->text());
+}

@@ -1,0 +1,12 @@
+interface Zero2 { static Self zero(); }
+
+uint32 with Zero2 {
+    static uint8 zero() { return 0; }
+}
+
+// Already built in.
+uint32 with Zero {
+    static uint32 zero() { return 1; }
+}
+
+none main() { }

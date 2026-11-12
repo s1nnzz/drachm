@@ -1,0 +1,30 @@
+interface Shape {
+    float64 area();
+}
+
+struct Triangle {
+public:
+    float64 b;
+    float64 h;
+}
+
+struct Sq with Shape {
+public:
+    float64 s;
+    float64 area() { return self.s; }
+}
+
+struct Holder<T with Shape> {
+public:
+    T inner;
+}
+
+float64 total<T with Shape>(T a) { return a::area(); }
+
+none main() {
+    Triangle t = 1.0, 2.0;
+    total(t);
+    total(5);
+    Holder<Triangle> h = new Holder<Triangle> of (t);
+    Holder<Sq> ok = new Holder<Sq> of (new Sq of (1.0));
+}

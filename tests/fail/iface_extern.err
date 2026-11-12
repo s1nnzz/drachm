@@ -1,0 +1,3 @@
+error[E0611]: `uint32::zero` returns `uint8`, but `Zero2::zero` returns `uint32`
+error[E0202]: `uint32` already implements `Zero`
+error[E0202]: `uint32` has two methods named `zero`

@@ -3,7 +3,7 @@ first declared here
 error[E0605]: type parameter `Point` is also the name of a struct
 error[E0605]: type parameter `Colour` is also the name of an enum
 error[E0605]: type parameter `uint32` is also the name of a type
-error[E0901]: constraints (`with`) on a type parameter are not supported yet
+error[E0201]: unknown interface `Shape`
 error[E0901]: unit parameters (`unit U`) are not supported yet
 error[E0202]: function `dup` is defined twice
 error[E0602]: `Point` takes no type arguments

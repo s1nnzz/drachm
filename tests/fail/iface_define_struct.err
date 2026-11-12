@@ -1,0 +1,2 @@
+error[E0606]: `T` has no method `volume` that its constraint `Shape` promises
+in the definition of `Pair`

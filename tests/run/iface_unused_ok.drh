@@ -1,0 +1,29 @@
+in io;
+
+interface Shape {
+    float64 area();
+    static Self unit();
+    float64 x;
+}
+
+interface Solid extends Shape {
+    float64 volume();
+}
+
+// Nothing uses these, so they are checked only where they are written.
+float64 big<T with Solid>(T a, T b) {
+    T c = T::unit();
+    if (a::volume() > b::volume()) { return a::area() + c::area() + a.x; }
+    return b::area() + b.x;
+}
+
+struct Pair<T with Shape> {
+public:
+    T a;
+    T b;
+    float64 sum() { return self.a::area() + self.b::area(); }
+}
+
+none main() {
+    io::outln("fine");
+}

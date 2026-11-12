@@ -1,0 +1,3 @@
+error[E0615]: `A` and `B` extend each other
+error[E0615]: `C` extends itself
+error[E0615]: `F` gets two different `f` methods

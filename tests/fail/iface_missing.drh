@@ -1,0 +1,12 @@
+interface Shape {
+    float64 area();
+    static Self unit();
+}
+
+struct Circle with Shape {
+public:
+    float64 r;
+    float64 area() { return self.r; }
+}
+
+none main() { }

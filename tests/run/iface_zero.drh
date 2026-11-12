@@ -1,0 +1,19 @@
+in io;
+
+// The built-in Zero is there for numbers and string.
+T zero_of<T with Zero>() { return T::zero(); }
+
+T first_or_zero<T with Zero>(T x, bool use) {
+    if (use) { return x; }
+    return T::zero();
+}
+
+none main() {
+    uint8 a = zero_of<uint8>();
+    float64 f = first_or_zero(2.5, false);
+    string s = zero_of<string>();
+    io::outln(a::text());
+    io::outln(f::text());
+    io::outln(f"[${s}]");
+    io::outln(first_or_zero(7, true)::text());
+}

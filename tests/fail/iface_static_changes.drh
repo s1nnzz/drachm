@@ -1,0 +1,5 @@
+interface Z {
+    static Self zero() changes self;
+}
+
+none main() { }

@@ -1,0 +1,41 @@
+in io;
+
+interface Named {
+    string name();
+}
+
+interface Shape extends Named {
+    float64 area();
+}
+
+interface Solid extends Shape {
+    float64 volume();
+    float64 height;
+}
+
+struct Box3 with Solid {
+public:
+    float64 w;
+    float64 height;
+    string name() { return "box"; }
+    float64 area() { return self.w * self.w; }
+    float64 volume() { return self.w * self.w * self.height; }
+}
+
+// Only what the constraint and what it extends promise can be used.
+string label<T with Solid>(T s) {
+    return f"${s::name()} ${s::area()} ${s::volume()} ${s.height}";
+}
+
+// A `Solid` is a `Shape` and a `Named`, so it can be passed on.
+string just_name<T with Named>(T n) { return n::name(); }
+
+string via_shape<T with Shape>(T s) { return just_name(s) + f" ${s::area()}"; }
+
+string via_solid<T with Solid>(T s) { return via_shape(s); }
+
+none main() {
+    Box3 b = 2.0, 3.0;
+    io::outln(label(b));
+    io::outln(via_solid(b));
+}

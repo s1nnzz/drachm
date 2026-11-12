@@ -691,6 +691,53 @@ codes! {
     E0609: "a unit parameter used as a type",
         "`unit U` declares a unit, so it can only be used inside the `<>` of a\n\
          number type: `float64<U>`. A type parameter would be written `<T>`.";
+    E0606: "beyond the constraint",
+        "Inside a generic function or struct whose type parameter has a\n\
+         constraint (`T with Shape`), a value of type `T` can only do what the\n\
+         interface promises: call its methods, read its required fields, call\n\
+         its `static` methods as `T::zero()`. Anything else, such as another\n\
+         method or an operator the interface does not declare, is an error in\n\
+         the definition, even if every type used so far happens to allow it.\n\n\
+         \x20   float64 total<T with Shape>(T a) { return a::perimeter(); }   // error";
+    E0607: "constraint not met",
+        "A generic function or struct was used with a type that does not\n\
+         implement the interface its type parameter asks for (`T with Shape`).\n\
+         A struct implements an interface by naming it: `struct Triangle with\n\
+         Shape`, and giving it the methods the interface lists.";
+    E0610: "interface method missing",
+        "A struct says `with Shape`, but has no public method for one of the\n\
+         methods `Shape` lists. A method under `private:` does not count: an\n\
+         interface's methods are public.";
+    E0611: "interface method differs",
+        "A struct's method has the name of an interface method, but its\n\
+         parameters, its result or its `static` do not match. `Self` in the\n\
+         interface stands for the struct that implements it.";
+    E0612: "changes more than the interface allows",
+        "A struct method changes `self`, but the interface method it\n\
+         implements does not say `changes self`, so callers holding a shared\n\
+         borrow would be promised something the method breaks. Either add\n\
+         `changes self` to the interface method, or make the struct method stop\n\
+         changing `self`. (A method that writes only `mut` fields counts as\n\
+         changing.)";
+    E0613: "changes self out of place",
+        "`changes self` is only written after an interface method's\n\
+         parameters. A struct's methods and a function's mode are worked out\n\
+         from their bodies.";
+    E0614: "required field missing",
+        "An interface lists a field (`float64 x;`), so a struct that implements\n\
+         it needs a `public` field of that name and type.";
+    E0615: "interfaces clash",
+        "An interface extends itself (directly or through others), or extends\n\
+         two interfaces that have a member of the same name with different\n\
+         signatures, or lists the same member twice.";
+    E0616: "Self out of place",
+        "`Self` stands for the implementing type, so it only means something\n\
+         inside an interface. In a struct, write the struct's name.";
+    E0617: "interface used as a value type",
+        "An interface is only ever borrowed: a value, a field, a list item or a\n\
+         type argument cannot be `Shape` itself, because it could be any struct\n\
+         that implements it. Write `&Shape`, or use an enum for a closed set of\n\
+         choices.";
     E0620: "index outside an array",
         "An array has a fixed length, so an index written as a number can be\n\
          checked while the program is compiled. Valid indexes run from 0 to one\n\
