@@ -113,3 +113,7 @@ Q10 lists: negative indexes count from the end like text (`xs[-1]` is the last i
 Q11 moving an item out by index: `take xs[i] leaving v` (the list keeps its length), and also `take xs[i] reorders` (owner's note: moves the item out, fills the slot with the last item and shrinks; order not kept).
 Q12 array lengths as generic value parameters: `struct Buffer<T, uint32 N> { T[N] items; }`.
 Q13 a map key type with both `key()` and its own `==`: `key()` wins for maps; `==` stays what `==` is.
+Q14 float map keys are allowed, hashed and compared by bits: `NaN` equals itself, `-0.0` and `0.0` are different keys.
+Q15 methods with their own type parameters only through interface methods (`interface Mappable<T> { U[?] map<U>((T) => U f); }`); a struct's own methods use only the struct's parameters.
+Q16 walking a map: two bindings `for (string k, uint32 v of ages)`, or an iteration method (owner: "or an iteration method"; my reading: `ages::each((string k, uint32 v) => { ... })`).
+Q17 function values only go down: parameters, locals, calls; storing one in a struct/list or returning it is an error (`move` lambdas too).
