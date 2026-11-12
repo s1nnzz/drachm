@@ -33,7 +33,8 @@
     {
       "title": "Guides",
       "pages": [
-        "guide-errors-handling"
+        "guide-errors-handling",
+        "guide-enums-optionals"
       ]
     },
     {
