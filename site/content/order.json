@@ -35,6 +35,11 @@
       "pages": [
         "guide-from-python-js",
         "guide-from-c",
+        "guide-errors",
+        "guide-numbers",
+        "guide-units",
+        "guide-text",
+        "guide-match",
         "guide-ownership",
         "guide-enums-optionals",
         "guide-structs",

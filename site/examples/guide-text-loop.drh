@@ -1,0 +1,30 @@
+in io;
+
+none main() {
+    // `string c` gives a copy of each character, which you may keep.
+    mut string reversed = "";
+    for (string c of "hello") {
+        reversed = c + reversed;
+    }
+    io::outln(reversed);
+
+    // `&string c` is a borrowed view. `copy c` keeps one past the loop.
+    mut uint32 vowels = 0;
+    mut string last = "";
+    string word = "education";
+    for (&string c of word) {
+        last = copy c;
+        match (c) {
+            case "a", "e", "i", "o", "u" { vowels++; }
+            case _ {}
+        }
+    }
+    io::outln(f"${word} has ${vowels} vowels, ends in ${last}");
+
+    // The loop sees characters, not bytes.
+    mut uint32 rounds = 0;
+    for (&string c of "cafe\u{301} \u{1F468}\u{200D}\u{1F469}") {
+        rounds++;
+    }
+    io::outln(rounds::text());
+}

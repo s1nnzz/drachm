@@ -1,0 +1,29 @@
+in io;
+in si;
+
+none main() {
+    // A whole number cannot hold part of a kilometre.
+    uint32<m> metres = 1700;
+    uint32<km> km = metres::in<km>();
+    io::outln(km::text() + " " + km::unitText());
+
+    // Converting back does not bring the lost 700 m home.
+    uint32<m> back = km::in<m>();
+    io::outln(back::text());
+
+    // Decimals keep the fraction.
+    float64<km> exact = metres::to<float64>()->in<km>();
+    io::outln(exact::text());
+
+    // When units cancel, the result is a plain number.
+    float64 ratio = 4.0<km> / 2.0<m>;
+    io::outln(ratio::text());
+    float64<s> t = 4.0<s>;
+    float64<m/s> v = 8.0<m> / t;
+    float64 same = v * t / 8.0<m>;
+    io::outln(same::text());
+
+    // A frequency is one over a time.
+    float64<Hz> hz = 1.0 / t;
+    io::outln(hz::text() + " " + hz::unitText());
+}

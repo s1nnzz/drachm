@@ -1,0 +1,6 @@
+README: the readme
+cat.jpg: an image
+src/main.drh: source code
+src/deep/main.drh: source code
+a*b: exactly a*b
+axb: something else
