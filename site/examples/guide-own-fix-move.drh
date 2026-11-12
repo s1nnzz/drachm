@@ -1,0 +1,8 @@
+in io;
+
+none main() {
+    string a = "Illy";
+    string b = copy a;
+    io::outln(a);
+    io::outln(b);
+}

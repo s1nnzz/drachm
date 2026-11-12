@@ -1,0 +1,33 @@
+in io;
+
+struct Counter {
+public:
+    string label;
+    mut uint32 hits;
+
+    // writes only a `mut` field: allowed on a value you own, even if not `mut`
+    none hit() { self.hits++; }
+
+    // writes a plain field: needs a `mut` or `open` binding
+    none rename(string name) { self.label = name; }
+}
+
+none main() {
+    // not mut, not open: this binding never changes ...
+    Counter k = "page", 0;
+    // ... except its `mut` fields
+    k.hits++;
+    k::hit();
+    io::outln(k.label + " " + k.hits::text());
+
+    // open: contents may change, the binding is never reassigned
+    open Counter o = "home", 0;
+    o::rename("front");
+    o::hit();
+    io::outln(o.label + " " + o.hits::text());
+
+    // mut: contents may change and the binding may get a new value
+    mut Counter m = "a", 0;
+    m = o;
+    io::outln(m.label);
+}

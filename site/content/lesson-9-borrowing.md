@@ -247,5 +247,7 @@ none main() {
 }
 ```
 
-That is the end of the lessons. The Reference pages cover every rule in full,
+That is the end of the lessons. The [ownership and borrowing guide](guide-ownership.md)
+explains why the rules exist, walks through every borrow error and lists the
+common mistakes with their fixes. The Reference pages cover every rule in full,
 starting with [Types and numbers](reference-types.md).

@@ -1,0 +1,25 @@
+in io;
+
+struct Player {
+public:
+    string name;
+    string title;
+    uint32 hp;
+}
+
+none main() {
+    mut Player p = "Illy", "Dr", 10;
+
+    // copy: both keep a value
+    string c = copy p.name;
+    io::outln(c + " " + p.name);
+
+    // take ... leaving: move out and put a new value back in one step
+    string t = take p.title leaving "none";
+    io::outln(t + " -> " + p.title);
+
+    // plain take: p.name has no value until it is given one
+    string n = take p.name;
+    p.name = "Sam";
+    io::outln(n + " -> " + p.name);
+}

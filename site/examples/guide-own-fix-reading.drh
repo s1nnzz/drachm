@@ -1,0 +1,18 @@
+in io;
+
+struct Player {
+public:
+    mut uint32 hp;
+}
+
+none heal(&mut Player p) {
+    p.hp = p.hp + 1;
+}
+
+none main() {
+    mut Player p = 1;
+    &mut Player a = &mut p;
+    io::outln(a.hp::text());
+    heal(a);
+    io::outln(p.hp::text());
+}
