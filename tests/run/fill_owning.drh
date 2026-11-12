@@ -1,0 +1,31 @@
+in io;
+
+struct Player {
+    public:
+    string name;
+    uint32 hp;
+    string title;
+}
+
+Player make(string n) {
+    Player p;
+    fill p {
+        p.name = n;
+        p.hp = 2;
+        p.title = "made";
+    }
+    return p;
+}
+
+sint32 main() {
+    Player a;
+    fill a {
+        a.name = "Sam" + "!";
+        a.hp = 4;
+        a.title = "Oslo";
+    }
+    Player b = make("Ann");
+    io::outln(a.name + " " + a.title + " " + a.hp::text());
+    io::outln(b.name + " " + b.title + " " + b.hp::text());
+    return 0;
+}

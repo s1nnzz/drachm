@@ -1,12 +1,12 @@
 ---
 title: "Lesson 12: Constructors and defaults"
 description: Building structs with constructors, new ... of, fill blocks and def defaults.
-status: not-implemented
 ---
 
 # Lesson 12: Constructors and defaults
 
-The compiler can't run this lesson yet; the code shows the planned design.
+The examples in this lesson are real programs, except where a snippet shows one
+part of a program. Each `your turn` has a starter and a solution to compare with.
 
 **Goal:** control how a struct is built, and fill in a struct one field at a
 time, with defaults for the fields you skip.
@@ -83,6 +83,7 @@ none main() {
 21.5
 ```
 
+<!-- solution-of: solution-12-1 -->
 ```drachm solution
 in io;
 
@@ -143,14 +144,16 @@ The `def` sets two fields.
 
 ```drachm
 def PlayerStart of Player { hp = 100; title = "none"; }
-struct Player defaults PlayerStart { string name; uint32 hp; string title; }
+struct Player defaults PlayerStart { public: string name; uint32 hp; string title; }
 
 Player p;
 fill p with defaults { p.name = "Illy"; }
 ```
 
 When the `def` has the struct's own name there is a shorthand: write
-`def Player { ... }` and then `struct default Player { ... }`.
+`def Player { ... }` and then `struct default Player { ... }`. A block can also
+start from another def by name, `fill p with Veteran { }`, and a def can extend
+one with `from`.
 
 ### Your turn: fill with defaults
 
@@ -180,6 +183,7 @@ none main() {
 Bob 10 grunt
 ```
 
+<!-- solution-of: solution-12-2 -->
 ```drachm solution
 in io;
 

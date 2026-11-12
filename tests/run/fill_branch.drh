@@ -1,0 +1,24 @@
+in io;
+
+struct Player {
+    public:
+    string name;
+    uint32 hp;
+    string title;
+}
+
+sint32 main() {
+    uint32 n = 3;
+    Player p;
+    fill p {
+        if (n > 2) {
+            p.hp = 1;
+        } else {
+            p.hp = 2;
+        }
+        p.name = "Ana";
+        p.title = "t";
+    }
+    io::outln(p.name + " " + p.hp::text());
+    return 0;
+}

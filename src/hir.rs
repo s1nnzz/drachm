@@ -214,6 +214,24 @@ pub enum Stmt {
     Unsafe(Block),
     /// `destroy x;`: runs `drop()` now and ends the local.
     Destroy(Place),
+    /// A check of a value that is being filled or built (see `CheckKind`).
+    Check { local: LocalId, kind: CheckKind, span: Span },
+    /// `local.field = e` inside a `fill` block or a constructor: gives the
+    /// field its value (an initialisation, not a change).
+    InitField(Place, Expr),
+}
+
+/// Where a value that is being given its fields is checked (S5B).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CheckKind {
+    /// The start of a `fill`: the value must have no value at all yet
+    /// (`E0506`), or be partly filled already.
+    FillBegin,
+    /// The end of a `fill` block: every field must have a value (`E0505`).
+    FillEnd,
+    /// The end of a constructor, before `self` is returned: every field must
+    /// have a value (`E0504`).
+    CtorEnd,
 }
 
 pub struct Branch {
@@ -235,6 +253,7 @@ pub enum Jump {
     Next(Label, usize),
 }
 
+#[derive(Clone)]
 pub struct Expr {
     pub kind: ExprKind,
     pub ty: Type,
@@ -290,6 +309,7 @@ impl BinOp {
     }
 }
 
+#[derive(Clone)]
 pub enum ExprKind {
     /// The value's bits, zero-extended; only the low `bits` of the type are set.
     Int(u128),

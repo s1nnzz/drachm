@@ -1,0 +1,19 @@
+in io;
+
+struct Token {
+    public:
+    uint32 id;
+    static Token make(uint32 n) {
+        return new Token of (n * 10);
+    }
+    private:
+    Token(uint32 n) {
+        self.id = n;
+    }
+}
+
+sint32 main() {
+    Token t = Token::make(4);
+    io::outln(t.id::text());
+    return 0;
+}

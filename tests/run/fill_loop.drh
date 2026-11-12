@@ -1,0 +1,26 @@
+in io;
+
+struct Player {
+    public:
+    string name;
+    uint32 hp;
+    string title;
+}
+
+sint32 main() {
+    Player p;
+    fill p {
+        mut uint32 i = 0;
+        while (true) {
+            i++;
+            if (i == 3) {
+                p.hp = i;
+                break;
+            }
+        }
+        p.name = "Loop";
+        p.title = "x";
+    }
+    io::outln(p.name + " " + p.hp::text());
+    return 0;
+}

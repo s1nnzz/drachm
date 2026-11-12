@@ -1,0 +1,14 @@
+in io;
+
+struct Player {
+    public:
+    string name;
+    uint32 hp;
+    string title;
+}
+
+sint32 main() {
+    Player p = "a", 1, "b";
+    fill p { p.hp = 2; }
+    return 0;
+}

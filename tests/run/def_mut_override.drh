@@ -1,0 +1,17 @@
+in io;
+
+def Start of Pair { a = 1; b = 2; }
+struct Pair defaults Start {
+    public:
+    mut uint32 a;
+    mut uint32 b;
+}
+
+sint32 main() {
+    Pair p;
+    fill p with defaults {
+        p.a = 9;
+    }
+    io::outln(p.a::text() + " " + p.b::text());
+    return 0;
+}

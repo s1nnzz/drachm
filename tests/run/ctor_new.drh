@@ -1,0 +1,41 @@
+in io;
+
+struct Label {
+    public:
+    string text;
+    uint32 width;
+    Label(string t, uint32 w) {
+        self.text = t;
+        self.width = w;
+    }
+}
+
+struct Box {
+    public:
+    Label top;
+    uint32 depth;
+    Box(uint32 d) {
+        self.top = new Label of ("top", d);
+        self.depth = d;
+    }
+    static Box unit() {
+        return new Box of (1);
+    }
+}
+
+Label make(string t) {
+    return new Label of (t, 2);
+}
+
+sint32 main() {
+    Label l = make("hi");
+    Label named = w: 3, t: "named";
+    Box bx = 4;
+    Box u = Box::unit();
+    io::outln(l.text + " " + l.width::text());
+    io::outln(named.text + " " + named.width::text());
+    io::outln(bx.top.text + " " + bx.top.width::text() + " " + bx.depth::text());
+    io::outln(u.depth::text());
+    io::outln(new Label of ("x", 9).text);
+    return 0;
+}

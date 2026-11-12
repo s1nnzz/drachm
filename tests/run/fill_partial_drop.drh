@@ -1,0 +1,15 @@
+in io;
+
+struct Player {
+    public:
+    string name;
+    uint32 hp;
+    string title;
+}
+
+sint32 main() {
+    Player p;
+    fill partial p { p.name = "left"; }
+    io::outln("unfinished");
+    return 0;
+}

@@ -150,6 +150,19 @@ pub struct Statement {
     pub kind: StatementKind,
     pub span: Span,
     pub unsafe_ctx: bool,
+    /// What the checks of `check.rs` make of it (S5B).
+    pub mark: Mark,
+}
+
+/// Marks a statement for the initialisation checks of `check.rs` (S5B).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mark {
+    None,
+    /// An assignment to a field of a value being filled or built: it gives
+    /// the field its value, so it is not a write to a value with no value.
+    InitWrite,
+    /// A `FakeRead` that checks the value's fields (`hir::CheckKind`).
+    Check(hir::CheckKind),
 }
 
 #[derive(Debug)]

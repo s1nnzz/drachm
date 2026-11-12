@@ -1,0 +1,25 @@
+in io;
+
+def PlayerStart of Player { hp = 100; title = "none"; }
+def Veteran of Player from PlayerStart { hp = 200; }
+
+struct Player defaults PlayerStart {
+public:
+    string name;
+    uint32 hp;
+    string title;
+}
+
+sint32 main() {
+    Player p;
+    fill p with defaults {
+        p.name = "Illy";
+    }
+    Player v;
+    fill v with Veteran {
+        v.name = "Sam";
+    }
+    io::outln(p.name + " " + p.hp::text() + " " + p.title);
+    io::outln(v.name + " " + v.hp::text() + " " + v.title);
+    return 0;
+}

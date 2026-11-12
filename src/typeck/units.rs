@@ -1231,7 +1231,7 @@ fn visit_block(block: &mut hir::Block, f: &mut dyn FnMut(&mut Type)) {
 
 fn visit_stmt(s: &mut hir::Stmt, f: &mut dyn FnMut(&mut Type)) {
     match s {
-        hir::Stmt::Assign(_, e) | hir::Stmt::Expr(e) => visit_expr(e, f),
+        hir::Stmt::Assign(_, e) | hir::Stmt::Expr(e) | hir::Stmt::InitField(_, e) => visit_expr(e, f),
         hir::Stmt::If { branches, .. } => {
             for b in branches {
                 if let Some(test) = &mut b.test {
@@ -1253,7 +1253,7 @@ fn visit_stmt(s: &mut hir::Stmt, f: &mut dyn FnMut(&mut Type)) {
             }
         }
         hir::Stmt::Unsafe(body) => visit_block(body, f),
-        hir::Stmt::Jump(_) | hir::Stmt::Decl(_) | hir::Stmt::Destroy(_) => {}
+        hir::Stmt::Jump(_) | hir::Stmt::Decl(_) | hir::Stmt::Destroy(_) | hir::Stmt::Check { .. } => {}
     }
 }
 

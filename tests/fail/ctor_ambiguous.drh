@@ -1,0 +1,12 @@
+struct Port {
+    public:
+    float64 r;
+    Port(float64 radius) { self.r = radius; }
+    Port(uint32 whole) { self.r = 0.0; }
+}
+
+sint32 main() {
+    uint8 n = 5;
+    Port p = n;
+    return 0;
+}

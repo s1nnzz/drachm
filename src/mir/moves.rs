@@ -187,7 +187,15 @@ pub fn events(body: &Body, loc: Location) -> Vec<Event> {
                     out.push(Event::Move { place: place.clone(), span: s.span, cause: MoveCause::Drop });
                 }
             }
-            StatementKind::FakeRead(p) => read(p, s.span, &mut out),
+            // A completed `fill` or constructor is a whole value from here on
+            // (its fields were checked by `check.rs`); a begin is only a check.
+            StatementKind::FakeRead(p) => match s.mark {
+                Mark::Check(hir::CheckKind::FillEnd | hir::CheckKind::CtorEnd) => {
+                    out.push(Event::Init(Place::local(p.local)))
+                }
+                Mark::Check(_) => {}
+                _ => read(p, s.span, &mut out),
+            },
             StatementKind::Nop => {}
         }
     } else {

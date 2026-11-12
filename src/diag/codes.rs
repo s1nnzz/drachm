@@ -489,6 +489,45 @@ codes! {
          \x20   none read(*uint32 p) { unsafe { uint32 v = *p; } }\n\
          \x20   unsafe none bump(*uint32 p) { *p = *p + 1; }";
 
+    E0501: "no constructor accepts these values",
+        "A struct with constructors was built from values that none of them takes:\n\
+         the count is wrong, a name matches no parameter, or the types do not\n\
+         convert. The labels list every constructor's parameters.\n\n\
+         \x20   Circle(float64 radius) { ... }\n\
+         \x20   Circle c = \"five\";          // error: no constructor takes a string";
+    E0502: "more than one constructor fits equally well",
+        "Two constructors could take the values and neither is a better fit: for\n\
+         example `(float64)` and `(uint32)` both take a `uint8` without losing\n\
+         anything. Convert the value yourself so only one fits:\n\n\
+         \x20   Port p = 5::to<uint16>();";
+    E0503: "two constructors take the same types",
+        "Two constructors of one struct have the same parameter types, so a call\n\
+         could not tell them apart. Change the parameter types of one of them.";
+    E0504: "constructor leaves a field without a value",
+        "A constructor returns before every field of the struct has a value. Each\n\
+         field must be given one on every path to the end of the constructor:\n\n\
+         \x20   Player(string n) { self.name = n; }   // error: hp has no value";
+    E0505: "fill leaves a field without a value",
+        "A `fill` block ends before every field has a value. Give the field a value\n\
+         in the block, or end with `fill partial` and complete the value later.";
+    E0506: "fill of a value that already has one",
+        "`fill` gives the fields of a value that has no value yet. A value that is\n\
+         complete already cannot be filled; declare it without a value first\n\
+         (`Player p;`), or change its fields with plain assignments if it is `mut`.";
+    E0507: "value used before it is complete",
+        "A struct being filled, or a constructor's `self`, can only have its fields\n\
+         given values until every field has one. Reading it, borrowing it or calling\n\
+         a method on it is an error. A field that is already set can be read with\n\
+         `now`: `now p.hp * 2`.";
+    E0508: "no such def",
+        "A `def` name in `with NAME`, `from NAME` or `defaults NAME` names no def for\n\
+         the struct. Defs are written `def NAME of STRUCT { field = value; }`.";
+    E0509: "field or def given twice",
+        "A field gets two values in one `def` or `fill`, or two defs have the same\n\
+         name. Keep one of them.";
+    E0510: "no default def",
+        "`fill ... with defaults` needs the struct to name its default def, with\n\
+         `struct Player defaults PlayerStart { ... }` or `struct default Player { ... }`.";
     E0901: "not supported yet",
         "This is part of Drachm's design, but this version of the compiler does\n\
          not implement it yet.";

@@ -1,0 +1,11 @@
+struct Circle {
+    public:
+    float64 r;
+    Circle(float64 radius) { self.r = radius; }
+    Circle(uint32 whole) { self.r = 0.0; }
+}
+
+sint32 main() {
+    Circle c = "five";
+    return 0;
+}

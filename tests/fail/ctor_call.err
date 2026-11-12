@@ -1,0 +1,2 @@
+error[E0201]: unknown function `Circle`
+build a `Circle` with `new Circle of (...)`

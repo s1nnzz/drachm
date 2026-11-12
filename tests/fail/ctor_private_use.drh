@@ -1,0 +1,11 @@
+struct Token {
+    public:
+    uint32 id;
+    private:
+    Token(uint32 n) { self.id = n; }
+}
+
+sint32 main() {
+    Token t = 3;
+    return 0;
+}

@@ -2,7 +2,10 @@
 //! Turns the syntax tree into `hir`, reporting every problem it finds.
 //! Loops, jumps and `match` are in `control`; strings are in `strings`.
 
+mod construct;
 mod control;
+mod fill;
+mod overload;
 mod strings;
 mod units;
 
@@ -42,6 +45,12 @@ struct StructInfo {
     lives: Vec<usize>,
     /// The `drop()` method.
     has_drop: Option<FuncId>,
+    /// Written constructors (`construct.rs`).
+    ctors: Vec<construct::CtorInfo>,
+    /// `Person(auto);`: the automatic constructor stays next to the written ones.
+    auto_ctor: bool,
+    /// The default `def`, an index into `Globals::defs`.
+    default_def: Option<usize>,
 }
 
 struct FieldInfo {
@@ -90,6 +99,8 @@ struct Globals {
     struct_copy: Vec<bool>,
     /// The units declared in the file (`typeck::units`).
     units: std::cell::RefCell<units::UnitEnv>,
+    /// The `def`s of the file (`fill.rs`).
+    defs: Vec<fill::DefInfo>,
 }
 
 impl Globals {
@@ -289,6 +300,8 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
         })
         .collect();
 
+    fill::declare_defs(&mut g, src, prog, diags);
+
     // `copy` depends on which structs have a `drop()`, so layouts wait for the methods.
     let structs = lay_out(&g, &cyclic);
     g.struct_copy = structs.iter().map(|s| s.copy).collect();
@@ -319,14 +332,14 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
         }
     }
     for ((s, sid), mids) in prog.structs.iter().zip(&struct_ids).zip(&method_ids) {
-        for (m, mid) in s.methods.iter().zip(mids) {
+        for (j, (m, mid)) in s.methods.iter().zip(mids).enumerate() {
             let (Some(sid), Some(mid)) = (*sid, *mid) else { continue };
-            let word = m.operator.map_or(m.func.name.clone(), |op| format!("op_{}", op_word(op)));
+            let word = if m.ctor { format!("new{j}") } else { m.operator.map_or(m.func.name.clone(), |op| format!("op_{}", op_word(op))) };
             let symbol = format!("drachm_m_{}{}_{word}", s.name.len(), s.name);
-            let ctx = MethodCtx { struct_id: sid, func: mid, static_span: m.is_static };
+            let ctx = MethodCtx { struct_id: sid, func: mid, static_span: m.is_static, ctor: m.ctor };
             let checked = check_body(&mut g, src, diags, &m.func, Some(ctx), symbol);
             emit(&mut funcs, mid, checked);
-            if m.is_static.is_none() && m.operator.is_none() && !g.self_use[mid].used && m.func.name != "drop" {
+            if m.is_static.is_none() && m.operator.is_none() && !m.ctor && !g.self_use[mid].used && m.func.name != "drop" {
                 diags.push(
                     Diagnostic::at(&codes::W0208, m.func.name_span, format!("method `{}` never uses `self`", m.func.name))
                         .note("does not use `self`")
@@ -530,7 +543,7 @@ fn declare_struct(g: &mut Globals, s: &ast::Struct, diags: &mut Vec<Diagnostic>)
     }
     let id = g.structs.len();
     let ty = Type::Struct { id, name: types::intern(&s.name) };
-    g.structs.push(StructInfo { name: s.name.clone(), name_span: s.name_span, ty, fields: Vec::new(), methods: Vec::new(), owns: false, stays: s.stays.is_some(), lives: Vec::new(), has_drop: None });
+    g.structs.push(StructInfo { name: s.name.clone(), name_span: s.name_span, ty, fields: Vec::new(), methods: Vec::new(), owns: false, stays: s.stays.is_some(), lives: Vec::new(), has_drop: None, ctors: Vec::new(), auto_ctor: s.auto_ctor.is_some(), default_def: None });
     g.structs_by_name.insert(s.name.clone(), id);
     Some(id)
 }
@@ -556,6 +569,10 @@ fn declare_methods(g: &mut Globals, id: StructId, s: &ast::Struct, diags: &mut V
     let self_ty = g.structs[id].ty;
     let mut ids = Vec::new();
     for m in &s.methods {
+        if m.ctor {
+            ids.push(construct::declare_ctor(g, id, m, diags));
+            continue;
+        }
         let f = &m.func;
         let sig = Sig {
             name: format!("{}::{}", s.name, f.name),
@@ -853,6 +870,8 @@ struct MethodCtx {
     func: FuncId,
     /// The `static` keyword, if the method has one.
     static_span: Option<Span>,
+    /// A constructor: `self` starts with no value and is returned at the end.
+    ctor: bool,
 }
 
 fn check_body(g: &mut Globals, src: &str, diags: &mut Vec<Diagnostic>, f: &ast::Func, method: Option<MethodCtx>, symbol: String) -> hir::Func {
@@ -867,8 +886,11 @@ fn check_body(g: &mut Globals, src: &str, diags: &mut Vec<Diagnostic>, f: &ast::
         locals: Vec::new(),
         targets: Vec::new(),
         labels: 0,
+        filling: Vec::new(),
+        now_depth: 0,
+        ctor_self: None,
     };
-    let has_self = method.is_some_and(|m| m.static_span.is_none());
+    let has_self = method.is_some_and(|m| m.static_span.is_none() && !m.ctor);
     if let Some(m) = method.filter(|_| has_self) {
         let ty = cx.g.structs[m.struct_id].ty;
         let id = cx.declare("self", Some(ty), false, f.name_span, true);
@@ -887,7 +909,21 @@ fn check_body(g: &mut Globals, src: &str, diags: &mut Vec<Diagnostic>, f: &ast::
             );
         }
     }
-    let body = cx.block(&f.body);
+    // A constructor's `self` comes after the parameters, with no value yet; the
+    // body fills it and the function returns it.
+    let ctor_self = method.filter(|m| m.ctor).map(|m| {
+        let ty = cx.g.structs[m.struct_id].ty;
+        let id = cx.declare("self", Some(ty), true, f.name_span, false);
+        cx.locals[id].is_self = true;
+        cx.ctor_self = Some(id);
+        cx.filling.push(id);
+        (id, ty)
+    });
+    let mut body = cx.block(&f.body);
+    if let Some((id, ty)) = ctor_self {
+        body.push(hir::Stmt::Check { local: id, kind: hir::CheckKind::CtorEnd, span: f.body.end });
+        body.push(hir::Stmt::Return(Some(hir::Expr::new(hir::ExprKind::Local(id), ty))));
+    }
     let locals = cx
         .locals
         .into_iter()
@@ -1074,6 +1110,13 @@ struct Checker<'a> {
     targets: Vec<Target>,
     /// Labels handed out so far in this function.
     labels: hir::Label,
+    /// Locals that do not have all their fields yet: a constructor's `self`,
+    /// and a value inside its `fill` block.
+    filling: Vec<LocalId>,
+    /// Inside `now e`, where reading a field already set is allowed.
+    now_depth: u32,
+    /// The `self` of the constructor being checked.
+    ctor_self: Option<LocalId>,
 }
 
 fn int_lit(bits: u128, ty: Type) -> hir::Expr {
@@ -1199,6 +1242,14 @@ impl Checker<'_> {
             }
             Stmt::Assign { target, op, value, span } => match &target.kind {
                 ExprKind::Var(name) => self.assign_local(name, target.span, *op, value, *span, out),
+                ExprKind::SelfValue if self.ctor_self.is_some() => {
+                    // Delegation (one constructor building through another) is not supported yet.
+                    self.diags.push(
+                        Diagnostic::at(&codes::E0901, *span, "a constructor cannot give `self` a value from another constructor yet")
+                            .help("write the fields one by one: `self.x = ...;`"),
+                    );
+                    self.expr(value);
+                }
                 ExprKind::SelfValue => {
                     // Undecided by the SPEC, chosen here: `self` cannot be replaced as a whole.
                     if self.self_local(target.span).is_some() {
@@ -1259,6 +1310,21 @@ impl Checker<'_> {
                     out.push(hir::Stmt::Jump(j));
                 }
             }
+            Stmt::Return { value, span } if self.ctor_self.is_some() => {
+                let id = self.ctor_self.unwrap();
+                if let Some(v) = value {
+                    self.expr(v);
+                    self.diags.push(
+                        Diagnostic::at(&codes::E0101, v.span, "a constructor gives the value itself")
+                            .note("returned here")
+                            .help("write `return;`: the constructor returns the value it has built when it ends"),
+                    );
+                }
+                let ty = self.locals[id].ty.unwrap_or(Type::None);
+                out.push(hir::Stmt::Check { local: id, kind: hir::CheckKind::CtorEnd, span: *span });
+                out.push(hir::Stmt::Return(Some(hir::Expr::new(hir::ExprKind::Local(id), ty))));
+            }
+            Stmt::Fill { partial, target, with, body, span } => self.fill(*partial, target, with.as_ref(), body, *span, out),
             Stmt::Return { value, span } => {
                 let v = match (value, self.ret) {
                     (Some(v), Some(Type::None)) => {
@@ -1330,6 +1396,11 @@ impl Checker<'_> {
 
     /// Store `e`, a new value for `place`. `compound` says it came from `x op= v`.
     fn store(&mut self, place: hir::Place, e: hir::Expr, compound: bool, out: &mut hir::Block) {
+        // A field of a value being filled (or built by a constructor) is an initialisation.
+        if !compound && !place.proj.is_empty() && self.filling.contains(&place.local) {
+            out.push(hir::Stmt::InitField(place, e));
+            return;
+        }
         match e.kind {
             // `s += t` appends in place.
             hir::ExprKind::StrCall(hir::StrFn::Concat, args) if compound => {
@@ -1347,6 +1418,15 @@ impl Checker<'_> {
             self.expr(value);
             return;
         };
+        if self.filling.contains(&id) {
+            self.diags.push(
+                Diagnostic::at(&codes::E0507, name_span, format!("`{name}` is still being filled, so it cannot be given a whole value"))
+                    .note("assigned here")
+                    .help(format!("give its fields values one at a time: `{name}.field = value;`")),
+            );
+            self.expr(value);
+            return;
+        }
         let ty = self.locals[id].ty;
         let mut place = hir::Place { local: id, proj: Vec::new(), span: name_span };
         let rhs = match op {
@@ -1535,7 +1615,11 @@ impl Checker<'_> {
     }
 
     /// A read of local `id`. Whether it has a value is checked on the MIR.
-    fn read_local(&mut self, id: LocalId, _at: Span) -> Option<hir::Expr> {
+    fn read_local(&mut self, id: LocalId, at: Span) -> Option<hir::Expr> {
+        if self.filling.contains(&id) && self.now_depth == 0 {
+            self.incomplete_use(id, at);
+            return None;
+        }
         let ty = self.locals[id].ty?;
         Some(hir::Expr::new(hir::ExprKind::Local(id), ty))
     }
@@ -1558,7 +1642,7 @@ impl Checker<'_> {
             }
             Some(m) => {
                 self.g.self_use[m.func].used = true;
-                Some(0)
+                self.lookup("self")
             }
         }
     }
@@ -1735,6 +1819,9 @@ impl Checker<'_> {
     /// order, or all by name. Every field must be given exactly once.
     fn construct(&mut self, t: Type, values: Vec<GivenValue>, span: Span) -> Option<hir::Expr> {
         let s = t.struct_id().unwrap();
+        if !self.g.structs[s].ctors.is_empty() {
+            return self.construct_with_ctors(t, values, span);
+        }
         let fields: Vec<(String, Option<Type>)> = self.g.structs[s].fields.iter().map(|f| (f.name.clone(), f.ty)).collect();
         let names: Vec<&str> = fields.iter().map(|f| f.0.as_str()).collect();
         let in_order = || {
@@ -2086,7 +2173,11 @@ impl Checker<'_> {
             }
             ExprKind::Call { name, args } => {
                 let Some(&id) = self.g.funcs_by_name.get(name) else {
-                    self.diags.push(Diagnostic::at(&codes::E0201, e.span, format!("unknown function `{name}`")));
+                    let mut d = Diagnostic::at(&codes::E0201, e.span, format!("unknown function `{name}`"));
+                    if self.g.structs_by_name.contains_key(name) {
+                        d = d.help(format!("build a `{name}` with `new {name} of (...)`"));
+                    }
+                    self.diags.push(d);
                     for a in args {
                         self.expr(a);
                     }
@@ -2128,6 +2219,13 @@ impl Checker<'_> {
             ExprKind::Take { place, leaving } => self.take_expr(e, place, leaving.as_deref()),
             ExprKind::Lend(inner) => self.lend_expr(e, inner),
             ExprKind::AddressOf(inner) => self.address_expr(e, inner),
+            ExprKind::New { name, name_span, values } => self.new_expr(name, *name_span, values, e.span),
+            ExprKind::Now(inner) => {
+                self.now_depth += 1;
+                let v = self.expr(inner);
+                self.now_depth -= 1;
+                v
+            }
             ExprKind::NoneValue => {
                 self.diags.push(Diagnostic::at(&codes::E0901, e.span, "`none` as a value is not supported yet"));
                 None

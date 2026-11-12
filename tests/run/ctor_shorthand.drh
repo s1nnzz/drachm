@@ -1,0 +1,31 @@
+in io;
+
+struct Person {
+    public:
+    string name;
+    uint32 age;
+}
+
+struct Vector3 {
+    public:
+    float64 x;
+    float64 y;
+    float64 z;
+}
+
+struct Wrapper {
+    public:
+    uint32 v;
+}
+
+sint32 main() {
+    Person p = "Illy", 18;
+    Person q = age: 3, name: "Sam";
+    Vector3 z = z: 3.0, x: 1.0, y: 2.0;
+    Wrapper w = 5;
+    io::outln(p.name + " " + p.age::text());
+    io::outln(q.name + " " + q.age::text());
+    io::outln(z.x::text() + " " + z.y::text() + " " + z.z::text());
+    io::outln(w.v::text());
+    return 0;
+}

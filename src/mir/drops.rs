@@ -231,6 +231,7 @@ pub fn elaborate(hir: &hir::Program, body: &mut Body) {
         kind: StatementKind::Assign(Place::local(f), Rvalue::Use(Operand::Const(Constant::Bool(v)))),
         span,
         unsafe_ctx,
+        mark: Mark::None,
     };
     let base = body.blocks.len();
     let mut extra: Vec<BasicBlock> = Vec::new();
@@ -243,7 +244,7 @@ pub fn elaborate(hir: &hir::Program, body: &mut Body) {
             let loc = Location { block: b, index: i as u32 };
             let (span, unsafe_ctx) = (s.span, s.unsafe_ctx);
             match replaced.remove(&loc) {
-                Some(new) => stmts.extend(new.into_iter().map(|kind| Statement { kind, span, unsafe_ctx })),
+                Some(new) => stmts.extend(new.into_iter().map(|kind| Statement { kind, span, unsafe_ctx, mark: Mark::None })),
                 None => stmts.push(s),
             }
             if let Some(w) = after.get(&loc) {

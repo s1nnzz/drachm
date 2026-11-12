@@ -12,6 +12,8 @@ pub struct Program {
     pub units: Vec<UnitDecl>,
     pub funcs: Vec<Func>,
     pub structs: Vec<Struct>,
+    /// `def NAME of STRUCT { ... }` declarations, in the order written.
+    pub defs: Vec<DefDecl>,
     /// The file flag `//--!$unsafe: true` is present (set by `lib::check`).
     pub unsafe_allowed: bool,
 }
@@ -25,8 +27,33 @@ pub struct Struct {
     pub lives: Vec<(String, Span)>,
     /// The `stays` clause: never copied automatically.
     pub stays: Option<Span>,
+    /// The struct's default `def`: `struct Player defaults PlayerStart` or
+    /// `struct default Player`.
+    pub defaults: Option<(String, Span)>,
+    /// `Person(auto);`: keeps the automatic field-order constructor next to
+    /// the written ones.
+    pub auto_ctor: Option<Span>,
     pub fields: Vec<Field>,
     pub methods: Vec<Method>,
+}
+
+/// `def NAME of STRUCT from BASE { field = value; }`. Without `of`, the struct
+/// is the one named like the def (`def Player { }`).
+#[derive(Debug)]
+pub struct DefDecl {
+    pub name: String,
+    pub name_span: Span,
+    pub of: Option<(String, Span)>,
+    pub from: Option<(String, Span)>,
+    pub assigns: Vec<DefAssign>,
+    pub span: Span,
+}
+
+#[derive(Debug)]
+pub struct DefAssign {
+    pub name: String,
+    pub name_span: Span,
+    pub value: Expr,
 }
 
 /// `Type name;` or `mut Type name;` inside a struct.
@@ -47,6 +74,8 @@ pub struct Method {
     /// The `static` keyword, if written.
     pub is_static: Option<Span>,
     pub operator: Option<BinOp>,
+    /// A constructor: named after the struct, with no return type.
+    pub ctor: bool,
     pub func: Func,
 }
 
@@ -192,7 +221,18 @@ pub enum Stmt {
     Unsafe { body: Block, span: Span },
     /// `destroy x;`: runs `drop()` now and ends `x`.
     Destroy { target: Expr, span: Span },
+    /// `fill [partial] x { ... }`, with `with defaults` or `with NAME` after the name.
+    Fill { partial: bool, target: (String, Span), with: Option<FillWith>, body: Block, span: Span },
     Expr(Expr),
+}
+
+/// The `with` clause of a `fill`.
+#[derive(Debug)]
+pub enum FillWith {
+    /// `with defaults`: the struct's default `def`.
+    Defaults(Span),
+    /// `with NAME`: the named `def`.
+    Named(String, Span),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -382,4 +422,8 @@ pub enum ExprKind {
     AddressOf(Box<Expr>),
     /// `none` as a value.
     NoneValue,
+    /// `new Type of (values)`: a constructor call, with the values as written.
+    New { name: String, name_span: Span, values: Vec<FieldValue> },
+    /// `now e`: a field already set may be read inside a constructor or `fill`.
+    Now(Box<Expr>),
 }
