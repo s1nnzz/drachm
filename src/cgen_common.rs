@@ -53,6 +53,15 @@ pub(crate) fn struct_defs(prog: &Program, asserts: bool) -> String {
                     let _ = writeln!(out, "_Static_assert({checks}, \"layout\");\n");
                 }
             }
+            Item::Array(t) => {
+                let Type::Array { elem, len } = t else { unreachable!() };
+                let name = array_name(t);
+                let _ = writeln!(out, "typedef struct {{ {} a[{len}]; }} {name};\n", c_type(*elem));
+                if asserts {
+                    let (size, align) = prog.size_align(t);
+                    let _ = writeln!(out, "_Static_assert(sizeof({name}) == {size} && _Alignof({name}) == {align}, \"layout\");\n");
+                }
+            }
             Item::Enum(e) => {
                 let def = &prog.enums[e];
                 let name = enum_name(e);
@@ -100,6 +109,12 @@ pub(crate) fn enum_name(id: usize) -> String {
     format!("drachm_e{id}")
 }
 
+/// The C struct that wraps the array type `t` (`uint8[4]` is `drachm_a_uint8_A4`),
+/// so that arrays assign, pass and return by value like everything else.
+pub(crate) fn array_name(t: Type) -> String {
+    format!("drachm_a_{}", crate::types::mangle(&t.to_string()))
+}
+
 pub(crate) fn struct_name(name: &str) -> String {
     format!("drachm_s_{}", crate::types::mangle(name))
 }
@@ -109,6 +124,7 @@ pub(crate) fn struct_name(name: &str) -> String {
 enum Item {
     Struct(StructId),
     Enum(EnumId),
+    Array(Type),
 }
 
 /// Every struct and enum, each after the ones it contains (C needs a
@@ -118,6 +134,13 @@ fn type_order(prog: &Program) -> Vec<Item> {
         match t {
             Type::Struct { id, .. } => visit(prog, Item::Struct(id), done, order),
             Type::Enum { id, .. } => visit(prog, Item::Enum(id), done, order),
+            // An array holds its items by value, so they are defined first.
+            Type::Array { elem, .. } => {
+                visit_type(prog, *elem, done, order);
+                if !order.iter().any(|i| matches!(i, Item::Array(a) if *a == t)) {
+                    order.push(Item::Array(t));
+                }
+            }
             _ => {}
         }
     }
@@ -131,6 +154,7 @@ fn type_order(prog: &Program) -> Vec<Item> {
                     visit_type(prog, f.ty, done, order);
                 }
             }
+            Item::Array(_) => return,
             Item::Enum(e) => {
                 if std::mem::replace(&mut done.1[e], true) {
                     return;
@@ -149,6 +173,9 @@ fn type_order(prog: &Program) -> Vec<Item> {
     }
     for e in 0..prog.enums.len() {
         visit(prog, Item::Enum(e), &mut done, &mut order);
+    }
+    for &t in &prog.collections {
+        visit_type(prog, t, &mut done, &mut order);
     }
     order
 }
@@ -169,6 +196,8 @@ pub(crate) fn c_type(t: Type) -> String {
         Type::Float(_) => "double",
         Type::Bool => "uint8_t",
         Type::Str => "drachm_str",
+        Type::List { .. } => "drachm_list",
+        Type::Array { .. } => return array_name(t),
         Type::None => "void",
         Type::Unit { .. } => unreachable!("units are erased before the backends"),
         Type::Struct { name, .. } => return struct_name(name),

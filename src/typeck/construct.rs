@@ -242,10 +242,14 @@ impl Checker<'_> {
         // `none` waits for the constructor: it may fit an optional or pointer parameter.
         let given: Vec<GivenValue> = values
             .iter()
-            .map(|fv| {
+            .enumerate()
+            .map(|(i, fv)| {
                 let v = match fv.value.kind {
                     ExprKind::NoneValue => Some(Val::NoneLit(fv.value.span)),
-                    _ => self.expr_raw(&fv.value),
+                    _ => match self.literal_for_field(s, i, &fv.name, &fv.value) {
+                        Some(done) => done,
+                        None => self.expr_raw(&fv.value),
+                    },
                 };
                 (fv.name.clone(), v, origin(&fv.value))
             })

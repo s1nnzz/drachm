@@ -1,0 +1,28 @@
+in io;
+
+struct Person {
+    public:
+    string name;
+    uint32 age;
+}
+
+none main() {
+    mut string[?] names = ["ann", "robert"];
+
+    // An item that owns memory is looked at with a borrow, or copied.
+    &string first = &names[0];
+    io::outln(first);
+    string kept = copy names[1];
+    names[1] = "bob";
+    io::outln(kept);
+    io::outln(names[1]);
+
+    // A copy of the whole list is independent of the original.
+    string[?] twin = copy names;
+    names[0] = "changed";
+    io::outln(twin[0]);
+
+    mut Person[?] people = [new Person of ("ann", 30), new Person of ("bo", 41)];
+    people[1].age += 1;
+    io::outln(people[1].age::text());
+}

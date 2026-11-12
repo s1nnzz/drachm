@@ -19,13 +19,24 @@ pub fn holds_user_drop(hir: &hir::Program, ty: Type) -> bool {
             s.has_drop.is_some() || s.fields.iter().any(|f| holds_user_drop(hir, f.ty))
         }
         Type::Enum { id, .. } => hir.enums[id].variants.iter().flat_map(|v| &v.fields).any(|f| holds_user_drop(hir, f.ty)),
+        Type::List { elem } | Type::Array { elem, .. } => holds_user_drop(hir, *elem),
         _ => false,
+    }
+}
+
+/// The locals a place reads: its base, and the index of each `Index` step.
+pub fn place_local(p: &Place, f: &mut impl FnMut(Local)) {
+    f(p.local);
+    for pr in &p.proj {
+        if let Proj::Index(i) = pr {
+            f(*i);
+        }
     }
 }
 
 fn operand_local(op: &Operand, f: &mut impl FnMut(Local)) {
     if let Operand::Copy(p) | Operand::Move(p) = op {
-        f(p.local);
+        place_local(p, f);
     }
 }
 
@@ -40,8 +51,9 @@ pub fn rvalue_locals(rv: &Rvalue, f: &mut impl FnMut(Local)) {
             operand_local(value, f);
             operand_local(amount, f);
         }
-        Rvalue::Aggregate(_, ops) | Rvalue::Variant(_, _, ops) => ops.iter().for_each(|o| operand_local(o, f)),
-        Rvalue::Ref(_, p) | Rvalue::RawRef(p) | Rvalue::DeepCopy(p) | Rvalue::Discriminant(p) => f(p.local),
+        Rvalue::Aggregate(_, ops) | Rvalue::Variant(_, _, ops) | Rvalue::Array(_, ops) => ops.iter().for_each(|o| operand_local(o, f)),
+        Rvalue::ListNew(..) => {}
+        Rvalue::Ref(_, p) | Rvalue::RawRef(p) | Rvalue::DeepCopy(p) | Rvalue::Discriminant(p) | Rvalue::Len(p) => place_local(p, f),
     }
 }
 

@@ -1,0 +1,7 @@
+none main() {
+    mut uint32[?] xs = [1, 2];
+    &mut uint32 a = &mut xs[0];
+    &mut uint32 b = &mut xs[1];
+    a = 1;
+    b = 2;
+}

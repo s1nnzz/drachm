@@ -30,6 +30,10 @@ pub enum Type {
     /// `*fixed T`: a pointer that may be read but not written through
     /// (`address of` an immutable binding). A different kind from `Ptr`.
     FixedPtr { to: &'static Type },
+    /// `T[?]`: a list that grows (S6C). Always owns its buffer.
+    List { elem: &'static Type },
+    /// `T[N]`: `N` values of `elem` side by side (S6C), `N >= 1`.
+    Array { elem: &'static Type, len: u64 },
     /// A number with a unit: `float64<m/s>`. `of` is always `Int` or `Float`.
     /// Units are checked by `typeck::units`; they are erased before the backends.
     Unit { of: &'static Type, unit: &'static Unit },
@@ -89,6 +93,7 @@ impl Type {
     pub const U64: Type = Type::Int { bits: 64, signed: false };
     pub const U32: Type = Type::Int { bits: 32, signed: false };
     pub const S32: Type = Type::Int { bits: 32, signed: true };
+    pub const S64: Type = Type::Int { bits: 64, signed: true };
     pub const F64: Type = Type::Float(64);
 
     pub fn from_name(name: &str) -> Result<Type, TypeError> {
@@ -131,6 +136,32 @@ impl Type {
         }
     }
 
+    /// `elem[?]`
+    pub fn list(elem: Type) -> Type {
+        Type::List { elem: intern_type(elem) }
+    }
+
+    /// `elem[len]`
+    pub fn array(elem: Type, len: u64) -> Type {
+        Type::Array { elem: intern_type(elem), len }
+    }
+
+    /// The element type of a list or array.
+    pub fn elem(self) -> Option<Type> {
+        match self {
+            Type::List { elem } | Type::Array { elem, .. } => Some(*elem),
+            _ => None,
+        }
+    }
+
+    pub fn is_list(self) -> bool {
+        matches!(self, Type::List { .. })
+    }
+
+    pub fn is_array(self) -> bool {
+        matches!(self, Type::Array { .. })
+    }
+
     /// `&to` or `&mut to`.
     pub fn borrow(mutable: bool, to: Type) -> Type {
         Type::Ref { mutable, to: intern_type(to) }
@@ -163,6 +194,8 @@ impl Type {
             Type::Ref { mutable, to } => Type::borrow(mutable, to.bare()),
             Type::Ptr { to } => Type::ptr(to.bare()),
             Type::FixedPtr { to } => Type::fixed_ptr(to.bare()),
+            Type::List { elem } => Type::list(elem.bare()),
+            Type::Array { elem, len } => Type::array(elem.bare(), len),
             t => t,
         }
     }
@@ -180,6 +213,7 @@ impl Type {
         match self {
             Type::Unit { .. } => true,
             Type::Ref { to, .. } | Type::Ptr { to } | Type::FixedPtr { to } => to.mentions_unit(),
+            Type::List { elem } | Type::Array { elem, .. } => elem.mentions_unit(),
             _ => false,
         }
     }
@@ -291,6 +325,8 @@ impl fmt::Display for Type {
             Type::Ptr { to } => write!(f, "*{to}"),
             Type::FixedPtr { to } => write!(f, "*fixed {to}"),
             Type::Unit { of, unit } => write!(f, "{of}<{}>", unit_name(unit)),
+            Type::List { elem } => write!(f, "{elem}[?]"),
+            Type::Array { elem, len } => write!(f, "{elem}[{len}]"),
         }
     }
 }

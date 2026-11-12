@@ -1,0 +1,22 @@
+in io;
+
+none main() {
+    mut uint32[?] xs = [1, 2, 3, 4];
+
+    // Negative indexes count from the end, like text.
+    io::outln(xs[-1]::text());
+    io::outln(xs[-4]::text());
+
+    // An item can be written, and changed in place.
+    xs[0] = 100;
+    xs[1] += 5;
+    xs[2]++;
+    io::outln(xs[0]::text());
+    io::outln(xs[1]::text());
+    io::outln(xs[2]::text());
+
+    // Lists nest.
+    mut uint32[?][?] grid = [[1, 2], [3, 4, 5]];
+    grid[1][2] = 50;
+    io::outln(grid[1][2]::text());
+}

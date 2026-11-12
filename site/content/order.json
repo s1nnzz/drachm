@@ -60,6 +60,7 @@
         "reference-strings",
         "reference-structs",
         "reference-enums",
+        "reference-collections",
         "reference-generics",
         "reference-ownership",
         "reference-errors",

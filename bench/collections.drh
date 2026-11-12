@@ -1,0 +1,70 @@
+in io;
+
+// sum: fill a list by push, then add it up.
+// index: random access through a checked index.
+// generic: a generic helper called on every item.
+
+T biggest<T>(T a, T b) {
+    if (a > b) { return a; }
+    return b;
+}
+
+none fill<T>(&mut T[?] xs, T v) {
+    xs::push(v);
+}
+
+uint64 main_sum(uint64 n) {
+    mut uint64[?] xs;
+    mut uint64 i = 0;
+    while (i < n) {
+        xs::push(i * 3 + 1);
+        i++;
+    }
+    mut uint64 total = 0;
+    mut uint64 j = 0;
+    while (j < xs::len()) {
+        total += xs[j];
+        j++;
+    }
+    return total;
+}
+
+uint64 main_index(uint64 n, uint64 reads) {
+    mut uint64[?] xs;
+    mut uint64 i = 0;
+    while (i < n) {
+        xs::push(i ^ 5);
+        i++;
+    }
+    mut uint64 state = 12345;
+    mut uint64 total = 0;
+    mut uint64 k = 0;
+    while (k < reads) {
+        state = state * 6364136223846793005 + 1442695040888963407;
+        total += xs[(state >> 33) % n];
+        k++;
+    }
+    return total;
+}
+
+uint64 main_generic(uint64 n) {
+    mut uint64[?] xs;
+    mut uint64 i = 0;
+    while (i < n) {
+        fill(&mut xs, (i * 7919) % 10007);
+        i++;
+    }
+    mut uint64 best = 0;
+    mut uint64 j = 0;
+    while (j < xs::len()) {
+        best = biggest(best, xs[j]) + (xs[j] & 1);
+        j++;
+    }
+    return best;
+}
+
+none main() {
+    io::outln(main_sum(20000000)::text());
+    io::outln(main_index(1000000, 50000000)::text());
+    io::outln(main_generic(20000000)::text());
+}

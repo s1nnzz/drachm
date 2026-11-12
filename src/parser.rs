@@ -1717,6 +1717,16 @@ impl Parser<'_> {
             if ignore || matches!(self.peek(), Tok::Kw("fails")) {
                 return self.call_suffix(e);
             }
+            if self.peek() == &Tok::Sym("[") {
+                self.bump();
+                let index = self.expr()?;
+                let end = self.expect("]")?;
+                let span = e.span.to(end);
+                e = Expr { kind: ExprKind::Index { recv: Box::new(e), index: Box::new(index) }, span, paren: false };
+                // An item is a new value: the next call on it starts with `::` again.
+                calls = 0;
+                continue;
+            }
             let sym = match self.peek() {
                 Tok::Sym(s @ ("::" | "->" | "++" | "--" | ".")) => *s,
                 _ => return Ok(e),
@@ -2035,6 +2045,17 @@ impl Parser<'_> {
                 self.expect(")")?;
                 ExprKind::New { name, name_span, targs, values }
             }
+            Tok::Sym("[") => {
+                let mut items = Vec::new();
+                while self.peek() != &Tok::Sym("]") {
+                    items.push(self.expr()?);
+                    if !self.eat(",") {
+                        break;
+                    }
+                }
+                self.expect("]")?;
+                ExprKind::ListLit(items)
+            }
             Tok::Sym("(") => {
                 let mut e = self.expr()?;
                 self.expect(")")?;
@@ -2111,7 +2132,7 @@ impl Parser<'_> {
 fn is_place(e: &Expr) -> bool {
     match &e.kind {
         ExprKind::Var(_) | ExprKind::SelfValue => true,
-        ExprKind::Field { recv, .. } => is_place(recv),
+        ExprKind::Field { recv, .. } | ExprKind::Index { recv, .. } => is_place(recv),
         ExprKind::Deref(inner) => is_place(inner),
         _ => false,
     }

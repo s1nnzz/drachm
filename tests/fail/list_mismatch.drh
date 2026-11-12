@@ -1,0 +1,6 @@
+none main() {
+    mut uint32[?] xs = [1, 2];
+    string s = "x";
+    xs = [1, s];
+    string[?] ys = ["a", 5];
+}

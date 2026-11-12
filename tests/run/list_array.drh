@@ -1,0 +1,71 @@
+in io;
+
+struct Pixel {
+    public:
+    uint8[4] rgba;
+    string label;
+}
+
+enum Shape {
+    Dots(uint32[?] items),
+    Names(string[?] items),
+    Empty,
+}
+
+uint32 sum3(uint32[3] a) {
+    return a[0] + a[1] + a[2];
+}
+
+none main() {
+    mut uint8[4] a = [1, 2, 3, 4];
+    uint8[4] b = a;
+    a[0] = 9;
+    io::outln(a[0]::text());
+    io::outln(b[0]::text());
+    io::outln(a[-1]::text());
+    io::outln(a::len()->text());
+
+    uint32[3] t = [10, 20, 30];
+    io::outln(sum3(t)::text());
+
+    mut string[2] pair = ["x", "y"];
+    pair[1] = "zed";
+    string[2] other = copy pair;
+    pair[0] = "new";
+    io::outln(pair[0]);
+    io::outln(other[0]);
+    io::outln(other[1]);
+
+    uint128[2] wide = [1, 2];
+    io::outln(wide[1]::text());
+
+    mut uint32[2][2] m = [[1, 2], [3, 4]];
+    m[1][0] = 30;
+    io::outln(m[1][0]::text());
+    io::outln(m[0][1]::text());
+
+    mut Pixel p = new Pixel of ([1, 2, 3, 4], "px");
+    p.rgba[2] = 33;
+    io::outln(p.rgba[2]::text());
+    Pixel q = copy p;
+    io::outln(q.label);
+    io::outln(q.rgba[2]::text());
+
+    Shape s = Dots([1, 2, 3]);
+    Shape n = Names(["a", "b"]);
+    Shape e = Empty;
+    Shape n2 = copy n;
+    match (s) {
+        case Dots(take uint32[?] ds) { io::outln(ds[2]::text()); }
+        case _ { io::outln("other"); }
+    }
+    match (n2) {
+        case Names(take string[?] ns) { io::outln(ns[1]); }
+        case _ { io::outln("other"); }
+    }
+
+    uint32[?]? maybe_list = [5, 6];
+    uint32[?]? nothing;
+    if (maybe_list has value) { io::outln("has"); }
+    if (nothing is empty) { io::outln("empty"); }
+}

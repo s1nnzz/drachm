@@ -1,0 +1,28 @@
+in io;
+
+none main() {
+    mut uint32[?][?] grid = [[1, 2], [3, 4, 5]];
+    grid::push([6]);
+    mut uint32[?] row = [7, 8];
+    grid::push(row);
+    io::outln(grid::len()->text());
+    io::outln(grid[1][2]::text());
+    grid[0][1] = 20;
+    grid[1][0] += 100;
+    grid[3]::push(9);
+    io::outln(grid[0][1]::text());
+    io::outln(grid[1][0]::text());
+    io::outln(grid[3]::len()->text());
+    io::outln(grid[-1][-1]::text());
+
+    uint32[?][?] twin = copy grid;
+    grid[0][0] = 99;
+    io::outln(twin[0][0]::text());
+
+    mut string[?][?] words = [["a", "b"], ["c"]];
+    words[1]::push("d");
+    words::push(["e", "f", "g"]);
+    io::outln(words[1][1]);
+    io::outln(words[2][2]);
+    io::outln(words::len()->text());
+}

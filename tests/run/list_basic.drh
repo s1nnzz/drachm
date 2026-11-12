@@ -1,0 +1,68 @@
+in io;
+
+uint64 total(&uint64[?] xs) {
+    mut uint64 sum = 0;
+    mut uint64 i = 0;
+    while (i < xs::len()) {
+        sum += xs[i];
+        i++;
+    }
+    return sum;
+}
+
+none grow(&mut uint64[?] xs, uint64 n) {
+    mut uint64 i = 0;
+    while (i < n) {
+        xs::push(i * i);
+        i++;
+    }
+}
+
+uint32[?] make() {
+    return [10, 20, 30];
+}
+
+none main() {
+    mut uint64[?] xs = [1, 2, 3];
+    xs::push(4);
+    io::outln(xs::len()->text());
+    io::outln(total(&xs)::text());
+    grow(&mut xs, 5);
+    io::outln(xs::len()->text());
+    io::outln(total(&xs)::text());
+
+    xs[0] = 100;
+    xs[1] += 5;
+    xs[2]++;
+    io::outln(xs[0]::text());
+    io::outln(xs[1]::text());
+    io::outln(xs[2]::text());
+
+    // Negative indexes count from the end.
+    io::outln(xs[-1]::text());
+    io::outln(xs[-2]::text());
+    sint32 k = -3;
+    io::outln(xs[k]::text());
+
+    // Any integer type indexes.
+    uint8 small = 1;
+    sint64 wide = 2;
+    io::outln(xs[small]::text());
+    io::outln(xs[wide]::text());
+
+    uint32[?] m = make();
+    io::outln(m[2]::text());
+
+    // A list declared without a value starts empty.
+    mut string[?] none_yet;
+    io::outln(none_yet::len()->text());
+    none_yet::push("a");
+    io::outln(none_yet::len()->text());
+
+    string[?] empty = [];
+    io::outln(empty::len()->text());
+    uint32[?] lit = [1, 2, 3, ];
+    io::outln(lit::len()->text());
+    uint8[?] narrow = [1, 2, 3];
+    io::outln(narrow[2]::text());
+}

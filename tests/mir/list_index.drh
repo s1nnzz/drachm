@@ -1,0 +1,10 @@
+in io;
+
+none main() {
+    mut string[?] names = ["a", "b"];
+    uint64 i = 1;
+    io::outln(names[i]);
+    names[0] = "z";
+    uint8[4] px = [1, 2, 3, 4];
+    io::outln(px[2]::text());
+}

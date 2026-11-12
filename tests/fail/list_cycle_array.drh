@@ -1,0 +1,4 @@
+struct A {
+    A[2] kids;
+}
+none main() { }

@@ -118,8 +118,10 @@ no arguments, such as `Point`, is E0602 when it is given some.
 
 `[?]` after a type is a list that grows (`string[?]`), and `[4]` is an array of
 four (`uint8[4]`); they can be stacked (`uint32[?][?]`) and followed by `?`
-(`string[?]?`). A length of 0 is an error. Lists and arrays are not built yet:
-using one in a type is E0901 for now.
+(`string[?]?`). A length of 0 is an error. Lists and arrays are described in
+[Arrays and lists](reference-collections.md); a generic function can take
+`&T[?]` and have `T` worked out from the list. An array length as a generic
+value parameter (`struct Buffer<T, uint32 N>`) is not built yet (E0901).
 
 ## Generic structs and enums
 

@@ -1,0 +1,4 @@
+none main() {
+    mut string[?] xs = ["a"];
+    string s = take xs[0];
+}

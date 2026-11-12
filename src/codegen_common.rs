@@ -39,14 +39,14 @@ pub(crate) fn cl_type(t: Type) -> Option<ClType> {
         Type::Float(_) => Some(types::F64),
         Type::Bool => Some(types::I8),
         Type::Ref { .. } | Type::Ptr { .. } | Type::FixedPtr { .. } => Some(types::I64),
-        Type::None | Type::Str | Type::Struct { .. } | Type::Enum { .. } => None,
+        Type::None | Type::Str | Type::List { .. } | Type::Array { .. } | Type::Struct { .. } | Type::Enum { .. } => None,
         Type::Unit { .. } => unreachable!("units are erased before the backends"),
     }
 }
 
 /// Strings and structs live in memory and are handled by address.
 pub(crate) fn in_memory(t: Type) -> bool {
-    t == Type::Str || t.struct_id().is_some() || t.enum_id().is_some()
+    t == Type::Str || t.is_list() || t.is_array() || t.struct_id().is_some() || t.enum_id().is_some()
 }
 
 pub(crate) fn signature(module: &ObjectModule, f: &Func) -> Signature {

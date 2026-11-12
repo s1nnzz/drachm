@@ -1318,6 +1318,9 @@ fn children_mut(e: &mut hir::Expr) -> Vec<&mut hir::Expr> {
         | K::Payload { value: x, .. }
         | K::AddressOf(x) => vec![&mut **x],
         K::Variant { args, .. } => args.iter_mut().collect(),
+        K::Len(x) => vec![&mut **x],
+        K::Index(a, b) | K::ListPush { list: a, value: b } => vec![&mut **a, &mut **b],
+        K::List(items) | K::Array(items) => items.iter_mut().collect(),
         K::Radix { value, .. } => vec![&mut **value],
         K::Out { arg, .. } => vec![&mut **arg],
         K::TryParse { text, .. } => vec![&mut **text],

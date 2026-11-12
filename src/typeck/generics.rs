@@ -329,6 +329,13 @@ fn peel(g: &Globals, p: &ast::TypeName, ty: Type) -> Type {
     if p.optional.is_some() && let Some(inner) = optionals::inner_of(g, t) {
         t = inner;
     }
+    // `T[?]` and `T[4]` bind `T` to the item type.
+    for d in p.dims.iter().rev() {
+        t = match (d, t) {
+            (ast::Dim::List(_), Type::List { elem }) | (ast::Dim::Array(..), Type::Array { elem, .. }) => *elem,
+            _ => t,
+        };
+    }
     t
 }
 
@@ -421,7 +428,7 @@ impl Checker<'_> {
         // Arguments that show a type parameter are checked first, without an expected type.
         let mut pre: Vec<Pre> = Vec::new();
         for (a, p) in args.iter().zip(&params) {
-            let shows = !explicit && mentions(&tparams, p) && p.dims.is_empty();
+            let shows = !explicit && mentions(&tparams, p);
             if !shows || matches!(a.kind, ExprKind::NoneValue) {
                 pre.push(Pre::Later);
                 continue;

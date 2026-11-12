@@ -248,6 +248,12 @@ pub enum Callee {
     Radix { base: u32, upper: bool },
     /// Any number of `&string`, owned result.
     Join,
+    /// `(&mut list, element)`: moves the element onto the end of a list whose
+    /// elements have this type.
+    ListPush(Type),
+    /// `(index, length)` of a failed bounds check: stops the program. `unsigned`
+    /// when the index was an unsigned number (a signed one prints as it is).
+    IndexPanic { unsigned: bool },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -277,6 +283,9 @@ pub enum Proj {
     Downcast(usize),
     /// On a reference (`&T`, `&mut T`) or `*T`.
     Deref,
+    /// Element number `local` (a `uint64` already checked against the length)
+    /// of a list or array. Never a move path.
+    Index(Local),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -318,6 +327,12 @@ pub enum Rvalue {
     Discriminant(Place),
     /// `copy place` on a non-Copy type: a fresh owned deep copy.
     DeepCopy(Place),
+    /// The number of items of a list or array place, a `uint64`.
+    Len(Place),
+    /// An empty list of this type with room for this many items.
+    ListNew(Type, u64),
+    /// An array of this type from its items, in order.
+    Array(Type, Vec<Operand>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -382,7 +397,8 @@ pub fn validate(p: &Program, hir: &hir::Program) -> Result<(), Vec<String>> {
 /// `StructDef.copy` says so.
 pub fn is_copy(hir: &hir::Program, ty: Type) -> bool {
     match ty {
-        Type::Str => false,
+        Type::Str | Type::List { .. } => false,
+        Type::Array { elem, .. } => is_copy(hir, *elem) && hir.size_align(ty).0 <= 32,
         Type::Struct { id, .. } => hir.structs[id].copy,
         Type::Enum { id, .. } => hir.enums[id].copy,
         Type::Ref { mutable, .. } => !mutable,
@@ -395,7 +411,8 @@ pub fn is_copy(hir: &hir::Program, ty: Type) -> bool {
 /// `drop()`, or a struct holding either. Borrows and raw pointers never.
 pub fn needs_drop(hir: &hir::Program, ty: Type) -> bool {
     match ty {
-        Type::Str => true,
+        Type::Str | Type::List { .. } => true,
+        Type::Array { elem, .. } => needs_drop(hir, *elem),
         Type::Struct { id, .. } => {
             let s = &hir.structs[id];
             s.has_drop.is_some() || s.fields.iter().any(|f| needs_drop(hir, f.ty))

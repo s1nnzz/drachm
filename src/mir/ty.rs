@@ -17,6 +17,13 @@ pub fn place_ty(body: &Body, hir: &hir::Program, p: &Place) -> Result<Type, Stri
             Proj::Deref => {
                 t = t.target().ok_or_else(|| format!("Deref of `{t}` in a place based on {}", p.local))?;
             }
+            Proj::Index(i) => {
+                let idx = local_ty(body, i)?;
+                if idx != Type::U64 {
+                    return Err(format!("Index by {i}, a `{idx}`, not a uint64"));
+                }
+                t = t.elem().ok_or_else(|| format!("Index of `{t}`, not a list or array (V11)"))?;
+            }
             Proj::Downcast(v) => {
                 let Type::Enum { id, .. } = t else {
                     return Err(format!("Downcast (projection {i}) of non-enum `{t}` in a place based on {}", p.local));
@@ -56,6 +63,7 @@ pub fn place_ty_in(locals: &IndexVec<Local, LocalDecl>, hir: &hir::Program, p: &
     for pr in &p.proj {
         t = match *pr {
             Proj::Deref => t.target().unwrap_or(t),
+            Proj::Index(_) => t.elem().unwrap_or(t),
             Proj::Downcast(v) => {
                 variant = Some(v);
                 t
@@ -123,5 +131,7 @@ pub fn rvalue_ty(body: &Body, hir: &hir::Program, rv: &Rvalue) -> Result<Type, S
             tag_type(hir.enums[id].tag_size)
         }
         Rvalue::DeepCopy(p) => place_ty(body, hir, p)?,
+        Rvalue::Len(_) => Type::U64,
+        Rvalue::ListNew(t, _) | Rvalue::Array(t, _) => *t,
     })
 }

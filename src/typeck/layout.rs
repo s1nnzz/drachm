@@ -17,6 +17,8 @@ pub(super) struct Cache {
     owns: HashMap<Type, bool>,
     size: HashMap<Type, (u32, u32)>,
     copy: HashMap<Type, bool>,
+    /// The list and array types made so far, elements first (`hir::Program::collections`).
+    collections: Vec<Type>,
 }
 
 impl Globals {
@@ -65,7 +67,8 @@ impl Globals {
     /// one somewhere inside? Types in a cycle own nothing.
     pub(super) fn owns_of(&self, t: Type) -> bool {
         match t {
-            Type::Str => return true,
+            Type::Str | Type::List { .. } => return true,
+            Type::Array { elem, .. } => return self.owns_of(*elem),
             Type::Struct { .. } | Type::Enum { .. } => {}
             _ => return false,
         }
@@ -86,8 +89,12 @@ impl Globals {
     /// not resolve, which was reported).
     pub(super) fn size_align(&self, t: Option<Type>) -> (u32, u32) {
         let Some(t) = t else { return (0, 1) };
-        if t == Type::Str {
+        if t == Type::Str || t.is_list() {
             return (hir::STR_SIZE, 8);
+        }
+        if let Type::Array { elem, len } = t {
+            let (size, align) = self.size_align(Some(*elem));
+            return ((size as u64).saturating_mul(len).min(u32::MAX as u64 / 2) as u32, align);
         }
         if let Some(n) = hir::scalar_size(t) {
             return (n, n);
@@ -121,12 +128,34 @@ impl Globals {
         self.enums[id].variants.iter().map(|v| v.fields.iter().map(|f| self.size_align(f.ty)).collect()).collect()
     }
 
+    /// Is a field or element of type `ty` plain data that copies by bits?
+    fn plain_copy(&self, ty: Option<Type>) -> bool {
+        match ty.map(Type::bare) {
+            Some(Type::Int { .. } | Type::Float(_) | Type::Bool | Type::Ref { mutable: false, .. }) => true,
+            Some(ft @ (Type::Struct { .. } | Type::Enum { .. } | Type::Array { .. })) => self.copy_of(ft),
+            _ => false,
+        }
+    }
+
+    /// Remember a list or array type for the backends (elements are noted first by their own makers).
+    pub(super) fn note_collection(&self, t: Type) {
+        let mut c = self.layouts.borrow_mut();
+        if !c.collections.contains(&t) {
+            c.collections.push(t);
+        }
+    }
+
+    pub(super) fn collections(&self) -> Vec<Type> {
+        self.layouts.borrow().collections.clone()
+    }
+
     /// Does a struct or enum copy automatically (R11)? A struct is not
     /// `stays`, has no `drop()`, is at most 32 bytes and every field is Copy;
     /// an enum is not a failure and has only Copy payloads.
     pub(super) fn copy_of(&self, t: Type) -> bool {
         match t {
             Type::Struct { .. } | Type::Enum { .. } => {}
+            Type::Array { elem, .. } => return self.plain_copy(Some(*elem)) && self.size_align(Some(t)).0 <= 32,
             _ => return false,
         }
         if self.is_cyclic(t) {
@@ -141,12 +170,7 @@ impl Globals {
             Type::Enum { id, .. } => self.enums[id].kind != hir::EnumKind::Failure,
             _ => false,
         };
-        let field_ok = |f: &FieldInfo| match f.ty.map(Type::bare) {
-            Some(Type::Int { .. } | Type::Float(_) | Type::Bool | Type::Ref { mutable: false, .. }) => true,
-            Some(ft @ (Type::Struct { .. } | Type::Enum { .. })) => self.copy_of(ft),
-            _ => false,
-        };
-        let copy = own_ok && self.size_align(Some(t)).0 <= 32 && self.parts(t).into_iter().all(field_ok);
+        let copy = own_ok && self.size_align(Some(t)).0 <= 32 && self.parts(t).into_iter().all(|f| self.plain_copy(f.ty));
         self.layouts.borrow_mut().copy.insert(t, copy);
         copy
     }

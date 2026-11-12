@@ -937,15 +937,16 @@ impl Checker<'_> {
         let mut t = self.locals[p.local].ty.unwrap();
         let mut variant = None;
         for pr in &p.proj {
-            t = match *pr {
+            t = match pr {
                 hir::HirProj::Deref => t.target().unwrap_or(t),
+                hir::HirProj::Index(_) => t.elem().unwrap_or(t),
                 hir::HirProj::Downcast(v) => {
-                    variant = Some(v);
+                    variant = Some(*v);
                     t
                 }
                 hir::HirProj::Field(f) => match variant.take() {
-                    Some(v) => self.g.enums[t.enum_id().unwrap()].variants[v].fields[f].ty.unwrap_or(Type::None),
-                    None => self.g.structs[t.struct_id().unwrap()].fields[f].ty.unwrap_or(Type::None),
+                    Some(v) => self.g.enums[t.enum_id().unwrap()].variants[v].fields[*f].ty.unwrap_or(Type::None),
+                    None => self.g.structs[t.struct_id().unwrap()].fields[*f].ty.unwrap_or(Type::None),
                 },
             };
         }

@@ -1,0 +1,9 @@
+_4 = ListNew<string[?]>(2)
+call ListPush<string>(move _5, const "a") -> bb1
+_7 = Len(_1)
+_9 = Lt(copy _8, copy _7)
+call IndexPanicU(copy _2, copy _7) -> bb5
+_10 = &_1[_8]
+Drop(_1[_12])
+_1[_12] = const "z"
+_3 = Array<uint8[4]>(const 1u8, const 2u8, const 3u8, const 4u8)

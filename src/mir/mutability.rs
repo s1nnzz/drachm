@@ -32,6 +32,10 @@ pub fn place_text(hir: &hir::Program, body: &Body, p: &Place) -> String {
         match pr {
             Proj::Deref => t = t.target().unwrap_or(t),
             Proj::Downcast(_) => {}
+            Proj::Index(_) => {
+                text.push_str("[..]");
+                t = t.elem().unwrap_or(t);
+            }
             Proj::Field(f) => {
                 if t.enum_id().is_some() {
                     return text;
@@ -70,6 +74,7 @@ fn proj_types(hir: &hir::Program, body: &Body, p: &Place) -> Vec<Type> {
     for pr in &p.proj {
         t = match pr {
             Proj::Deref => t.target().unwrap_or(t),
+            Proj::Index(_) => t.elem().unwrap_or(t),
             Proj::Downcast(v) => {
                 variant = Some(*v);
                 t
@@ -110,7 +115,7 @@ fn changeable(hir: &hir::Program, body: &Body, p: &Place) -> Result<(), Blocked>
                     return Ok(());
                 }
             }
-            Proj::Downcast(_) => {}
+            Proj::Downcast(_) | Proj::Index(_) => {}
             Proj::Deref => {
                 return match types[i] {
                     Type::Ref { mutable: false, .. } => Err(Blocked::Shared(Place { local: p.local, proj: p.proj[..i].to_vec() })),
@@ -168,7 +173,7 @@ fn roles(hir: &hir::Program, body: &Body) -> HashMap<Location, Role> {
         let Some(&at) = made.get(&p.local) else { continue };
         let role = match callee {
             Callee::Func(f) if hir.funcs[*f].has_self => Role::Receiver { method: *f, span: *span },
-            Callee::Str(StrFn::Append) => Role::Append,
+            Callee::Str(StrFn::Append) | Callee::ListPush(_) => Role::Append,
             _ => continue,
         };
         out.insert(at, role);
@@ -182,8 +187,8 @@ fn reads_local(rv: &Rvalue, l: Local) -> bool {
         Rvalue::Use(o) | Rvalue::Neg(o) | Rvalue::Not(o) | Rvalue::BitNot(o) | Rvalue::Convert(o, _) => vec![o],
         Rvalue::Binary(_, a, b) | Rvalue::IntPow(a, b) => vec![a, b],
         Rvalue::Shift { value, amount, .. } => vec![value, amount],
-        Rvalue::Aggregate(_, ops) | Rvalue::Variant(_, _, ops) => ops.iter().collect(),
-        Rvalue::Ref(..) | Rvalue::RawRef(_) | Rvalue::DeepCopy(_) | Rvalue::Discriminant(_) => Vec::new(),
+        Rvalue::Aggregate(_, ops) | Rvalue::Variant(_, _, ops) | Rvalue::Array(_, ops) => ops.iter().collect(),
+        Rvalue::Ref(..) | Rvalue::RawRef(_) | Rvalue::DeepCopy(_) | Rvalue::Discriminant(_) | Rvalue::Len(_) | Rvalue::ListNew(..) => Vec::new(),
     };
     ops.iter().any(|o| matches!(o, Operand::Copy(p) | Operand::Move(p) if p.local == l))
 }
@@ -204,6 +209,7 @@ fn find_target(block: &hir::Block, at: Span, dest: &Place) -> Option<Span> {
             && hp.proj.iter().zip(&dest.proj).all(|(h, m)| match (h, m) {
                 (hir::HirProj::Field(a), Proj::Field(b)) => a == b,
                 (hir::HirProj::Deref, Proj::Deref) => true,
+                (hir::HirProj::Index(_), Proj::Index(_)) => true,
                 _ => false,
             })
     }
@@ -431,7 +437,17 @@ impl Cx<'_> {
         let whose = if param { "parameter " } else { "" };
         let types = proj_types(self.hir, self.body, place);
         let last = place.proj.len() - 1;
-        let Proj::Field(f) = place.proj[last] else { unreachable!("a binding is blocked only through fields") };
+        let Proj::Field(f) = place.proj[last] else {
+            // An item of a list or array in a binding that is not `mut`.
+            return Diagnostic::at(
+                &codes::E0205,
+                at,
+                format!("cannot change `{}`: {whose}`{name}` is not `mut`", self.text(place)),
+            )
+            .note("changed here")
+            .label(decl.span, "declared here without `mut`")
+            .help(format!("declare it as `mut {lty} {name}` to allow changes"));
+        };
         let def = self.hir.struct_def(types[last]);
         let field = &def.fields[f];
         Diagnostic::at(

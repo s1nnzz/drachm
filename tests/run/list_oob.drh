@@ -1,0 +1,10 @@
+in io;
+
+none main() {
+    uint32[?] xs = [1, 2, 3];
+    io::outln(xs[2]::text());
+    uint64 i = 3;
+    io::outln("before");
+    io::outln(xs[i]::text());
+    io::outln("never");
+}

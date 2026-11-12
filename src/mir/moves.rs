@@ -93,13 +93,15 @@ pub enum Event {
     StorageLive(Local),
 }
 
+/// Does `p` go through a `Deref` or an `Index`: memory that is not a move
+/// path of its own (an item of a list is behind its buffer).
 fn has_deref(p: &Place) -> bool {
-    p.proj.contains(&Proj::Deref)
+    p.proj.iter().any(|x| matches!(x, Proj::Deref | Proj::Index(_)))
 }
 
-/// The part of `p` before its first `Deref`.
+/// The part of `p` before its first `Deref` or `Index`.
 pub fn prefix_place(p: &Place) -> Place {
-    let n = p.proj.iter().position(|x| *x == Proj::Deref).unwrap_or(p.proj.len());
+    let n = p.proj.iter().position(|x| matches!(x, Proj::Deref | Proj::Index(_))).unwrap_or(p.proj.len());
     Place { local: p.local, proj: p.proj[..n].to_vec() }
 }
 
@@ -171,8 +173,9 @@ pub fn events(body: &Body, loc: Location) -> Vec<Event> {
                         operand_events(value, s.span, cause, &mut out);
                         operand_events(amount, s.span, cause, &mut out);
                     }
-                    Rvalue::Ref(_, p) | Rvalue::RawRef(p) | Rvalue::DeepCopy(p) | Rvalue::Discriminant(p) => read(p, s.span, &mut out),
-                    Rvalue::Aggregate(_, ops) | Rvalue::Variant(_, _, ops) => ops.iter().for_each(|o| operand_events(o, s.span, cause, &mut out)),
+                    Rvalue::Ref(_, p) | Rvalue::RawRef(p) | Rvalue::DeepCopy(p) | Rvalue::Discriminant(p) | Rvalue::Len(p) => read(p, s.span, &mut out),
+                    Rvalue::ListNew(..) => {}
+                    Rvalue::Aggregate(_, ops) | Rvalue::Variant(_, _, ops) | Rvalue::Array(_, ops) => ops.iter().for_each(|o| operand_events(o, s.span, cause, &mut out)),
                 }
                 dest_events(dest, s.span, &mut out);
                 if !has_deref(dest) {
@@ -306,10 +309,10 @@ impl MoveData {
         let fields: Vec<usize> = place
             .proj
             .iter()
-            .take_while(|x| !matches!(x, Proj::Deref | Proj::Downcast(_)))
+            .take_while(|x| !matches!(x, Proj::Deref | Proj::Downcast(_) | Proj::Index(_)))
             .map(|x| match x {
                 Proj::Field(f) => *f,
-                Proj::Deref | Proj::Downcast(_) => unreachable!(),
+                Proj::Deref | Proj::Downcast(_) | Proj::Index(_) => unreachable!(),
             })
             .collect();
         self.ensure_fields(place.local, &fields)
@@ -345,10 +348,10 @@ impl MoveData {
             .proj
             .iter()
             // An enum is one path: a payload place is in the state of the whole enum.
-            .take_while(|x| !matches!(x, Proj::Downcast(_)))
+            .take_while(|x| !matches!(x, Proj::Downcast(_) | Proj::Index(_)))
             .map(|x| match x {
                 Proj::Field(f) => *f,
-                Proj::Deref | Proj::Downcast(_) => unreachable!(),
+                Proj::Deref | Proj::Downcast(_) | Proj::Index(_) => unreachable!(),
             })
             .collect();
         self.by_place.get(&(place.local, fields)).copied()

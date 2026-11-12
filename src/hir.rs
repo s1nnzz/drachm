@@ -33,6 +33,10 @@ pub struct Program {
     pub structs: Vec<StructDef>,
     pub enums: Vec<EnumDef>,
     pub main: FuncId,
+    /// Every list and array type the program uses (elements included), each
+    /// once, an element before the types built from it. The backends make the
+    /// drop and copy glue and the C array types from this list.
+    pub collections: Vec<Type>,
 }
 
 /// A struct's layout, C-style: fields in declaration order, each at the next
@@ -146,8 +150,12 @@ pub fn enum_layout(tag_size: u32, variants: &[Vec<(u32, u32)>]) -> (Vec<Vec<u32>
 impl Program {
     /// Size and alignment of a value of type `t` in memory, in bytes.
     pub fn size_align(&self, t: Type) -> (u32, u32) {
-        if t == Type::Str {
+        if t == Type::Str || t.is_list() {
             return (STR_SIZE, 8);
+        }
+        if let Type::Array { elem, len } = t {
+            let (size, align) = self.size_align(*elem);
+            return ((size as u64 * len) as u32, align);
         }
         scalar_size(t).map_or_else(
             || match t {
@@ -173,7 +181,8 @@ impl Program {
     /// Is `t` an owning type (see the module comment)?
     pub fn owns(&self, t: Type) -> bool {
         match t {
-            Type::Str => true,
+            Type::Str | Type::List { .. } => true,
+            Type::Array { elem, .. } => self.owns(*elem),
             Type::Struct { id, .. } => self.structs[id].owns,
             Type::Enum { id, .. } => self.enums[id].owns,
             _ => false,
@@ -268,12 +277,15 @@ pub struct Place {
     pub span: Span,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone)]
 pub enum HirProj {
     Field(usize),
     Deref,
     /// The payload of variant `n` of an enum (always followed by a `Field`).
     Downcast(usize),
+    /// Element `i` of a list or array (`i` is any integer, already checked
+    /// for being one; a negative one counts from the end).
+    Index(Box<Expr>),
 }
 
 impl Place {
@@ -286,7 +298,7 @@ impl Place {
     pub fn fields(&self) -> impl Iterator<Item = usize> + '_ {
         self.proj.iter().map(|p| match p {
             HirProj::Field(i) => *i,
-            HirProj::Deref | HirProj::Downcast(_) => unreachable!("dereferences cannot be built yet"),
+            HirProj::Deref | HirProj::Downcast(_) | HirProj::Index(_) => unreachable!("dereferences cannot be built yet"),
         })
     }
 }
@@ -403,7 +415,7 @@ impl Expr {
     pub fn is_place(&self) -> bool {
         match &self.kind {
             ExprKind::Local(_) | ExprKind::Deref(_) => true,
-            ExprKind::Field(inner, _) | ExprKind::Payload { value: inner, .. } => inner.is_place(),
+            ExprKind::Field(inner, _) | ExprKind::Payload { value: inner, .. } | ExprKind::Index(inner, _) => inner.is_place(),
             _ => false,
         }
     }
@@ -539,6 +551,18 @@ pub enum ExprKind {
     /// `p::freeze()` / `p::thaw()`: the same pointer bits under the other
     /// pointer kind (`*T` to `*fixed T` or back). Needs `unsafe`.
     PtrConv(Box<Expr>),
+    /// `base[index]`: element `index` of a list or array, a place when `base`
+    /// is. `index` is an integer of any width up to 64 bits; a negative one
+    /// counts from the end. Out of range stops the program.
+    Index(Box<Expr>, Box<Expr>),
+    /// The number of items of a list or array place, a `uint64`.
+    Len(Box<Expr>),
+    /// `[a, b, c]` of list type: a fresh list holding the values.
+    List(Vec<Expr>),
+    /// `[a, b, c]` of array type: the values side by side.
+    Array(Vec<Expr>),
+    /// `list::push(value)`: `list` is a changeable list place; `value` is moved in.
+    ListPush { list: Box<Expr>, value: Box<Expr> },
     /// `value maybe fallback` (S5A.2): the payload of the optional `value`
     /// (of tag `Some`), or `fallback` when it is `none`. `value` is a place
     /// (read where it is; only for Copy optionals) or an owned temporary.
@@ -568,6 +592,9 @@ impl Expr {
             | K::Payload { value: x, .. }
             | K::AddressOf(x) => vec![&**x],
             K::Variant { args, .. } => args.iter().collect(),
+            K::Len(x) => vec![&**x],
+            K::Index(a, b) | K::ListPush { list: a, value: b } => vec![&**a, &**b],
+            K::List(items) | K::Array(items) => items.iter().collect(),
             K::Radix { value, .. } => vec![&**value],
             K::Out { arg, .. } => vec![&**arg],
             K::TryParse { text, .. } => vec![&**text],
