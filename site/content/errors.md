@@ -990,6 +990,37 @@ use the same type.
 `unit U` declares a unit, so it can only be used inside the `<>` of a
 number type: `float64<U>`. A type parameter would be written `<T>`.
 
+## E0620: index outside an array
+
+An array has a fixed length, so an index written as a number can be
+checked while the program is compiled. Valid indexes run from 0 to one
+less than the length, or from -1 (the last item) back to minus the
+length.
+
+    uint8[4] rgba = [255, 0, 0, 255];
+    uint8 a = rgba[5];                          // error: only 0 to 3
+
+## E0622: an item cannot be moved out of a list by index
+
+Reading `names[0]` where the item owns memory (a `string`, a struct
+holding one) would leave a hole in the list. Borrow the item with
+`&names[0]`, copy it with `copy names[0]`, or call a method on it.
+
+## E0623: a list literal mixes types
+
+The items of `[a, b, c]` must all have one type. When the list is not
+given a type, the first item decides it.
+
+## E0624: an empty list has no type
+
+`[]` holds nothing to take a type from, so something has to say what the
+list holds: `string[?] xs = [];`.
+
+## E0625: wrong number of items for an array
+
+An array has a fixed length, and its literal must give exactly that many
+items: `uint8[4] a = [1, 2, 3, 4];`.
+
 ## W0600: generic function never used
 
 A generic function is only checked when something calls it with a

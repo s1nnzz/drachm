@@ -6,8 +6,10 @@ status: not-implemented
 
 # Collections
 
-Fixed arrays, growable lists and maps are designed for step 6. The compiler
-does not accept them yet, and `for` over a collection waits for them.
+Fixed arrays, growable lists and maps are designed for step 6. Array and list
+types, literals, indexing, `push`, `len` and `copy` are built and described in
+[Arrays and lists](reference-collections.md); maps, the other list methods and
+`for` over a collection are not accepted yet.
 
 ## Arrays, lists and maps
 

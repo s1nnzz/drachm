@@ -1,0 +1,19 @@
+in io;
+
+none main() {
+    // A list grows; an array has a fixed length.
+    mut uint32[?] scores = [10, 20, 30];
+    scores::push(40);
+    uint8[4] rgba = [255, 0, 0, 255];
+
+    io::outln(scores::len()->text());
+    io::outln(rgba::len()->text());
+    io::outln(scores[1]::text());
+    io::outln(rgba[3]::text());
+
+    // A list declared without a value starts empty.
+    mut string[?] names;
+    names::push("Illy");
+    names::push("Sam");
+    io::outln(names[1]);
+}
