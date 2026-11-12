@@ -577,7 +577,8 @@ pub enum ExprKind {
     /// `copy e`
     CopyOf(Box<Expr>),
     /// `take e` or `take e leaving v`.
-    Take { place: Box<Expr>, leaving: Option<Box<Expr>> },
+    /// `take place`, `take place leaving v`, or `take xs[i] reorders` (`reorders`).
+    Take { place: Box<Expr>, leaving: Option<Box<Expr>>, reorders: bool },
     /// `lend e`
     Lend(Box<Expr>),
     /// `address of e`

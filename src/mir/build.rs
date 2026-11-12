@@ -1226,7 +1226,8 @@ impl<'a> Builder<'a> {
                 let is_some = self.new_temp(Type::Bool);
                 let some_tag = Operand::Const(Constant::Int(1, tag_ty));
                 self.assign_stmt(Place::local(is_some), Rvalue::Binary(hir::BinOp::Eq, Operand::Copy(Place::local(tag)), some_tag));
-                let res = self.decl(e.ty, LocalKind::Temp);
+                // A temp that dies at the end of its scope unless it is moved on (`(a maybe b)::len()` borrows it).
+                let res = self.new_temp(e.ty);
                 let some = self.new_block();
                 let none = self.new_block();
                 let join = self.new_block();
@@ -1794,7 +1795,7 @@ impl<'a> Builder<'a> {
                     b.read(Place::local(out), elem)
                 })
             }
-            ListOp::Remove => {
+            ListOp::Remove | ListOp::SwapRemove => {
                 let ops = self.operands(&es, &borrow);
                 let out = self.decl(elem, LocalKind::Temp);
                 self.call_into(Callee::ListOp(op, elem), ops, Place::local(out));

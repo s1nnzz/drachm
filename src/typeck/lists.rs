@@ -452,6 +452,7 @@ impl Checker<'_> {
                 elem
             }
             ListOp::Clear => Type::None,
+            ListOp::SwapRemove => elem,
             ListOp::Join => {
                 all.push(self.coerce(&args[0], Type::Str)?);
                 Type::Str
@@ -614,6 +615,46 @@ impl Checker<'_> {
         let eq = hir::Expr::new(K::Call(f, vec![borrow(lhs), borrow(rhs)]), Type::Bool);
         let value = if op == ast::BinOp::Eq { eq } else { hir::Expr::new(K::Not(Box::new(eq)), Type::Bool) };
         Some(Val::Expr(value))
+    }
+
+    /// `take xs[i] reorders` (Q11): the item moves out, the last item fills its
+    /// place, and the list is one shorter. `take xs[i] leaving v` is not built yet.
+    pub(super) fn take_item(&mut self, place: &ast::Expr, recv: &ast::Expr, index: &ast::Expr, leaving: Option<&ast::Expr>, reorders: bool) -> Option<Val> {
+        if leaving.is_some() {
+            self.diags.push(
+                Diagnostic::at(&codes::E0901, place.span, "`take xs[i] leaving v` is not supported yet")
+                    .note("it would put `v` in the item's place and keep the length, which is not built yet")
+                    .help("write `take xs[i] reorders`: the last item fills the place"),
+            );
+            return None;
+        }
+        if !reorders {
+            self.diags.push(
+                Diagnostic::at(&codes::E0901, place.span, "`take` of an item of a list is not supported yet")
+                    .help("write `take xs[i] reorders`, which fills its place with the last item, or copy it with `copy`"),
+            );
+            return None;
+        }
+        let base = match self.expr(recv)? {
+            Val::Expr(x) => x,
+            _ => {
+                self.expr(index);
+                return None;
+            }
+        };
+        if base.ty.is_array() {
+            self.diags.push(Diagnostic::at(&codes::E0901, place.span, "`take` of an item of an array is not supported yet").help("an array has a fixed length: copy the item with `copy`"));
+            self.expr(index);
+            return None;
+        }
+        if !base.ty.is_list() {
+            self.not_indexable(recv, base.ty);
+            self.expr(index);
+            return None;
+        }
+        let idx = self.index_arg(index, base.ty, recv.span)?;
+        let elem = base.ty.elem()?;
+        Some(Val::Expr(hir::Expr::new(K::ListCall { op: hir::ListOp::SwapRemove, args: vec![base, idx] }, elem).at(place.span)))
     }
 
     /// `xs::contains(item)`: some item of the list is equal to `item`. The

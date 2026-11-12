@@ -841,9 +841,10 @@ impl Gen<'_> {
                 let (idx, dest) = (self.operand(&args[1].op), dest_lv.expect("an item has a destination"));
                 self.line(format!("{{ void *g = drachm_list_get({list}, {idx}, sizeof({c})); if (g) memcpy(&{dest}, g, sizeof({c})); }}"));
             }
-            ListOp::Remove => {
+            ListOp::Remove | ListOp::SwapRemove => {
                 let (idx, dest) = (self.operand(&args[1].op), dest_lv.expect("an item has a destination"));
-                self.line(format!("drachm_list_remove({list}, {idx}, &{dest}, sizeof({c}));"));
+                let name = if op == ListOp::Remove { "drachm_list_remove" } else { "drachm_list_swap_remove" };
+                self.line(format!("{name}({list}, {idx}, &{dest}, sizeof({c}));"));
             }
             ListOp::Insert => {
                 let (idx, value) = (self.operand(&args[1].op), self.operand(&args[2].op));

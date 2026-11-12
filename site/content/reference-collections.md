@@ -66,8 +66,8 @@ error[E0620]: index 5 is outside `uint8[4]`
 An item is a place: `xs[i] = v;`, `xs[i] += 1;`, `xs[i]++` and `xs[i].field = v;`
 write to it, and `&xs[i]` borrows it. Reading an item whose type owns memory
 (a `string`, a struct holding one) would leave a hole, so it is E0622: look
-at it with `&xs[i]`, copy it with `copy xs[i]`, or call a method on it. Taking
-an item out (`take xs[i]`) is E0901 for now.
+at it with `&xs[i]`, copy it with `copy xs[i]`, or call a method on it. To
+take one out, see [Taking an item out](#taking-an-item-out).
 
 <!-- example: list-owning -->
 
@@ -117,6 +117,16 @@ enum with values is E0527). `contains` needs items that copy: on a list of
 `for (T x of xs)` goes over the items in order, with `&T x` for a view and
 `&mut T x` for a changeable view; the [loops page](reference-control-flow.md#looping-over-a-list)
 has the rules and the example.
+
+## Taking an item out
+
+`take xs[i] reorders` moves the item at `i` out and gives it. The last item
+fills its place and the list gets one shorter, so the order of the other items
+is not kept. It is the way to take an owning item (a `string`, a struct holding
+one) out of a list. A plain `take xs[i]` is E0901 for now, and so is
+`take xs[i] leaving v`, which would keep the length and the order.
+
+<!-- example: list-take -->
 
 ## Splitting strings
 

@@ -2646,7 +2646,7 @@ impl Checker<'_> {
                 }
             }
             ExprKind::CopyOf(inner) => self.copy_expr(e, inner),
-            ExprKind::Take { place, leaving } => self.take_expr(e, place, leaving.as_deref()),
+            ExprKind::Take { place, leaving, reorders } => self.take_expr(e, place, leaving.as_deref(), *reorders),
             ExprKind::Lend(inner) => self.lend_expr(e, inner),
             ExprKind::AddressOf(inner) => self.address_expr(e, inner),
             ExprKind::New { name, name_span, targs, values } => {
@@ -2772,7 +2772,7 @@ impl Checker<'_> {
     }
 
     /// `take p.f` / `take p.f leaving v`.
-    fn take_expr(&mut self, e: &ast::Expr, place: &ast::Expr, leaving: Option<&ast::Expr>) -> Option<Val> {
+    fn take_expr(&mut self, e: &ast::Expr, place: &ast::Expr, leaving: Option<&ast::Expr>, reorders: bool) -> Option<Val> {
         let unsupported = |cx: &mut Self| {
             cx.diags.push(Diagnostic::at(&codes::E0901, place.span, "this form of `take` is not supported yet"));
         };
@@ -2786,12 +2786,8 @@ impl Checker<'_> {
             self.expr(place);
             return None;
         }
-        if matches!(place.kind, ExprKind::Index { .. }) {
-            self.diags.push(
-                Diagnostic::at(&codes::E0901, place.span, "`take` of an item of a list is not supported yet")
-                    .help("copy it with `copy`, or borrow it with `&`"),
-            );
-            return None;
+        if let ExprKind::Index { recv, index } = &place.kind {
+            return self.take_item(place, recv, index, leaving, reorders);
         }
         if !matches!(place.kind, ExprKind::Field { .. }) {
             unsupported(self);

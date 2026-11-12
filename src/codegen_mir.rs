@@ -1363,10 +1363,11 @@ impl Cg<'_, '_> {
                 self.b.switch_to_block(join);
                 self.item_done(elem, dest, tmp);
             }
-            ListOp::Remove => {
+            ListOp::Remove | ListOp::SwapRemove => {
                 let idx = self.operand(&args[1].op);
                 let (tmp, out) = self.item_out(elem, dest);
-                self.rt("drachm_list_remove", &[ptr, i64t, ptr, i64t], &[], &[list, idx, out, size_v]);
+                let name = if op == ListOp::Remove { "drachm_list_remove" } else { "drachm_list_swap_remove" };
+                self.rt(name, &[ptr, i64t, ptr, i64t], &[], &[list, idx, out, size_v]);
                 self.item_done(elem, dest, tmp);
             }
             ListOp::Insert => {

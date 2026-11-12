@@ -1621,12 +1621,16 @@ impl Parser<'_> {
                 self.bump();
                 let place = self.unary()?;
                 let mut leaving = None;
+                let mut reorders = false;
                 if matches!(self.peek(), Tok::Ident(w) if w == "leaving") {
                     self.bump();
                     leaving = Some(Box::new(self.binary(0)?));
+                } else if matches!(self.peek(), Tok::Ident(w) if w == "reorders") {
+                    self.bump();
+                    reorders = true;
                 }
                 let span = start.to(self.prev_span());
-                return Ok(Expr { span, kind: ExprKind::Take { place: Box::new(place), leaving }, paren: false });
+                return Ok(Expr { span, kind: ExprKind::Take { place: Box::new(place), leaving, reorders }, paren: false });
             }
             Tok::Ident(w) if w == "address" && self.peek_at(1) == &Tok::Kw("of") => {
                 self.bump();
