@@ -332,6 +332,96 @@ DRACHM_FN double drachm_parse_float(const drachm_str *s, uint32_t bits) {
     return d;
 }
 
+// How the text `s` reads as a number, for `::to<T>()` (the parse itself is
+// drachm_parse_int / drachm_parse_float): 0 when it reads fine, 1 when it is
+// empty (only whitespace), 2 when it is not a number, 3 when it is a number
+// the type cannot hold. `kind` is 0 for integers, 1 for float32, 2 for float64.
+static int drachm_text_space(uint8_t c) { return c == ' ' || (c >= 9 && c <= 13); }
+
+DRACHM_FN uint8_t drachm_parse_status(const drachm_str *s, uint8_t kind, uint8_t is_signed, uint32_t bits) {
+    uint64_t lo, hi;
+    double d;
+    float f;
+    if (kind == 0 ? drachm_str_parse_int(s, is_signed, bits, &lo, &hi) : kind == 1 ? drachm_str_parse_f32(s, &f) : drachm_str_parse_f64(s, &d)) return 0;
+    size_t a = 0, b = (size_t)s->len;
+    while (a < b && drachm_text_space(s->ptr[a])) a++;
+    while (b > a && drachm_text_space(s->ptr[b - 1])) b--;
+    if (a == b) return 1;
+    size_t i = a;
+    if (s->ptr[i] == '-' || s->ptr[i] == '+') i++;
+    size_t digits = 0;
+    while (i < b && s->ptr[i] >= '0' && s->ptr[i] <= '9') i++, digits++;
+    if (kind == 0) return (i == b && digits > 0) ? 3 : 2;
+    // A float that reads fine as text but not as a finite number overflowed.
+    size_t after = 0;
+    if (i < b && s->ptr[i] == '.') {
+        i++;
+        while (i < b && s->ptr[i] >= '0' && s->ptr[i] <= '9') i++, after++;
+    }
+    if (digits + after == 0) return 2;
+    if (i < b && (s->ptr[i] == 'e' || s->ptr[i] == 'E')) {
+        i++;
+        if (i < b && (s->ptr[i] == '+' || s->ptr[i] == '-')) i++;
+        size_t exp = 0;
+        while (i < b && s->ptr[i] >= '0' && s->ptr[i] <= '9') i++, exp++;
+        if (exp == 0) return 2;
+    }
+    return i == b ? 3 : 2;
+}
+
+// ---- failure causes -----------------------------------------------------------
+//
+// A failure carries a hidden word: 0, or a pointer to the first link of a
+// chain of messages (`fail X because e;`), newest first. Links and their
+// messages are counted allocations, so DRACHM_CHECK_LEAKS covers them.
+
+typedef struct drachm_cause {
+    drachm_str msg;
+    uint64_t next;
+} drachm_cause;
+
+DRACHM_FN void drachm_cause_drop(uint64_t chain) {
+    while (chain) {
+        drachm_cause *c = (drachm_cause *)(uintptr_t)chain;
+        uint64_t next = c->next;
+        drachm_str_drop(&c->msg);
+        drachm_str node = {(uint8_t *)c, 0, sizeof(drachm_cause)};
+        drachm_str_drop(&node);
+        chain = next;
+    }
+}
+
+// A new link holding a copy of `msg`, in front of the chain in `*slot`, which
+// moves into it (the slot is emptied).
+DRACHM_FN uint64_t drachm_cause_wrap(const drachm_str *msg, uint64_t *slot) {
+    drachm_cause *c = (drachm_cause *)drachm_str_alloc(sizeof(drachm_cause));
+    drachm_str_copy(&c->msg, msg);
+    c->next = *slot;
+    *slot = 0;
+    return (uint64_t)(uintptr_t)c;
+}
+
+// The report of a failure that left `main`, on standard error:
+//   error: <message>
+//     because: <cause>
+// one `because` line for each link. Frees the chain in `*slot`.
+DRACHM_FN void drachm_report(const drachm_str *msg, uint64_t *slot) {
+    fflush(stdout);
+    fputs("error: ", stderr);
+    if (msg->len) fwrite(msg->ptr, 1, (size_t)msg->len, stderr);
+    fputc('\n', stderr);
+    for (uint64_t chain = *slot; chain;) {
+        const drachm_cause *c = (const drachm_cause *)(uintptr_t)chain;
+        fputs("  because: ", stderr);
+        if (c->msg.len) fwrite(c->msg.ptr, 1, (size_t)c->msg.len, stderr);
+        fputc('\n', stderr);
+        chain = c->next;
+    }
+    fflush(stderr);
+    drachm_cause_drop(*slot);
+    *slot = 0;
+}
+
 // ---- conversions ----------------------------------------------------------
 
 // Float to integer under overflow = wrap: drop the fraction, then wrap around

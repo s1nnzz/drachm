@@ -1,0 +1,73 @@
+// Failing calls: the hot success path (leaf), propagation through three
+// levels (chain), an outcome that owns a string (strings), and the same loop
+// with a function that cannot fail (plain).
+in io;
+
+failure Odd {
+    Hit "hit",
+    Miss(string note) f"miss ${note}",
+}
+
+uint64 step(uint64 x) fails Odd {
+    if (x % 1000003 == 7) { fail Hit; }
+    return (x * 3 + 1) % 1000003;
+}
+
+uint64 plain(uint64 x) {
+    if (x % 1000003 == 7) { return 0; }
+    return (x * 3 + 1) % 1000003;
+}
+
+uint64 level3(uint64 x) fails Odd {
+    if (x % 10000 == 7) { fail Hit; }
+    return x + 1;
+}
+
+uint64 level2(uint64 x) fails Odd {
+    uint64 a = level3(x) fails;
+    return a + 1;
+}
+
+uint64 level1(uint64 x) fails Odd {
+    uint64 a = level2(x) fails;
+    return a + 1;
+}
+
+string label(uint64 i) fails Odd {
+    if (i % 100 == 99) { fail Miss(i::text()); }
+    return i::text();
+}
+
+none main() {
+    mut uint64 total = 0;
+    mut uint64 i = 0;
+    while (i < 100000000) {
+        total += step(i) maybe 0;
+        i++;
+    }
+    io::outln(total::text());
+
+    total = 0;
+    i = 0;
+    while (i < 20000000) {
+        total += level1(i) maybe 0;
+        i++;
+    }
+    io::outln(total::text());
+
+    total = 0;
+    i = 0;
+    while (i < 2000000) {
+        total += (label(i) maybe "-")::len();
+        i++;
+    }
+    io::outln(total::text());
+
+    total = 0;
+    i = 0;
+    while (i < 100000000) {
+        total += plain(i);
+        i++;
+    }
+    io::outln(total::text());
+}

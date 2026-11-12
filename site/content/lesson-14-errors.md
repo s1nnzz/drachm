@@ -1,12 +1,12 @@
 ---
 title: "Lesson 14: Errors"
 description: failure types, fail, fails, maybe and fails with, catch-alls and because.
-status: not-implemented
 ---
 
 # Lesson 14: Errors
 
-The compiler can't run this lesson yet; the code shows the planned design.
+`failure`, `fails`, `fail`, `maybe` and a bare `fails` run today. Handlers
+(`fails with`, `any e`, `otherwise`) are still the planned design and are marked.
 
 **Goal:** write functions that can go wrong, and say at every call what happens
 when they do.
@@ -72,7 +72,8 @@ A call to a failing function must say what to do. There are three ways.
 A bare `fails` passes the failure on to the caller, which must declare it too.
 
 <!-- focus: 3-6 -->
-`fails with` runs a handler. The handler's `maybe` gives the replacement value.
+`fails with` runs a handler. The handler's `maybe` gives the replacement value
+(handlers are not built yet).
 
 ```drachm
 uint32 a = parse(input) maybe 0;
@@ -83,7 +84,7 @@ uint32 c = parse(input) fails with (ParseError e) => {
 };
 ```
 
-A call with none of the three is a compile error by default.
+A call with none of the three is a compile error by default (E0544).
 
 ### Your turn: a fallback
 
@@ -131,6 +132,7 @@ none main() {
 ```
 
 ## Handlers, catch-alls and causes
+<!-- status: not-implemented -->
 
 A function may list several failure types, and each can have its own
 `fails with`. A `return` inside a handler leaves the outer function, not the
@@ -160,6 +162,7 @@ couldn't load save
 ```
 
 ### Your turn: report and recover
+<!-- status: not-implemented -->
 
 Using the same `check`, handle the failure with `fails with`: print the
 message of the failure, then give 0.

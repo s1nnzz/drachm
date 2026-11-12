@@ -95,6 +95,25 @@ pub enum EnumKind {
     User,
     /// `T?` (S5A.2): variants `none` (tag 0, no field) and `Some` (tag 1, one field of type `T`).
     Optional(Type),
+    /// Declared with `failure`. Field 0 of every variant is the hidden cause
+    /// word (`CAUSE_FIELD`), so it sits at the same offset in all of them.
+    Failure,
+    /// What a function that `fails` returns: `Ok(value)` (tag 0, no field when
+    /// the function returns `none`) or `Fail(failure)` (tag 1).
+    Outcome { ok: Type, fail: Type },
+    /// Which failure type a function with several ended with: one variant for
+    /// each, in the order of the `fails` list.
+    FailSet,
+}
+
+/// The hidden first field of every variant of a failure: null, or the
+/// chain of `because` messages (`drachm_cause_*` in the runtime).
+pub const CAUSE_FIELD: &str = "drachm_cause";
+
+impl FieldDef {
+    pub fn is_cause(&self) -> bool {
+        self.name == CAUSE_FIELD
+    }
 }
 
 /// Bytes of the tag of an enum with `variants` variants.
@@ -451,8 +470,6 @@ pub enum ExprKind {
     InLine,
     /// `io::ended()`: true when standard input has nothing left.
     InEnded,
-    /// `text::to<T>()`: the number the text reads as (a number type `to`).
-    ParseText { text: Box<Expr>, to: Type },
     /// `&place` / `&mut place` (the place may also be a temporary value).
     Borrow { mutable: bool, place: Box<Expr> },
     /// Reads through a borrow or pointer; also a place.
@@ -476,6 +493,25 @@ pub enum ExprKind {
     /// Field `field` of variant `variant` of an enum value that is known to
     /// be that variant (the test for it came first). A place when `value` is.
     Payload { value: Box<Expr>, variant: usize, field: usize },
+    /// `call maybe fallback`, `call` being a call of a function that fails
+    /// (its type is the outcome): the call's value, or the fallback when it
+    /// failed. The fallback runs only on failure. Typed with the value's type.
+    FailMaybe { call: Box<Expr>, fallback: Box<Expr> },
+    /// `call fails`: the call's value, or a return of its failure from the
+    /// caller. Typed with the value's type.
+    PassUp { call: Box<Expr> },
+    /// `text::to<T>()`: reading the text as a number of type `to`, which can
+    /// fail with `fail` (`ConvertError`). Only ever the call of a `Maybe` or
+    /// a `PassUp`; its own type is `to`.
+    TryParse { text: Box<Expr>, to: Type, fail: Type },
+    /// A new cause for a failure: a link carrying a copy of the message `msg`
+    /// (a `string` place) in front of the chain whose pointer is in the
+    /// `uint64` place `slot`, which is emptied. A `uint64` pointer word.
+    CauseWrap { msg: Box<Expr>, slot: Box<Expr> },
+    /// Prints the report of an escaping failure to standard error (`error:`,
+    /// the message `msg`, then the chain in the `uint64` place `slot`, which
+    /// is emptied and freed).
+    Report { msg: Box<Expr>, slot: Box<Expr> },
     /// `p::freeze()` / `p::thaw()`: the same pointer bits under the other
     /// pointer kind (`*T` to `*fixed T` or back). Needs `unsafe`.
     PtrConv(Box<Expr>),

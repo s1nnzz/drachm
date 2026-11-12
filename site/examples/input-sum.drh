@@ -1,10 +1,10 @@
 in io;
 
-none main() {
+none main() fails ConvertError {
     mut sint64 total = 0;
     mut uint32 count = 0;
     while (!io::ended()) {
-        total = total + io::inln()->to<sint64>();
+        total = total + io::inln()->to<sint64>() fails;
         count++;
     }
     io::outln("sum " + total::text());

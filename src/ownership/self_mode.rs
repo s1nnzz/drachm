@@ -258,8 +258,13 @@ impl Cx<'_> {
             | ExprKind::Discriminant(inner)
             | ExprKind::Payload { value: inner, .. }
             | ExprKind::Out { arg: inner, .. }
-            | ExprKind::ParseText { text: inner, .. }
+            | ExprKind::TryParse { text: inner, .. }
+            | ExprKind::PassUp { call: inner }
             | ExprKind::Radix { value: inner, .. } => self.expr(inner, out),
+            ExprKind::FailMaybe { call: a, fallback: b } | ExprKind::CauseWrap { msg: a, slot: b } | ExprKind::Report { msg: a, slot: b } => {
+                self.expr(a, out);
+                self.expr(b, out);
+            }
             ExprKind::Struct(fields) => {
                 for (_, v) in fields {
                     self.expr(v, out);

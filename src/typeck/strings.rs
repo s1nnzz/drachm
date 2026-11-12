@@ -35,7 +35,7 @@ fn count(n: usize, what: &str) -> String {
     format!("{n} {what}{}", if n == 1 { "" } else { "s" })
 }
 
-fn text_of(v: hir::Expr) -> hir::Expr {
+pub(super) fn text_of(v: hir::Expr) -> hir::Expr {
     hir::Expr::new(hir::ExprKind::Text(Box::new(v)), Type::Str)
 }
 
@@ -239,8 +239,8 @@ impl Checker<'_> {
         ok.then(|| Val::Expr(str_call(f, out)))
     }
 
-    /// `text::to<T>()`: the number the text reads as. Bad text stops the
-    /// program with a panic until failing calls exist (step 5).
+    /// `text::to<T>()`: the number the text reads as. Bad text fails with
+    /// `ConvertError`, so the call needs a `maybe` or `fails`.
     fn parse_text(&mut self, recv: hir::Expr, name_span: Span, targs: &[ast::TypeName], args: &[ast::Expr]) -> Option<Val> {
         for a in args {
             self.diags.push(Diagnostic::at(&codes::E0103, a.span, "`to` takes no arguments"));
@@ -264,7 +264,8 @@ impl Checker<'_> {
             self.diags.push(Diagnostic::at(&codes::E0101, target.span, format!("`to` on text reads a number, not `{to}`")));
             return None;
         }
-        Some(Val::Expr(hir::Expr::new(hir::ExprKind::ParseText { text: Box::new(recv), to }, to)))
+        let fail = self.g.enums[self.g.fail.convert_error.expect("ConvertError is declared")].ty;
+        Some(Val::Expr(hir::Expr::new(hir::ExprKind::TryParse { text: Box::new(recv), to, fail }, to)))
     }
 
     /// A two-sided operator with a string on the left: `+` joins, the

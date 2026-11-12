@@ -1,0 +1,28 @@
+in io;
+
+failure Odd {
+    Seven "seven is not allowed",
+}
+
+uint32 step(uint32 x) fails Odd {
+    if (x == 7) { fail Seven; }
+    return x + 1;
+}
+
+uint32 noisy() {
+    io::outln("the fallback ran");
+    return 99;
+}
+
+none main() {
+    // The fallback runs only when the call fails.
+    uint32 a = step(1) maybe noisy();
+    uint32 b = step(7) maybe noisy();
+    io::outln(a::text());
+    io::outln(b::text());
+    // A longer fallback or a longer expression goes in parentheses.
+    uint32 c = (step(7) maybe 0) + 1;
+    uint32 d = step(7) maybe (a * 10);
+    io::outln(c::text());
+    io::outln(d::text());
+}

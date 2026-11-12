@@ -85,6 +85,8 @@ pub enum TypeError {
 }
 
 impl Type {
+    pub const U8: Type = Type::Int { bits: 8, signed: false };
+    pub const U64: Type = Type::Int { bits: 64, signed: false };
     pub const U32: Type = Type::Int { bits: 32, signed: false };
     pub const S32: Type = Type::Int { bits: 32, signed: true };
     pub const F64: Type = Type::Float(64);

@@ -1,0 +1,63 @@
+// Failing calls inside loops, with `continue` and `break`, a return from a
+// loop by `fails`, and the order calls happen in.
+in io;
+
+failure Odd {
+    Seven "seven" exit 9,
+}
+
+failure ParseError {
+    Empty "empty",
+}
+
+failure LoadError {
+    Empty "nothing loaded",
+}
+
+uint32 step(uint32 x) fails Odd {
+    io::outln("step " + x::text());
+    if (x == 7) {
+        fail Seven;
+    }
+    return x + 1;
+}
+
+uint32 first_empty(uint32 which) fails ParseError, LoadError {
+    if (which == 0) {
+        fail ParseError::Empty;
+    }
+    fail LoadError::Empty;
+}
+
+uint32 walk(uint32 limit) fails Odd {
+    mut uint32 i = 0;
+    mut uint32 total = 0;
+    while (i < limit) {
+        i++;
+        if (i == 2) {
+            continue;
+        }
+        total = total + step(i) fails;
+        if (total > 100) {
+            break;
+        }
+    }
+    return total;
+}
+
+none main() {
+    io::outln("a: " + (walk(4) maybe 1000)::text());
+    io::outln("b: " + (walk(9) maybe 1000)::text());
+    for (mut uint32 k = 0; k < 4; k++) {
+        uint32 v = step(k * 3) maybe 0;
+        if (v == 0) {
+            continue;
+        }
+        io::outln("v " + v::text());
+        if (v > 5) {
+            break;
+        }
+    }
+    io::outln((first_empty(0) maybe 5)::text());
+    io::outln((first_empty(1) maybe 6)::text());
+}

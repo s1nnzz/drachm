@@ -5,6 +5,7 @@
 mod construct;
 mod control;
 mod enums;
+mod failures;
 mod fill;
 mod optionals;
 mod overload;
@@ -32,6 +33,10 @@ struct Sig {
     params: Vec<Option<Type>>,
     ret: Option<Type>,
     span: Span,
+    /// The failure types the function lists after `fails`.
+    fails: Vec<hir::EnumId>,
+    /// What it returns when it fails: an outcome of `ret` and the failure.
+    outcome: Option<Type>,
 }
 
 struct StructInfo {
@@ -110,6 +115,8 @@ struct Globals {
     units: std::cell::RefCell<units::UnitEnv>,
     /// The `def`s of the file (`fill.rs`).
     defs: Vec<fill::DefInfo>,
+    /// Failures, outcomes and the functions that report them (`failures.rs`).
+    fail: failures::FailState,
 }
 
 impl Globals {
@@ -235,7 +242,7 @@ impl Globals {
             return f;
         }
         let info = &self.structs[s];
-        let sig = Sig { name: format!("{} ==", info.name), params: vec![Some(info.ty); 2], ret: Some(Type::Bool), span: info.name_span };
+        let sig = Sig { name: format!("{} ==", info.name), params: vec![Some(info.ty); 2], ret: Some(Type::Bool), span: info.name_span, fails: Vec::new(), outcome: None };
         let f = self.add_sig(sig);
         self.eq_funcs.insert(s, f);
         self.eq_pending.push(s);
@@ -288,6 +295,14 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
     // Struct names first, so that any type can name any struct, wherever it is defined.
     let struct_ids: Vec<Option<StructId>> = prog.structs.iter().map(|s| declare_struct(&mut g, s, diags)).collect();
     let enum_ids: Vec<Option<hir::EnumId>> = prog.enums.iter().map(|e| enums::declare_enum(&mut g, e, diags)).collect();
+    // The failures every program has come first, so a program that declares
+    // one of the same names is the one reported.
+    let mut core_diags = Vec::new();
+    let core = parser::parse(lexer::lex(failures::PRELUDE, &mut core_diags), &mut core_diags);
+    debug_assert!(core_diags.is_empty(), "the failure prelude must parse");
+    let all_failures: Vec<&ast::Failure> = core.failures.iter().chain(&prog.failures).collect();
+    let failure_ids: Vec<Option<hir::EnumId>> = all_failures.iter().map(|f| failures::declare_failure(&mut g, f, diags)).collect();
+    g.fail.convert_error = g.enums_by_name.get("ConvertError").copied();
     optionals::declare_optionals(&mut g, &prog.optionals);
     for (s, id) in prog.structs.iter().zip(&struct_ids) {
         if let Some(id) = *id {
@@ -299,19 +314,22 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
             enums::declare_variants(&mut g, id, e, diags);
         }
     }
+    for (f, id) in all_failures.iter().zip(&failure_ids) {
+        if let Some(id) = *id {
+            failures::declare_variants(&mut g, id, f, diags);
+        }
+    }
     check_struct_lives(&mut g, prog, &struct_ids, diags);
-    let cyclic = report_cycles(&g, diags);
+    let mut cyclic = report_cycles(&g, diags);
     mark_owning(&mut g, &cyclic);
 
     // Signatures: functions, then methods.
     let mut func_ids = Vec::new();
     for f in &prog.funcs {
-        let sig = Sig {
-            name: f.name.clone(),
-            params: f.params.iter().map(|p| g.resolve_binding_type(&p.ty, diags)).collect(),
-            ret: g.resolve(&f.ret, diags),
-            span: f.span,
-        };
+        let params = f.params.iter().map(|p| g.resolve_binding_type(&p.ty, diags)).collect();
+        let ret = g.resolve(&f.ret, diags);
+        let (fails, outcome) = failures::signature(&mut g, f, ret, true, diags);
+        let sig = Sig { name: f.name.clone(), params, ret, span: f.span, fails, outcome };
         check_signature_extras(&g, f, &sig.params, false, diags);
         if let Some(&first) = g.funcs_by_name.get(&f.name) {
             diags.push(
@@ -337,6 +355,9 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
         .collect();
 
     fill::declare_defs(&mut g, src, prog, diags);
+
+    // The outcome and failure-set enums made for the signatures are not in a cycle.
+    cyclic.resize(g.structs.len() + g.enums.len(), false);
 
     // `copy` depends on which structs have a `drop()`, so layouts wait for the methods.
     let (structs, enum_defs) = lay_out(&g, &cyclic);
@@ -373,7 +394,13 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
             let (Some(sid), Some(mid)) = (*sid, *mid) else { continue };
             let word = if m.ctor { format!("new{j}") } else { m.operator.map_or(m.func.name.clone(), |op| format!("op_{}", op_word(op))) };
             let symbol = format!("drachm_m_{}{}_{word}", s.name.len(), s.name);
-            let ctx = MethodCtx { struct_id: sid, func: mid, static_span: m.is_static, ctor: m.ctor };
+            let ctx = MethodCtx {
+                struct_id: sid,
+                func: mid,
+                static_span: m.is_static,
+                ctor: m.ctor,
+                no_fails: m.ctor || (m.operator.is_none() && m.func.name == "drop"),
+            };
             let checked = check_body(&mut g, src, diags, &m.func, Some(ctx), symbol);
             emit(&mut funcs, mid, checked);
             if m.is_static.is_none() && m.operator.is_none() && !m.ctor && !g.self_use[mid].used && m.func.name != "drop" {
@@ -397,7 +424,14 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
         emit(&mut funcs, id, f);
     }
 
-    let main = g.funcs_by_name.get("main").copied().unwrap_or(0);
+    for (id, f) in failures::finish(&mut g) {
+        emit(&mut funcs, id, f);
+    }
+    let mut main = g.funcs_by_name.get("main").copied().unwrap_or(0);
+    if let Some((id, f)) = failures::main_wrapper(&mut g, main) {
+        emit(&mut funcs, id, f);
+        main = id;
+    }
     let mut program = hir::Program { funcs: funcs.into_iter().map(|f| f.unwrap_or_else(placeholder)).collect(), structs, enums: enum_defs, main };
     units::erase(&mut program);
     if cfg!(debug_assertions) {
@@ -634,12 +668,18 @@ fn declare_methods(g: &mut Globals, id: StructId, s: &ast::Struct, diags: &mut V
             continue;
         }
         let f = &m.func;
-        let sig = Sig {
-            name: format!("{}::{}", s.name, f.name),
-            params: f.params.iter().map(|p| g.resolve_binding_type(&p.ty, diags)).collect(),
-            ret: g.resolve(&f.ret, diags),
-            span: f.span,
-        };
+        let params = f.params.iter().map(|p| g.resolve_binding_type(&p.ty, diags)).collect();
+        let ret = g.resolve(&f.ret, diags);
+        let may_fail = !(f.name == "drop" && m.operator.is_none());
+        if !f.fails.is_empty() && !may_fail {
+            diags.push(
+                Diagnostic::at(&codes::E0901, f.fails_span.unwrap_or(f.span), "a `drop()` that fails is not supported yet")
+                    .note("`fails` on `drop`")
+                    .help("write `none drop() { ... }`"),
+            );
+        }
+        let (fails, outcome) = failures::signature(g, f, ret, may_fail, diags);
+        let sig = Sig { name: format!("{}::{}", s.name, f.name), params, ret, span: f.span, fails, outcome };
         check_signature_extras(g, f, &sig.params, m.is_static.is_none(), diags);
         let mut is_drop = false;
         if f.name == "drop" && m.operator.is_none() {
@@ -851,7 +891,7 @@ fn mark_owning(g: &mut Globals, cyclic: &[bool]) {
 fn copy_types(g: &Globals, cyclic: &[bool], defs: &[hir::StructDef], edefs: &[hir::EnumDef]) -> (Vec<bool>, Vec<bool>) {
     let ns = g.structs.len();
     let mut copy: Vec<bool> = g.structs.iter().enumerate().map(|(i, s)| !s.stays && s.has_drop.is_none() && !cyclic[i]).collect();
-    let mut ecopy: Vec<bool> = (0..g.enums.len()).map(|i| !cyclic[ns + i]).collect();
+    let mut ecopy: Vec<bool> = (0..g.enums.len()).map(|i| !cyclic[ns + i] && g.enums[i].kind != hir::EnumKind::Failure).collect();
     loop {
         let mut changed = false;
         let field_ok = |copy: &[bool], ecopy: &[bool], f: &FieldInfo| match f.ty.map(Type::bare) {
@@ -1015,15 +1055,21 @@ struct MethodCtx {
     static_span: Option<Span>,
     /// A constructor: `self` starts with no value and is returned at the end.
     ctor: bool,
+    /// Constructors, operators and `drop` may not say `fails` yet.
+    no_fails: bool,
 }
 
 fn check_body(g: &mut Globals, src: &str, diags: &mut Vec<Diagnostic>, f: &ast::Func, method: Option<MethodCtx>, symbol: String) -> hir::Func {
     let ret = g.resolve_quiet(&f.ret);
+    let (fails, outcome) = failures::signature(g, f, ret, !method.is_some_and(|m| m.no_fails), &mut Vec::new());
     let mut cx = Checker {
         src,
         g,
         diags,
         ret,
+        fails,
+        outcome,
+        suffix_ok: None,
         method,
         scopes: vec![HashMap::new()],
         locals: Vec::new(),
@@ -1064,6 +1110,10 @@ fn check_body(g: &mut Globals, src: &str, diags: &mut Vec<Diagnostic>, f: &ast::
         (id, ty)
     });
     let mut body = cx.block(&f.body);
+    // A failing function that returns nothing succeeds when it reaches its end.
+    if cx.outcome.is_some() && cx.ret == Some(Type::None) {
+        body.push(hir::Stmt::Return(cx.wrap_ok(None)));
+    }
     if let Some((id, ty)) = ctor_self {
         body.push(hir::Stmt::Check { local: id, kind: hir::CheckKind::CtorEnd, span: f.body.end });
         body.push(hir::Stmt::Return(Some(hir::Expr::new(hir::ExprKind::Local(id), ty))));
@@ -1113,7 +1163,7 @@ fn check_body(g: &mut Globals, src: &str, diags: &mut Vec<Diagnostic>, f: &ast::
         params: f.params.len() + has_self as usize,
         has_self,
         locals,
-        ret: ret.unwrap_or(Type::None),
+        ret: outcome.or(ret).unwrap_or(Type::None),
         body,
     }
 }
@@ -1267,6 +1317,12 @@ struct Checker<'a> {
     now_depth: u32,
     /// The `self` of the constructor being checked.
     ctor_self: Option<LocalId>,
+    /// The failure types this function lists after `fails`.
+    fails: Vec<hir::EnumId>,
+    /// What this function returns: an outcome, when it fails.
+    outcome: Option<Type>,
+    /// The call a `maybe` or `fails` is being checked for (an `ast::Expr` address).
+    suffix_ok: Option<usize>,
 }
 
 fn int_lit(bits: u128, ty: Type) -> hir::Expr {
@@ -1506,10 +1562,11 @@ impl Checker<'_> {
                     (None, _) => Some(None),
                 };
                 match v {
-                    Some(v) => out.push(hir::Stmt::Return(v)),
+                    Some(v) => out.push(hir::Stmt::Return(self.wrap_ok(v))),
                     None => {}
                 }
             }
+            Stmt::Fail { value, because, span } => self.fail_stmt(value, because.as_ref(), *span, out),
             Stmt::Unsafe { body, span } => {
                 if !self.g.unsafe_allowed {
                     self.diags.push(unsafe_disabled(Span::new(span.start, span.start + 6), "needs the file flag"));
@@ -1552,6 +1609,11 @@ impl Checker<'_> {
 
     /// Store `e`, a new value for `place`. `compound` says it came from `x op= v`.
     fn store(&mut self, place: hir::Place, e: hir::Expr, compound: bool, out: &mut hir::Block) {
+        if compound {
+            // `x += v` calls the operator method: it may not fail unnoticed.
+            let at = e.span;
+            self.report_unhandled(at, &e);
+        }
         // A field of a value being filled (or built by a constructor) is an initialisation.
         if !compound && !place.proj.is_empty() && self.filling.contains(&place.local) {
             out.push(hir::Stmt::InitField(place, e));
@@ -2308,6 +2370,7 @@ impl Checker<'_> {
                 if x.span == Span::new(0, 0) {
                     x.span = e.span;
                 }
+                self.check_unhandled(e, &x);
                 Some(Val::Expr(x))
             }
             c => Some(c),
@@ -2317,6 +2380,7 @@ impl Checker<'_> {
     fn expr_inner(&mut self, e: &ast::Expr) -> Option<Val> {
         let typed = |kind, ty| Some(Val::Expr(hir::Expr::new(kind, ty)));
         match &e.kind {
+            ExprKind::PassUp(call) => self.pass_up_expr(e, call),
             ExprKind::Num(n) if n.unit.is_some() => self.unit_literal(n, e.span),
             ExprKind::Num(n) => match n.suffix {
                 Some(ty) => Some(Val::Expr(self.fit_const(&n.value, ty, e.span, false))),

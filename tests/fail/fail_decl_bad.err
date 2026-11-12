@@ -1,0 +1,5 @@
+error[E0551]: the message of `Missing` uses `${port}`, but it has no such value
+error[E0552]: exit code `300` is out of range
+error[E0520]: `Config` has two variants named `Missing`
+error[E0554]: failure `Nothing` has no variants
+error[E0202]: `Shape` is already the name of a struct, an enum or a failure

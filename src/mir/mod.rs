@@ -212,7 +212,7 @@ pub enum TerminatorKind {
     Unreachable,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Arg {
     pub op: Operand,
     pub span: Span,
@@ -230,8 +230,17 @@ pub enum Callee {
     InLine,
     /// `io::ended()`.
     InEnded,
-    /// A `&string` read as a number of this type (panics on bad text).
+    /// A `&string` read as a number of this type (the text is known to be fine).
     Parse(Type),
+    /// How a `&string` reads as a number of this type: `uint8` 0 for fine,
+    /// 1 for empty, 2 for not a number, 3 for out of range.
+    ParseStatus(Type),
+    /// `(&string message, &mut uint64 cause slot)`: a new cause link in front
+    /// of the chain in the slot (which is emptied). Gives the link's pointer word.
+    CauseWrap,
+    /// `(&string message, &mut uint64 cause slot)`: prints the report of an
+    /// escaping failure to standard error and frees the chain in the slot.
+    Report,
     /// Number or bool to an owned string.
     Text,
     Radix { base: u32, upper: bool },
@@ -347,6 +356,9 @@ pub fn build_program(hir: &hir::Program, diags: &mut Vec<Diagnostic>) -> Program
     let p = build::program(hir, diags);
     #[cfg(debug_assertions)]
     if let Err(errors) = validate::validate(&p, hir) {
+        if std::env::var_os("DRACHM_DUMP_BAD_MIR").is_some() {
+            eprintln!("{}", print_program(&p, hir));
+        }
         panic!("the MIR builder produced invalid MIR:\n{}", errors.join("\n"));
     }
     p
@@ -386,7 +398,8 @@ pub fn needs_drop(hir: &hir::Program, ty: Type) -> bool {
             let s = &hir.structs[id];
             s.has_drop.is_some() || s.fields.iter().any(|f| needs_drop(hir, f.ty))
         }
-        Type::Enum { id, .. } => hir.enums[id].variants.iter().flat_map(|v| &v.fields).any(|f| needs_drop(hir, f.ty)),
+        // A failure owns its cause chain.
+        Type::Enum { id, .. } => hir.enums[id].kind == hir::EnumKind::Failure || hir.enums[id].variants.iter().flat_map(|v| &v.fields).any(|f| needs_drop(hir, f.ty)),
         _ => false,
     }
 }

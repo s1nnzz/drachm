@@ -1,6 +1,6 @@
 in io;
 
-none main() {
+none main() fails ConvertError {
     // The first line is a name.
     string name = io::inln()->trim();
     io::outln(f"Hello, ${name}!");
@@ -13,7 +13,7 @@ none main() {
         if (line::isEmpty()) {
             continue;
         }
-        total = total + line::to<sint64>();
+        total = total + line::to<sint64>() fails;
         count++;
     }
     io::outln(f"${count} numbers, total ${total}");

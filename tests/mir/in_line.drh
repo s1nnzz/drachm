@@ -1,8 +1,8 @@
 in io;
 
-none main() {
+none main() fails ConvertError {
     string line = io::inln();
-    uint32 n = line::to<uint32>();
+    uint32 n = line::to<uint32>() fails;
     io::out(io::inln());
     io::outln(n::text());
 }

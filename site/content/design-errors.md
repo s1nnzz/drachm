@@ -1,14 +1,14 @@
 ---
 title: Errors with fails and maybe
 description: failure types, fail, maybe, fails with, catch-alls and chained causes. There is no Result type.
-status: not-implemented
 ---
 
 # Errors with fails and maybe
 
 Drachm has no `Result` type and no `?` operator. A function that can go wrong
-says so with `fails`, and the caller must say what happens on failure. This is
-designed for step 5; the compiler does not accept any of it yet.
+says so with `fails`, and the caller must say what happens on failure. The
+parts that build are described on [Failures](reference-errors.md); handlers,
+catch-alls and handler-based causes below are marked.
 
 ## A function that can fail
 
@@ -69,6 +69,7 @@ uint32 c = parse(input) fails with (ParseError e) => {
 ```
 
 ## Several handlers
+<!-- status: not-implemented -->
 
 One `fails with` per failure type. A `return` inside a handler leaves the outer
 function, not the handler.
@@ -79,6 +80,7 @@ Save s = load(p) fails with (FileMissing e) => { maybe Save::empty(); }
 ```
 
 ## Catch-alls
+<!-- status: not-implemented -->
 
 `fails with (any e)` handles any failure. After specific handlers, `otherwise`
 handles whatever they did not name.
@@ -89,6 +91,7 @@ load(p) fails with (FileMissing e) => { /* ... */ }
 ```
 
 ## Chaining a cause
+<!-- status: not-implemented -->
 
 `fail X because e` raises a new failure and keeps the one that caused it. When
 it reaches the end of the program, both are printed.

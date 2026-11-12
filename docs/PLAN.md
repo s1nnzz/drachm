@@ -23,7 +23,7 @@ answers into `docs/SPEC.md` and the design doc, and note leftovers under that st
 | 4 | `for`, `skip`, `match` | done: `match` on text (exact patterns, `globbed` globs), `for` over characters (`string` copies, `&string` views), lists in step 6 |
 | 4.5 | Units of measure | done (`in si;`, points and deltas, scaled integers wrap; decisions in `docs/impl/step4.5-units.md`) |
 | 4.6 | Input: `io::inln()`, `io::ended()`, text `::to<T>()` | done (interim: bad text stops the program with exit 101; forgiving number text (spaces, `+`, `.5`); `\r\n` lines; invalid UTF-8 becomes U+FFFD) |
-| 5 | Constructors, enums, `fails` / `maybe` | in progress: S5A.1 done (enums with data, `match` with bindings/`take`/`copy`/guards/nesting/alternatives/values, exhaustiveness, `Switch`; `==` for payload-free enums) and S5B done (constructors, overloads, `new ... of`, named values, `Person(auto);`, `fill`, `fill partial`, `def`, `defaults`, `now`); optionals done (S5A.2, below); failures, `maybe` on failing calls and handlers not started |
+| 5 | Constructors, enums, `fails` / `maybe` | in progress: S5A.1 done (enums with data, `match` with bindings/`take`/`copy`/guards/nesting/alternatives/values, exhaustiveness, `Switch`; `==` for payload-free enums) and S5B done (constructors, overloads, `new ... of`, named values, `Person(auto);`, `fill`, `fill partial`, `def`, `defaults`, `now`); optionals done (S5A.2, below); failures done (S5C, below: `failure`, `fails`, `fail`, `maybe`/`fails` on calls, `because`, `ConvertError`, exit codes); handlers (S5D) not started |
 | 6 | Generics, interfaces, collections | not started |
 | 7 | Modules, config, scripts, stdlib | not started |
 | 7.5 | MIR optimiser: SSA, inlining, scalar replacement, constant folding, loop opts, check elimination, alias info from borrows | not started |
@@ -771,7 +771,20 @@ publicly at https://drachm-lang.github.io (built site pushed to the public repo
 
 ---
 
+**Step 5 progress, S5C (failures):** `failure` types are enums (kind `Failure`) whose variants all start with a hidden cause word;
+a function that `fails` has `hir::Func.ret` = an outcome enum (`Ok(value)` tag 0, `Fail(failure)` tag 1, or a `FailSet` with one
+variant per listed type), the written type stays in the checker's `Sig::ret`. `message`/`exit_code` are synthesised per failure and
+set (`src/typeck/failures.rs`); a failing `main` is wrapped by a synthesised `drachm_main_wrapper` that calls `Report` and returns the
+exit code (0-255, the failure's code wins over main's number). `x maybe v` is one syntax for optionals and failing calls (`FailMaybe`
+in the HIR); `call fails` is `PassUp`; text `::to<T>()` is `TryParse` (status then value, `ConvertError` `Empty`/`NotANumber`/
+`OutOfRange`, replacing the exit-101 interim). Interims: a `drop()` or constructor that `fails` is E0901; `a != b` with a failing `==`
+is E0901; failure values hold numbers, bools and strings; `match`/`copy` on a failure and a failing function returning a borrow are
+E0901; `fails with` is E0901 until S5D; a cause can only come from a failure value in a variable (no handlers yet).
+Benchmark baseline (`bench/fails.*`): see the Performance section.
+
 ## Performance (cross-cutting)
+
+S5C baseline (`bench/fails.*`, four loops in one program: failing leaf 100M calls, 3-level chain 20M, string outcome 2M, plain control 100M; best of 5): drachm -O 609 ms, C struct-by-value 450 ms (135%), Rust Result 305 ms (199%), plain Cranelift build 891 ms. No gate; S5E may improve it.
 
 Goal from the owner: benchmark speed on par with Rust. Measure with
 `bench/run.sh` after every step that touches codegen, and add a benchmark

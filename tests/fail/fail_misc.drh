@@ -1,0 +1,65 @@
+in io;
+
+struct Shape {
+    float64 w;
+}
+
+failure ParseError {
+    Empty "nothing to parse",
+    Bad(string text) "bad",
+}
+
+failure LoadError {
+    Empty "nothing loaded",
+    Gone "gone",
+}
+
+uint32 parse(string s) fails ParseError {
+    return 1;
+}
+
+uint32 load(string s) fails LoadError {
+    return 1;
+}
+
+// E0548: main does not list ParseError
+none one() {
+    uint32 n = parse("x") fails;
+}
+
+// E0541: Gone is not in the list; E0543: Empty is in both
+uint32 two() fails ParseError, LoadError {
+    if ((parse("x") maybe 0) == 1) {
+        fail Missing;
+    }
+    fail Empty;
+}
+
+// E0541 with Type::Name for a failure not listed
+none three() fails ParseError {
+    fail LoadError::Gone;
+}
+
+// E0542
+none four() {
+    fail Empty;
+}
+
+// E0540
+uint32 five() fails Shape, Nothing {
+    return 1;
+}
+
+// E0554
+uint32 six() fails ParseError, ParseError {
+    return 1;
+}
+
+// E0549
+none ten() fails ParseError {
+    uint32 n = 4;
+    fail Empty because n;
+}
+
+none main() {
+}

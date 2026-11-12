@@ -1117,9 +1117,16 @@ impl<'a> Builder<'a> {
             }
             ExprKind::InLine => self.call(Callee::InLine, Vec::new(), Type::Str),
             ExprKind::InEnded => self.call(Callee::InEnded, Vec::new(), Type::Bool),
-            ExprKind::ParseText { text, to } => {
-                let ops = self.operands(&[&**text], &|_| Some((false, false)));
-                self.call(Callee::Parse(*to), ops, *to)
+            ExprKind::TryParse { .. } => unreachable!("a text parse is always under `maybe` or `fails`"),
+            ExprKind::FailMaybe { call, fallback } => self.maybe(e, call, fallback),
+            ExprKind::PassUp { call } => self.pass_up(e, call),
+            ExprKind::CauseWrap { msg, slot } => {
+                let ops = self.operands(&[&**msg, &**slot], &|i| Some((i == 1, false)));
+                self.call(Callee::CauseWrap, ops, e.ty)
+            }
+            ExprKind::Report { msg, slot } => {
+                let ops = self.operands(&[&**msg, &**slot], &|i| Some((i == 1, false)));
+                self.call(Callee::Report, ops, Type::None)
             }
             ExprKind::Radix { value, base, upper } => {
                 let ops = self.operands(&[&**value], &|_| None);
@@ -1225,6 +1232,188 @@ impl<'a> Builder<'a> {
         out
     }
 
+    // ---- failures ----------------------------------------------------------
+
+    /// The temp holding the outcome of the failing call `call`.
+    fn outcome_of(&mut self, call: &Expr) -> Place {
+        match self.operand(call) {
+            Operand::Move(p) | Operand::Copy(p) => p,
+            Operand::Const(_) => unreachable!("an outcome is never a constant"),
+        }
+    }
+
+    /// `if tag(out) != 0 { fail } else { ok }`; returns (fail block, ok block).
+    fn branch_on_failure(&mut self, out: &Place) -> (BlockId, BlockId) {
+        let ty = crate::mir::ty::place_ty_in(&self.locals, self.hir, out);
+        let tag_ty = crate::mir::ty::tag_type(self.hir.enum_def(ty).tag_size);
+        let tag = self.decl(tag_ty, LocalKind::Temp);
+        self.assign_stmt(Place::local(tag), Rvalue::Discriminant(out.clone()));
+        let failed = self.decl(Type::Bool, LocalKind::Temp);
+        let zero = Operand::Const(Constant::Int(0, tag_ty));
+        self.assign_stmt(Place::local(failed), Rvalue::Binary(hir::BinOp::Ne, Operand::Copy(Place::local(tag)), zero));
+        let (fail_bb, ok_bb) = (self.new_block(), self.new_block());
+        self.end(TerminatorKind::If { cond: Operand::Copy(Place::local(failed)), then: fail_bb, els: ok_bb });
+        (fail_bb, ok_bb)
+    }
+
+    /// `out` is finished with: nothing is dropped for it any more (its parts
+    /// were moved out, or it was dropped just before).
+    fn forget(&mut self, out: &Place) {
+        let ty = crate::mir::ty::place_ty_in(&self.locals, self.hir, out);
+        let gone = self.decl(ty, LocalKind::Temp);
+        self.assign_stmt(Place::local(gone), Rvalue::Use(Operand::Move(out.clone())));
+    }
+
+    fn payload(out: &Place, variant: usize) -> Place {
+        let mut p = out.clone();
+        p.proj.push(Proj::Downcast(variant));
+        p.proj.push(Proj::Field(0));
+        p
+    }
+
+    /// `call maybe fallback` (`e`): the Ok value, or the fallback.
+    fn maybe(&mut self, e: &Expr, call: &Expr, fallback: &Expr) -> Operand {
+        let result = self.new_temp(e.ty);
+        let join = self.new_block();
+        let (fail_bb, ok_bb);
+        let out;
+        if let ExprKind::TryParse { text, to, .. } = &call.kind {
+            // Reading text needs no outcome: the status says everything.
+            let ops = self.operands(&[&**text], &|_| Some((false, false)));
+            let status = self.call(Callee::ParseStatus(*to), ops.clone(), Type::U8);
+            let failed = self.decl(Type::Bool, LocalKind::Temp);
+            self.assign_stmt(Place::local(failed), Rvalue::Binary(hir::BinOp::Ne, status, Operand::Const(Constant::Int(0, Type::U8))));
+            (fail_bb, ok_bb) = (self.new_block(), self.new_block());
+            self.end(TerminatorKind::If { cond: Operand::Copy(Place::local(failed)), then: fail_bb, els: ok_bb });
+            self.cur = ok_bb;
+            let v = self.call(Callee::Parse(*to), ops, *to);
+            self.assign_stmt(Place::local(result), Rvalue::Use(v));
+            out = None;
+        } else {
+            let o = self.outcome_of(call);
+            (fail_bb, ok_bb) = self.branch_on_failure(&o);
+            self.cur = ok_bb;
+            let v = self.read(Self::payload(&o, 0), e.ty);
+            self.assign_stmt(Place::local(result), Rvalue::Use(v));
+            self.forget(&o);
+            out = Some(o);
+        }
+        self.goto(join);
+        self.cur = fail_bb;
+        if let Some(o) = &out {
+            // The failure is dropped before the fallback runs.
+            self.push(StatementKind::Drop { place: o.clone(), flag: None, reason: DropReason::Destroy });
+            self.forget(o);
+        }
+        self.push_frame(ScopeKind::Block, self.span);
+        let f = self.operand(fallback);
+        self.assign_stmt(Place::local(result), Rvalue::Use(f));
+        self.pop_frame(self.span);
+        self.goto(join);
+        self.cur = join;
+        self.read(Place::local(result), e.ty)
+    }
+
+    /// `call fails` (`e`): the Ok value, or a return of the failure.
+    fn pass_up(&mut self, e: &Expr, call: &Expr) -> Operand {
+        if let ExprKind::TryParse { text, to, fail } = &call.kind {
+            let ops = self.operands(&[&**text], &|_| Some((false, false)));
+            let status = self.call(Callee::ParseStatus(*to), ops.clone(), Type::U8);
+            let st = self.freeze(status, Type::U8);
+            let failed = self.decl(Type::Bool, LocalKind::Temp);
+            self.assign_stmt(Place::local(failed), Rvalue::Binary(hir::BinOp::Ne, st.clone(), Operand::Const(Constant::Int(0, Type::U8))));
+            let (bad_bb, ok_bb) = (self.new_block(), self.new_block());
+            self.end(TerminatorKind::If { cond: Operand::Copy(Place::local(failed)), then: bad_bb, els: ok_bb });
+            self.cur = bad_bb;
+            // What the failing path makes dies there, not on the way on.
+            self.push_frame(ScopeKind::Block, self.span);
+            let arms: Vec<BlockId> = (0..3).map(|_| self.new_block()).collect();
+            let merge = self.new_block();
+            self.end(TerminatorKind::Switch { discr: st, cases: vec![(1, arms[0]), (2, arms[1])], otherwise: arms[2] });
+            let failure = self.new_temp(*fail);
+            for (k, arm) in arms.into_iter().enumerate() {
+                self.cur = arm;
+                self.assign_stmt(
+                    Place::local(failure),
+                    Rvalue::Variant(fail.enum_id().expect("ConvertError"), k, vec![Operand::Const(Constant::Int(0, Type::U64))]),
+                );
+                self.goto(merge);
+            }
+            self.cur = merge;
+            self.return_failure(failure, *fail);
+            self.frames.pop();
+            self.cur = ok_bb;
+            return self.call(Callee::Parse(*to), ops, *to);
+        }
+        let out = self.outcome_of(call);
+        let (fail_bb, ok_bb) = self.branch_on_failure(&out);
+        self.cur = fail_bb;
+        self.push_frame(ScopeKind::Block, self.span);
+        let callee_ty = crate::mir::ty::place_ty_in(&self.locals, self.hir, &out);
+        let hir::EnumKind::Outcome { fail: from, .. } = self.hir.enum_def(callee_ty).kind else { unreachable!("a failing call has an outcome") };
+        let failure = self.new_temp(from);
+        self.assign_stmt(Place::local(failure), Rvalue::Use(Operand::Move(Self::payload(&out, 1))));
+        self.forget(&out);
+        self.return_failure(failure, from);
+        self.frames.pop();
+        self.cur = ok_bb;
+        if e.ty == Type::None {
+            self.forget(&out);
+            return Self::unit();
+        }
+        let result = self.new_temp(e.ty);
+        let v = self.read(Self::payload(&out, 0), e.ty);
+        self.assign_stmt(Place::local(result), Rvalue::Use(v));
+        self.forget(&out);
+        self.read(Place::local(result), e.ty)
+    }
+
+    /// Return the failure in `failure` (of type `from`, one of the failure
+    /// types of this function's list or a set of them) as this function's
+    /// outcome. Ends the block.
+    fn return_failure(&mut self, failure: Local, from: Type) {
+        let mine = self.func.ret;
+        let hir::EnumKind::Outcome { fail: to, .. } = self.hir.enum_def(mine).kind else { unreachable!("a failing function returns an outcome") };
+        let wrapped = if from == to {
+            failure
+        } else {
+            let w = self.decl(to, LocalKind::Temp);
+            let to_def = self.hir.enum_def(to);
+            let member = |t: Type| to_def.variants.iter().position(|v| v.fields[0].ty == t).expect("the caller lists this failure");
+            if self.hir.enum_def(from).kind == hir::EnumKind::FailSet {
+                // Re-wrap variant by variant.
+                let n = self.hir.enum_def(from).variants.len();
+                let tag_ty = crate::mir::ty::tag_type(self.hir.enum_def(from).tag_size);
+                let tag = self.decl(tag_ty, LocalKind::Temp);
+                self.assign_stmt(Place::local(tag), Rvalue::Discriminant(Place::local(failure)));
+                let arms: Vec<BlockId> = (0..n).map(|_| self.new_block()).collect();
+                let merge = self.new_block();
+                let cases = (0..n - 1).map(|j| (j as u128, arms[j])).collect();
+                self.end(TerminatorKind::Switch { discr: Operand::Copy(Place::local(tag)), cases, otherwise: arms[n - 1] });
+                for (j, arm) in arms.into_iter().enumerate() {
+                    self.cur = arm;
+                    let mty = self.hir.enum_def(from).variants[j].fields[0].ty;
+                    let inner = self.decl(mty, LocalKind::Temp);
+                    self.assign_stmt(Place::local(inner), Rvalue::Use(Operand::Move(Self::payload(&Place::local(failure), j))));
+                    self.forget(&Place::local(failure));
+                    let k = member(mty);
+                    self.assign_stmt(Place::local(w), Rvalue::Variant(to.enum_id().unwrap(), k, vec![Operand::Move(Place::local(inner))]));
+                    self.goto(merge);
+                }
+                self.cur = merge;
+            } else {
+                let k = member(from);
+                self.assign_stmt(Place::local(w), Rvalue::Variant(to.enum_id().unwrap(), k, vec![Operand::Move(Place::local(failure))]));
+            }
+            w
+        };
+        self.push_frame(ScopeKind::Block, self.span);
+        self.assign_stmt(Place::local(Local(0)), Rvalue::Variant(mine.enum_id().unwrap(), 1, vec![Operand::Move(Place::local(wrapped))]));
+        self.unwind(0);
+        self.frames.pop();
+        self.diverge(TerminatorKind::Return);
+    }
+
     /// Emit a call to a fresh target block; its result goes to a fresh temp.
     fn call(&mut self, callee: Callee, args: Vec<Arg>, ret: Type) -> Operand {
         let dest = (ret != Type::None).then(|| Place::local(self.new_temp(ret)));
@@ -1296,7 +1485,11 @@ fn kind_name(k: &ExprKind) -> &'static str {
         ExprKind::Out { .. } => "Out",
         ExprKind::InLine => "InLine",
         ExprKind::InEnded => "InEnded",
-        ExprKind::ParseText { .. } => "ParseText",
+        ExprKind::TryParse { .. } => "TryParse",
+        ExprKind::FailMaybe { .. } => "FailMaybe",
+        ExprKind::PassUp { .. } => "PassUp",
+        ExprKind::CauseWrap { .. } => "CauseWrap",
+        ExprKind::Report { .. } => "Report",
         ExprKind::Borrow { .. } => "Borrow",
         ExprKind::Deref(_) => "Deref",
         ExprKind::DeepCopy(_) => "DeepCopy",

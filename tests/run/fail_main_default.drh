@@ -1,0 +1,12 @@
+// A failure without `exit` leaves the program with code 1, and the
+// message goes to standard error after what was printed.
+in io;
+
+failure Plain {
+    Broken "something broke",
+}
+
+none main() fails Plain {
+    io::outln("before");
+    fail Broken;
+}

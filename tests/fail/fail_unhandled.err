@@ -1,0 +1,4 @@
+error[E0544]: `parse` can fail, and nothing says what to do when it does
+error[E0544]: `parse` can fail, and nothing says what to do when it does
+error[E0544]: `parse` can fail, and nothing says what to do when it does
+error[E0544]: `to` can fail, and nothing says what to do when it does

@@ -285,20 +285,16 @@ Read until the input ends, skip blank lines, and add each parsed number.
 ### When the text is not a number
 
 Text that is not a number of the type you asked for (empty, letters, out of
-range for the type) stops the program for now. It prints the text and the type
-to standard error and exits with code 101:
+range for the type) makes `::to<T>()` fail with a `ConvertError`, so the call
+carries a `maybe` or a `fails`. The program above passes it up with `fails`
+(and `main` lists `ConvertError`), so for the input `abc` it prints this to
+standard error and exits with code 1:
 
-```text title="echo abc | ./program, with line::to<uint32>()"
-drachm: panic: cannot read "abc" as uint32
+```text title="echo abc | ./program"
+error: the text is not a number
 ```
 
-### A failing conversion you handle
-<!-- status: not-implemented -->
-
-The design turns this into a failure the program can handle, so
-`line::to<uint32>() maybe 0` gives a fallback, and the error says why it
-failed: empty, not a number, or out of range. Failures and `maybe` are not
-built yet, see [Coming later](coming-later.md). Until they are, validate the
-text first, for example with `isEmpty()`, as the program above does.
+`line::to<uint32>() maybe 0` gives a fallback instead. The rules are on
+[Failures](reference-errors.md).
 
 Next: [Thinking in match](guide-match.md).

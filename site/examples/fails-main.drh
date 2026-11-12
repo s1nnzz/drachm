@@ -1,0 +1,18 @@
+in io;
+
+failure Late {
+    Overslept(uint32 minutes) f"overslept by ${minutes} minutes" exit 12,
+}
+
+sint32 check(uint32 minutes) fails Late {
+    if (minutes > 10) { fail Overslept(minutes); }
+    return 3;
+}
+
+// `main` may fail. When it does not, the number it returns is the exit code
+// (0 here, so this example succeeds).
+sint32 main() fails Late {
+    sint32 a = check(5) fails;
+    io::outln(a::text());
+    return 0;
+}

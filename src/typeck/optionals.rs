@@ -23,7 +23,7 @@ pub(super) const SOME: usize = 1;
 pub(super) fn inner_of(g: &Globals, ty: Type) -> Option<Type> {
     match g.enums[ty.enum_id()?].kind {
         hir::EnumKind::Optional(inner) => Some(inner),
-        hir::EnumKind::User => None,
+        _ => None,
     }
 }
 
@@ -142,7 +142,17 @@ impl Checker<'_> {
 
     /// `value maybe fallback`: the payload of an optional, or `fallback` when it is `none`.
     pub(super) fn maybe_expr(&mut self, value: &ast::Expr, fallback: &ast::Expr) -> Option<Val> {
-        let v = self.expr(value)?;
+        let saved = self.suffix_ok.replace(value as *const ast::Expr as usize);
+        let v = self.expr(value);
+        self.suffix_ok = saved;
+        let v = v?;
+        let v = match v {
+            Val::Expr(x) => match self.classify(x) {
+                Ok(f) => return self.maybe_failing(f, fallback),
+                Err(x) => Val::Expr(x),
+            },
+            v => v,
+        };
         let Val::Expr(x) = v else {
             self.coerce(fallback, Type::U32);
             self.not_optional_maybe(value, None);

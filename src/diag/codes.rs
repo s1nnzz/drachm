@@ -602,6 +602,42 @@ codes! {
     E0510: "no default def",
         "`fill ... with defaults` needs the struct to name its default def, with\n\
          `struct Player defaults PlayerStart { ... }` or `struct default Player { ... }`.";
+    E0540: "not a failure type",
+        "Only a `failure` can be listed after `fails`. The name is either not a\n\
+         type at all, or it is a struct or an enum.\n\n\
+         \x20   failure ParseError { Empty \"nothing to parse\" }\n\
+         \x20   uint32 parse(string s) fails ParseError { ... }";
+    E0541: "failure not in the list",
+        "`fail X;` names a failure variant that none of the failure types in the\n\
+         function's `fails` list has. Add the failure type to the list, or fail\n\
+         with one of the variants it does have.";
+    E0542: "fail in a function that does not say fails",
+        "`fail` ends a function with a failure, so the function has to say so:\n\
+         write `fails ParseError` after the parameters.\n\n\
+         \x20   uint32 parse(string s) fails ParseError { fail Empty; }";
+    E0543: "ambiguous failure variant",
+        "Two of the failure types in the `fails` list have a variant with this\n\
+         name. Write the failure type too: `fail ParseError::Empty;`.";
+    E0544: "a call that can fail is not handled",
+        "A call to a function that can fail has to say what happens when it\n\
+         does. Fall back to a value with `maybe`, or pass the failure up with\n\
+         `fails` (the caller must then list the failure type itself).\n\n\
+         \x20   uint32 n = parse(line) maybe 0;\n\
+         \x20   uint32 m = parse(line) fails;";
+    E0548: "failure not declared by the caller",
+        "`call fails` passes the failures of the call up to the caller, so the\n\
+         caller has to list every one of them after its own `fails`.";
+    E0549: "because needs a failure",
+        "`fail X because e;` records the failure `e` as the cause of `X`. The value\n\
+         after `because` has to be a failure value.";
+    E0551: "unknown value in a failure message",
+        "A failure message can use the values of its variant with `${name}`. The\n\
+         name is not one of the variant's values.";
+    E0552: "exit code out of range",
+        "The exit code of a failure is a whole number from 0 to 255.";
+    E0554: "failure list problem",
+        "A failure type is listed twice after `fails`, or a `failure` has no\n\
+         variants at all.";
     E0901: "not supported yet",
         "This is part of Drachm's design, but this version of the compiler does\n\
          not implement it yet.";

@@ -1,9 +1,9 @@
 in io;
 
-none main() {
+none main() fails ConvertError {
     mut sint64 total = 0;
     while (!io::ended()) {
-        total = total + io::inln()->to<sint64>();
+        total = total + io::inln()->to<sint64>() fails;
     }
     io::outln(total::text());
 }

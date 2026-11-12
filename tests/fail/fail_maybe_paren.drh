@@ -1,0 +1,11 @@
+failure ParseError {
+    Empty "nothing to parse",
+}
+
+uint32 parse(string s) fails ParseError {
+    return 1;
+}
+
+none main() {
+    uint32 a = parse("x") maybe 1 + 2;
+}

@@ -69,26 +69,22 @@ ignored, so `" 42 "::to<uint32>()` is 42.
 
 ## Bad text
 
-Until failing calls exist, bad text stops the program. The program below reads
-`abc` as a number:
+Reading text can fail, so `::to<T>()` on text needs a `maybe` or a `fails` (see
+[Failures](reference-errors.md)). The failure is the built-in `ConvertError`:
+`Empty`, `NotANumber` or `OutOfRange`. `maybe` gives a fallback:
 
 ```drachm
 in io;
 
 none main() {
-    io::outln("start");
-    uint32 n = io::inln()->to<uint32>();
+    uint32 n = io::inln()->to<uint32>() maybe 0;
     io::outln(n::text());
 }
 ```
 
-It prints this to standard error and exits with code 101:
+A bare `fails` passes it up. If it leaves `main`, the program prints this to
+standard error and exits with code 1. For the input `abc`:
 
 ```text title="output"
-start
-drachm: panic: cannot read "abc" as uint32
+error: the text is not a number
 ```
-
-The message shows the text, up to 40 bytes of it, and the type. A later step
-turns this into an error the program handles, with `maybe`; see
-[Coming later](coming-later.md).

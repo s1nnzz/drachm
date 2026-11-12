@@ -167,10 +167,11 @@ impl Checker<'_> {
     fn variant_shape(&self, en: EnumId, vi: usize) -> String {
         let e = &self.g.enums[en];
         let v = &e.variants[vi];
-        if v.fields.is_empty() {
+        let hidden = (e.kind == hir::EnumKind::Failure) as usize;
+        if v.fields.len() <= hidden {
             return v.name.clone();
         }
-        let fields: Vec<String> = v.fields.iter().map(|f| format!("{} {}", f.ty.map_or("?".into(), |t| t.to_string()), f.name)).collect();
+        let fields: Vec<String> = v.fields.iter().skip(hidden).map(|f| format!("{} {}", f.ty.map_or("?".into(), |t| t.to_string()), f.name)).collect();
         format!("{}({})", v.name, fields.join(", "))
     }
 
@@ -193,7 +194,9 @@ impl Checker<'_> {
     /// A value of variant `vi` of enum `en`, built from `args` (one for each
     /// value the variant declares). `parens` says the call was written with `(`.
     pub(super) fn variant_expr(&mut self, en: EnumId, vi: usize, args: &[ast::Expr], parens: bool, span: Span, name_span: Span) -> Option<hir::Expr> {
-        let fields: Vec<Option<Type>> = self.g.enums[en].variants[vi].fields.iter().map(|f| f.ty).collect();
+        // A failure's first field is the hidden cause, which the program never writes.
+        let hidden = (self.g.enums[en].kind == hir::EnumKind::Failure) as usize;
+        let fields: Vec<Option<Type>> = self.g.enums[en].variants[vi].fields.iter().skip(hidden).map(|f| f.ty).collect();
         let vname = self.g.enums[en].variants[vi].name.clone();
         if fields.len() != args.len() {
             let n = fields.len();
@@ -226,6 +229,9 @@ impl Checker<'_> {
             }
         }
         let ty = self.g.enums[en].ty;
+        if hidden == 1 {
+            out.insert(0, hir::Expr::new(hir::ExprKind::Int(0), Type::U64));
+        }
         ok.then(|| hir::Expr::new(hir::ExprKind::Variant { enum_id: en, variant: vi, args: out }, ty))
     }
 
@@ -740,6 +746,14 @@ impl Checker<'_> {
     pub(super) fn enum_match(&mut self, v: hir::Expr, value: &ast::Expr, cases: &[ast::Case], span: Span, out: &mut hir::Block) {
         let ty = v.ty;
         let en = ty.enum_id().unwrap();
+        if self.g.enums[en].kind == hir::EnumKind::Failure {
+            self.diags.push(
+                Diagnostic::at(&codes::E0901, value.span, "`match` on a failure is not supported yet")
+                    .note(format!("`{}` is a failure", self.g.enums[en].name))
+                    .help("handlers will take failures apart"),
+            );
+            return;
+        }
         // The value is matched where it is when it is a place (it is not
         // moved by `match`); anything else is kept in a hidden local.
         let rooted = {

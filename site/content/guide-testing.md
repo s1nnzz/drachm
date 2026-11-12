@@ -36,7 +36,8 @@ Every step ends with an exit code, and 0 means success.
 | `check` or `build` finds an error | 1 |
 | `none main()` finishes | 0 |
 | `sint32 main()` returns `n` | `n` |
-| a run-time fault: division by zero, string index out of range, bad `::to<T>()` text | 101 |
+| a run-time fault: division by zero, string index out of range | 101 |
+| a failure leaves `main` | the failure's exit code, 1 if it has none |
 
 `run` exits with the code of your program, and with 1 if the program did not
 compile. That makes shell checks easy:
