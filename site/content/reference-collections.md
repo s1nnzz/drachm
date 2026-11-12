@@ -103,14 +103,23 @@ list of `string`s is E0901 for now. `xs::join(sep)` puts the items of a
 
 <!-- example: list-methods -->
 
+`xs::contains(item)` is true when some item is equal to `item`. Lists and
+arrays compare with `==` and `!=`: they are equal when they have the same
+length and each item is equal to the item at its place. Items compare with
+their own `==` (numbers, `bool`, `string`, structs and lists of those; an
+enum with values is E0527). `contains` needs items that copy: on a list of
+`string`s it is E0901 for now.
+
+<!-- example: list-compare -->
+
 ## Not built yet
 
 <!-- status: not-implemented -->
 
-`contains`, `for (T x of xs)` over a list or array, comparing lists with
-`==`, and `split`, `lines` and `chars` returning lists are designed (see
-[Collections](design-collections.md)) and not accepted yet: the methods say
-E0901. Generic structs holding a list (`Stack<T>`) wait for generic structs;
+`for (T x of xs)` over a list or array, and `split`, `lines` and `chars`
+returning lists are designed (see [Collections](design-collections.md)) and
+not accepted yet: the `for` loop and the string functions say E0901 or do not
+exist yet. Generic structs holding a list (`Stack<T>`) wait for generic structs;
 generic functions over lists already work:
 
 ```drachm

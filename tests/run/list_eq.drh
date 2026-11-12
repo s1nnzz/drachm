@@ -1,0 +1,49 @@
+in io;
+
+struct Point {
+    public:
+    sint32 x;
+    sint32 y;
+}
+
+none main() {
+    uint32[?] a = [1, 2, 3];
+    uint32[?] b = [1, 2, 3];
+    uint32[?] short = [1, 2];
+    uint32[?] other = [1, 2, 4];
+    io::outln((a == b)::text());
+    io::outln((a != b)::text());
+    io::outln((a == short)::text());
+    io::outln((a == other)::text());
+    io::outln((a != short)::text());
+    uint32[?] empty = [];
+    mut uint32[?] none_too;
+    io::outln((empty == none_too)::text());
+
+    // Arrays compare the same way.
+    uint8[3] p = [1, 2, 3];
+    uint8[3] q = [1, 2, 4];
+    io::outln((p == q)::text());
+    io::outln((p != q)::text());
+
+    // Items that have their own equality: strings, structs, lists.
+    string[?] names = ["ann", "bo"];
+    string[?] same = ["ann", "bo"];
+    io::outln((names == same)::text());
+    uint32[?][?] grid = [[1, 2], [3]];
+    uint32[?][?] grid2 = [[1, 2], [3]];
+    uint32[?][?] grid3 = [[1, 2], [4]];
+    io::outln((grid == grid2)::text());
+    io::outln((grid == grid3)::text());
+    mut Point[?] pts = [new Point of (1, 2), new Point of (3, 4)];
+    Point[?] pts2 = [new Point of (1, 2), new Point of (3, 4)];
+    io::outln((pts == pts2)::text());
+    pts[1].y = 5;
+    io::outln((pts == pts2)::text());
+
+    // contains
+    io::outln(a::contains(2)->text());
+    io::outln(a::contains(7)->text());
+    io::outln(empty::contains(0)->text());
+    io::outln(p::contains(3)->text());
+}
