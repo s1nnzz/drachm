@@ -89,3 +89,7 @@ Q5 optionals: `T` wraps to `T?` automatically wherever a `T?` is expected (`uint
 Q6 enums: `==` / `!=` only for enums without payloads (`if (d == North)`); no methods inside enums: behaviour is plain functions taking the enum.
 Q7 variant names: the expected type decides first; with no expected type, the struct/function of that name wins; `Shape::Circle(1.0)` names the variant explicitly. A variant may share a name with a struct.
 Q8 constructors: writing a constructor removes the automatic field-order one, unless the struct says `Person(auto);`, which keeps it alongside the written ones. (Named values and delegation: my reading, unasked: named values match the parameter names of the chosen overload; delegation stays E0901.)
+Q9 reading set fields while filling: allowed only with the word `now`: `fill p { p.hp = 5; p.max = now p.hp * 2; }` (same in constructors: `now self.r`). A plain read of an incomplete value stays an error with the `now` fix-it; methods on the incomplete value are not allowed.
+Q10 defs: named defs can be used (`fill p with Veteran { }`), def values are any expression that doesn't read fields, AND a def may extend another: `def Veteran of Player from PlayerStart { hp = 200; }`.
+Q11 failure messages are ordinary strings: write `f"bad config key ${k}"` to interpolate (the SPEC example changes).
+Q12 escaping failures print to stderr with an `error: ` prefix, then one `because:` line per cause: `error: couldn't load save` / `  because: no such file "save.dat"`; `${e}` prints the whole chain.
