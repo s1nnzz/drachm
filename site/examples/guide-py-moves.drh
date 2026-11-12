@@ -1,0 +1,15 @@
+in io;
+
+none shout(string s) {
+    io::outln(s::upper());
+}
+
+none main() {
+    mut string name = "illy";
+    shout(copy name);
+    shout(name);
+    // `name` moved into the second call; using it here would not compile.
+    // Giving it a new value is fine.
+    name = "sam";
+    shout(name);
+}

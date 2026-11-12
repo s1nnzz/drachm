@@ -1,0 +1,32 @@
+in io;
+
+// Python: def average(a, b): return (a + b) / 2
+float64 average(float64 a, float64 b) {
+    return (a + b) / 2;
+}
+
+none main() {
+    // Python: count = 3        (the type is always written)
+    uint32 count = 3;
+    mut uint32 total = 0;
+
+    // Python: for i in range(1, count + 1):
+    for (uint32 i of 1..count) {
+        total += i;
+    }
+
+    // Python: while left > 4:
+    mut uint32 left = total;
+    while (left > 4) {
+        left -= 4;
+    }
+
+    string name = "Illy";
+    io::outln(f"${name} counted to ${count}, total ${total}, left ${left}");
+    io::outln(f"average: ${average(3.0, 4.0)}");
+    io::outln(name::upper() + " has " + name::len()->text() + " letters");
+
+    // Python: 7 // 2 and 7 % 2
+    uint32 seven = 7;
+    io::outln(f"${seven / 2} remainder ${seven % 2}");
+}

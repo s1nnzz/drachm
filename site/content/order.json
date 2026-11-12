@@ -31,6 +31,12 @@
       ]
     },
     {
+      "title": "Guides",
+      "pages": [
+        "guide-from-python-js"
+      ]
+    },
+    {
       "title": "Reference",
       "pages": [
         "reference-types",
