@@ -8,8 +8,9 @@ status: not-implemented
 
 Fixed arrays, growable lists and maps are designed for step 6. Array and list
 types, literals, indexing, `push`, `len` and `copy` are built and described in
-[Arrays and lists](reference-collections.md); maps, the other list methods and
-`for` over a collection are not accepted yet.
+[Arrays and lists](reference-collections.md); maps (except walking them) are
+built too, see [Maps](reference-collections.md#maps). The other list methods
+and `for` over a collection are not all accepted yet.
 
 ## Arrays, lists and maps
 

@@ -1447,11 +1447,26 @@ impl Parser<'_> {
         let name_at = self.type_end(m);
         if let Some(name_at) = name_at
             && matches!(self.peek_at(name_at), Tok::Ident(_))
-            && self.peek_at(name_at + 1) == &Tok::Kw("of")
+            && matches!(self.peek_at(name_at + 1), Tok::Kw("of") | Tok::Sym(","))
         {
             let mutable = self.eat_kw("mut");
             let ty = self.ty()?;
             let (name, name_span) = self.ident("a name for the loop variable")?;
+            if self.peek() == &Tok::Sym(",") {
+                // `for (K k, V v of map)`: walking a map (Q16) is not built yet.
+                let span = start.to(self.span());
+                self.bump();
+                let _ = self.ty()?;
+                let _ = self.ident("a name for the value")?;
+                if self.peek() != &Tok::Kw("of") {
+                    return Err(self.unexpected("`of`"));
+                }
+                self.bump();
+                let _ = self.expr()?;
+                self.expect(")")?;
+                return Err(Diagnostic::at(&codes::E0901, span, "walking a map with two loop variables is not supported yet")
+                    .note(format!("`{name}` is the key")));
+            }
             self.bump();
             let iter = self.expr()?;
             self.expect(")")?;

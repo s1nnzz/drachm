@@ -1,6 +1,6 @@
 ---
 title: Arrays and lists
-description: Array and list types, literals, indexing with bounds checks, changing a list, its methods, comparing, for loops, and splitting strings into lists. Maps are marked as not built yet.
+description: Array and list types, literals, indexing with bounds checks, changing a list, its methods, comparing, for loops, splitting strings into lists, and maps. Walking maps and struct keys are marked as not built yet.
 ---
 
 # Arrays and lists
@@ -142,12 +142,77 @@ after the text is gone. A separator that is empty stops the program.
 
 `join` goes back: `parts::join(sep)` puts the items of a `string[?]` together.
 
-## Not built yet
+## Maps
+
+`Map<K, V>` holds values under keys, and `OrderedMap<K, V>` does the same and
+keeps the entries in the order they were added. A literal lists the entries
+in braces, `{ key: value, ... }`, and its type says what the keys and values
+are. A map declared without a value starts empty and can be used at once.
+
+<!-- example: map-basic -->
+
+`m[k]` gives the value as an optional: `none` when the key is missing, so
+`m[k] maybe 0` is the value or a fallback. `m::get(k)` is the same lookup as a
+method. `m[k] = v;` adds the entry or replaces its value, `m::set(k, v)` does
+the same as a method, `m::remove(k)` takes the entry out, and `m::len()`
+counts the entries. A map changes only through a binding that allows it
+(`mut`). Writing `m[k] op= v;` (for example `+=`) is E0901 for now, since a
+missing key has no value to add to.
+
+Keys can be whole numbers, `bool`, `string` or floats. A float key is compared
+by its bits, so `NaN` finds itself and `-0.0` and `0.0` are different keys.
+A map owns its keys and values, which move in when they are added. Reading a
+value with `m[k]` copies it out, so for a `string` value that is a copy of
+the text.
+
+<!-- example: map-key -->
+
+A type that cannot be hashed cannot be a key: lists, maps, borrows and
+pointers give E0626.
+
+```text
+error[E0626]: `uint32[?]` cannot be a map key
+  --> main.drh:2:9
+   |
+ 2 |     Map<uint32[?], string> names;
+   |         ^^^^^^ `uint32[?]` is not hashed
+   |
+   help: use a whole number, a float, `bool` or `string` as the key
+```
+
+A literal gives a key twice only by mistake, so a constant key written twice
+is E0629:
+
+```text
+error[E0629]: this map literal has the key "Illy" twice
+  --> main.drh:4:46
+   |
+ 4 |     Map<string, uint32> ages = { "Illy": 18, "Illy": 20 };
+   |                                  ------ the first one is here
+   |                                              ^^^^^^
+   |
+   help: remove one of them, or the later value would replace the first
+```
+
+An empty `{}` needs a type to take, as an empty list does (E0624).
+
+### Walking a map
 
 <!-- status: not-implemented -->
 
-Maps (`Map<K, V>`, see [Collections](design-collections.md)) are designed and
-not accepted yet.
+`for (string k, uint32 v of ages)` will visit each entry. Until it is built the
+loop is E0901. The `each` method form waits for lambdas.
+
+### Structs as keys
+
+<!-- status: not-implemented -->
+
+A struct cannot be a key yet (E0901): the struct's hashing and its `key()`
+method are still to come.
+
+## Not built yet
+
+<!-- status: not-implemented -->
 
 Generic functions over lists already work:
 

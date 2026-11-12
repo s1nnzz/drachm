@@ -1,0 +1,10 @@
+in io;
+
+none main() {
+    mut Map<float64, string> names = { 1.5: "one and a half" };
+    io::outln(names[1.5] maybe "none");
+    io::outln(names[-0.0] maybe "none");
+    mut OrderedMap<bool, uint32> flags = {};
+    flags[true] = 7;
+    io::outln((flags[true] maybe 0)::text());
+}
