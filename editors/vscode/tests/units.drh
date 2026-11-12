@@ -1,0 +1,28 @@
+// SYNTAX TEST "source.drachm" "units, unit literals and unit types"
+    unit m; unit s; unit kg;
+//  ^^^^ storage.type.drachm
+//       ^ entity.name.type.unit.drachm
+    unit degC = K offset -273.15;
+//              ^ entity.name.type.unit.drachm
+//                ^^^^^^ keyword.other.drachm
+    unit pct = 0.01;
+//       ^^^ entity.name.type.unit.drachm
+    float64<m/s> speed = 9.6<m/s>;
+//  ^^^^^^^ storage.type.primitive.drachm
+//         ^ punctuation.definition.unit.begin.drachm
+//          ^^^ storage.type.unit.drachm
+//                       ^^^ constant.numeric.float.drachm
+    uint8<km> d = 5<km>;
+//  ^^^^^ storage.type.primitive.drachm
+//        ^^ storage.type.unit.drachm
+    float64<delta degC> rise = 3.0<delta degC>;
+//  ^^^^^^^ storage.type.primitive.drachm
+//          ^^^^^^^^^^ storage.type.unit.drachm
+    float64<1/s> rate = 1<1/s>;
+//          ^^^ storage.type.unit.drachm
+    float64<kg*m/s^2> force;
+//          ^^^^^^^^ storage.type.unit.drachm
+    float64 t = 3<m> + 2<m>;
+//                ^ storage.type.unit.drachm
+    in si;
+//  ^^^^^ keyword.control.import.drachm

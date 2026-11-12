@@ -415,7 +415,7 @@
           }
         },
         {
-          "match": "(?<=[0-9])(<)([A-Za-z_][A-Za-z0-9_]*(?:\\s*[*/^]\\s*[A-Za-z0-9_]+)*)(>)",
+          "match": "(?<=[0-9])(<)((?:delta\\s+)?(?:[A-Za-z_][A-Za-z0-9_]*|1)(?:\\s*\\^\\s*-?[0-9]+)?(?:\\s*[*/]\\s*(?:[A-Za-z_][A-Za-z0-9_]*|1)(?:\\s*\\^\\s*-?[0-9]+)?)*)(>)",
           "name": "meta.unit.drachm",
           "captures": {
             "1": {
@@ -434,16 +434,19 @@
     "types": {
       "patterns": [
         {
-          "match": "(?<=float8|float16|float32|float64)(<)([A-Za-z_][A-Za-z0-9_]*(?:\\s*[*/^]\\s*[A-Za-z0-9_]+)*)(>)",
+          "match": "\\b((?:(?:uint|sint)(?:8|16|32|64|128|256)|float(?:8|16|32|64)))(<)((?:delta\\s+)?(?:[A-Za-z_][A-Za-z0-9_]*|1)(?:\\s*\\^\\s*-?[0-9]+)?(?:\\s*[*/]\\s*(?:[A-Za-z_][A-Za-z0-9_]*|1)(?:\\s*\\^\\s*-?[0-9]+)?)*)(>)",
           "name": "meta.unit.drachm",
           "captures": {
             "1": {
-              "name": "punctuation.definition.unit.begin.drachm"
+              "name": "storage.type.primitive.drachm"
             },
             "2": {
-              "name": "storage.type.unit.drachm"
+              "name": "punctuation.definition.unit.begin.drachm"
             },
             "3": {
+              "name": "storage.type.unit.drachm"
+            },
+            "4": {
               "name": "punctuation.definition.unit.end.drachm"
             }
           }
@@ -520,6 +523,17 @@
     "type-decl": {
       "patterns": [
         {
+          "match": "(\\*)\\s*(fixed)(?=\\s+[A-Za-z_])",
+          "captures": {
+            "1": {
+              "name": "keyword.operator.pointer.drachm"
+            },
+            "2": {
+              "name": "storage.modifier.fixed.drachm"
+            }
+          }
+        },
+        {
           "match": "&(?!\\s*mut\\b)",
           "name": "keyword.operator.borrow.drachm"
         },
@@ -534,6 +548,115 @@
     },
     "keywords": {
       "patterns": [
+        {
+          "match": "\\b(take)(\\s+)([A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*)(\\s+)(leaving)\\b",
+          "captures": {
+            "1": {
+              "name": "keyword.operator.ownership.drachm"
+            },
+            "3": {
+              "name": "variable.other.drachm"
+            },
+            "5": {
+              "name": "keyword.other.drachm"
+            }
+          }
+        },
+        {
+          "match": "\\b(?:take|lend|destroy)\\b",
+          "name": "keyword.operator.ownership.drachm"
+        },
+        {
+          "begin": "\\blives\\b",
+          "end": "(?=[{;])",
+          "beginCaptures": {
+            "0": {
+              "name": "keyword.other.drachm"
+            }
+          },
+          "name": "meta.lives-clause.drachm",
+          "patterns": [
+            {
+              "match": "\\b(?:from|or)\\b",
+              "name": "keyword.control.import.drachm"
+            },
+            {
+              "match": "\\bself\\b",
+              "name": "variable.language.self.drachm"
+            },
+            {
+              "match": "\\bfails\\b",
+              "name": "keyword.control.error.drachm"
+            },
+            {
+              "match": "[A-Za-z_][A-Za-z0-9_]*",
+              "name": "variable.parameter.drachm"
+            },
+            {
+              "match": ",",
+              "name": "punctuation.separator.comma.drachm"
+            }
+          ]
+        },
+        {
+          "match": "\\bstays\\b(?=\\s*(?:\\{|lives\\b|with\\b))",
+          "name": "keyword.other.drachm"
+        },
+        {
+          "match": "\\bchanges\\b(?=\\s+self\\b)",
+          "name": "storage.modifier.drachm"
+        },
+        {
+          "match": "\\baddress\\b(?=\\s+of\\b)",
+          "name": "keyword.operator.address.drachm"
+        },
+        {
+          "match": "\\bignore\\s+failure\\b",
+          "name": "keyword.control.error.drachm"
+        },
+        {
+          "match": "\\b(?:has\\s+value|is\\s+empty)\\b",
+          "name": "keyword.operator.test.drachm"
+        },
+        {
+          "match": "\\bnow\\b(?=\\s+(?:self|[A-Za-z_]))",
+          "name": "keyword.other.drachm"
+        },
+        {
+          "match": "\\bglobbed\\b(?=\\s*\\\")",
+          "name": "keyword.control.drachm"
+        },
+        {
+          "match": "\\bdefaults\\b",
+          "name": "keyword.other.drachm"
+        },
+        {
+          "match": "(?<=\\()auto(?=\\)\\s*;)",
+          "name": "storage.modifier.drachm"
+        },
+        {
+          "match": "\\basm\\b(?=\\s*\\{)",
+          "name": "keyword.other.drachm"
+        },
+        {
+          "match": "\\bby\\b(?=\\s+[^\\s()]+\\s*\\))",
+          "name": "keyword.control.drachm"
+        },
+        {
+          "match": "\\bin\\s+si\\b(?=\\s*;)",
+          "name": "keyword.control.import.drachm"
+        },
+        {
+          "match": "(?:^|(?<=[{};]))\\s*\\b(fill)(?:\\s+(partial))?(?=\\s+[A-Za-z_][A-Za-z0-9_]*\\s*(?:\\{|with\\b))",
+          "captures": {
+            "1": {
+              "name": "keyword.control.fill.drachm"
+            },
+            "2": {
+              "name": "keyword.control.fill.drachm"
+            }
+          }
+        },
         {
           "match": "\\b(skip)(?:\\s+(to)\\s+(next)\\b)?",
           "captures": {
@@ -615,6 +738,28 @@
             },
             "2": {
               "name": "punctuation.separator.label.drachm"
+            }
+          }
+        },
+        {
+          "match": "\\b(struct)(\\s+)(default)(?=\\s+[A-Za-z_])",
+          "captures": {
+            "1": {
+              "name": "storage.type.drachm"
+            },
+            "3": {
+              "name": "storage.modifier.drachm"
+            }
+          }
+        },
+        {
+          "match": "(?:^|(?<=[{};]))\\s*(def)\\s+([A-Za-z_][A-Za-z0-9_]*)(?=\\s+(?:of|from)\\b|\\s*\\{)",
+          "captures": {
+            "1": {
+              "name": "storage.type.drachm"
+            },
+            "2": {
+              "name": "entity.name.type.def.drachm"
             }
           }
         },
@@ -739,11 +884,15 @@
               "include": "#numbers"
             },
             {
+              "match": "\\b(?:offset|delta)\\b",
+              "name": "keyword.other.drachm"
+            },
+            {
               "match": "[A-Za-z_][A-Za-z0-9_]*",
               "name": "entity.name.type.unit.drachm"
             },
             {
-              "match": "[*/^=]",
+              "match": "[*/^=+\\-]",
               "name": "keyword.operator.drachm"
             }
           ]
@@ -757,7 +906,7 @@
           }
         },
         {
-          "match": "(?:^|(?<=[{};]))\\s*((?:(?:static|public|private|async|mut|open)\\s+)*)((?!(?:otherwise|any|failure|because|exit|extends|self|mut|if|else|while|for|of|match|case|return|skip|struct|enum|interface|with|static|public|private|new|in|out|from|as|fails|fail|maybe|copy|lives|open|break|continue|unsafe|async|await|move|true|false)\\b)(?:&\\s*(?:mut\\s+)?|\\*)?[A-Za-z_][A-Za-z0-9_]*(?:<[^;(){}=<>]*(?:<[^;(){}=<>]*>[^;(){}=<>]*)*>)?(?:\\[[?0-9]*\\])*\\??)\\s+(==|!=|<=|>=|<<|>>|\\*\\*|\\[\\]|[-+*/%<>&|^~!])(?=\\s*\\()",
+          "match": "(?:^|(?<=[{};]))\\s*((?:(?:static|public|private|async|mut|open|unsafe)\\s+)*)((?!(?:otherwise|any|failure|because|exit|extends|self|mut|if|else|while|for|of|match|case|return|skip|struct|enum|interface|with|static|public|private|new|in|out|from|as|fails|fail|maybe|copy|lives|open|break|continue|unsafe|async|await|move|true|false)\\b)(?:&\\s*(?:mut\\s+)?|\\*)?[A-Za-z_][A-Za-z0-9_]*(?:<[^;(){}=<>]*(?:<[^;(){}=<>]*>[^;(){}=<>]*)*>)?(?:\\[[?0-9]*\\])*\\??)\\s+(==|!=|<=|>=|<<|>>|\\*\\*|\\[\\]|[-+*/%<>&|^~!])(?=\\s*\\()",
           "captures": {
             "1": {
               "patterns": [
@@ -782,7 +931,7 @@
           }
         },
         {
-          "match": "(?:^|(?<=[{};]))\\s*((?:(?:static|public|private|async|mut|open)\\s+)*)((?!(?:otherwise|any|failure|because|exit|extends|self|mut|if|else|while|for|of|match|case|return|skip|struct|enum|interface|with|static|public|private|new|in|out|from|as|fails|fail|maybe|copy|lives|open|break|continue|unsafe|async|await|move|true|false)\\b)(?:&\\s*(?:mut\\s+)?|\\*)?[A-Za-z_][A-Za-z0-9_]*(?:<[^;(){}=<>]*(?:<[^;(){}=<>]*>[^;(){}=<>]*)*>)?(?:\\[[?0-9]*\\])*\\??)\\s+([A-Za-z_][A-Za-z0-9_]*)(?=\\s*\\(|<[^;(){}=]*>\\s*\\()",
+          "match": "(?:^|(?<=[{};]))\\s*((?:(?:static|public|private|async|mut|open|unsafe)\\s+)*)((?!(?:otherwise|any|failure|because|exit|extends|self|mut|if|else|while|for|of|match|case|return|skip|struct|enum|interface|with|static|public|private|new|in|out|from|as|fails|fail|maybe|copy|lives|open|break|continue|unsafe|async|await|move|true|false)\\b)(?:&\\s*(?:mut\\s+)?|\\*)?[A-Za-z_][A-Za-z0-9_]*(?:<[^;(){}=<>]*(?:<[^;(){}=<>]*>[^;(){}=<>]*)*>)?(?:\\[[?0-9]*\\])*\\??)\\s+([A-Za-z_][A-Za-z0-9_]*)(?=\\s*\\(|<[^;(){}=]*>\\s*\\()",
           "captures": {
             "1": {
               "patterns": [
@@ -885,6 +1034,17 @@
     },
     "operators": {
       "patterns": [
+        {
+          "match": "(\\*)\\s*(fixed)(?=\\s+[A-Za-z_])",
+          "captures": {
+            "1": {
+              "name": "keyword.operator.pointer.drachm"
+            },
+            "2": {
+              "name": "storage.modifier.fixed.drachm"
+            }
+          }
+        },
         {
           "match": "=>",
           "name": "keyword.operator.arrow.drachm"
