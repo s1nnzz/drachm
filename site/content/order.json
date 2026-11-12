@@ -33,7 +33,8 @@
     {
       "title": "Guides",
       "pages": [
-        "guide-from-python-js"
+        "guide-from-python-js",
+        "guide-from-c"
       ]
     },
     {
