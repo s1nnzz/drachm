@@ -1,0 +1,27 @@
+in io;
+
+string? label(uint32 n) {
+    if (n == 1) { return "one"; }
+    return none;
+}
+
+struct Box {
+public:
+    string name;
+    uint32 n;
+}
+
+none main() {
+    string? s = "a";
+    string t = s maybe "b";
+    io::outln(t);
+    string? u = none;
+    string v = u maybe "fallback";
+    io::outln(v);
+    string? w = label(1);
+    string x = w maybe (t + "!");
+    io::outln(x);
+    string? z = label(5);
+    io::outln(z maybe "z");
+    Box b = new Box of ("bx", 3);
+}

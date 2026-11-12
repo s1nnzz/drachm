@@ -168,8 +168,9 @@ Rules to know:
 
 - An optional that owns memory, such as `string?`, is matched like any owning
   enum: `case take string name` moves the text out, and `case copy string name`
-  copies it. A `string?` in a variable cannot be read with `maybe` yet (E0901);
-  one returned from a call can.
+  copies it. `maybe` on a `string?` variable moves the text out of the variable
+  (the variable is used up, as with `string t = s;`); a field needs `take` or
+  `copy` as usual.
 - Using an optional where its value is wanted is E0531: `uint32 n = age;` and
   `age + 1` both need `maybe` or a test first.
 - `T??` is E0901, and `Optional<T>` spelled out is E0901: write `T?`.

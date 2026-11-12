@@ -17,4 +17,8 @@ none main() {
     io::outln(name(2) maybe "nobody");
     uint32 total = (pick(4) maybe 1) + (pick(3) maybe 1);
     io::outln(total::text());
+    // Reading a text optional from a variable moves the text out of it.
+    string? owned = name(1);
+    string title = owned maybe "nobody";
+    io::outln(title);
 }

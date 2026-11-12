@@ -154,17 +154,6 @@ impl Checker<'_> {
             return None;
         };
         let inner = inner_of(self.g, x.ty)?;
-        let copies = self.g.enum_copy.get(en).copied().unwrap_or(false);
-        if x.is_place() && !copies {
-            let name = self.quote(value.span, "this value");
-            self.diags.push(
-                Diagnostic::at(&codes::E0901, value.span, format!("{name} owns memory, and an optional that owns memory cannot be read with `maybe` from a variable yet"))
-                    .note(format!("this is a `{}`", x.ty))
-                    .help("take the value apart with `match` instead, or read a copy of it"),
-            );
-            self.coerce(fallback, inner);
-            return None;
-        }
         let fb = self.coerce(fallback, inner)?;
         Some(Val::Expr(hir::Expr::new(hir::ExprKind::Maybe { value: Box::new(x), fallback: Box::new(fb) }, inner)))
     }
