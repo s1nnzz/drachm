@@ -48,7 +48,7 @@ fn glue(hir: &hir::Program) -> String {
     let drop_of = |access: &str, ty: Type| -> Option<String> {
         match ty {
             Type::Str => Some(format!("if ({access}.cap != 0) drachm_str_drop(&{access});")),
-            Type::Struct { .. } | Type::Enum { .. } if crate::mir::needs_drop(hir, ty) => {
+            Type::Struct { .. } | Type::Enum { .. } | Type::List { .. } | Type::Array { .. } if crate::mir::needs_drop(hir, ty) => {
                 Some(format!("drachm_drop_{}(&{access});", glue_name(ty)))
             }
             _ => None,
@@ -57,7 +57,9 @@ fn glue(hir: &hir::Program) -> String {
     let copy_of = |dst: &str, src: &str, ty: Type| -> Option<String> {
         match ty {
             Type::Str => Some(format!("drachm_str_copy(&{dst}, &{src});")),
-            Type::Struct { .. } | Type::Enum { .. } if holds_string(hir, ty) => Some(format!("drachm_copy_{}(&{dst}, &{src});", glue_name(ty))),
+            Type::Struct { .. } | Type::Enum { .. } | Type::List { .. } | Type::Array { .. } if holds_string(hir, ty) => {
+                Some(format!("drachm_copy_{}(&{dst}, &{src});", glue_name(ty)))
+            }
             _ => None,
         }
     };
@@ -75,6 +77,20 @@ fn glue(hir: &hir::Program) -> String {
                     if let Some(line) = drop_of(&format!("p->f_{}", f.name), f.ty) {
                         let _ = writeln!(defs, "    {line}");
                     }
+                }
+            }
+            Type::List { elem } => {
+                let f = match drop_of("(*x)", *elem) {
+                    None => "NULL".to_string(),
+                    Some(_) if *elem == Type::Str => "(drachm_drop_fn)drachm_str_drop".to_string(),
+                    Some(_) => format!("(drachm_drop_fn)drachm_drop_{}", glue_name(*elem)),
+                };
+                let c = c_type(*elem);
+                let _ = writeln!(defs, "    drachm_list_drop((drachm_list *)p, sizeof({c}), {f});");
+            }
+            Type::Array { elem, len } => {
+                if let Some(line) = drop_of("p->a[i]", *elem) {
+                    let _ = writeln!(defs, "    for (uint64_t i = 0; i < {len}; i++) {{ {line} }}");
                 }
             }
             Type::Enum { id, .. } => {
@@ -104,6 +120,20 @@ fn glue(hir: &hir::Program) -> String {
                     if let Some(line) = copy_of(&format!("dst->f_{}", f.name), &format!("src->f_{}", f.name), f.ty) {
                         let _ = writeln!(defs, "    {line}");
                     }
+                }
+            }
+            Type::List { elem } => {
+                let f = match copy_of("(*d)", "(*s)", *elem) {
+                    None => "NULL".to_string(),
+                    Some(_) if *elem == Type::Str => "(drachm_copy_fn)drachm_str_copy".to_string(),
+                    Some(_) => format!("(drachm_copy_fn)drachm_copy_{}", glue_name(*elem)),
+                };
+                let c = c_type(*elem);
+                let _ = writeln!(defs, "    drachm_list_copy((drachm_list *)dst, (const drachm_list *)src, sizeof({c}), _Alignof({c}), {f});");
+            }
+            Type::Array { elem, len } => {
+                if let Some(line) = copy_of("dst->a[i]", "src->a[i]", *elem) {
+                    let _ = writeln!(defs, "    for (uint64_t i = 0; i < {len}; i++) {{ {line} }}");
                 }
             }
             Type::Enum { id, .. } => {
@@ -278,6 +308,8 @@ impl Gen<'_> {
             // else is initialised: the C compiler would only have to remove it.
             if d.ty == Type::Str {
                 let _ = writeln!(text, "    drachm_str l{} = {{0}};", l.index());
+            } else if d.ty.is_list() {
+                let _ = writeln!(text, "    drachm_list l{} = {{0}};", l.index());
             } else {
                 let _ = writeln!(text, "    {} l{};", c_type(d.ty), l.index());
             }
@@ -373,6 +405,11 @@ impl Gen<'_> {
                     s = format!("(*{s})");
                     ty = ty.target().expect("deref of a non-pointer");
                 }
+                Proj::Index(i) => {
+                    let elem = ty.elem().expect("an item of a list or array");
+                    s = if ty.is_list() { format!("(({} *){s}.ptr)[l{}]", c_type(elem), i.index()) } else { format!("{s}.a[l{}]", i.index()) };
+                    ty = elem;
+                }
             }
         }
         s
@@ -421,7 +458,9 @@ impl Gen<'_> {
                 let call = match ty {
                     // `drachm_str_drop` starts with this test; doing it here skips the call.
                     Type::Str => format!("if ({lv}.cap != 0) drachm_str_drop(&{lv});"),
-                    Type::Struct { .. } | Type::Enum { .. } if crate::mir::needs_drop(self.hir, ty) => format!("drachm_drop_{}(&{lv});", glue_name(ty)),
+                    Type::Struct { .. } | Type::Enum { .. } | Type::List { .. } | Type::Array { .. } if crate::mir::needs_drop(self.hir, ty) => {
+                        format!("drachm_drop_{}(&{lv});", glue_name(ty))
+                    }
                     _ => return,
                 };
                 match flag {
@@ -511,11 +550,31 @@ impl Gen<'_> {
                 }
             }
             Rvalue::Discriminant(p) => format!("{}.tag", self.lvalue(p)),
+            Rvalue::Len(p) => {
+                let pty = place_ty(self.body, self.hir, p).expect("validated MIR");
+                match pty {
+                    Type::Array { len, .. } => format!("UINT64_C({len})"),
+                    _ => format!("{}.len", self.lvalue(p)),
+                }
+            }
+            Rvalue::ListNew(t, cap) => {
+                if *cap == 0 {
+                    format!("(drachm_list){{0}}")
+                } else {
+                    let c = c_type(t.elem().expect("a list"));
+                    self.line(format!("drachm_list_with_cap(&{lv}, {cap}, sizeof({c}), _Alignof({c}));"));
+                    return;
+                }
+            }
+            Rvalue::Array(t, ops) => {
+                let items: Vec<String> = ops.iter().map(|o| self.operand(o)).collect();
+                format!("({}){{ {{ {} }} }}", c_type(*t), items.join(", "))
+            }
             Rvalue::DeepCopy(p) => {
                 let src = self.lvalue(p);
                 match ty {
                     Type::Str => self.line(format!("drachm_str_copy(&{lv}, &{src});")),
-                    Type::Struct { .. } | Type::Enum { .. } if holds_string(self.hir, ty) => {
+                    Type::Struct { .. } | Type::Enum { .. } | Type::List { .. } | Type::Array { .. } if holds_string(self.hir, ty) => {
                         self.line(format!("drachm_copy_{}(&{lv}, &{src});", glue_name(ty)))
                     }
                     _ => self.line(format!("{lv} = {src};")),
@@ -740,6 +799,20 @@ impl Gen<'_> {
                 let ty = self.op_ty(&args[0].op);
                 let v = self.operand(&args[0].op);
                 self.line(format!("drachm_str_radix(&{dest}, {}, {}, {base}, {});", halves(&v, ty), signed(ty) as u8, upper as u8));
+            }
+            Callee::ListPush(elem) => {
+                let list = self.operand(&args[0].op);
+                let c = c_type(elem);
+                let value = self.operand(&args[1].op);
+                // Room left: store in place; otherwise the runtime grows the list.
+                self.line(format!(
+                    "{{ drachm_list *L = {list}; {c} v = {value}; if (L->len < L->cap) (({c} *)L->ptr)[L->len++] = v; else drachm_list_push(L, &v, sizeof({c}), _Alignof({c})); }}"
+                ));
+            }
+            Callee::IndexPanic { unsigned } => {
+                let (i, len) = (self.operand(&args[0].op), self.operand(&args[1].op));
+                let (f, t) = if unsigned { ("drachm_index_panic_u", "uint64_t") } else { ("drachm_index_panic", "int64_t") };
+                self.line(format!("{f}(({t}){i}, {len});"));
             }
             Callee::Join => {
                 let dest = dest_lv.expect("a string result has a destination");

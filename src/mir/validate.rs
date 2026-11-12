@@ -127,9 +127,13 @@ impl Validator<'_> {
                     Rvalue::Use(o) | Rvalue::Neg(o) | Rvalue::Not(o) | Rvalue::BitNot(o) | Rvalue::Convert(o, _) => operands.push(o),
                     Rvalue::Binary(_, a, b) | Rvalue::IntPow(a, b) => operands.extend([a, b]),
                     Rvalue::Shift { value, amount, .. } => operands.extend([value, amount]),
-                    Rvalue::Aggregate(_, ops) | Rvalue::Variant(_, _, ops) => operands.extend(ops),
-                    Rvalue::Ref(_, pl) | Rvalue::RawRef(pl) | Rvalue::DeepCopy(pl) | Rvalue::Discriminant(pl) => {
-                        self.place(&at, pl);
+                    Rvalue::Aggregate(_, ops) | Rvalue::Variant(_, _, ops) | Rvalue::Array(_, ops) => operands.extend(ops),
+                    Rvalue::ListNew(..) => {}
+                    Rvalue::Ref(_, pl) | Rvalue::RawRef(pl) | Rvalue::DeepCopy(pl) | Rvalue::Discriminant(pl) | Rvalue::Len(pl) => {
+                        let t = self.place(&at, pl);
+                        if matches!(rv, Rvalue::Len(_)) && !t.is_some_and(|t| t.is_list() || t.is_array()) {
+                            self.err(&at, "Len of something that is not a list or array");
+                        }
                     }
                 }
                 let tys: Vec<Option<Type>> = operands.iter().map(|o| self.operand(&at, o)).collect();
@@ -166,7 +170,26 @@ impl Validator<'_> {
                         }
                     }
                     Rvalue::Neg(_) | Rvalue::Not(_) | Rvalue::BitNot(_) | Rvalue::Convert(..) | Rvalue::Use(_) | Rvalue::Shift { .. } | Rvalue::IntPow(..) => {}
-                    Rvalue::Ref(..) | Rvalue::RawRef(_) | Rvalue::DeepCopy(_) | Rvalue::Discriminant(_) => {}
+                    Rvalue::Array(t, ops) => {
+                        if let Type::Array { elem, len } = t {
+                            if *len as usize != ops.len() {
+                                self.err(&at, "an Array rvalue has the wrong number of items");
+                            }
+                            for ty in tys.iter().flatten() {
+                                if ty != &**elem {
+                                    self.err(&at, format!("an item of an Array of `{t}` is a `{ty}`"));
+                                }
+                            }
+                        } else {
+                            self.err(&at, "Array of a type that is not an array");
+                        }
+                    }
+                    Rvalue::ListNew(t, _) => {
+                        if !t.is_list() {
+                            self.err(&at, "ListNew of a type that is not a list");
+                        }
+                    }
+                    Rvalue::Ref(..) | Rvalue::RawRef(_) | Rvalue::DeepCopy(_) | Rvalue::Discriminant(_) | Rvalue::Len(_) => {}
                 }
                 match (dt, rvalue_ty(self.body, self.hir, rv)) {
                     // `p::freeze()` and `p::thaw()` move the same bits under the other pointer kind.
@@ -298,6 +321,8 @@ impl Validator<'_> {
             Callee::ReportExit => (Some(vec![shared(Type::Str), Want::Exact(Type::borrow(true, Type::U64)), Want::Exact(Type::U8)]), Type::None),
             Callee::Text | Callee::Radix { .. } => (None, Type::Str),
             Callee::Join => (Some(Vec::new()), Type::Str),
+            Callee::ListPush(elem) => (Some(vec![Want::Exact(Type::borrow(true, Type::list(elem))), Want::Exact(elem)]), Type::None),
+            Callee::IndexPanic { .. } => (Some(vec![Want::Any, Want::Exact(Type::U64)]), Type::None),
         }
     }
 
@@ -410,6 +435,11 @@ impl Validator<'_> {
 /// reads the reference).
 fn place_use(pl: &Place, used: &mut dyn FnMut(Local)) {
     used(pl.local);
+    for pr in &pl.proj {
+        if let Proj::Index(i) = pr {
+            used(*i);
+        }
+    }
 }
 
 fn operand_use(op: &Operand, used: &mut dyn FnMut(Local)) {
@@ -432,8 +462,9 @@ fn flow_statement(assigned: &mut [bool], k: &StatementKind, used: &mut dyn FnMut
                     operand_use(value, used);
                     operand_use(amount, used);
                 }
-                Rvalue::Aggregate(_, ops) | Rvalue::Variant(_, _, ops) => ops.iter().for_each(|o| operand_use(o, used)),
-                Rvalue::Ref(_, pl) | Rvalue::RawRef(pl) | Rvalue::DeepCopy(pl) | Rvalue::Discriminant(pl) => place_use(pl, used),
+                Rvalue::Aggregate(_, ops) | Rvalue::Variant(_, _, ops) | Rvalue::Array(_, ops) => ops.iter().for_each(|o| operand_use(o, used)),
+                Rvalue::ListNew(..) => {}
+                Rvalue::Ref(_, pl) | Rvalue::RawRef(pl) | Rvalue::DeepCopy(pl) | Rvalue::Discriminant(pl) | Rvalue::Len(pl) => place_use(pl, used),
             }
             if dest.proj.is_empty() {
                 assigned[dest.local.index()] = true;
@@ -532,6 +563,7 @@ fn dominates(idom: &[Option<BlockId>], a: BlockId, mut b: BlockId) -> bool {
 
 /// What an argument's type must be.
 enum Want {
+    Any,
     Exact(Type),
     /// A `&` or `&mut` of this type.
     RefTo(Type),
@@ -540,6 +572,7 @@ enum Want {
 impl Want {
     fn accepts(&self, t: Type) -> bool {
         match *self {
+            Want::Any => true,
             Want::Exact(w) => w == t,
             Want::RefTo(w) => matches!(t, Type::Ref { to, .. } if *to == w),
         }
@@ -549,6 +582,7 @@ impl Want {
 impl std::fmt::Display for Want {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
+            Want::Any => write!(f, "anything"),
             Want::Exact(t) => write!(f, "`{t}`"),
             Want::RefTo(t) => write!(f, "`&{t}` or `&mut {t}`"),
         }

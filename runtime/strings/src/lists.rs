@@ -105,6 +105,12 @@ pub unsafe extern "C-unwind" fn drachm_index_panic(i: i64, len: u64) -> ! {
     index_panic(i, len)
 }
 
+/// The same panic for an index that was an unsigned number (it may be 2^63 or more).
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn drachm_index_panic_u(i: u64, len: u64) -> ! {
+    panic_text(&format!("index {i} is outside the list (length {len})"))
+}
+
 #[unsafe(no_mangle)]
 pub extern "C-unwind" fn drachm_list_index(len: u64, i: i64) -> u64 {
     index_or_panic(len, i)

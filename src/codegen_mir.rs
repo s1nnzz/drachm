@@ -26,6 +26,7 @@ use cranelift_object::{ObjectBuilder, ObjectModule};
 use crate::codegen_common::{cl_type, emit_c_main, err, in_memory, is_signed, signature, MEM, STR_CAP, STR_LEN};
 use crate::hir::{self, BinOp, STR_SIZE};
 use crate::mir::drops::{copy_glue_types, drop_glue_types, glue_name, holds_string};
+use crate::mir::needs_drop;
 use crate::mir::traversal::reverse_postorder;
 use crate::mir::ty::operand_ty;
 use crate::mir::*;
@@ -171,13 +172,34 @@ fn plain_leaves(hir: &hir::Program, ty: Type, at: u32, out: &mut Vec<(u32, ClTyp
         out.push((at, cl));
         return;
     }
-    if ty.enum_id().is_some() {
+    if ty.enum_id().is_some() || ty.is_array() {
         enum_chunks(hir, ty, at, out);
         return;
     }
     for f in &hir.struct_def(ty).fields {
         plain_leaves(hir, f.ty, at + f.offset, out);
     }
+}
+
+/// Run `body(builder, index, item_offset)` for each of `len` items of `size`
+/// bytes: a loop in the generated code, so a large array stays small.
+fn each_item(b: &mut FunctionBuilder, len: u64, size: u32, body: &mut dyn FnMut(&mut FunctionBuilder, Value)) {
+    let head = b.create_block();
+    let work = b.create_block();
+    let done = b.create_block();
+    b.append_block_param(head, types::I64);
+    let zero = b.ins().iconst(types::I64, 0);
+    b.ins().jump(head, &[zero.into()]);
+    b.switch_to_block(head);
+    let i = b.block_params(head)[0];
+    let more = b.ins().icmp_imm(IntCC::UnsignedLessThan, i, len as i64);
+    b.ins().brif(more, work, &[], done, &[]);
+    b.switch_to_block(work);
+    let off = b.ins().imul_imm_u(i, size as i64);
+    body(b, off);
+    let next = b.ins().iadd_imm(i, 1);
+    b.ins().jump(head, &[next.into()]);
+    b.switch_to_block(done);
 }
 
 /// Everything a glue function needs to call others.
@@ -213,7 +235,7 @@ fn glue_drop_field(
             b.ins().jump(after, &[]);
             b.switch_to_block(after);
         }
-        Type::Struct { .. } | Type::Enum { .. } if crate::mir::needs_drop(env.hir, ty) => {
+        Type::Struct { .. } | Type::Enum { .. } | Type::List { .. } | Type::Array { .. } if crate::mir::needs_drop(env.hir, ty) => {
             let callee = module.declare_func_in_func(env.drop_ids[&ty], b.func);
             b.ins().call(callee, &[a]);
         }
@@ -241,7 +263,7 @@ fn glue_copy_field(
             let callee = module.declare_func_in_func(rt, b.func);
             b.ins().call(callee, &[d, s]);
         }
-        Type::Struct { .. } | Type::Enum { .. } if holds_string(env.hir, ty) => {
+        Type::Struct { .. } | Type::Enum { .. } | Type::List { .. } | Type::Array { .. } if holds_string(env.hir, ty) => {
             let (d, s) = (at(b, dst), at(b, src));
             let callee = module.declare_func_in_func(env.copy_ids[&ty], b.func);
             b.ins().call(callee, &[d, s]);
@@ -285,6 +307,31 @@ fn for_variants(
     }
 }
 
+/// The address of the function that drops (or deep-copies) one item of type
+/// `elem`, for the list runtime; null when the item is plain data.
+fn glue_fn_addr(
+    module: &mut ObjectModule,
+    runtime: &mut HashMap<&'static str, FuncId>,
+    env: &GlueEnv,
+    b: &mut FunctionBuilder,
+    elem: Type,
+    drop: bool,
+) -> Value {
+    let ptr = module.target_config().pointer_type();
+    let needed = if drop { needs_drop(env.hir, elem) } else { holds_string(env.hir, elem) };
+    if !needed {
+        return b.ins().iconst(ptr, 0);
+    }
+    let id = match (elem, drop) {
+        (Type::Str, true) => import_rt(module, runtime, "drachm_str_drop", &[ptr], &[]),
+        (Type::Str, false) => import_rt(module, runtime, "drachm_str_copy", &[ptr, ptr], &[]),
+        (_, true) => env.drop_ids[&elem],
+        (_, false) => env.copy_ids[&elem],
+    };
+    let f = module.declare_func_in_func(id, b.func);
+    b.ins().func_addr(ptr, f)
+}
+
 /// Define the drop (`drop == true`) or copy glue function of struct or enum `ty`.
 #[allow(clippy::too_many_arguments)]
 fn define_glue(
@@ -300,6 +347,7 @@ fn define_glue(
     drop: bool,
 ) -> Result<(), String> {
     let id = if drop { drop_ids[&ty] } else { copy_ids[&ty] };
+    let ptr = module.target_config().pointer_type();
     ctx.func.signature = module.declarations().get_function_decl(id).signature.clone();
     ctx.func.name = UserFuncName::user(0, id.as_u32());
     let cfg = module.isa().frontend_config();
@@ -313,6 +361,21 @@ fn define_glue(
         if drop {
             let p = params[0];
             match ty {
+                Type::List { elem } => {
+                    let (size, _) = hir.size_align(*elem);
+                    let size = b.ins().iconst(types::I64, size as i64);
+                    let f = glue_fn_addr(module, runtime, &env, &mut b, *elem, true);
+                    let rt = import_rt(module, runtime, "drachm_list_drop", &[ptr, types::I64, ptr], &[]);
+                    let callee = module.declare_func_in_func(rt, b.func);
+                    b.ins().call(callee, &[p, size, f]);
+                }
+                Type::Array { elem, len } => {
+                    let (size, _) = hir.size_align(*elem);
+                    each_item(&mut b, len, size, &mut |b, off| {
+                        let at = b.ins().iadd(p, off);
+                        glue_drop_field(module, runtime, &env, b, at, 0, *elem);
+                    });
+                }
                 Type::Struct { id: sid, .. } => {
                     let def = &hir.structs[sid];
                     if let Some(f) = def.has_drop {
@@ -343,6 +406,21 @@ fn define_glue(
         } else {
             let (dst, src) = (params[0], params[1]);
             match ty {
+                Type::List { elem } => {
+                    let (size, align) = hir.size_align(*elem);
+                    let (size, align) = (b.ins().iconst(types::I64, size as i64), b.ins().iconst(types::I64, align as i64));
+                    let f = glue_fn_addr(module, runtime, &env, &mut b, *elem, false);
+                    let rt = import_rt(module, runtime, "drachm_list_copy", &[ptr, ptr, types::I64, types::I64, ptr], &[]);
+                    let callee = module.declare_func_in_func(rt, b.func);
+                    b.ins().call(callee, &[dst, src, size, align, f]);
+                }
+                Type::Array { elem, len } => {
+                    let (size, _) = hir.size_align(*elem);
+                    each_item(&mut b, len, size, &mut |b, off| {
+                        let (d, s) = (b.ins().iadd(dst, off), b.ins().iadd(src, off));
+                        glue_copy_field(module, runtime, &env, b, d, s, 0, *elem);
+                    });
+                }
                 Type::Struct { id: sid, .. } => {
                     for f in &hir.structs[sid].fields {
                         glue_copy_field(module, runtime, &env, &mut b, dst, src, f.offset, f.ty);
@@ -396,6 +474,8 @@ enum Loc {
 enum Leaf {
     Scalar(ClType),
     Str,
+    /// This many bytes, copied with `memcpy`.
+    Bulk(u32),
 }
 
 struct Cg<'a, 'b> {
@@ -462,7 +542,7 @@ impl Cg<'_, '_> {
                         Slot::Mem(addr)
                     }
                     // A struct parameter's memory is the callee's own.
-                    None if ty.struct_id().is_some() || ty.enum_id().is_some() => match incoming {
+                    None if ty.struct_id().is_some() || ty.enum_id().is_some() || ty.is_list() || ty.is_array() => match incoming {
                         Some(p) => Slot::Mem(p),
                         None => Slot::Mem(self.mem(ty)),
                     },
@@ -513,6 +593,17 @@ impl Cg<'_, '_> {
                     };
                     loc = Loc::Mem(ptr, 0);
                     ty = ty.target().expect("deref of a non-pointer");
+                }
+                Proj::Index(il) => {
+                    let Loc::Mem(base, off) = loc else { unreachable!("a list or array is in memory") };
+                    let i = self.operand(&Operand::Copy(Place::local(il)));
+                    let elem = ty.elem().expect("an item of a list or array");
+                    let (size, _) = self.hir.size_align(elem);
+                    let data = if ty.is_list() { self.b.ins().load(self.ptr, MEM, base, off as i32) } else { self.offset(base, off) };
+                    let scaled = if size == 1 { i } else { self.b.ins().imul_imm_u(i, size as i64) };
+                    let addr = self.b.ins().iadd(data, scaled);
+                    loc = Loc::Mem(addr, 0);
+                    ty = elem;
                 }
             }
         }
@@ -589,7 +680,18 @@ impl Cg<'_, '_> {
             out.push((at, Leaf::Scalar(cl)));
             return;
         }
-        if ty.enum_id().is_some() {
+        if ty.is_list() {
+            out.push((at, Leaf::Str));
+            return;
+        }
+        if let Type::Array { .. } = ty {
+            let (size, _) = self.hir.size_align(ty);
+            if size > 64 {
+                out.push((at, Leaf::Bulk(size)));
+                return;
+            }
+        }
+        if ty.enum_id().is_some() || ty.is_array() {
             let mut chunks = Vec::new();
             enum_chunks(self.hir, ty, at, &mut chunks);
             out.extend(chunks.into_iter().map(|(o, cl)| (o, Leaf::Scalar(cl))));
@@ -616,6 +718,12 @@ impl Cg<'_, '_> {
                         let v = self.b.ins().load(types::I64, MEM, src, off + word);
                         self.b.ins().store(MEM, v, dst, off + word);
                     }
+                }
+                Leaf::Bulk(size) => {
+                    let (d, s) = (self.offset(dst, off as u32), self.offset(src, off as u32));
+                    let n = self.b.ins().iconst(self.ptr, size as i64);
+                    let cfg = self.module.target_config();
+                    self.b.call_memcpy(cfg, d, s, n);
                 }
             }
         }
@@ -737,6 +845,21 @@ impl Cg<'_, '_> {
                 let offs: Vec<u32> = self.hir.structs[*sid].fields.iter().map(|f| f.offset).collect();
                 self.aggregate(dest, ty, &offs, ops, None)
             }
+            Rvalue::Array(t, ops) => {
+                let (size, _) = self.hir.size_align(t.elem().expect("an array"));
+                let offs: Vec<u32> = (0..ops.len() as u32).map(|i| i * size).collect();
+                self.aggregate(dest, ty, &offs, ops, None)
+            }
+            Rvalue::ListNew(t, cap) => {
+                let d = self.addr_of(dest);
+                if *cap == 0 {
+                    self.clear(d);
+                } else {
+                    let (size, align) = self.hir.size_align(t.elem().expect("a list"));
+                    let (c, s, a) = (self.b.ins().iconst(types::I64, *cap as i64), self.b.ins().iconst(types::I64, size as i64), self.b.ins().iconst(types::I64, align as i64));
+                    self.rt("drachm_list_with_cap", &[self.ptr, types::I64, types::I64, types::I64], &[], &[d, c, s, a]);
+                }
+            }
             Rvalue::Variant(eid, vi, ops) => {
                 let def = &self.hir.enums[*eid];
                 let offs: Vec<u32> = def.variants[*vi].fields.iter().map(|f| f.offset).collect();
@@ -750,7 +873,7 @@ impl Cg<'_, '_> {
                     Type::Str => {
                         self.rt("drachm_str_copy", &[self.ptr, self.ptr], &[], &[d, s]);
                     }
-                    Type::Struct { .. } | Type::Enum { .. } if holds_string(self.hir, ty) => {
+                    Type::Struct { .. } | Type::Enum { .. } | Type::List { .. } | Type::Array { .. } if holds_string(self.hir, ty) => {
                         let callee = self.module.declare_func_in_func(self.copy_ids[&ty], self.b.func);
                         self.b.ins().call(callee, &[d, s]);
                     }
@@ -888,10 +1011,20 @@ impl Cg<'_, '_> {
                 let tag_ty = cl_type(crate::mir::ty::tag_type(self.hir.enum_def(ty).tag_size)).unwrap();
                 self.b.ins().load(tag_ty, MEM, base, off as i32)
             }
+            Rvalue::Len(p) => {
+                let (loc, ty) = self.locate(p);
+                match ty {
+                    Type::Array { len, .. } => self.b.ins().iconst(types::I64, len as i64),
+                    _ => {
+                        let Loc::Mem(base, off) = loc else { unreachable!("a list is in memory") };
+                        self.b.ins().load(types::I64, MEM, base, off as i32 + STR_LEN)
+                    }
+                }
+            }
             Rvalue::Ref(_, p) | Rvalue::RawRef(p) => self.addr_of(p),
             // `copy p` of a raw pointer: the bits.
             Rvalue::DeepCopy(p) if self.op_ty(&Operand::Copy(p.clone())).is_ptr() => self.operand(&Operand::Copy(p.clone())),
-            Rvalue::DeepCopy(_) | Rvalue::Aggregate(..) | Rvalue::Variant(..) => unreachable!("not a scalar rvalue: {rv:?}"),
+            Rvalue::DeepCopy(_) | Rvalue::Aggregate(..) | Rvalue::Variant(..) | Rvalue::Array(..) | Rvalue::ListNew(..) => unreachable!("not a scalar rvalue: {rv:?}"),
         }
     }
 
@@ -1107,6 +1240,50 @@ impl Cg<'_, '_> {
                 let base = self.b.ins().iconst(i32t, base as i64);
                 let upper = self.b.ins().iconst(types::I8, upper as i64);
                 self.rt("drachm_str_radix", &[ptr, i64t, i64t, types::I8, i32t, types::I8], &[], &[out, lo, hi, signed, base, upper]);
+            }
+            Callee::ListPush(elem) => {
+                let list = self.operand(&args[0].op);
+                let ety = self.op_ty(&args[1].op);
+                let (item, scalar) = if in_memory(ety) {
+                    (self.operand_addr(&args[1].op), None)
+                } else {
+                    let v = self.operand(&args[1].op);
+                    let tmp = self.mem(ety);
+                    self.b.ins().store(MEM, v, tmp, 0);
+                    (tmp, Some(v))
+                };
+                let (size, align) = self.hir.size_align(elem);
+                // Room left: store in place; otherwise the runtime grows the list.
+                let (fast, slow, join) = (self.b.create_block(), self.b.create_block(), self.b.create_block());
+                let len = self.b.ins().load(i64t, MEM, list, STR_LEN);
+                let cap = self.b.ins().load(i64t, MEM, list, STR_CAP);
+                let room = self.b.ins().icmp(IntCC::UnsignedLessThan, len, cap);
+                self.b.ins().brif(room, fast, &[], slow, &[]);
+                self.b.switch_to_block(fast);
+                let data = self.b.ins().load(ptr, MEM, list, 0);
+                let at = if size == 1 { len } else { self.b.ins().imul_imm_u(len, size as i64) };
+                let dst = self.b.ins().iadd(data, at);
+                match scalar {
+                    Some(v) => {
+                        self.b.ins().store(MEM, v, dst, 0);
+                    }
+                    None => self.copy_bits(ety, dst, item),
+                }
+                let one = self.b.ins().iadd_imm(len, 1);
+                self.b.ins().store(MEM, one, list, STR_LEN);
+                self.b.ins().jump(join, &[]);
+                self.b.switch_to_block(slow);
+                let (size, align) = (self.b.ins().iconst(i64t, size as i64), self.b.ins().iconst(i64t, align as i64));
+                self.rt("drachm_list_push", &[ptr, ptr, i64t, i64t], &[], &[list, item, size, align]);
+                self.b.ins().jump(join, &[]);
+                self.b.switch_to_block(join);
+            }
+            Callee::IndexPanic { unsigned } => {
+                let (i, len) = (self.operand(&args[0].op), self.operand(&args[1].op));
+                if let Some(cur) = self.b.current_block() {
+                    self.b.set_cold_block(cur);
+                }
+                self.rt(if unsigned { "drachm_index_panic_u" } else { "drachm_index_panic" }, &[i64t, i64t], &[], &[i, len]);
             }
             Callee::Join => {
                 // The parts' values side by side, as the runtime's array.

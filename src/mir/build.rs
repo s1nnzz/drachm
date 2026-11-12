@@ -23,20 +23,6 @@ pub fn display_name(symbol: &str) -> std::borrow::Cow<'_, str> {
 
 const NO_SPAN: Span = Span { start: 0, end: 0 };
 
-/// A HIR place as a MIR place (`self` of a method is dealt with by the builder).
-fn place(p: &hir::Place) -> Place {
-    let proj = p
-        .proj
-        .iter()
-        .map(|pr| match pr {
-            hir::HirProj::Field(f) => Proj::Field(*f),
-            hir::HirProj::Deref => Proj::Deref,
-            hir::HirProj::Downcast(v) => Proj::Downcast(*v),
-        })
-        .collect();
-    Place { local: Local::new(p.local + 1), proj }
-}
-
 /// The source span of an expression.
 fn expr_span(e: &Expr) -> Span {
     e.span
@@ -337,12 +323,93 @@ impl<'a> Builder<'a> {
         p
     }
 
-    fn hir_place(&self, p: &hir::Place) -> Place {
-        let mut out = place(p);
+    /// A HIR place as a MIR place (`self` of a method is read through its
+    /// borrow). An index in it is evaluated and checked here, once.
+    fn hir_place(&mut self, p: &hir::Place) -> Place {
+        let mut out = Place::local(Local::new(p.local + 1));
         if p.local == 0 && self.func.has_self {
-            out.proj.insert(0, Proj::Deref);
+            out.proj.push(Proj::Deref);
+        }
+        for pr in &p.proj {
+            match pr {
+                hir::HirProj::Field(f) => out.proj.push(Proj::Field(*f)),
+                hir::HirProj::Deref => out.proj.push(Proj::Deref),
+                hir::HirProj::Downcast(v) => out.proj.push(Proj::Downcast(*v)),
+                hir::HirProj::Index(idx) => {
+                    let ty = crate::mir::ty::place_ty_in(&self.locals, self.hir, &out);
+                    let l = self.index_local(&out, ty, idx);
+                    out.proj.push(Proj::Index(l));
+                }
+            }
         }
         out
+    }
+
+    /// Evaluate the index `idx` of the list or array place `base` (of type
+    /// `ty`) and check it against the length: a `uint64` local that is a valid
+    /// position. A negative signed index counts from the end (Q10). Out of
+    /// range ends the program through `IndexPanic`, in a block of its own.
+    fn index_local(&mut self, base: &Place, ty: Type, idx: &Expr) -> Local {
+        self.at(expr_span(idx));
+        let span = self.span;
+        let iop = self.operand(idx);
+        // A constant index into an array was checked by the type checker (E0620).
+        if let (ExprKind::Int(_), Type::Array { .. }) = (&idx.kind, ty) {
+            let a = self.decl(Type::U64, LocalKind::Temp);
+            self.assign_stmt(Place::local(a), Rvalue::Use(iop));
+            return a;
+        }
+        let signed = matches!(idx.ty, Type::Int { signed: true, .. });
+        let len_op = match ty {
+            Type::Array { len, .. } => Operand::Const(Constant::Int(len as u128, Type::U64)),
+            _ => {
+                let l = self.decl(Type::U64, LocalKind::Temp);
+                self.assign_stmt(Place::local(l), Rvalue::Len(base.clone()));
+                Operand::Copy(Place::local(l))
+            }
+        };
+        let conv = |b: &mut Self, op: Operand, from: Type, to: Type| -> Operand {
+            if from == to {
+                return op;
+            }
+            let t = b.decl(to, LocalKind::Temp);
+            b.assign_stmt(Place::local(t), Rvalue::Convert(op, to));
+            Operand::Copy(Place::local(t))
+        };
+        let a = self.decl(Type::U64, LocalKind::Temp);
+        let shown;
+        if signed {
+            let i = conv(self, iop, idx.ty, Type::S64);
+            let i = self.freeze(i, Type::S64);
+            shown = i.clone();
+            let neg = self.decl(Type::Bool, LocalKind::Temp);
+            self.assign_stmt(Place::local(neg), Rvalue::Binary(hir::BinOp::Lt, i.clone(), Operand::Const(Constant::Int(0, Type::S64))));
+            let u = conv(self, i, Type::S64, Type::U64);
+            let (from_end, from_start, join) = (self.new_block(), self.new_block(), self.new_block());
+            self.end(TerminatorKind::If { cond: Operand::Copy(Place::local(neg)), then: from_end, els: from_start });
+            self.cur = from_end;
+            self.assign_stmt(Place::local(a), Rvalue::Binary(hir::BinOp::Add, u.clone(), len_op.clone()));
+            self.goto(join);
+            self.cur = from_start;
+            self.assign_stmt(Place::local(a), Rvalue::Use(u));
+            self.goto(join);
+            self.cur = join;
+        } else {
+            let u = conv(self, iop, idx.ty, Type::U64);
+            shown = u.clone();
+            self.assign_stmt(Place::local(a), Rvalue::Use(u));
+        }
+        let ok_flag = self.decl(Type::Bool, LocalKind::Temp);
+        self.assign_stmt(Place::local(ok_flag), Rvalue::Binary(hir::BinOp::Lt, Operand::Copy(Place::local(a)), len_op.clone()));
+        let (ok, bad, dead) = (self.new_block(), self.new_block(), self.new_block());
+        self.end(TerminatorKind::If { cond: Operand::Copy(Place::local(ok_flag)), then: ok, els: bad });
+        self.cur = bad;
+        let args = vec![Arg { op: shown, span }, Arg { op: len_op, span }];
+        self.end(TerminatorKind::Call { callee: Callee::IndexPanic { unsigned: !signed }, args, dest: None, target: dead });
+        self.cur = dead;
+        self.end(TerminatorKind::Unreachable);
+        self.cur = ok;
+        a
     }
 
     fn at(&mut self, s: Span) {
@@ -504,12 +571,14 @@ impl<'a> Builder<'a> {
         let declared = self.just_declared.take();
         match s {
             Stmt::Assign(p, e) => {
-                let dest = self.hir_place(p);
                 self.at(p.span);
-                let fresh = declared == Some(dest.local) && dest.proj.is_empty();
+                let fresh = declared == Some(self.local(p.local)) && p.proj.is_empty();
                 self.decl_init = fresh;
                 // A just-declared local holds nothing: nothing to drop first.
-                self.in_stmt(|b| b.assign(dest, e, !fresh));
+                self.in_stmt(|b| {
+                    let dest = b.hir_place(p);
+                    b.assign(dest, e, !fresh)
+                });
                 self.decl_init = false;
             }
             Stmt::If { label, branches } => self.if_stmt(*label, branches),
@@ -610,12 +679,14 @@ impl<'a> Builder<'a> {
             Stmt::InitField(p, e) => {
                 // A field given its value by `fill` or a constructor: the local
                 // has no value yet, so the write is an initialisation.
-                let dest = self.hir_place(p);
                 self.at(p.span);
-                self.init_local = Some(dest.local);
+                self.init_local = Some(self.local(p.local));
                 // The old value of a `mut` field a def gave is dropped; a field
                 // with no value has nothing to drop (the drop flags know).
-                self.in_stmt(|b| b.assign(dest, e, true));
+                self.in_stmt(|b| {
+                    let dest = b.hir_place(p);
+                    b.assign(dest, e, true)
+                });
                 self.init_local = None;
             }
             Stmt::Destroy(p) => {
@@ -828,6 +899,8 @@ impl<'a> Builder<'a> {
             | ExprKind::PtrConv(_)
             | ExprKind::Struct(_)
             | ExprKind::Variant { .. }
+            | ExprKind::Len(_)
+            | ExprKind::Array(_)
             | ExprKind::Borrow { .. }
             | ExprKind::AddressOf(_) => true,
             ExprKind::DeepCopy(_) => !is_copy(self.hir, e.ty),
@@ -883,6 +956,17 @@ impl<'a> Builder<'a> {
                 p.proj.push(Proj::Deref);
                 p
             }
+            ExprKind::Index(base, idx) => {
+                let mut p = self.as_place(base);
+                let mut ty = base.ty;
+                if ty.is_borrow() {
+                    p.proj.push(Proj::Deref);
+                    ty = ty.target().unwrap_or(ty);
+                }
+                let l = self.index_local(&p, ty, idx);
+                p.proj.push(Proj::Index(l));
+                p
+            }
             ExprKind::Payload { value, variant, field } => {
                 let mut p = self.as_place(value);
                 if value.ty.is_borrow() {
@@ -911,6 +995,10 @@ impl<'a> Builder<'a> {
         for pr in &hp.proj {
             match pr {
                 hir::HirProj::Downcast(_) => {}
+                hir::HirProj::Index(_) => {
+                    text.push_str("[..]");
+                    t = t.elem().unwrap_or(t);
+                }
                 hir::HirProj::Field(_) if t.enum_id().is_some() => return text,
                 hir::HirProj::Field(f) => {
                     let def = self.hir.struct_def(t);
@@ -931,8 +1019,15 @@ impl<'a> Builder<'a> {
         if is_copy(self.hir, ty) {
             return Operand::Copy(p);
         }
+        if p.proj.iter().any(|x| matches!(x, Proj::Index(_))) && self.func.span != NO_SPAN {
+            let d = Diagnostic::at(&codes::E0622, e.span, format!("cannot move a `{ty}` out of a list or array by index"))
+                .note("moved out here")
+                .help("borrow it with `&`, or copy it with `copy`");
+            self.diags.push(d);
+            return Operand::Copy(p);
+        }
         let root_hidden = matches!(self.locals[p.local].kind, LocalKind::Temp);
-        let field_move = p.proj.iter().any(|x| matches!(x, Proj::Field(_))) && !p.proj.contains(&Proj::Deref);
+        let field_move = p.proj.iter().any(|x| matches!(x, Proj::Field(_))) && !p.proj.iter().any(|x| matches!(x, Proj::Deref | Proj::Index(_)));
         // The compiler's own functions (the automatic `==`) have no source span.
         if field_move && !root_hidden && self.func.span != NO_SPAN {
             self.field_move_error(&p, e.span);
@@ -950,6 +1045,7 @@ impl<'a> Builder<'a> {
                     Proj::Field(f) => hir::HirProj::Field(*f),
                     Proj::Deref => hir::HirProj::Deref,
                     Proj::Downcast(v) => hir::HirProj::Downcast(*v),
+                    Proj::Index(_) => unreachable!("an item of a list is never moved by field"),
                 })
                 .collect(),
             span,
@@ -968,6 +1064,7 @@ impl<'a> Builder<'a> {
         for pr in &hp.proj {
             match pr {
                 hir::HirProj::Downcast(_) => {}
+                hir::HirProj::Index(_) => t = t.elem().unwrap_or(t),
                 hir::HirProj::Field(f) => {
                     let Some(id) = t.struct_id() else { return };
                     let def = &self.hir.structs[id];
@@ -1010,7 +1107,7 @@ impl<'a> Builder<'a> {
             ExprKind::Bool(b) => Operand::Const(Constant::Bool(*b)),
             ExprKind::Str(s) => Operand::Const(Constant::Str(self.intern(s))),
             ExprKind::NullPtr => Operand::Const(Constant::Int(0, e.ty)),
-            ExprKind::Local(_) | ExprKind::Field(..) | ExprKind::Deref(_) | ExprKind::Payload { .. } => {
+            ExprKind::Local(_) | ExprKind::Field(..) | ExprKind::Deref(_) | ExprKind::Payload { .. } | ExprKind::Index(..) => {
                 let p = self.as_place(e);
                 self.at(expr_span(e));
                 self.read_place(p, e)
@@ -1022,6 +1119,25 @@ impl<'a> Builder<'a> {
                 self.assign_stmt(Place::local(t), Rvalue::Discriminant(p));
                 Operand::Copy(Place::local(t))
             }
+            ExprKind::List(items) => {
+                let elem = e.ty.elem().expect("a list literal has a list type");
+                let list = self.new_temp(e.ty);
+                self.assign_stmt(Place::local(list), Rvalue::ListNew(e.ty, items.len() as u64));
+                for item in items {
+                    let ops = self.operands(&[item], &|_| None);
+                    let r = self.new_ref_temp(e.ty, true);
+                    self.assign_stmt(Place::local(r), Rvalue::Ref(BorrowKind::Mut { two_phase: false }, Place::local(list)));
+                    let mut args = vec![Arg { op: Operand::Move(Place::local(r)), span: self.span }];
+                    args.extend(ops);
+                    self.call_args(Callee::ListPush(elem), args, Type::None);
+                }
+                Operand::Move(Place::local(list))
+            }
+            ExprKind::ListPush { list, value } => {
+                let elem = value.ty;
+                let ops = self.operands(&[&**list, &**value], &|i| (i == 0).then_some((true, true)));
+                self.call(Callee::ListPush(elem), ops, Type::None)
+            }
             ExprKind::Neg(_)
             | ExprKind::Not(_)
             | ExprKind::BitNot(_)
@@ -1032,6 +1148,8 @@ impl<'a> Builder<'a> {
             | ExprKind::PtrConv(_)
             | ExprKind::Struct(_)
             | ExprKind::Variant { .. }
+            | ExprKind::Len(_)
+            | ExprKind::Array(_)
             | ExprKind::Borrow { .. }
             | ExprKind::AddressOf(_) => {
                 let rv = self.rvalue(e);
@@ -1257,6 +1375,18 @@ impl<'a> Builder<'a> {
                 Rvalue::Ref(kind, p)
             }
             ExprKind::AddressOf(inner) => Rvalue::RawRef(self.as_place(inner)),
+            ExprKind::Len(inner) => {
+                let mut p = self.as_place(inner);
+                if inner.ty.is_borrow() {
+                    p.proj.push(Proj::Deref);
+                }
+                Rvalue::Len(p)
+            }
+            ExprKind::Array(items) => {
+                let es: Vec<&Expr> = items.iter().collect();
+                let ops = self.operands(&es, &none);
+                Rvalue::Array(e.ty, ops.into_iter().map(|a| a.op).collect())
+            }
             ExprKind::DeepCopy(inner) => Rvalue::DeepCopy(self.as_place(inner)),
             _ => unreachable!("rvalue of {}", kind_name(&e.kind)),
         }
@@ -1589,6 +1719,11 @@ impl<'a> Builder<'a> {
         self.diverge(TerminatorKind::Return);
     }
 
+    /// `call` with arguments already made.
+    fn call_args(&mut self, callee: Callee, args: Vec<Arg>, ret: Type) -> Operand {
+        self.call(callee, args, ret)
+    }
+
     /// Emit a call to a fresh target block; its result goes to a fresh temp.
     fn call(&mut self, callee: Callee, args: Vec<Arg>, ret: Type) -> Operand {
         let dest = (ret != Type::None).then(|| Place::local(self.new_temp(ret)));
@@ -1612,6 +1747,7 @@ fn pure(e: &Expr) -> bool {
         | ExprKind::Local(_)
         | ExprKind::NullPtr => true,
         ExprKind::Field(a, _)
+        | ExprKind::Len(a)
         | ExprKind::Neg(a)
         | ExprKind::Not(a)
         | ExprKind::BitNot(a)
@@ -1623,6 +1759,7 @@ fn pure(e: &Expr) -> bool {
         | ExprKind::DeepCopy(a)
         | ExprKind::AddressOf(a) => pure(a),
         ExprKind::Variant { args, .. } => args.iter().all(pure),
+        ExprKind::Index(a, b) => pure(a) && pure(b),
         ExprKind::Borrow { place, .. } => pure(place),
         ExprKind::Binary(_, a, b) | ExprKind::IntPow(a, b) => pure(a) && pure(b),
         ExprKind::Shift { value, amount, .. } => pure(value) && pure(amount),
@@ -1676,6 +1813,11 @@ fn kind_name(k: &ExprKind) -> &'static str {
         ExprKind::Variant { .. } => "Variant",
         ExprKind::Discriminant(_) => "Discriminant",
         ExprKind::Payload { .. } => "Payload",
+        ExprKind::Index(..) => "Index",
+        ExprKind::Len(_) => "Len",
+        ExprKind::List(_) => "List",
+        ExprKind::Array(_) => "Array",
+        ExprKind::ListPush { .. } => "ListPush",
     }
 }
 

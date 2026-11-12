@@ -97,6 +97,9 @@ fn terminator(p: &Program, hir: &hir::Program, k: &TerminatorKind) -> String {
                 Callee::ReportExit => "ReportExit".to_string(),
                 Callee::Radix { base, upper } => format!("Radix{base}{}", if *upper { "Upper" } else { "" }),
                 Callee::Join => "Join".to_string(),
+                Callee::ListPush(ty) => format!("ListPush<{ty}>"),
+                Callee::IndexPanic { unsigned: true } => "IndexPanicU".to_string(),
+                Callee::IndexPanic { unsigned: false } => "IndexPanic".to_string(),
             };
             let args: Vec<String> = args.iter().map(|a| operand(p, &a.op)).collect();
             let call = format!("call {name}({}) -> {target}", args.join(", "));
@@ -118,6 +121,7 @@ fn place(pl: &Place) -> String {
             Proj::Field(f) => format!("{s}.{f}"),
             Proj::Downcast(v) => format!("({s} as v{v})"),
             Proj::Deref => format!("(*{s})"),
+            Proj::Index(i) => format!("{s}[{i}]"),
         };
     }
     s
@@ -181,5 +185,11 @@ fn rvalue(p: &Program, hir: &hir::Program, rv: &Rvalue) -> String {
         }
         Rvalue::Discriminant(pl) => format!("Discriminant({})", place(pl)),
         Rvalue::DeepCopy(pl) => format!("DeepCopy({})", place(pl)),
+        Rvalue::Len(pl) => format!("Len({})", place(pl)),
+        Rvalue::ListNew(t, cap) => format!("ListNew<{t}>({cap})"),
+        Rvalue::Array(t, ops) => {
+            let ops: Vec<String> = ops.iter().map(o).collect();
+            format!("Array<{t}>({})", ops.join(", "))
+        }
     }
 }

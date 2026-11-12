@@ -50,7 +50,9 @@ typedef uint8_t (*drachm_eq_fn)(const void *a, const void *b); // 1 when equal
 // Panics "index 5 is outside the list (length 3)" when there is no such index.
 uint64_t drachm_list_index(uint64_t len, int64_t i);
 // The panic itself, for compiled bounds checks. Does not return.
-void drachm_index_panic(int64_t i, uint64_t len);
+void drachm_index_panic(int64_t i, uint64_t len) __attribute__((noreturn, cold));
+// The same for an index that was an unsigned number (it may be 2^63 or more).
+void drachm_index_panic_u(uint64_t i, uint64_t len) __attribute__((noreturn, cold));
 
 // ---- lists ----
 void drachm_list_new(drachm_list *out);                                        // empty: ptr NULL, len 0, cap 0
