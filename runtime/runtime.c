@@ -422,10 +422,13 @@ DRACHM_FN void drachm_report(const drachm_str *msg, uint64_t *slot) {
     *slot = 0;
 }
 
-// `drachm_report`, then the program ends with `code`.
+// `drachm_report`, then the program ends at once with `code`: whatever the
+// stack still owns is not freed (the run-time leak check does not run).
 DRACHM_FN void drachm_report_exit(const drachm_str *msg, uint64_t *slot, uint8_t code) {
     drachm_report(msg, slot);
-    exit((int)code);
+    fflush(stdout);
+    fflush(stderr);
+    _exit((int)code);
 }
 
 // ---- conversions ----------------------------------------------------------

@@ -712,7 +712,7 @@ impl Gen<'_> {
             }
             Callee::ReportExit => {
                 let (msg, slot, code) = (self.operand(&args[0].op), self.operand(&args[1].op), self.operand(&args[2].op));
-                self.line(format!("drachm_report({msg}, {slot}); exit((int){code});"));
+                self.line(format!("drachm_report_exit({msg}, {slot}, {code});"));
             }
             Callee::Report => {
                 let (msg, slot) = (self.operand(&args[0].op), self.operand(&args[1].op));
