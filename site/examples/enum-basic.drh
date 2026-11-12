@@ -1,0 +1,40 @@
+in io;
+
+enum Shape {
+    Circle(float64 r),
+    Rect(float64 w, float64 h),
+    Empty,
+}
+
+enum Dir { North, East, South, West }
+
+float64 area(&Shape s) {
+    match (s) {
+        case Circle(float64 r)          { return 3.0 * r * r; }
+        case Rect(float64 w, float64 h) { return w * h; }
+        case Empty                      { return 0.0; }
+    }
+}
+
+Dir turn(Dir d) {
+    if (d == North) { return East; }
+    if (d == East) { return South; }
+    if (d == South) { return West; }
+    return North;
+}
+
+none main() {
+    Shape a = Rect(2.0, 3.0);
+    Shape b = Shape::Circle(1.5);
+    Shape c = Shape::Empty;
+    io::outln(area(&a)::text());
+    io::outln(area(&b)::text());
+    io::outln(area(&c)::text());
+
+    mut Dir d = North;
+    d = turn(d);
+    d = turn(d);
+    if (d == South) {
+        io::outln("facing south");
+    }
+}

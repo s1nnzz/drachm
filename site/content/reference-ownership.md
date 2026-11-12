@@ -48,6 +48,13 @@ E0325, while `take f.path leaving ""` is allowed.
 
 <!-- example: take -->
 
+## Enums
+
+An enum is one value for these rules. It is Copy when every value in every variant is
+and it is at most 32 bytes; otherwise it moves like a `string`. A `match` does not
+move the value it looks at, and `take` and `copy` in a pattern say what happens to a
+payload that owns memory: see [Enums](reference-enums.md#values-that-own-memory).
+
 ## Changing things
 
 Three words say what may change, and the compiler checks every change against

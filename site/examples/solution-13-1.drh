@@ -1,0 +1,26 @@
+in io;
+
+enum Shape {
+    Circle(float64 r),
+    Rect(float64 w, float64 h),
+    Square(float64 side),
+    Empty,
+}
+
+float64 area(&Shape s) {
+    match (s) {
+        case Circle(float64 r)          { return 3.14159 * r * r; }
+        case Rect(float64 w, float64 h) { return w * h; }
+        case Square(float64 side)       { return side * side; }
+        case Empty                      { return 0.0; }
+    }
+}
+
+none main() {
+    Shape a = Rect(2.0, 3.0);
+    Shape b = Square(4.0);
+    Shape c = Shape::Empty;
+    io::outln(area(&a)::text());
+    io::outln(area(&b)::text());
+    io::outln(area(&c)::text());
+}

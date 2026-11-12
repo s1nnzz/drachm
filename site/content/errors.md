@@ -679,6 +679,72 @@ such block:
     none read(*uint32 p) { unsafe { uint32 v = *p; } }
     unsafe none bump(*uint32 p) { *p = *p + 1; }
 
+## E0520: duplicate variant
+
+An enum has two variants with the same name. Each variant of an enum
+needs a name of its own, because the name is how a value of that
+variant is built and matched.
+
+    enum Shape { Circle(float64 r), Circle }     // error
+
+## E0521: unknown variant
+
+The name after `Enum::` is not a variant of that enum. The message
+lists the variants it does have.
+
+    Shape s = Shape::Triangle(1.0);               // error: no `Triangle`
+
+## E0522: wrong number of values for a variant
+
+A variant is built with exactly one value for each value it declares,
+in order: `Rect(float64 w, float64 h)` takes two.
+
+    Shape s = Rect(2.0);                          // error: needs 2
+
+## E0523: cannot tell which enum a variant belongs to
+
+A bare variant name such as `Circle(1.0)` or `Empty` takes its enum
+from the type the value is going to: a declaration with a written
+type, an assignment, an argument or a `return`. Where nothing says,
+write the enum: `Shape::Circle(1.0)`.
+
+## E0525: pattern of another enum
+
+A `case` names something that is not a variant of the enum being
+matched. The message lists the variants that exist.
+
+## E0527: enum with values compared with `==`
+
+`==` and `!=` work on enums whose variants carry no values (`d == North`).
+An enum with values is taken apart with `match`.
+
+    if (shape == Empty) { }                      // error when some variant has values
+
+## E0528: binding that owns memory needs take or copy
+
+A payload that owns memory (a `string`, or a struct holding one) cannot
+be bound by a plain `Type name` in a `case`: the pattern has to say
+whether it moves the payload out or copies it.
+
+    case Text(take string body) { }   // moves it; the matched value is used up
+    case Text(copy string body) { }   // copies it; the matched value stays whole
+
+Numbers, bools and Copy structs bind plainly: `case Circle(float64 r)`.
+
+## E0529: inconsistent bindings in a case
+
+A name is bound twice in one pattern, or the patterns of one `case`
+(`case A(float64 x), B(float64 y)`) do not bind the same names with
+the same types, so the body could not know which one it has.
+
+## E0526: wrong type in a pattern
+
+A binding in a variant pattern must name exactly the type of the
+value it binds (no conversion is applied in patterns), and must
+bind as many values as the variant has.
+
+    case Rect(string w, float64 h) { }            // error: `w` is a float64
+
 ## E0901: not supported yet
 
 This is part of Drachm's design, but this version of the compiler does

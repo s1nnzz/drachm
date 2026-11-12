@@ -1,0 +1,40 @@
+in io;
+
+enum Msg {
+    Text(string body),
+    Pair(string a, string b),
+    Quit,
+}
+
+none moving(Msg m) {
+    match (m) {
+        case Text(take string body) { io::outln(f"text: ${body}"); }
+        case Pair(take string a, _) { io::outln(f"first of a pair: ${a}"); }
+        case Quit                   { io::outln("quit"); }
+    }
+}
+
+none copying(&Msg m) {
+    match (m) {
+        case Text(copy string body) { io::outln(f"a copy of ${body}"); }
+        case _                      { io::outln("something else"); }
+    }
+}
+
+none main() {
+    Msg a = Text("hello");
+    copying(&a);
+    copying(&a);
+    moving(a);
+
+    moving(Pair("one", "two"));
+    moving(Quit);
+
+    Msg b = Text("only the kind matters");
+    match (b) {
+        case Text(_) { io::outln("b is text"); }
+        case _       { io::outln("b is not text"); }
+    }
+    io::outln("b is still whole");
+    moving(b);
+}

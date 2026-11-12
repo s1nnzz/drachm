@@ -1,12 +1,12 @@
 ---
 title: "Lesson 13: Enums and optionals"
 description: Values that are one of several variants, taking them apart with match, and the optional type T?.
-status: not-implemented
 ---
 
 # Lesson 13: Enums and optionals
 
-The compiler can't run this lesson yet; the code shows the planned design.
+Enums work in the compiler today. The last part, on optionals (`T?`), is still
+the planned design and is marked.
 
 **Goal:** model a value that is one of several shapes, and handle a value that
 might not be there.
@@ -101,6 +101,7 @@ none main() {
 0.0
 ```
 
+<!-- solution-of: solution-13-1 -->
 ```drachm solution
 in io;
 
@@ -130,7 +131,28 @@ none main() {
 }
 ```
 
+## Enums that own data
+
+A variant can hold a `string`. Then the enum owns memory, so it moves like a
+`string` does instead of copying. `match` looks at it where it is and does not
+move it, so a `case` that ignores the data (`case Text(_)`) leaves the value
+whole.
+
+To use the data, the pattern has to say what happens to it. `take string body`
+moves the text out of the value, and the value is used up afterwards.
+`copy string body` makes a copy and leaves the value alone. A plain
+`string body` is an error (E0528) that offers both. Numbers and bools bind
+plainly, as in `Circle(float64 r)`.
+
+A `case` can also carry a guard (`case Circle(float64 r) if r > 10.0`), several
+patterns that bind the same names (`case Circle(float64 x), Rect(float64 x, _)`),
+a constant inside the pattern (`case Rect(2.0, float64 h)`), and patterns inside
+patterns. The [reference page on enums](reference-enums.md) has them all.
+
+<!-- example: enum-owning -->
+
 ## A value that might be missing
+<!-- status: not-implemented -->
 
 `T?` is an optional: either a value of type `T` or `none`. It is an ordinary
 enum of the standard library, `enum Optional<T> { Some(T value), none, }`, so
