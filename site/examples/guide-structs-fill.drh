@@ -1,0 +1,27 @@
+in io;
+
+struct Player {
+public:
+    string name;
+    uint32 hp;
+    uint32 max;
+}
+
+sint32 main() {
+    Player p;
+    fill p {
+        p.name = "Illy";
+        p.hp = 5;
+        p.max = now p.hp * 2;
+    }
+
+    Player q;
+    fill partial q { q.name = "Sam"; }   // q is still incomplete
+    fill q {
+        q.hp = 7;
+        q.max = 9;
+    }
+    io::outln(p.name + " " + p.hp::text() + "/" + p.max::text());
+    io::outln(q.name + " " + q.hp::text() + "/" + q.max::text());
+    return 0;
+}

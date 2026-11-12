@@ -1,7 +1,6 @@
 ---
 title: Smaller decided details
-description: 256-bit integers, float8 and float16, string patterns, targets and other small pieces of the design.
-status: not-implemented
+description: 256-bit integers, float8 and float16, string patterns, text to number, targets and other small pieces of the design.
 ---
 
 # Smaller decided details
@@ -9,6 +8,7 @@ status: not-implemented
 Pieces of the design that are small enough to share a page.
 
 ## More number types
+<!-- status: not-implemented -->
 
 `uint256` and `sint256`, and the floats `float8` (E4M3) and `float16`, are in
 the design with the suffixes `5u256`, `5s256`, `2.5f8` and `2.5f16`. The
@@ -26,23 +26,18 @@ included. A pattern with wildcards is written `globbed`, where each `*` matches
 any run of characters. The rules and the example are in
 [Matching text](reference-control-flow.md#matching-text).
 
-<!-- focus: 2-4 -->
-
-```drachm
-match (path) {
-    case "/"                  { home(); }
-    case globbed "/api/*"     { api(path); }
-    case globbed "*.png"      { image(path); }
-    case _                    { missing(); }
-}
-```
+<!-- example: match-text -->
 
 ## Text to number
 
-`"42"::to<uint32>()` is planned to be a failing call. Handle it with `maybe`,
-`fails` or `fails with`; see [Errors](design-errors.md).
+`"42"::to<uint32>()` is a failing call: it fails with the built-in
+`ConvertError` when the text is empty, not a number, or out of range. Handle it
+with `maybe`, `fails` or `fails with`; see [Errors](design-errors.md).
+
+<!-- example: input-lines -->
 
 ## Targets
+<!-- status: not-implemented -->
 
 Plain builds target x86-64 Linux and Windows. The `target` setting names an
 operating system and a CPU such as `macos-arm64`, and macOS and AArch64 are

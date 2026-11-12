@@ -1,0 +1,18 @@
+in io;
+
+struct Person {
+public:
+    string name;
+    uint32 age;
+
+    Person(auto);                                       // keeps Person("Sam", 30)
+    Person(string name) { self.name = name; self.age = 0; }
+}
+
+sint32 main() {
+    Person a = "Sam";          // the written one
+    Person b = "Sam", 30;      // the automatic one, kept by Person(auto)
+    io::outln(a.name + " " + a.age::text());
+    io::outln(b.name + " " + b.age::text());
+    return 0;
+}

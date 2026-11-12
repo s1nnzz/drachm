@@ -5,9 +5,8 @@ description: Make invalid states unwritable with enums, take payloads apart safe
 
 # Designing with enums and optionals
 
-Enums, payloads and `match` are built, so the examples in the first half run.
-The optional type `T?` is designed but not built, and its sections are marked.
-For the rules, see [Enums](reference-enums.md); this guide is about when to
+Enums, payloads, `match` and the optional type `T?` are built, and the examples
+run. For the rules, see [Enums](reference-enums.md); this guide is about when to
 reach for them.
 
 ## Make invalid states unwritable
@@ -83,7 +82,6 @@ payload. Behaviour on an enum is written as ordinary functions that take it,
 not methods inside it.
 
 ## When a value might not be there
-<!-- status: not-implemented -->
 
 The most common "variant" of all is "there is no value". Many languages use a
 sentinel for it: `-1` for "not found", an empty string for "no name", zero for
@@ -91,51 +89,25 @@ sentinel for it: `-1` for "not found", an empty string for "no name", zero for
 it as a real one:
 
 ```drachm
-sint32 findIndex(&string[?] xs, &string key) { /* ... */ }   // -1 when missing
+sint32 findIndex(&string text, &string key) { /* ... */ }   // -1 when missing
 ```
 
 `T?` says it in the type. The value is either a `T` or `none`, and the compiler
 will not let you use it as a `T` until you have dealt with the `none`.
 
-<!-- focus: 1,2,4 -->
-
-```drachm
-uint32? findAge(&string name) {
-    if (name == "Illy") { return 18; }      // 18 wraps to uint32? by itself
-    return none;
-}
-```
+<!-- example: guide-enums-find -->
 
 A `T` becomes a `T?` automatically wherever a `T?` is expected: in a
 declaration (`uint32? x = 5;`), a `return`, an assignment or an argument. You
 never write the wrapping.
 
 ## Asking whether there is a value
-<!-- status: not-implemented -->
 
-The test is written in words, after the optional:
-
-<!-- focus: 2,3,5 -->
-
-```drachm
-uint32? age = findAge(name);
-if (age has value) { /* ... */ }
-if (age is empty)  { io::outln("no age"); }
-
-uint32 shown = age maybe 0;      // a fallback
-```
-
-`x == none` is not the test; `x is empty` is. `maybe` unwraps with a fallback,
+The test is written in words, after the optional: `age has value`, `age is
+empty`, as the example above shows. `x == none` is not the test; `x is empty` is. `maybe` unwraps with a fallback,
 the same word that gives a call a fallback in
 [Error handling](guide-errors-handling.md). To use the value itself, `match` on
-the optional:
-
-```drachm
-match (age) {
-    case uint32 a { io::outln(a::text()); }
-    case none     { io::outln("no age"); }
-}
-```
+the optional, with a `case` for the value and one for `none` (also shown above).
 
 Optionals also appear in the standard library: looking up a missing key in a
 `Map` gives `none`, and a variable declared as `uint32? age;` without a value

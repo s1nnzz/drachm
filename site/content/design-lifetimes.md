@@ -37,29 +37,28 @@ is allowed because the right side is itself a reference.
 To hand on a borrow you already hold, write `lend`. `&T` copies; `&mut T`
 moves, so after `&mut string r2 = r;` the name `r` is used up.
 
-```drachm
-none add(&mut string s) { s::append("!"); }
-none twice(&mut string s) { add(lend s); add(lend s); }
-```
+<!-- example: borrow-lend -->
 
 ## What a borrow protects
 
 While a borrow is alive the borrowed value cannot change. The compiler
 reports the earlier borrow and the later change together.
 
-```text title="intended output"
-error[E0302]: cannot change `xs` while it is borrowed
-  --> main.drh:5:5
+```text title="compiler output"
+error[E0302]: cannot change `s` while it is borrowed
+  --> main.drh:6:10
    |
- 4 |     &uint32 first = &xs[0];
-   |                     ------ `xs` is borrowed here
- 5 |     xs::push(9);
-   |     ^^ change attempted here
- 6 |     io::outln(first::text());
+ 5 |     &string first = &s;
+   |                     -- `s` is borrowed here
+ 6 |     s += "!";
+   |          ^^^ change attempted here
+ 7 |     io::outln(first);
    |               ----- the borrow is still used here
+   |
+ help: finish using `first` before changing `s`
 ```
 
-A call such as `s::append(s::len()::text())` is fine, because the inner borrow
+A call such as `s += s::len()->text()` is fine, because the inner borrow
 ends before the change. `xs::push(xs::first())` is not.
 
 ## lives on functions
@@ -77,9 +76,6 @@ whole parameters, never parts of them.
 ```
 
 ### Working it out
-
-<!-- status: not-implemented -->
-
 With one candidate parameter the compiler works out `lives` itself, and with
 several it asks (E0308). Today a function that returns a borrow and has several
 borrowed parameters must write `lives` itself.

@@ -1,0 +1,19 @@
+in io;
+
+struct Circle {
+public:
+    float64 r;
+
+    Circle(float64 radius) { self.r = radius; }
+    Circle(uint32 radius)  { self.r = radius; }
+
+    float64 area() { return 3.14159 * self.r * self.r; }
+}
+
+sint32 main() {
+    Circle a = 5;        // Circle(uint32)
+    Circle b = 2.5;      // Circle(float64)
+    io::outln(a::area()->text());
+    io::outln(b::area()->text());
+    return 0;
+}

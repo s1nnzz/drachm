@@ -1,30 +1,24 @@
 ---
 title: Constructors and defaults
-description: Constructors that can fail and keys for maps, the parts of constructors and defaults that are still designed.
+description: Keys for maps, the part of constructors and defaults that is still designed.
 ---
 
 # Constructors and defaults
 
 Constructors, `new ... of`, the declaration shorthand, `fill` blocks and `def`
 defaults are built. The [structs reference](reference-structs.md#constructors)
-covers them with examples. This page keeps the parts that are still designed. Constructors that can fail are
-in the [structs reference](reference-structs.md#constructors-that-fail).
-
-## Choosing another def
-
-<!-- status: tentative -->
-
-Picking a `def` by name, as in `fill p with Veteran { }`, is built and described
-in the [structs reference](reference-structs.md#filling-and-defaults). It stays
-tentative here until the owner confirms this page's wording.
+covers them with examples. Constructors that can fail are in the
+[structs reference](reference-structs.md#constructors-that-fail). This page keeps
+the part that is still designed.
 
 ## Keys for maps
 
-<!-- status: tentative -->
+<!-- status: not-implemented -->
 
 A struct is a map key automatically, compared field by field. A `key()` method
-says what a key is compared and hashed by instead. What happens when a type
-has both a `key()` and its own `==` is still open.
+says what a key is compared and hashed by instead. A type that has both a
+`key()` and its own `==` uses `key()` for maps, and `==` stays what `==` is.
+Maps arrive with step 6, so this part is not built.
 
 ```drachm
 struct Word {

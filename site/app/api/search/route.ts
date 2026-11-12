@@ -1,15 +1,19 @@
 import { createSearchAPI } from 'fumadocs-core/search/server';
-import { flatDocs, docUrl } from '@/lib/content';
+import { getContent, docUrl } from '@/lib/content';
 
 export const dynamic = 'force-static';
 
-const api = createSearchAPI('simple', {
-  indexes: flatDocs.map((d) => ({
-    title: d.title,
-    description: d.description,
-    content: d.body,
-    url: docUrl(d),
-  })),
-});
+const make = () =>
+  createSearchAPI('simple', {
+    indexes: getContent().flatDocs.map((d) => ({
+      title: d.title,
+      description: d.description,
+      content: d.body,
+      url: docUrl(d),
+    })),
+  });
 
-export const GET = api.staticGET;
+// Built once for the static export; rebuilt per request in dev.
+const prod = process.env.NODE_ENV === 'development' ? undefined : make();
+
+export const GET = () => (prod ?? make()).staticGET();
