@@ -2,7 +2,7 @@ import { notFound } from 'next/navigation';
 import type { Metadata } from 'next';
 import { DocsPage, DocsBody, DocsTitle, DocsDescription } from 'fumadocs-ui/layouts/docs/page';
 import defaultMdxComponents from 'fumadocs-ui/mdx';
-import { docBySlug, flatDocs, STATUS_LABEL } from '@/lib/content';
+import { getContent, STATUS_LABEL } from '@/lib/content';
 import { renderDoc } from '@/lib/render';
 import { CodeBlock } from '@/components/code-block';
 import { Walkthrough } from '@/components/walkthrough';
@@ -12,17 +12,17 @@ type Props = { params: Promise<{ slug?: string[] }> };
 const slugOf = (slug?: string[]) => (slug?.length ? slug.join('/') : 'index');
 
 export function generateStaticParams() {
-  return flatDocs.map((d) => ({ slug: d.slug === 'index' ? [] : [d.slug] }));
+  return getContent().flatDocs.map((d) => ({ slug: d.slug === 'index' ? [] : [d.slug] }));
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
-  const doc = docBySlug.get(slugOf((await params).slug));
+  const doc = getContent().docBySlug.get(slugOf((await params).slug));
   if (!doc) return {};
   return { title: doc.title, description: doc.description };
 }
 
 export default async function Page({ params }: Props) {
-  const doc = docBySlug.get(slugOf((await params).slug));
+  const doc = getContent().docBySlug.get(slugOf((await params).slug));
   if (!doc) notFound();
   const { Body, toc, split } = await renderDoc(doc);
   // Pages with prose/code sections use the wide layout and drop the right-hand TOC

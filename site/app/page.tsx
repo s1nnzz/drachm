@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { HomeLayout } from 'fumadocs-ui/layouts/home';
 import { baseOptions, GITHUB } from '@/lib/layout.shared';
 import { highlight } from '@/lib/shiki';
-import { sections, docUrl, flatDocs } from '@/lib/content';
+import { getContent, docUrl } from '@/lib/content';
 
 const PROGRAM = `none main() {
     uint32 hp = 100;
@@ -47,6 +47,7 @@ const btn =
   'inline-flex h-10 items-center justify-center rounded-md px-5 text-sm font-medium transition-colors';
 
 export default function Home() {
+  const { sections, flatDocs } = getContent();
   const first = flatDocs.find((d) => d.slug === 'install') ?? flatDocs[0];
   return (
     <HomeLayout {...baseOptions}>

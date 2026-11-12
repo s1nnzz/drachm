@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { loader } from 'fumadocs-core/source';
 
@@ -90,44 +90,75 @@ function readSections(docs: Map<string, Doc>): Section[] {
   return all.length ? [{ title: 'Documentation', docs: all }] : [];
 }
 
-const docs = readDocs();
-let sections = readSections(docs);
-if (sections.length === 0) {
-  const placeholder: Doc = {
-    slug: 'index',
-    title: 'Coming soon',
-    description: 'The documentation is being written.',
-    body: 'The documentation is being written. Check back soon.',
-    file: '',
-  };
-  sections = [{ title: 'Documentation', docs: [placeholder] }];
-}
-export { sections };
-export const flatDocs: Doc[] = sections.flatMap((s) => s.docs);
-export const docBySlug = new Map(flatDocs.map((d) => [d.slug, d]));
-
-/** Page URL to status, for the sidebar badges. */
-export const statusByUrl = new Map(flatDocs.flatMap((d) => (d.status ? [[docUrl(d), d.status] as const] : [])));
-
-export const source = loader({
-  baseUrl: '/docs',
-  source: {
-    files: [
-      ...flatDocs.map((d) => ({
-        type: 'page' as const,
-        path: `${d.slug}.md`,
-        data: { title: d.title, description: d.description },
-      })),
-      {
-        type: 'meta' as const,
-        path: 'meta.json',
-        data: {
-          pages: sections.flatMap((s) => [`---${s.title}---`, ...s.docs.map((d) => d.slug)]),
+function build() {
+  const docs = readDocs();
+  let sections = readSections(docs);
+  if (sections.length === 0) {
+    const placeholder: Doc = {
+      slug: 'index',
+      title: 'Coming soon',
+      description: 'The documentation is being written.',
+      body: 'The documentation is being written. Check back soon.',
+      file: '',
+    };
+    sections = [{ title: 'Documentation', docs: [placeholder] }];
+  }
+  const flatDocs: Doc[] = sections.flatMap((s) => s.docs);
+  const docBySlug = new Map(flatDocs.map((d) => [d.slug, d]));
+  /** Page URL to status, for the sidebar badges. */
+  const statusByUrl = new Map(flatDocs.flatMap((d) => (d.status ? [[docUrl(d), d.status] as const] : [])));
+  const source = loader({
+    baseUrl: '/docs',
+    source: {
+      files: [
+        ...flatDocs.map((d) => ({
+          type: 'page' as const,
+          path: `${d.slug}.md`,
+          data: { title: d.title, description: d.description },
+        })),
+        {
+          type: 'meta' as const,
+          path: 'meta.json',
+          data: {
+            pages: sections.flatMap((s) => [`---${s.title}---`, ...s.docs.map((d) => d.slug)]),
+          },
         },
-      },
-    ],
-  },
-});
+      ],
+    },
+  });
+  return { sections, flatDocs, docBySlug, statusByUrl, source };
+}
+
+// Cheap fingerprint of the content dir (file names, sizes, mtimes), so dev mode
+// notices added, removed, renamed and edited pages and order.json changes.
+function fingerprint(): string {
+  if (!existsSync(contentDir)) return '';
+  return readdirSync(contentDir)
+    .filter((f) => f.endsWith('.md') || f === 'order.json')
+    .map((f) => {
+      const st = statSync(path.join(contentDir, f));
+      return `${f}:${st.size}:${st.mtimeMs}`;
+    })
+    .join('|');
+}
+
+let cached: ReturnType<typeof build> | undefined;
+let cachedPrint = '';
+
+/**
+ * The page list, tree and lookups. Built once for production builds (static
+ * export); in `next dev` it is rebuilt whenever the content dir changes, so new
+ * pages need no server restart.
+ */
+export function getContent() {
+  if (process.env.NODE_ENV !== 'development') return (cached ??= build());
+  const print = fingerprint();
+  if (!cached || print !== cachedPrint) {
+    cached = build();
+    cachedPrint = print;
+  }
+  return cached;
+}
 
 /** URL of a doc (index.md is the /docs landing page). */
 export function docUrl(d: Doc) {
