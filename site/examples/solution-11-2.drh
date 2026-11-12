@@ -1,0 +1,14 @@
+//--!$unsafe: true
+in io;
+
+unsafe none twice(*uint32 p) {
+    *p = *p * 2;
+}
+
+none main() {
+    mut uint32 n = 21;
+    unsafe {
+        twice(address of n);
+    }
+    io::outln(n::text());
+}

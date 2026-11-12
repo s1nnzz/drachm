@@ -1,0 +1,15 @@
+in io;
+in si;
+
+none main() {
+    float64<degC> morning = 12.0<degC>;
+    float64<degC> noon = 20.0<degC>;
+    float64<delta degC> rise = noon - morning;
+    io::outln(rise::text() + " " + rise::unitText());
+
+    float64<degC> evening = noon + rise;
+    io::outln(evening::text() + " " + evening::unitText());
+
+    float64<K> kelvin = noon::in<K>();
+    io::outln(kelvin::text() + " " + kelvin::unitText());
+}

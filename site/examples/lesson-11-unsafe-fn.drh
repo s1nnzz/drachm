@@ -1,0 +1,15 @@
+//--!$unsafe: true
+in io;
+
+unsafe none add_one(*uint32 p) {
+    *p = *p + 1;
+}
+
+none main() {
+    mut uint32 count = 41;
+    unsafe {
+        add_one(address of count);
+        add_one(address of count);
+    }
+    io::outln(count::text());
+}

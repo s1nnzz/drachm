@@ -1,0 +1,24 @@
+in io;
+in si;
+
+float64<m/s> speed_of(float64<m> distance, float64<s> time) {
+    return distance / time;
+}
+
+none main() {
+    float64<m> track = 400.0<m>;
+    float64<s> lap = 80.0<s>;
+    float64<m/s> pace = speed_of(track, lap);
+    io::outln(pace::text() + " " + pace::unitText());
+
+    float64<km/h> kmh = pace::in<km/h>();
+    io::outln(kmh::text() + " " + kmh::unitText());
+
+    float64<kg> mass = 2.0<kg>;
+    float64<m/s^2> accel = 9.5<m/s^2>;
+    float64<N> force = mass * accel;
+    io::outln(force::text() + " " + force::unitText());
+
+    float64<m> total = 1.0<km> + 250.0<m>;
+    io::outln(total::text() + " " + total::unitText());
+}

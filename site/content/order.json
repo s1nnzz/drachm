@@ -18,7 +18,9 @@
         "lesson-6-structs",
         "lesson-7-match-and-skip",
         "lesson-8-ownership",
-        "lesson-9-borrowing"
+        "lesson-9-borrowing",
+        "lesson-10-units",
+        "lesson-11-unsafe"
       ]
     },
     {
