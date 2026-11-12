@@ -97,6 +97,17 @@ impl Globals {
 
 impl Checker<'_> {
     pub(super) fn coerce_func(&mut self, e: &ast::Expr, to: Type, want: &FuncSig) -> Option<hir::Expr> {
+        let v = self.func_value(e)?;
+        if let Val::Expr(x) = &v
+            && let Type::Func(have) = x.ty
+        {
+            self.match_func(&have.params, have.ret, want, e.span)?;
+        }
+        self.into(v, to, super::origin(e))
+    }
+
+    /// In a callback context a plain function name can be used as a value.
+    fn func_value(&mut self, e: &ast::Expr) -> Option<Val> {
         if let ast::ExprKind::Var(name) = &e.kind
             && self.lookup(name).is_none()
             && let Some(&id) = self.g.funcs_by_name.get(name)
@@ -106,18 +117,44 @@ impl Checker<'_> {
                 self.diags.push(Diagnostic::at(&codes::E0901, e.span, "a failing or unsafe function cannot be used as a function value yet"));
                 return None;
             }
-            let params: Vec<_> = sig.params.iter().copied().collect::<Option<_>>()?;
-            self.match_func(&params, sig.ret?, want, e.span)?;
-            let thunk = self.g.named_thunk(id, want);
-            return Some(hir::Expr::new(K::FuncRef(thunk), to).at(e.span));
+            let params = sig.params.iter().copied().collect::<Option<_>>()?;
+            let ret = sig.ret?;
+            if self.g.holds_borrow(ret) {
+                self.diags.push(Diagnostic::at(&codes::E0901, e.span, "a function value returning a borrow is not supported yet"));
+                return None;
+            }
+            let ty = Type::func(params, ret);
+            let Type::Func(sig) = ty else { unreachable!() };
+            let thunk = self.g.named_thunk(id, sig);
+            return Some(Val::Expr(hir::Expr::new(K::FuncRef(thunk), ty).at(e.span)));
         }
-        let v = self.expr(e)?;
-        if let Val::Expr(x) = &v
-            && let Type::Func(have) = x.ty
-        {
-            self.match_func(&have.params, have.ret, want, e.span)?;
+        self.expr(e)
+    }
+
+    pub(super) fn each_callback(&mut self, arg: &ast::Expr, elem: Type) -> Option<hir::Expr> {
+        let value = self.func_value(arg)?;
+        let callback = self.materialise(value, arg.span)?;
+        let shared = Type::borrow(false, elem);
+        let bad_shape = || Diagnostic::at(&codes::E0650, arg.span, format!("`each` wants a callback taking `{elem}` or `{shared}`"))
+            .note(format!("this has type `{}`", callback.ty));
+        let Type::Func(sig) = callback.ty else {
+            self.diags.push(bad_shape());
+            return None;
+        };
+        if sig.params == [Type::borrow(true, elem)] {
+            self.diags.push(Diagnostic::at(&codes::E0901, arg.span, "a mutable item callback for `each` is not supported yet")
+                .help(format!("use `for (&mut {elem} item of items)` for mutable item access")));
+            return None;
         }
-        self.into(v, to, super::origin(e))
+        if sig.params != [elem] && sig.params != [shared] {
+            self.diags.push(bad_shape());
+            return None;
+        }
+        if sig.ret != Type::None {
+            self.diags.push(Diagnostic::at(&codes::E0651, arg.span, format!("this function gives `{}`, but `each` wants `none`", sig.ret)));
+            return None;
+        }
+        Some(callback)
     }
 
     fn match_func(&mut self, params: &[Type], ret: Type, want: &FuncSig, at: Span) -> Option<()> {
@@ -361,7 +398,7 @@ impl Globals {
 
 /// Capturing a place mutably is itself a change in the enclosing body. That
 /// can make a method or a nested closure require mutable access in turn.
-pub(super) fn infer_captures(program: &mut hir::Program) {
+pub(super) fn infer_captures(program: &mut hir::Program, diags: &mut Vec<Diagnostic>) {
     use crate::ownership::self_mode::{changes_local, infer};
     if program.closures.is_empty() {
         return;
@@ -377,6 +414,22 @@ pub(super) fn infer_captures(program: &mut hir::Program) {
             }
         }
         if changed.is_empty() {
+            for (&code, closure) in &program.closures {
+                let f = &program.funcs[code];
+                for capture in &closure.captures {
+                    let local = &f.locals[capture.local];
+                    if capture.borrow.is_none()
+                        && local.mutability == hir::Mutability::Fixed
+                        && !matches!(local.ty, Type::Ref { mutable: true, .. })
+                        && changes_local(program, code, capture.local, &modes)
+                    {
+                        diags.push(
+                            Diagnostic::at(&codes::E0901, f.name_span, format!("changing the fixed binding `{}` captured by `move` is not supported yet", local.name))
+                                .label(local.span, "this binding is fixed"),
+                        );
+                    }
+                }
+            }
             break;
         }
         for (code, field) in changed {

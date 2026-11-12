@@ -186,6 +186,9 @@ impl Parser<'_> {
             self.expect(")")?;
             self.expect("=>")?;
             let ret = self.ty()?;
+            if self.peek() == &Tok::Kw("fails") {
+                return Err(Diagnostic::at(&codes::E0901, self.span(), "a failing function type is not supported yet"));
+            }
             let span = start.to(self.prev_span());
             return Ok(TypeName { mods, func: Some(Box::new(FuncType { params, ret })), ..TypeName::plain("", span) });
         }
@@ -213,7 +216,10 @@ impl Parser<'_> {
 
     /// Can a type argument start at token offset `n`?
     fn type_start_at(&self, n: usize) -> bool {
-        matches!(self.peek_at(n), Tok::Ident(_) | Tok::Kw("none") | Tok::Sym("&" | "*" | "**" | ">") | Tok::Num(..))
+        match self.peek_at(n) {
+            Tok::Sym("(") => self.after_open_paren(n + 1).is_some_and(|i| self.peek_at(i) == &Tok::Sym("=>")),
+            tok => matches!(tok, Tok::Ident(_) | Tok::Kw("none") | Tok::Sym("&" | "*" | "**" | ">") | Tok::Num(..)),
+        }
     }
 
     /// `<A, B>`, at the `<`. An integer is an argument too (`Array<T, 4>`).
@@ -230,7 +236,13 @@ impl Parser<'_> {
                     let span = self.bump().span;
                     args.push(TypeName { is_number: true, ..TypeName::plain(v.to_string(), span) });
                 }
-                _ => args.push(self.ty()?),
+                _ => {
+                    let ty = self.ty()?;
+                    if ty.func.is_some() {
+                        return Err(Diagnostic::at(&codes::E0901, ty.span, "a function type as a type argument is not supported yet"));
+                    }
+                    args.push(ty);
+                }
             }
             if !self.eat(",") {
                 break;
@@ -502,8 +514,19 @@ impl Parser<'_> {
                 }
                 j += 1;
             } else {
-                while matches!(self.peek_at(j), Tok::Sym("&" | "*" | "**")) || (self.peek_at(j) == &Tok::Kw("mut") && self.peek_at(j - 1) == &Tok::Sym("&")) {
-                    j += 1;
+                loop {
+                    match self.peek_at(j) {
+                        Tok::Sym("&" | "*" | "**") => j += 1,
+                        Tok::Kw("mut") if j > 0 && self.peek_at(j - 1) == &Tok::Sym("&") => j += 1,
+                        Tok::Sym("(") => {
+                            let after = self.after_open_paren(j + 1)?;
+                            if self.peek_at(after) != &Tok::Sym("=>") {
+                                return None;
+                            }
+                            j = after + 1;
+                        }
+                        _ => break,
+                    }
                 }
                 if !matches!(self.peek_at(j), Tok::Ident(_) | Tok::Kw("none")) {
                     return None;

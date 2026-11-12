@@ -453,9 +453,27 @@ after it has been moved into a lambda gives E0301.
 Borrowing an existing borrow or holder into a closure, capturing a function
 value, and returning a borrow from a lambda are pending.
 
+#### Changing fixed move captures
+
+<!-- status: tentative -->
+
+The mutability rule for fixed bindings captured by `move` is open. Changing
+one currently gives E0901.
+
 ### Collection callbacks
 
-<!-- status: not-implemented -->
+Lists and arrays call an `each` callback once per item, in order.
+For a collection of `T`, the callback takes `T` or `&T` and gives
+`none`. A by-value parameter gets its own copy of an owning item, while
+`&T` reads the original item.
 
-`names::each((string n) => io::outln(n))` invokes a callback for each item
-in order.
+<!-- example: lambda-each -->
+
+#### Mutable item callbacks
+
+<!-- status: tentative -->
+
+The callback and borrow rules for mutable item access through `each` are
+open. An `&mut T` callback gives E0901. Use a
+[`for` loop with `&mut T`](reference-control-flow.md#looping-over-a-list)
+to change items.

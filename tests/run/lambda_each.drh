@@ -1,0 +1,24 @@
+in io;
+
+none show(&string name) {
+    io::outln(name);
+}
+
+none main() {
+    string[?] names = [f"A${1}", f"B${2}"];
+    names::each((string n) => io::outln(n));
+    names::each(show);
+    names::each((&string n) => io::outln(n));
+    io::outln(names[0]);
+
+    uint32[?] values = [3, 4];
+    mut uint32 sum = 0;
+    values::each((uint32 n) => { sum += n; });
+    uint32[2] more = [5, 6];
+    (uint32) => none add = (uint32 n) => { sum += n; };
+    more::each(add);
+    io::outln(sum::text());
+
+    uint32[?] empty;
+    empty::each((uint32 n) => io::outln(n::text()));
+}

@@ -170,6 +170,13 @@ fn tkey(t: &ast::TypeName) -> String {
             ast::TypeMod::FixedPtr => "*fixed ",
         });
     }
+    if let Some(f) = &t.func {
+        s.push('(');
+        s.push_str(&f.params.iter().map(tkey).collect::<Vec<_>>().join(","));
+        s.push_str(")=>");
+        s.push_str(&tkey(&f.ret));
+        return s;
+    }
     s.push_str(&t.name);
     if t.unit.is_some() {
         s.push_str("<unit>");

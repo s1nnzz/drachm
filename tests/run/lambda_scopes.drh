@@ -1,0 +1,28 @@
+in io;
+
+none act(() => none f) {
+    f();
+}
+
+T identity<T>(T value) {
+    (T) => T id = (T value) => value;
+    return id(value);
+}
+
+none main() {
+    mut uint32 n = 3;
+    () => uint32 get;
+    get = () => n;
+    io::outln(get()::text());
+    n++;
+    for (uint32 i of 1..2) {
+        act(() => io::outln(i::text()));
+    }
+    act(() => { act(() => { n++; }); });
+    io::outln(identity(n)::text());
+    mut uint32 value = 8;
+    &mut uint32 ref = &mut value;
+    () => none update = move () => { ref++; };
+    update();
+    io::outln(value::text());
+}

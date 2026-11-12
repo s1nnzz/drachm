@@ -1,0 +1,4 @@
+none main() {
+    mut uint32[?] items = [1, 2];
+    items::each((&mut uint32 item) => { item++; });
+}

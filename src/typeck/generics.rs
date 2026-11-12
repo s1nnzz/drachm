@@ -512,6 +512,10 @@ impl Checker<'_> {
             }
         }
         let types: Vec<Type> = bound.iter().map(|b| b.unwrap().0).collect();
+        if types.iter().any(|t| t.is_func()) {
+            self.diags.push(Diagnostic::at(&codes::E0901, span, "a function type as a type argument is not supported yet"));
+            return fail(self);
+        }
         // A borrow as a type argument is allowed by the design but not built yet.
         if let Some(bad) = types.iter().position(|t| t.is_borrow() || self.g.holds_borrow(*t)) {
             self.diags.push(

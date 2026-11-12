@@ -616,7 +616,7 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
     let (dyn_ifaces, vtables) = dynamic::finish(&mut g, &structs);
     let mut program = hir::Program { funcs: funcs.into_iter().map(|f| f.unwrap_or_else(placeholder)).collect(), structs, enums: enum_defs, main, collections, conformances, dyn_ifaces, vtables, closures: std::mem::take(&mut g.lambdas.closures) };
     if !diags.iter().any(Diagnostic::is_error) {
-        lambdas::infer_captures(&mut program);
+        lambdas::infer_captures(&mut program, diags);
     }
     units::erase(&mut program);
     if cfg!(debug_assertions) {
@@ -2898,7 +2898,7 @@ impl<'a> Checker<'a> {
     fn copies_anyway(&self, t: Type) -> bool {
         match t {
             // A number with a unit is a number (`of` is always Int or Float).
-            Type::Int { .. } | Type::Float(_) | Type::Bool | Type::Unit { .. } | Type::Ref { mutable: false, .. } => true,
+            Type::Int { .. } | Type::Float(_) | Type::Bool | Type::Func(_) | Type::Unit { .. } | Type::Ref { mutable: false, .. } => true,
             Type::Struct { .. } | Type::Enum { .. } | Type::Array { .. } => self.g.copy_of(t),
             _ => false,
         }
