@@ -4,6 +4,7 @@
 
 mod construct;
 mod control;
+mod dynamic;
 mod enums;
 mod failures;
 mod fill;
@@ -127,6 +128,8 @@ struct Globals {
     mono: generics::State,
     /// Interfaces and who implements them (`interfaces.rs`).
     ifaces: interfaces::State,
+    /// The tables of the borrows of interfaces (`dynamic.rs`).
+    dynamic: dynamic::State,
     /// The type parameters of the instance being resolved or checked, and what
     /// they stand for here.
     tenv: HashMap<String, Type>,
@@ -175,6 +178,9 @@ impl Globals {
 
     /// `t` with its `&`, `&mut` and `*` marks applied to the named type.
     fn resolve_quiet(&self, t: &ast::TypeName) -> Option<Type> {
+        if let Some(fat) = dynamic::dyn_borrow(self, t) {
+            return Some(fat);
+        }
         if !t.dims.is_empty() {
             return self.resolve_dims(t, &mut Vec::new());
         }
@@ -581,7 +587,8 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
         }
     }
     let conformances = std::mem::take(&mut g.ifaces.records);
-    let mut program = hir::Program { funcs: funcs.into_iter().map(|f| f.unwrap_or_else(placeholder)).collect(), structs, enums: enum_defs, main, collections, conformances };
+    let (dyn_ifaces, vtables) = dynamic::finish(&mut g, &structs);
+    let mut program = hir::Program { funcs: funcs.into_iter().map(|f| f.unwrap_or_else(placeholder)).collect(), structs, enums: enum_defs, main, collections, conformances, dyn_ifaces, vtables };
     units::erase(&mut program);
     if cfg!(debug_assertions) {
         units::assert_erased(&mut program);
@@ -1829,6 +1836,10 @@ impl Checker<'_> {
             ExprKind::Field { recv, name, name_span } => {
                 let mut p = self.lvalue(recv)?;
                 Self::auto_deref(&mut p);
+                if matches!(p.ty, Type::Dyn { .. }) {
+                    self.dyn_field_write(name, *name_span);
+                    return None;
+                }
                 let (i, ty) = self.field_of(p.ty, name, *name_span, recv.span)?;
                 p.mut_field |= self.g.structs[p.ty.struct_id().unwrap()].fields[i].mutable;
                 p.proj.push(hir::HirProj::Field(i));
@@ -1941,6 +1952,9 @@ impl Checker<'_> {
     /// Field `name` of a value of type `ty`: its index and type. Reports an
     /// unknown field, or a private one used outside the struct's methods.
     fn field_of(&mut self, ty: Type, name: &str, name_span: Span, recv_span: Span) -> Option<(usize, Type)> {
+        if let Type::Dyn { id, .. } = ty {
+            return self.dyn_field(id, name, name_span, recv_span);
+        }
         if let Some(sid) = ty.struct_id()
             && self.g.structs[sid].placeholder.is_some()
             && !self.g.structs[sid].fields.iter().any(|f| f.name == name)
@@ -2050,6 +2064,7 @@ impl Checker<'_> {
                 }
                 None
             }
+            Val::Expr(x) if to.is_fat() && x.ty.is_borrow() => self.unsize(x, e, to),
             Val::Expr(x) if x.ty.is_borrow() => {
                 let o = origin(e);
                 self.into(Val::Expr(x), to, o)
@@ -3153,6 +3168,7 @@ impl Checker<'_> {
                 let s = v.ty.struct_id().unwrap();
                 self.struct_method(s, v, recv.span, name, name_span, targs, args, span)
             }
+            Some(Val::Expr(v)) if matches!(v.ty, Type::Dyn { .. }) => self.dyn_method(v, recv.span, name, name_span, targs, args, span),
             Some(Val::Expr(v)) if v.ty.is_ptr() && matches!(name, "freeze" | "thaw") => {
                 self.pointer_convert(v, recv.span, name, name_span, args)
             }

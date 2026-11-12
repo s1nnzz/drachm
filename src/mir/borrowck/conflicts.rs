@@ -80,7 +80,7 @@ pub fn accesses(hir: &hir::Program, body: &Body, loc: Location) -> Vec<Access> {
         match &s.kind {
             StatementKind::Assign(dest, rv) => {
                 match rv {
-                    Rvalue::Use(o) | Rvalue::Neg(o) | Rvalue::Not(o) | Rvalue::BitNot(o) | Rvalue::Convert(o, _) => {
+                    Rvalue::Use(o) | Rvalue::Neg(o) | Rvalue::Not(o) | Rvalue::BitNot(o) | Rvalue::Convert(o, _) | Rvalue::Unsize(o, _) => {
                         operand_access(o, s.span, loc, Via::Plain, &mut out)
                     }
                     Rvalue::Binary(_, a, b) | Rvalue::IntPow(a, b) => {

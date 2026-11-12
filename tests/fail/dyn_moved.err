@@ -1,0 +1,2 @@
+error[E0305]: cannot move `c` while it is borrowed
+dyn_moved.drh: 1 error

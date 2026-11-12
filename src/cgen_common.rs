@@ -24,6 +24,8 @@ pub(crate) fn prelude() -> String {
     out += &RUNTIME_C.replace("#include \"strings.h\"", STRINGS_H);
     out += "\n";
     out += LISTS_H;
+    // A borrow of an interface (`&Shape`): the value's address and its table.
+    out += "\ntypedef struct { void *data; const void *const *vt; } drachm_dyn;\n";
     out += "\nstatic inline double drachm_f64_bits(uint64_t b) { double d; memcpy(&d, &b, 8); return d; }\n";
     out += "static inline float drachm_f32_bits(uint32_t b) { float f; memcpy(&f, &b, 4); return f; }\n\n";
     out
@@ -202,6 +204,8 @@ pub(crate) fn c_type(t: Type) -> String {
         Type::Unit { .. } => unreachable!("units are erased before the backends"),
         Type::Struct { name, .. } => return struct_name(name),
         Type::Enum { id, .. } => return enum_name(id),
+        Type::Ref { to: Type::Dyn { .. }, .. } => "drachm_dyn",
+        Type::Dyn { .. } => unreachable!("an interface is only the target of a borrow"),
         Type::Ref { to, .. } | Type::Ptr { to } | Type::FixedPtr { to } => return format!("{} *", c_type(*to)),
     };
     name.to_string()

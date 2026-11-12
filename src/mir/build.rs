@@ -897,6 +897,7 @@ impl<'a> Builder<'a> {
             | ExprKind::IntPow(..)
             | ExprKind::Convert(_)
             | ExprKind::PtrConv(_)
+            | ExprKind::Unsize(_)
             | ExprKind::Struct(_)
             | ExprKind::Variant { .. }
             | ExprKind::Len(_)
@@ -1146,6 +1147,7 @@ impl<'a> Builder<'a> {
             | ExprKind::IntPow(..)
             | ExprKind::Convert(_)
             | ExprKind::PtrConv(_)
+            | ExprKind::Unsize(_)
             | ExprKind::Struct(_)
             | ExprKind::Variant { .. }
             | ExprKind::Len(_)
@@ -1272,6 +1274,12 @@ impl<'a> Builder<'a> {
                 let ops = self.operands(&es, &|i| (i == 0 && has_self).then_some((mutable, mutable)));
                 self.call(Callee::Func(*f), ops, e.ty)
             }
+            ExprKind::DynCall(iface, method, args) => {
+                let changes = self.hir.dyn_ifaces[*iface].methods[*method].changes;
+                let es: Vec<&Expr> = args.iter().collect();
+                let ops = self.operands(&es, &|i| (i == 0).then_some((changes, changes)));
+                self.call(Callee::Dyn { iface: *iface, method: *method }, ops, e.ty)
+            }
             ExprKind::StrCall(f, args) => {
                 let params = f.params();
                 let es: Vec<&Expr> = args.iter().collect();
@@ -1348,6 +1356,7 @@ impl<'a> Builder<'a> {
             }
             ExprKind::Convert(a) => Rvalue::Convert(first(self.operands(&[&**a], &none)), e.ty),
             ExprKind::PtrConv(a) => Rvalue::Use(first(self.operands(&[&**a], &none))),
+            ExprKind::Unsize(a) => Rvalue::Unsize(first(self.operands(&[&**a], &none)), e.ty),
             ExprKind::Struct(fields) => {
                 let sid = e.ty.struct_id().expect("a struct value has a struct type");
                 let es: Vec<&Expr> = fields.iter().map(|(_, v)| v).collect();
@@ -1753,6 +1762,7 @@ fn pure(e: &Expr) -> bool {
         | ExprKind::BitNot(a)
         | ExprKind::Convert(a)
         | ExprKind::PtrConv(a)
+        | ExprKind::Unsize(a)
         | ExprKind::Deref(a)
         | ExprKind::Discriminant(a)
         | ExprKind::Payload { value: a, .. }
@@ -1788,6 +1798,8 @@ fn kind_name(k: &ExprKind) -> &'static str {
         ExprKind::Maybe { .. } => "Maybe",
         ExprKind::Convert(_) => "Convert",
         ExprKind::PtrConv(_) => "PtrConv",
+        ExprKind::Unsize(_) => "Unsize",
+        ExprKind::DynCall(..) => "DynCall",
         ExprKind::Call(..) => "Call",
         ExprKind::IncDec { .. } => "IncDec",
         ExprKind::Text(_) => "Text",

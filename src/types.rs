@@ -34,6 +34,10 @@ pub enum Type {
     List { elem: &'static Type },
     /// `T[N]`: `N` values of `elem` side by side (S6C), `N >= 1`.
     Array { elem: &'static Type, len: u64 },
+    /// An interface used as the target of a borrow (`&Shape`): its index in
+    /// `hir::Program::dyn_ifaces`, and its name for messages. Only ever the
+    /// `to` of a `Ref`; the borrow is then fat (data pointer and vtable).
+    Dyn { id: usize, name: &'static str },
     /// A number with a unit: `float64<m/s>`. `of` is always `Int` or `Float`.
     /// Units are checked by `typeck::units`; they are erased before the backends.
     Unit { of: &'static Type, unit: &'static Unit },
@@ -222,6 +226,11 @@ impl Type {
         matches!(self, Type::Ref { .. })
     }
 
+    /// A borrow of an interface (`&Shape`): two words, data and vtable.
+    pub fn is_fat(self) -> bool {
+        matches!(self, Type::Ref { to: Type::Dyn { .. }, .. })
+    }
+
     /// A raw pointer of either kind (`*T` or `*fixed T`).
     pub fn is_ptr(self) -> bool {
         matches!(self, Type::Ptr { .. } | Type::FixedPtr { .. })
@@ -319,7 +328,7 @@ impl fmt::Display for Type {
             Type::Bool => f.write_str("bool"),
             Type::None => f.write_str("none"),
             Type::Str => f.write_str("string"),
-            Type::Struct { name, .. } | Type::Enum { name, .. } => f.write_str(name),
+            Type::Struct { name, .. } | Type::Enum { name, .. } | Type::Dyn { name, .. } => f.write_str(name),
             Type::Ref { mutable: false, to } => write!(f, "&{to}"),
             Type::Ref { mutable: true, to } => write!(f, "&mut {to}"),
             Type::Ptr { to } => write!(f, "*{to}"),

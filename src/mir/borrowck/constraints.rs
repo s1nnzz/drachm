@@ -136,6 +136,15 @@ impl Gen<'_> {
                 self.relate(sv, ty, dv, loc, kind);
             }
             Rvalue::Ref(bk, place) => self.borrow(loc, s.span, dest, *bk, place),
+            // The fat borrow stands for the same loan as the thin one: only the
+            // borrow's own region carries over (a holder cannot be converted).
+            Rvalue::Unsize(op, _) => {
+                if let (Some((sv, _)), Some(y)) = (self.operand_vids(op), dv.clone().next())
+                    && let Some(x) = sv.clone().next()
+                {
+                    self.push(x, y, loc, kind);
+                }
+            }
             Rvalue::Aggregate(sid, ops) => {
                 let def = &self.hir.structs[*sid];
                 let variance = struct_variance(self.hir, *sid);

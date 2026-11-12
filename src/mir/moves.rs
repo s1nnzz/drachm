@@ -162,7 +162,7 @@ pub fn events(body: &Body, loc: Location) -> Vec<Event> {
                     MoveCause::Assign
                 };
                 match rv {
-                    Rvalue::Use(o) | Rvalue::Neg(o) | Rvalue::Not(o) | Rvalue::BitNot(o) | Rvalue::Convert(o, _) => {
+                    Rvalue::Use(o) | Rvalue::Neg(o) | Rvalue::Not(o) | Rvalue::BitNot(o) | Rvalue::Convert(o, _) | Rvalue::Unsize(o, _) => {
                         operand_events(o, s.span, cause, &mut out)
                     }
                     Rvalue::Binary(_, a, b) | Rvalue::IntPow(a, b) => {

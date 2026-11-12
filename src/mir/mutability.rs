@@ -148,6 +148,8 @@ enum Role {
     Receiver { method: FuncId, span: Span },
     /// The `&mut` of `s::append` (`s += t`).
     Append,
+    /// The receiver of a method called through a `&mut Iface`.
+    Dyn { iface: usize, method: usize, span: Span },
 }
 
 /// The statement that makes each `&mut` borrow passed as a receiver or to
@@ -173,6 +175,7 @@ fn roles(hir: &hir::Program, body: &Body) -> HashMap<Location, Role> {
         let Some(&at) = made.get(&p.local) else { continue };
         let role = match callee {
             Callee::Func(f) if hir.funcs[*f].has_self => Role::Receiver { method: *f, span: *span },
+            Callee::Dyn { iface, method } => Role::Dyn { iface: *iface, method: *method, span: *span },
             Callee::Str(StrFn::Append) | Callee::ListPush(_) => Role::Append,
             _ => continue,
         };
@@ -184,7 +187,7 @@ fn roles(hir: &hir::Program, body: &Body) -> HashMap<Location, Role> {
 /// Does `rv` read local `l` as a whole or in part?
 fn reads_local(rv: &Rvalue, l: Local) -> bool {
     let ops: Vec<&Operand> = match rv {
-        Rvalue::Use(o) | Rvalue::Neg(o) | Rvalue::Not(o) | Rvalue::BitNot(o) | Rvalue::Convert(o, _) => vec![o],
+        Rvalue::Use(o) | Rvalue::Neg(o) | Rvalue::Not(o) | Rvalue::BitNot(o) | Rvalue::Convert(o, _) | Rvalue::Unsize(o, _) => vec![o],
         Rvalue::Binary(_, a, b) | Rvalue::IntPow(a, b) => vec![a, b],
         Rvalue::Shift { value, amount, .. } => vec![value, amount],
         Rvalue::Aggregate(_, ops) | Rvalue::Variant(_, _, ops) | Rvalue::Array(_, ops) => ops.iter().collect(),
@@ -377,6 +380,12 @@ impl Cx<'_> {
             (_, Blocked::Shared(borrow)) => match role {
                 Some(Role::Receiver { method, span }) => out.push(self.method_through_shared(span, method, &borrow)),
                 Some(Role::Append) => out.push(self.change_through_shared(at, p, &borrow)),
+                Some(Role::Dyn { iface, method, span }) => {
+                    let m = &self.hir.dyn_ifaces[iface].methods[method].name;
+                    let d = Diagnostic::at(&codes::E0311, span, format!("cannot call `{m}` through a `&` borrow: `{m}` changes `self`"))
+                        .note("call attempted here");
+                    out.push(self.borrow_help(d, &borrow));
+                }
                 None => out.push(self.lend_through_shared(at, p, &borrow)),
             },
             (Some(Role::Append), Blocked::Binding(root)) => {
@@ -385,6 +394,8 @@ impl Cx<'_> {
                 }
             }
             (Some(Role::Append), Blocked::Temp) => {}
+            // A place behind a `&mut` is always changeable; only a `&` blocks it.
+            (Some(Role::Dyn { .. }), _) => {}
             (Some(Role::Receiver { method, span }), blocked) => {
                 if let Blocked::Binding(root) = blocked
                     && !self.assigned(state, root)

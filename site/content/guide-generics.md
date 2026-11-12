@@ -87,7 +87,7 @@ decided while the program runs.
 <!-- focus: 1,4 -->
 
 ```drachm
-none report(&Shape s) { io::outln(s::area()::text()); }
+none report(&Shape s) { io::outln(s::area()->text()); }
 
 float64 total<T with Shape>(T[?] shapes) { /* ... */ }
 ```

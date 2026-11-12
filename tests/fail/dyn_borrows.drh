@@ -1,0 +1,36 @@
+in io;
+
+interface Shape {
+    float64 area();
+}
+
+interface Counter {
+    none bump() changes self;
+}
+
+struct Circle with Shape {
+    public:
+    float64 r;
+    float64 area() { return self.r; }
+}
+
+struct Hits with Counter {
+    public:
+    uint32 n;
+    none bump() { self.n += 1; }
+}
+
+none poke(&Counter c) {
+    c::bump();
+}
+
+none eat(Circle c) { }
+
+none main() {
+    Circle c = 1.0;
+    &Shape s = &c;
+    eat(c);
+    io::outln(s::area()->text());
+    mut Hits h = 0;
+    poke(&h);
+}

@@ -40,6 +40,83 @@ pub struct Program {
     /// Struct methods that implement an interface method which does not say
     /// `changes self`: they must not change `self` (checked after `self_mode`).
     pub conformances: Vec<Conformance>,
+    /// By interface index (the `id` of `Type::Dyn`): what a `&Shape` can call and read.
+    pub dyn_ifaces: Vec<DynIface>,
+    /// Every pair (implementing type, interface) a borrow is converted at: one
+    /// read-only table each (S6E). The backends emit them all.
+    pub vtables: Vec<VTable>,
+}
+
+/// An interface as the backends see it: the slots of a vtable.
+#[derive(Debug, Clone)]
+pub struct DynIface {
+    pub name: String,
+    /// The interfaces it extends, all the way up (not itself): a vtable holds
+    /// the table of the same type for each, so a `&Shape3D` becomes a `&Shape`.
+    pub ancestors: Vec<usize>,
+    /// Every non-`static` method, parents first.
+    pub methods: Vec<DynMethod>,
+    /// Every required field, parents first.
+    pub fields: Vec<DynField>,
+}
+
+impl DynIface {
+    /// A vtable is `[size, align, one table per ancestor, one code address per
+    /// method, one offset per field]`, each a word. The slot of ancestor `a`:
+    pub fn ancestor_slot(&self, a: usize) -> Option<usize> {
+        self.ancestors.iter().position(|&x| x == a).map(|i| 2 + i)
+    }
+
+    /// The slot of method `m`.
+    pub fn method_slot(&self, m: usize) -> usize {
+        2 + self.ancestors.len() + m
+    }
+
+    /// The slot of the offset of field `f`.
+    pub fn field_slot(&self, f: usize) -> usize {
+        2 + self.ancestors.len() + self.methods.len() + f
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct DynMethod {
+    pub name: String,
+    /// The parameters after `self`.
+    pub params: Vec<Type>,
+    pub ret: Type,
+    /// Says `changes self`: the receiver is a `&mut`.
+    pub changes: bool,
+    /// Can be called through a `&Iface`: no `Self` and no borrow in the result.
+    pub callable: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct DynField {
+    pub name: String,
+    pub ty: Type,
+}
+
+/// The table for `ty` seen as interface `iface` (layout: `DynIface::ancestor_slot`).
+#[derive(Debug, Clone)]
+pub struct VTable {
+    pub ty: Type,
+    pub iface: usize,
+    /// By `DynIface::methods`; `None` for one that cannot be called through a borrow.
+    pub methods: Vec<Option<FuncId>>,
+    /// By `DynIface::fields`: the offset of the field in `ty`.
+    pub fields: Vec<u32>,
+}
+
+impl Program {
+    /// `Type::Dyn` for interface `iface`.
+    pub fn dyn_type(&self, iface: usize) -> Type {
+        Type::Dyn { id: iface, name: crate::types::intern(&self.dyn_ifaces[iface].name) }
+    }
+
+    /// The index of the vtable of `ty` for `iface`.
+    pub fn vtable_index(&self, ty: Type, iface: usize) -> usize {
+        self.vtables.iter().position(|v| v.ty == ty && v.iface == iface).expect("a vtable for every conversion")
+    }
 }
 
 /// One struct method standing for an interface method that promises not to change `self`.
@@ -167,6 +244,9 @@ pub fn enum_layout(tag_size: u32, variants: &[Vec<(u32, u32)>]) -> (Vec<Vec<u32>
 impl Program {
     /// Size and alignment of a value of type `t` in memory, in bytes.
     pub fn size_align(&self, t: Type) -> (u32, u32) {
+        if t.is_fat() {
+            return (16, 8);
+        }
         if t == Type::Str || t.is_list() {
             return (STR_SIZE, 8);
         }
@@ -220,6 +300,7 @@ pub fn scalar_size(t: Type) -> Option<u32> {
     match t.bare() {
         Type::Int { bits, .. } | Type::Float(bits) => Some(bits as u32 / 8),
         Type::Bool => Some(1),
+        fat if fat.is_fat() => None,
         Type::Ref { .. } | Type::Ptr { .. } | Type::FixedPtr { .. } => Some(8),
         _ => None,
     }
@@ -568,6 +649,13 @@ pub enum ExprKind {
     /// `p::freeze()` / `p::thaw()`: the same pointer bits under the other
     /// pointer kind (`*T` to `*fixed T` or back). Needs `unsafe`.
     PtrConv(Box<Expr>),
+    /// A `&S` / `&mut S` made a `&Iface` / `&mut Iface` (the expression's type):
+    /// the borrow and the vtable of `S` for the interface.
+    Unsize(Box<Expr>),
+    /// A method through a borrow of an interface: (interface, method index
+    /// in `DynIface::methods`, arguments). The first is the receiver, a
+    /// place of type `Type::Dyn`, borrowed `&mut` when the method `changes self`.
+    DynCall(usize, usize, Vec<Expr>),
     /// `base[index]`: element `index` of a list or array, a place when `base`
     /// is. `index` is an integer of any width up to 64 bits; a negative one
     /// counts from the end. Out of range stops the program.
@@ -601,6 +689,7 @@ impl Expr {
             | K::BitNot(x)
             | K::Convert(x)
             | K::PtrConv(x)
+            | K::Unsize(x)
             | K::Text(x)
             | K::DeepCopy(x)
             | K::Deref(x)
@@ -624,7 +713,7 @@ impl Expr {
             K::Logic { lhs, rhs, .. } | K::Maybe { value: lhs, fallback: rhs } => vec![&**lhs, &**rhs],
             K::Shift { value, amount, .. } => vec![&**value, &**amount],
             K::Struct(fields) => fields.iter().map(|(_, v)| v).collect(),
-            K::Call(_, args) | K::StrCall(_, args) => args.iter().collect(),
+            K::Call(_, args) | K::StrCall(_, args) | K::DynCall(_, _, args) => args.iter().collect(),
             K::Join(parts) => parts.iter().collect(),
             K::Take { leaving, .. } => leaving.as_deref().into_iter().collect(),
         }

@@ -3,6 +3,6 @@ interface Shape {
 }
 
 none show(Shape s) { }
-none borrowed(&Shape s) { }
+none listed(&Shape[?] s) { }
 
 none main() { }

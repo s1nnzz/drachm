@@ -419,7 +419,7 @@ pub(super) fn sig_for(g: &mut Globals, m: &ast::IMethod, self_ty: Type) -> (Vec<
     (params, ret)
 }
 
-fn field_for(g: &mut Globals, f: &ast::IField, self_ty: Type) -> Option<Type> {
+pub(super) fn field_for(g: &mut Globals, f: &ast::IField, self_ty: Type) -> Option<Type> {
     let saved = std::mem::replace(&mut g.tenv, HashMap::from([("Self".to_string(), self_ty)]));
     let t = g.resolve_quiet(&f.ty);
     g.tenv = saved;
@@ -739,10 +739,15 @@ pub(super) fn as_value_type(g: &Globals, t: &ast::TypeName, diags: &mut Vec<Diag
     let Some(&k) = g.ifaces.by_name.get(&t.name) else { return false };
     let name = &g.ifaces.list[k].name;
     let borrowed = matches!(t.mods.first(), Some((ast::TypeMod::Ref { .. }, _)));
-    if borrowed && t.dims.is_empty() && t.optional.is_none() {
+    if borrowed && t.mods.len() == 1 && t.dims.is_empty() && t.optional.is_none() && t.unit.is_none() {
+        // `&Shape`: a borrow of an interface (`dynamic.rs`), unless its declaration was wrong.
+        return !g.ifaces.list[k].usable;
+    }
+    if borrowed && !t.dims.is_empty() {
         diags.push(
-            Diagnostic::at(&codes::E0901, t.span, format!("`&{name}` is not supported yet: dynamic dispatch is not built"))
-                .help(format!("until then, constrain a type parameter with it: `none show<T with {name}>(T value)`")),
+            Diagnostic::at(&codes::E0901, t.span, format!("a list of borrows of `{name}` is not supported yet"))
+                .note("a borrow as a list item is not built")
+                .help("until then, use an enum when the choices are known, or a list of the struct itself"),
         );
     } else {
         diags.push(
@@ -887,7 +892,7 @@ impl Checker<'_> {
 }
 
 /// The methods `ty` has: a struct's own and added ones, or those added to a built-in type.
-fn methods_of(g: &Globals, ty: Type) -> Vec<MethodInfo> {
+pub(super) fn methods_of(g: &Globals, ty: Type) -> Vec<MethodInfo> {
     match ty.struct_id() {
         Some(sid) => g.structs[sid].methods.clone(),
         None => g.ifaces.ext.get(&ty).cloned().unwrap_or_default(),

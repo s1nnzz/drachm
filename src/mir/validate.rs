@@ -124,7 +124,7 @@ impl Validator<'_> {
                 let dt = self.place(&at, dest);
                 let mut operands: Vec<&Operand> = Vec::new();
                 match rv {
-                    Rvalue::Use(o) | Rvalue::Neg(o) | Rvalue::Not(o) | Rvalue::BitNot(o) | Rvalue::Convert(o, _) => operands.push(o),
+                    Rvalue::Use(o) | Rvalue::Neg(o) | Rvalue::Not(o) | Rvalue::BitNot(o) | Rvalue::Convert(o, _) | Rvalue::Unsize(o, _) => operands.push(o),
                     Rvalue::Binary(_, a, b) | Rvalue::IntPow(a, b) => operands.extend([a, b]),
                     Rvalue::Shift { value, amount, .. } => operands.extend([value, amount]),
                     Rvalue::Aggregate(_, ops) | Rvalue::Variant(_, _, ops) | Rvalue::Array(_, ops) => operands.extend(ops),
@@ -169,7 +169,7 @@ impl Validator<'_> {
                             }
                         }
                     }
-                    Rvalue::Neg(_) | Rvalue::Not(_) | Rvalue::BitNot(_) | Rvalue::Convert(..) | Rvalue::Use(_) | Rvalue::Shift { .. } | Rvalue::IntPow(..) => {}
+                    Rvalue::Neg(_) | Rvalue::Not(_) | Rvalue::BitNot(_) | Rvalue::Convert(..) | Rvalue::Unsize(..) | Rvalue::Use(_) | Rvalue::Shift { .. } | Rvalue::IntPow(..) => {}
                     Rvalue::Array(t, ops) => {
                         if let Type::Array { elem, len } = t {
                             if *len as usize != ops.len() {
@@ -300,6 +300,13 @@ impl Validator<'_> {
                     })
                     .collect();
                 (Some(args), func.ret)
+            }
+            Callee::Dyn { iface, method } => {
+                let m = &self.hir.dyn_ifaces[iface].methods[method];
+                let dynty = self.hir.dyn_type(iface);
+                let recv = Want::Exact(Type::borrow(m.changes, dynty));
+                let args = std::iter::once(recv).chain(m.params.iter().map(|&t| Want::Exact(t)));
+                (Some(args.collect()), m.ret)
             }
             Callee::Str(f) => {
                 let args = f.params().iter().enumerate().map(|(i, &t)| {
@@ -453,7 +460,7 @@ fn flow_statement(assigned: &mut [bool], k: &StatementKind, used: &mut dyn FnMut
     match k {
         StatementKind::Assign(dest, rv) => {
             match rv {
-                Rvalue::Use(o) | Rvalue::Neg(o) | Rvalue::Not(o) | Rvalue::BitNot(o) | Rvalue::Convert(o, _) => operand_use(o, used),
+                Rvalue::Use(o) | Rvalue::Neg(o) | Rvalue::Not(o) | Rvalue::BitNot(o) | Rvalue::Convert(o, _) | Rvalue::Unsize(o, _) => operand_use(o, used),
                 Rvalue::Binary(_, a, b) | Rvalue::IntPow(a, b) => {
                     operand_use(a, used);
                     operand_use(b, used);
