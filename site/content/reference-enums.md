@@ -83,7 +83,10 @@ Several patterns can share a body, `case Circle(float64 x), Rect(float64 x, _)`,
 as long as each binds the same names with the same types (E0529).
 
 A constant in a pattern (`case Rect(2.0, float64 h)`) must be equal to the
-value, and works for numbers and bools. A payload that is itself an enum is matched
+value, and works for numbers, bools and text: `case Text("hi")` is exact text,
+and `case Text(globbed "*.png")` is a glob, as in a `match` on `string`. A text
+constant does not take the payload out, so it leaves an owning payload in the
+value. A payload that is itself an enum is matched
 with a pattern inside the pattern: `case Some(Circle(float64 r))`.
 
 <!-- example: enum-match -->

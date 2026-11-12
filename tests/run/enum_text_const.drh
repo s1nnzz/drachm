@@ -1,0 +1,36 @@
+in io;
+
+enum Msg {
+    Text(string body),
+    Pair(string a, string b),
+    Num(uint32 n),
+}
+
+string kind(Msg m) {
+    match (m) {
+        case Text("hi") { return "greeting"; }
+        case Text(globbed "*.png") { return "image"; }
+        case Text(_) { return "other text"; }
+        case Num(3) { return "three"; }
+        case Num(_) { return "number"; }
+        case Pair(_, _) { return "pair"; }
+    }
+}
+
+string pair(Msg m) {
+    match (m) {
+        case Pair("x", take string b) { return "x then " + b; }
+        
+        case _ { return "else"; }
+    }
+}
+
+none main() {
+    io::outln(kind(Text("hi")));
+    io::outln(kind(Text("pic.png")));
+
+    io::outln(kind(Num(3)));
+    io::outln(kind(Num(4)));
+    io::outln(pair(Pair("x", "yy")));
+    io::outln(pair(Pair("q", "zz")));
+}

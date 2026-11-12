@@ -148,11 +148,11 @@ impl Checker<'_> {
             self.not_optional_maybe(value, None);
             return None;
         };
-        let Some(en) = optional_enum(self.g, x.ty) else {
+        if optional_enum(self.g, x.ty).is_none() {
             self.coerce(fallback, x.ty);
             self.not_optional_maybe(value, Some(x.ty));
             return None;
-        };
+        }
         let inner = inner_of(self.g, x.ty)?;
         let fb = self.coerce(fallback, inner)?;
         Some(Val::Expr(hir::Expr::new(hir::ExprKind::Maybe { value: Box::new(x), fallback: Box::new(fb) }, inner)))

@@ -312,8 +312,10 @@ pub enum SubPat {
     Any(Span),
     /// `[take | copy] Type name`
     Bind { mode: BindMode, ty: TypeName, name: String, name_span: Span },
-    /// A constant the payload must equal: `2.0`, `true`.
+    /// A constant the payload must equal: `2.0`, `true`, `"hi"`.
     Value(Expr),
+    /// `globbed "*.png"`: a text payload that matches a glob.
+    Glob(Expr),
     /// A pattern for a payload that is itself an enum: `Circle(float64 r)`.
     Variant(Box<Pattern>),
 }

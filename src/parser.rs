@@ -1104,6 +1104,11 @@ impl Parser<'_> {
             Tok::Kw("copy") => Some(BindMode::Copy),
             _ => None,
         };
+        if mode.is_none() && matches!(self.peek(), Tok::Ident(w) if w == "globbed") && matches!(self.peek_at(1), Tok::Str(_)) {
+            // `globbed` is a word only here, before a string: elsewhere it is a name.
+            self.bump();
+            return Ok(SubPat::Glob(self.expr()?));
+        }
         let from = mode.is_some() as usize;
         if let Some(n) = self.type_end(from)
             && matches!(self.peek_at(n), Tok::Ident(_))

@@ -247,7 +247,7 @@ impl Coverage {
 
 /// A `case` pattern of a `string` match: exact text, or a `globbed` pattern.
 #[derive(Clone)]
-enum TextPat {
+pub(super) enum TextPat {
     Exact(String),
     Glob(String),
 }
@@ -951,7 +951,7 @@ impl Checker<'_> {
     /// One `case` pattern of a `string` match: a string literal with no
     /// `${}` (`globbed` ones are globs). E0109 for interpolation and ranges,
     /// E0101 for another type.
-    fn text_pattern(&mut self, e: &ast::Expr, glob: bool) -> Option<TextPat> {
+    pub(super) fn text_pattern(&mut self, e: &ast::Expr, glob: bool) -> Option<TextPat> {
         if let ExprKind::Range(..) = e.kind {
             self.diags.push(
                 Diagnostic::at(&codes::E0109, e.span, "a range pattern needs numbers, but this `match` is on `string`")
