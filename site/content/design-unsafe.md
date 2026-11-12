@@ -45,7 +45,8 @@ holds a raw pointer never copies automatically.
 
 ## Null
 
-A pointer can be `none`, tested with `p == none`.
+A pointer can be `none`, tested with `p == none`. Two pointers of one pointee type
+compare with `==` and `!=` (addresses), inside `unsafe` too.
 
 ```drachm
 unsafe { if (p == none) { return; } }

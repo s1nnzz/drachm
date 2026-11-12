@@ -135,7 +135,9 @@ impl Validator<'_> {
                 let tys: Vec<Option<Type>> = operands.iter().map(|o| self.operand(&at, o)).collect();
                 match rv {
                     Rvalue::Binary(_, ..) => {
-                        if tys[0].is_some() && tys[0] != tys[1] {
+                        // A comparison may mix `*T` and `*fixed T` of one pointee type.
+                        let same_ptr = matches!((tys[0], tys[1]), (Some(a), Some(b)) if a.is_ptr() && b.is_ptr() && a.target() == b.target());
+                        if tys[0].is_some() && tys[0] != tys[1] && !same_ptr {
                             self.err(&at, "the operands of a binary operation differ in type");
                         }
                     }

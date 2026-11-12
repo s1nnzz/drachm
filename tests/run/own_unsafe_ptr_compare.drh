@@ -1,0 +1,31 @@
+//--!$unsafe: true
+in io;
+none main() {
+    mut uint32 n = 1;
+    mut uint32 m = 2;
+    *uint32 p;
+    *uint32 q;
+    *uint32 r;
+    *fixed uint32 f;
+    *uint32 g;
+    mut bool same = false;
+    mut bool other = false;
+    mut bool mixed = false;
+    unsafe {
+        p = address of n;
+        q = address of n;
+        r = address of m;
+        same = p == q;
+        other = p != r;
+        g = copy p;
+        f = g::freeze();
+        mixed = p == f;
+    }
+    io::outln(same::text());
+    io::outln(other::text());
+    io::outln(mixed::text());
+    unsafe {
+        *p = 5;
+        io::outln(n::text());
+    }
+}

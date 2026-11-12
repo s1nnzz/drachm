@@ -32,7 +32,8 @@ pointer must not outlive the value it points to.
 
 `n` changed through `p`, so the program prints `7`. Then `none` is tested: a
 pointer can be `none`, which is the null pointer, and `p == none` tells them
-apart.
+apart. `p == q` compares the two addresses: `q` points at `n` too, so it
+prints `true`. Comparing does not use either pointer up.
 
 A pointer moves like a string does: assigning it or passing it on leaves the old
 name with no value. `copy p` makes a second pointer to the same place. A pointer
@@ -46,7 +47,7 @@ These operations must be inside an `unsafe { }` block:
 - reading through it (`*p`),
 - writing through it (`*p = v;`),
 - copying it with `copy`,
-- comparing it with `== none` or `!= none`,
+- comparing it with `==` or `!=`, with another pointer or with `none`,
 - writing `none` as a pointer's value,
 - calling an `unsafe` function.
 
@@ -78,7 +79,9 @@ Calling it needs a block:
 `address of` an immutable binding gives a `*fixed T`. It can be read through but
 not written through: writing is error E0333.
 
-A `*T` and a `*fixed T` do not convert to each other by assignment. Inside
+A `*T` and a `*fixed T` do not convert to each other by assignment. Comparing
+them with `==` or `!=` does not need a conversion: it compares the addresses,
+and the two pointers must have the same pointee type. Inside
 `unsafe { }` the two conversions are explicit:
 
 - `p::freeze()` gives a `*fixed T` from a `*T`,

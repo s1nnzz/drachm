@@ -2851,6 +2851,20 @@ impl Checker<'_> {
             return self.struct_operator(op, lhs, lo, rv, ro, span);
         }
 
+        // Two pointers compare their addresses (owner answers, Q14). `*T` and
+        // `*fixed T` of one pointee type may be mixed: a comparison writes nothing,
+        // so it needs no freeze or thaw. Different pointee types fall through to E0101.
+        if matches!(op, BinOp::Eq | BinOp::Ne) && lead.is_ptr() {
+            if let Val::Expr(r) = &rv
+                && r.ty.is_ptr()
+                && r.ty.target() == lead.target()
+            {
+                let Val::Expr(r) = rv else { unreachable!() };
+                let hop = if op == BinOp::Eq { hir::BinOp::Eq } else { hir::BinOp::Ne };
+                return Some(Val::Expr(hir::Expr::new(hir::ExprKind::Binary(hop, Box::new(lhs), Box::new(r)), Type::Bool)));
+            }
+        }
+
         let wants = match class {
             OpClass::Arithmetic => "numbers",
             OpClass::Shift | OpClass::Bitwise => "whole numbers",

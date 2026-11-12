@@ -1,0 +1,9 @@
+//--!$unsafe: true
+none main() {
+    mut uint32 n = 5;
+    mut uint32 m = 6;
+    *uint32 p;
+    *uint32 q;
+    unsafe { p = address of n; q = address of m; }
+    bool b = p != q;
+}
