@@ -34,7 +34,8 @@
       "title": "Guides",
       "pages": [
         "guide-errors-handling",
-        "guide-enums-optionals"
+        "guide-enums-optionals",
+        "guide-structs"
       ]
     },
     {
