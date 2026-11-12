@@ -1,0 +1,43 @@
+// SYNTAX TEST "source.drachm" "def, defaults, fill, enums, failures and match guards"
+    def PlayerStart of Player { hp = 100; title = "none"; }
+//  ^^^ storage.type.drachm
+//      ^^^^^^^^^^^ entity.name.type.def.drachm
+//                  ^^ keyword.other.drachm
+    struct Player defaults PlayerStart { }
+//                ^^^^^^^^ keyword.other.drachm
+    struct default Player { }
+//         ^^^^^^^ storage.modifier.drachm
+        fill p { p.name = "Illy"; }
+//      ^^^^ keyword.control.fill.drachm
+        fill partial q { q.name = "Sam"; }
+//           ^^^^^^^ keyword.control.fill.drachm
+        fill p with defaults { p.name = "Illy"; }
+//             ^^^^ keyword.other.drachm
+//                  ^^^^^^^^ keyword.other.drachm
+    enum Shape { Circle(float64 r), Empty, }
+//  ^^^^ storage.type.drachm
+//       ^^^^^ entity.name.type.drachm
+    failure ToolError {
+//  ^^^^^^^ storage.type.drachm
+//          ^^^^^^^^^ entity.name.type.failure.drachm
+        NoInput "no input file" exit 2,
+//                              ^^^^ keyword.other.drachm
+    }
+    string t = fs::read(p) fails with (FileMissing e) => { };
+//                         ^^^^^ keyword.control.error.drachm
+//                               ^^^^ keyword.other.drachm
+    uint32 a = parse(input) maybe 0;
+//                          ^^^^^ keyword.control.error.drachm
+    fail LoadFailed because e;
+//  ^^^^ keyword.control.error.drachm
+//                  ^^^^^^^ keyword.control.error.drachm
+    match (s) {
+//  ^^^^^ keyword.control.drachm
+        case Circle(float64 r) if r > 10.0 { }
+//                             ^^ keyword.control.drachm
+        case globbed "/api/*" { }
+//           ^^^^^^^ keyword.control.drachm
+        case Text(take string body) { }
+//                ^^^^ keyword.operator.ownership.drachm
+    for (float64 x of 0.0..1.0 by 0.25) { }
+//                             ^^ keyword.control.drachm

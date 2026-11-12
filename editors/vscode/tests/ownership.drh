@@ -1,0 +1,49 @@
+// SYNTAX TEST "source.drachm" "take, lend, destroy, address of, fixed pointers, freeze and thaw"
+    string n = take p.name leaving "nobody";
+//             ^^^^ keyword.operator.ownership.drachm
+//                  ^^^^^^ variable.other.drachm
+//                         ^^^^^^^ keyword.other.drachm
+    string m = take p.title;
+//             ^^^^ keyword.operator.ownership.drachm
+    add(lend s);
+//      ^^^^ keyword.operator.ownership.drachm
+    destroy conn;
+//  ^^^^^^^ keyword.operator.ownership.drachm
+    *fixed uint32 q = address of n;
+//  ^ keyword.operator.pointer.drachm
+//   ^^^^^ storage.modifier.fixed.drachm
+//                    ^^^^^^^ keyword.operator.address.drachm
+//                            ^^ keyword.other.drachm
+    none f(*fixed uint32 q) { }
+//          ^^^^^ storage.modifier.fixed.drachm
+    x::freeze();  w::thaw();
+//     ^^^^^^ entity.name.function.drachm
+//                   ^^^^ entity.name.function.drachm
+    unsafe uint64 cycles() asm { rdtsc; }
+//  ^^^^^^ keyword.other.drachm
+//                ^^^^^^ entity.name.function.drachm
+//                         ^^^ keyword.other.drachm
+    &string pick(&string key) lives from self or key { }
+//                            ^^^^^ keyword.other.drachm
+//                                  ^^^^ keyword.control.import.drachm
+//                                       ^^^^ variable.language.self.drachm
+//                                            ^^ keyword.control.import.drachm
+//                                               ^^^ variable.parameter.drachm
+    struct Pair lives xa, xb { &string xa; &string xb; }
+//              ^^^^^ keyword.other.drachm
+//                    ^^ variable.parameter.drachm
+//                        ^^ variable.parameter.drachm
+    struct Handle stays { }
+//                ^^^^^ keyword.other.drachm
+    interface Counter { none bump() changes self; }
+//                                  ^^^^^^^ storage.modifier.drachm
+    struct Person { string name; Person(auto); }
+//                                      ^^^^ storage.modifier.drachm
+    if (x has value) { }
+//        ^^^^^^^^^ keyword.operator.test.drachm
+    if (x is empty) { }
+//        ^^^^^^^^ keyword.operator.test.drachm
+    p.max = now p.hp * 2;
+//          ^^^ keyword.other.drachm
+    ok = fs::close(f) ignore failure;
+//                    ^^^^^^^^^^^^^^ keyword.control.error.drachm

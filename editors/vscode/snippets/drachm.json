@@ -59,5 +59,20 @@
   "Print line": {
     "prefix": "outln",
     "body": "io::outln(${1:text});"
+  },
+  "Def": {
+    "prefix": "def",
+    "body": ["def ${1:Name} of ${2:Struct} {", "\t${3:field} = ${4:value};", "}"],
+    "description": "Named defaults for a struct (fill with defaults)"
+  },
+  "Fill": {
+    "prefix": "fill",
+    "body": ["fill ${1:value} {", "\t${1}.${2:field} = ${3:value};", "\t$0", "}"],
+    "description": "Set every field of a struct that has no value yet"
+  },
+  "Match with guard": {
+    "prefix": "matchguard",
+    "body": ["match (${1:value}) {", "\tcase ${2:Circle(float64 r)} if ${3:r > 1.0} {", "\t\t$4", "\t}", "\tcase _ {", "\t\t$0", "\t}", "}"],
+    "description": "match with a guard on a case"
   }
 }
