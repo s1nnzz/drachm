@@ -111,6 +111,13 @@ fn sample(ty: Type) -> &'static str {
     }
 }
 
+/// The help for printing an optional `text` (of type `ty`): a value for `none`
+/// with `maybe`, or a test with `has value`. `None` when `ty` is not optional.
+pub(super) fn print_help(g: &Globals, ty: Type, text: &str) -> Option<String> {
+    let inner = inner_of(g, ty)?;
+    Some(format!("write `{text} maybe {}` to print that value when it is `none`, or test it with `{text} has value`", sample(inner)))
+}
+
 impl Checker<'_> {
     /// E0531: an optional where its value is wanted (`what` is the place or
     /// operand as written, `to` the type wanted, `None` for an operator).

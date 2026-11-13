@@ -3801,7 +3801,13 @@ impl<'a> Checker<'a> {
                         None => a.ty != Type::None,
                     },
                 };
-                if has_text && !text.contains('\n') {
+                let optional = match &other {
+                    Val::Expr(a) => optionals::print_help(self.g, a.ty, &text),
+                    _ => None,
+                };
+                if let Some(help) = optional.filter(|_| !text.contains('\n')) {
+                    d = d.help(help);
+                } else if has_text && !text.contains('\n') {
                     d = d.help(format!("turn it into text: `io::{name}({fix})`"));
                 }
                 self.diags.push(d);

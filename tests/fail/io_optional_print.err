@@ -1,0 +1,2 @@
+error[E0101]: `io::outln` prints text, found `string?`
+help: write `name maybe ""` to print that value when it is `none`, or test it with `name has value`

@@ -151,6 +151,14 @@ fallback is a single value or a parenthesised expression: `(x maybe 0) + 1` adds
 one to the value, and `x maybe 0 + 1` is an error (E0534). A `maybe` on something
 that is not optional is E0532.
 
+Printing an optional is E0101: `io::outln` prints text, and `x` is not text. The
+help says to give a value for `none` with `maybe`, or to test it with `has value`:
+
+```text title="drachm check"
+error[E0101]: `io::outln` prints text, found `string?`
+help: write `name maybe ""` to print that value when it is `none`, or test it with `name has value`
+```
+
 <!-- example: option-maybe -->
 
 A `match` on an optional has two cases: `case uint32 a` for the value (typed like
