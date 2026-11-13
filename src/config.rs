@@ -690,7 +690,7 @@ pub fn open(path: &Path) -> Result<Opened, Failure> {
                 name: config.project.name.clone(),
                 root,
                 display_base: Some(dir.clone()),
-                dependency_names: deps.iter().map(|dep| dep.name.clone()).collect(),
+                dependency_names: config.dependencies.iter().map(|dep| dep.name.clone()).collect(),
             };
             Ok(Opened { entry, info, config, deps })
         }
@@ -704,7 +704,7 @@ pub fn open(path: &Path) -> Result<Opened, Failure> {
                 name: config.project.name.clone(),
                 root: dir.clone(),
                 display_base: None,
-                dependency_names: deps.iter().map(|dep| dep.name.clone()).collect(),
+                dependency_names: config.dependencies.iter().map(|dep| dep.name.clone()).collect(),
             };
             Ok(Opened { entry: path.to_path_buf(), info, config, deps })
         }

@@ -776,10 +776,9 @@ module); E0232 also covers clashing item imports. The showcase is a project
 folder `examples/showcase/` (expectations in its `expect.out`); site examples
 may be folders (`site/examples/NAME/`, `expect.out`). Interims: calls through
 methods are not followed by the recursion check; `//--!$unsafe` of the entry
-file decides for all files; a file that uses a unit of `si` is not checked for
-its own `in si;`; a local declaration or item clashing with an explicit item
-import is E0232 (only `*` clashes warn); `import_clash = error` waits for the
-config (WP3).
+file decides for all files. Each file using SI units needs its own `in si;`.
+A local declaration or item clashing with an explicit item import is E0232
+(only `*` clashes warn).
 
 **Open (ask owner):** the full `[warnings]` name list (grows as warnings are added).
 Also: should `check` on a library skip the `main` requirement (E0204)? A `deps/`
