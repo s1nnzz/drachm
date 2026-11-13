@@ -23,5 +23,5 @@ test "the hull is named from its number" {
 
 test "a downward correction is negative" {
     assert(downward_correction(240) == -240);
-    assert(downward_correction(0) == 0);
+    assert(downward_correction(0) == 0, "no sensor reading means no correction");
 }

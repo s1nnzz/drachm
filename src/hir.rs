@@ -498,8 +498,9 @@ pub struct Test {
 /// One `assert` of the program.
 #[derive(Debug, Clone)]
 pub struct Assertion {
-    /// The condition as written in the source.
-    pub text: String,
+    /// The first line of what the program prints when the check fails: the
+    /// condition as written in the source, and the message if there is one.
+    pub heading: String,
     /// The condition's span (its place in the files).
     pub span: Span,
     /// What the program prints when the condition is false. Set once the

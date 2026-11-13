@@ -188,6 +188,19 @@ struct Look {
 }
 
 /// `uint8`..`uint128`, `sint*`, `float*`: the types a `<` after them opens a unit for.
+/// The text of a string literal with no `${}` in it, or `None` if it has one.
+fn plain_text(pieces: &[StrPiece]) -> Option<String> {
+    let mut text = String::new();
+    for piece in pieces {
+        match piece {
+            StrPiece::Raw(raw, _) => text.push_str(raw),
+            StrPiece::Escape(c, _) => text.push(*c),
+            StrPiece::Interp(..) => return None,
+        }
+    }
+    Some(text)
+}
+
 fn is_number_name(name: &str) -> bool {
     ["uint", "sint", "float"].iter().any(|k| name.strip_prefix(k).is_some_and(|d| !d.is_empty() && d.bytes().all(|b| b.is_ascii_digit())))
 }
@@ -1272,16 +1285,9 @@ impl Parser<'_> {
             return Err(self.unexpected("a test name in quotes").help("a test is named with a string: `test \"adds\" { }`"));
         };
         let name_span = self.bump().span;
-        let mut name = String::new();
-        for piece in &pieces {
-            match piece {
-                StrPiece::Raw(text, _) => name.push_str(text),
-                StrPiece::Escape(c, _) => name.push(*c),
-                StrPiece::Interp(..) => {
-                    return Err(Diagnostic::at(&codes::E0003, name_span, "a test name is plain text").help("write the name without `${}`: `test \"adds\" { }`"));
-                }
-            }
-        }
+        let Some(name) = plain_text(&pieces) else {
+            return Err(Diagnostic::at(&codes::E0003, name_span, "a test name is plain text").help("write the name without `${}`: `test \"adds\" { }`"));
+        };
         let body = self.block()?;
         Ok(Func {
             ret: TypeName::plain("none", start),
@@ -2036,18 +2042,22 @@ impl Parser<'_> {
                 self.bump();
                 self.bump();
                 let cond = self.expr()?;
-                if self.peek() == &Tok::Sym(",") {
-                    // The message form is open (Q15): the failure prints the condition and its place.
-                    self.diags.push(
-                        Diagnostic::at(&codes::E0901, self.span(), "an `assert` with a message is not supported yet")
-                            .help("write `assert(condition);`: a failure prints the condition and where it is"),
-                    );
+                let message = if self.peek() == &Tok::Sym(",") {
                     self.bump();
-                    self.expr()?;
-                }
+                    let Tok::Str(pieces) = self.peek().clone() else {
+                        return Err(self.unexpected("a message in quotes").help("write `assert(condition, \"message\");`"));
+                    };
+                    let at = self.bump().span;
+                    let text = plain_text(&pieces).ok_or_else(|| {
+                        Diagnostic::at(&codes::E0003, at, "an `assert` message is plain text").help("write the message without `${}`")
+                    })?;
+                    Some((text, at))
+                } else {
+                    None
+                };
                 self.expect(")")?;
                 self.expect(";")?;
-                Ok(Stmt::Assert { cond, span: start.to(self.prev_span()) })
+                Ok(Stmt::Assert { cond, message, span: start.to(self.prev_span()) })
             }
             _ => {
                 let s = self.simple()?;

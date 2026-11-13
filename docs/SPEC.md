@@ -948,8 +948,10 @@ phys::Vector3 v = 1, 2, 3;
   Built (step 7 WP9): `assert(cond);` works in every function and build; a
   failure prints the condition, its file and line, and exits 101. `drachm test`
   runs each test as its own program (a failure does not stop the rest) and exits
-  1 if one failed. Undecided, so not accepted: a name filter, `expect failure`,
-  a message in `assert`. See `docs/PLAN.md` step 7 WP9.
+  1 if one failed. `assert(cond, "text");` (owner, 2026-11-13): a false check
+  prints `assertion failed: cond: text` and the place. The text is plain (no
+  `${}`, E0003). Undecided, so not accepted: a name filter, `expect failure`.
+  See `docs/PLAN.md` step 7 WP9.
 - `drachm fmt`: one official style with few knobs (indent width, line length,
   brace placement). It never aligns `=` or comments across lines.
 - Registry: **the Agora** (agora.drachm.dev); `drachm add json`. Deps may also be

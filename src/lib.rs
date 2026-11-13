@@ -49,11 +49,12 @@ pub fn front(src: &str) -> (Option<hir::Program>, Vec<Diagnostic>) {
     (Some(checked), diags)
 }
 
-/// Writes the message of each `assert`: its condition's text and its place,
-/// which needs the files' names, so it is done once the files are known.
+/// Writes the message of each `assert`: its heading (the condition and the
+/// message) and its place, which needs the files' names, so it is done once
+/// the files are known.
 fn locate_asserts(program: &mut hir::Program, map: &diag::SourceMap) {
     for a in &mut program.asserts {
-        a.message = format!("assertion failed: {}\n  --> {}", a.text, map.file_line(a.span.start));
+        a.message = format!("{}\n  --> {}", a.heading, map.file_line(a.span.start));
     }
 }
 

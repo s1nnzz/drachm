@@ -224,7 +224,12 @@ What the rules are:
 - A test block in a script that also has top-level statements is not supported
   yet (E0901). Put the tests in a file with `main`, or in a project.
 
+An `assert` can name what it checks, after the condition:
+`assert(add(2, 3) == 6, "the sum of two and three");`. The message is plain text,
+and a failing check prints it after the condition, for example
+`assertion failed: add(2, 3) == 6: the sum of two and three`.
+
 These are not decided yet, so the compiler does not accept them: choosing
-tests by name, `expect failure` (a test that must fail), and a message after
-the condition in `assert`. Until the owner decides, write the check as a plain
-`assert` and use the expected-output technique above for the rest.
+tests by name, and `expect failure` (a test that must fail). Until the owner
+decides, write the check as a plain `assert` and use the expected-output
+technique above for the rest.

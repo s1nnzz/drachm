@@ -796,7 +796,8 @@ lowered to an `if` that stops with `StopKind::Assert`). It runs in every build,
 `-O` included. A failure prints `drachm: panic: assertion failed: TEXT` and
 `  --> FILE:LINE` on stderr and exits 101; the text is the condition as written,
 the place is filled in when the files are loaded (`hir::Assertion`, `lib.rs`
-`locate_asserts`). `test "name" { }` is a function that takes nothing and returns
+`locate_asserts`). `assert(cond, "text");` (owner, 2026-11-13) prints
+`assertion failed: COND: text`; the text is a plain string literal (E0003). `test "name" { }` is a function that takes nothing and returns
 nothing (`ast::Func.test`), named `test "name"` in the program, listed in
 `hir::Program.tests`. Test names are unique per file (E0239). A test in a file
 with top-level statements is E0901. `drachm test FILE|FOLDER [-O]` builds one
@@ -806,8 +807,7 @@ test's output is shown. Exit 1 if any test failed. Libraries have tests too.
 Tests: `assert` golden cases in `tests/run` and `tests/fail`, `test` blocks in
 `tests/run/test_blocks_build.drh`, the showcase's `rules` tests, `tests/cli.rs`.
 Interims (narrowest readings, owner to decide; Q15): no name filter (the path
-is the only argument); no `expect failure` (E0901); `assert` takes only the
-condition (E0901 with a message); a failing test does not stop the others; the
+is the only argument); no `expect failure` (E0901); a failing test does not stop the others; the
 test bodies are compiled into normal builds (type-checked and compiled, never
 run); `drachm test` builds once per test, so a large suite builds slowly; the
 `[warnings] as_errors` names (Q15c) are unchanged.

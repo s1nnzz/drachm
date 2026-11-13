@@ -365,3 +365,12 @@ fn duplicate_test_names_are_e0239() {
     assert_eq!(out.status.code(), Some(1));
     assert!(text(&out.stderr).contains("error[E0239]"), "{}", text(&out.stderr));
 }
+
+#[test]
+fn test_failure_prints_the_assert_message_after_the_condition() {
+    let s = Scratch::new("testmsg");
+    fs::write(s.dir.join("msg.drh"), "test \"sum\" {\n    assert(1 + 1 == 3, \"one and one make two\");\n}\n\nnone main() { }\n").unwrap();
+    let out = drachm(&s.dir, &["test", "msg.drh"]);
+    assert_eq!(out.status.code(), Some(1), "{}", text(&out.stdout));
+    assert!(text(&out.stdout).contains("    drachm: panic: assertion failed: 1 + 1 == 3: one and one make two\n      --> msg.drh:2\n"), "{}", text(&out.stdout));
+}
