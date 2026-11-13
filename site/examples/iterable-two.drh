@@ -1,0 +1,23 @@
+in io;
+
+struct Node { public: uint32 id; }
+struct Edge { public: uint32 start; uint32 end; }
+
+struct Graph with Iterable<Node> and Iterable<Edge> {
+public:
+    uint32 size;
+    Node? at(uint64 i) {
+        if (i >= self.size) { return none; }
+        return new Node of (i::to<uint32>());
+    }
+    Edge? at(uint64 i) {
+        if (i + 1 >= self.size) { return none; }
+        return new Edge of (i::to<uint32>(), i::to<uint32>() + 1);
+    }
+}
+
+none main() {
+    Graph g = new Graph of (3);
+    for (Node n of g) { io::outln(f"node ${n.id}"); }
+    for (Edge e of g) { io::outln(f"edge ${e.start} to ${e.end}"); }
+}

@@ -1,0 +1,5 @@
+node 0
+node 1
+node 2
+edge 0 to 1
+edge 1 to 2

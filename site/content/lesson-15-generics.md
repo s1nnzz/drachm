@@ -181,23 +181,16 @@ none main() {
 
 ## Your own iterables
 
-<!-- status: tentative -->
+A type works with `for (T x of thing)` when it says `with Iterable<T>` and has a
+method `T? at(uint64 i)`. The loop calls `at(0)`, `at(1)`, ... until one gives
+`none`. The value is only read, so it can be walked again.
 
-A type can be walked with `for (T x of thing)` once it implements `Iterable<T>`,
-whose `T? next()` returns `none` when nothing is left. The name `Iterable` and
-its exact shape are written down but the standard library's interfaces are not
-fixed yet.
+<!-- example: iterable -->
 
-```drachm
-struct Countdown with Iterable<uint32> {
-    mut uint32 n;
-    uint32? next() {
-        if (self.n == 0) { return none; }
-        self.n--;
-        return self.n + 1;
-    }
-}
-```
+A type can be `Iterable` over several item types. The variable's type picks
+which `at` the loop uses.
+
+<!-- example: iterable-two -->
 
 The whole design is on [Generics and interfaces](design-generics.md). Next, the
 types that hold many values: [Lesson 16: Collections](lesson-16-collections.md).

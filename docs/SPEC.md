@@ -291,8 +291,14 @@ uint32? age = ages["Bob"];                 // missing key -> none
 - Map iteration uses two bindings, for example
   `for (string name, uint32 age of ages)`, or an iteration method (see Q16).
   Map order is unspecified. An `OrderedMap` keeps insertion order.
-- Your own types work with `for (T x of thing)` by implementing `Iterable<T>`,
-  whose `T? next()` returns `none` when done.
+- Your own types work with `for (T x of thing)` by implementing the built-in
+  `interface Iterable<T> { T? at(uint64 i); }` (owner, 2026-11-13; no separate
+  walker). The loop evaluates `thing` once and calls `at(0)`, `at(1)`, ... until
+  `none`. The value is not spent and can be walked again; `at` takes `self`
+  shared, so it cannot change during the loop. A type may be `Iterable` over
+  several item types (`with Iterable<Node> and Iterable<Edge>`); the binding's
+  type picks the `at` (methods may differ only in their result for this; calling
+  one by name is an error). `T x` takes the item, `&T x` views it.
 
 ### Optionals
 

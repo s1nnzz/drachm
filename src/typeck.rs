@@ -10,6 +10,7 @@ mod failures;
 mod fill;
 mod generics;
 mod interfaces;
+mod iterable;
 mod layout;
 mod lambdas;
 mod lists;
@@ -553,7 +554,7 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
     for ((s, sid), mids) in prog.structs.iter().zip(&struct_ids).zip(&method_ids) {
         for (j, (m, mid)) in s.methods.iter().zip(mids).enumerate() {
             let (Some(sid), Some(mid)) = (*sid, *mid) else { continue };
-            let symbol = method_symbol(&s.name, m, j);
+            let symbol = method_symbol(&s.name, m, j, &s.methods);
             let ctx = MethodCtx {
                 struct_id: sid,
                 func: mid,
@@ -576,7 +577,7 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
         for (j, (m, mid)) in decl.methods.iter().zip(&target.ids).enumerate() {
             let Some(mid) = *mid else { continue };
             let sname = target.ty.to_string();
-            let symbol = method_symbol(&sname, m, 1000 + j);
+            let symbol = method_symbol(&sname, m, 1000 + j, &decl.methods);
             let ctx = MethodCtx {
                 struct_id: target.struct_id.unwrap_or(usize::MAX),
                 func: mid,
@@ -652,8 +653,12 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
 
 /// The symbol of method `j` of struct `sname`: `drachm_m_6Player_nameOf`.
 /// A name with `<`, `,` and so on (an instance) is mangled first.
-fn method_symbol(sname: &str, m: &ast::Method, j: usize) -> String {
-    let word = if m.ctor { format!("new{j}") } else { m.operator.map_or(m.func.name.clone(), |op| format!("op_{}", op_word(op))) };
+fn method_symbol(sname: &str, m: &ast::Method, j: usize, siblings: &[ast::Method]) -> String {
+    let mut word = if m.ctor { format!("new{j}") } else { m.operator.map_or(m.func.name.clone(), |op| format!("op_{}", op_word(op))) };
+    // Methods that differ only in their result share a name.
+    if !m.ctor && m.operator.is_none() && siblings.iter().take(j % 1000).any(|o| !o.ctor && o.operator.is_none() && o.func.name == m.func.name) {
+        word = format!("{word}_{}", j % 1000);
+    }
     let sname = types::mangle(sname);
     format!("drachm_m_{}{}_{word}", sname.len(), sname)
 }
@@ -952,7 +957,13 @@ fn declare_method_list(g: &mut Globals, id: StructId, methods: &[ast::Method], d
             continue;
         }
         let info = &g.structs[id];
-        let clash = if let Some(first) = info.methods.iter().find(|o| o.name == f.name) {
+        // Two methods may share a name and parameters when only their results differ:
+        // a type that is `Iterable` over two item types has two `at`. Calling one by
+        // name is then ambiguous (E0632); an interface picks its own by result.
+        let by_result = |o: &MethodInfo| {
+            m.operator.is_none() && o.operator.is_none() && m.is_static.is_none() && !o.is_static && g.sigs[o.func].params == sig.params && g.sigs[o.func].ret != sig.ret
+        };
+        let clash = if let Some(first) = info.methods.iter().find(|o| o.name == f.name && !by_result(o)) {
             let what = if m.operator.is_some() { format!("`{}` operators", f.name) } else { format!("methods named `{}`", f.name) };
             Some((format!("`{sname}` has two {what}"), g.sigs[first.func].span, "first defined here"))
         } else {
@@ -3427,6 +3438,22 @@ impl<'a> Checker<'a> {
             return None;
         };
         let sname = self.g.structs[s].name.clone();
+        let same: Vec<FuncId> = self.g.structs[s].methods.iter().filter(|o| o.name == name && o.operator.is_none()).map(|o| o.func).collect();
+        if same.len() > 1 {
+            let shown = self.text(recv_span).to_string();
+            let results: Vec<String> = same.iter().map(|&f| self.g.sigs[f].ret.map_or("?".to_string(), |t| t.to_string())).collect();
+            let mut d = Diagnostic::at(&codes::E0632, name_span, format!("`{sname}` has {} `{name}` methods that differ only in their result, so `{shown}::{name}` cannot choose", same.len()))
+                .note(format!("they return {}", results.iter().map(|r| format!("`{r}`")).collect::<Vec<_>>().join(", ")))
+                .help("such methods exist to implement interfaces; `for (T x of thing)` picks the one for `T`");
+            for &f in &same {
+                d = d.label(self.g.sigs[f].span, "declared here");
+            }
+            self.diags.push(d);
+            for a in args {
+                self.expr(a);
+            }
+            return None;
+        }
         if name == "drop" {
             let shown = self.text(recv_span).to_string();
             self.diags.push(

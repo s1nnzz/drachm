@@ -1,0 +1,16 @@
+struct Node { public: uint32 id; }
+struct Edge { public: uint32 start; uint32 to; }
+
+struct Graph with Iterable<Node> and Iterable<Edge> {
+public:
+    uint32 size;
+    Node? at(uint64 i) { return none; }
+    Edge? at(uint64 i) { return none; }
+}
+
+none main() {
+    Graph g = new Graph of (3);
+    for (uint32 n of g) { }
+    for (Node n of g) { }
+    Node? first = g::at(0);
+}

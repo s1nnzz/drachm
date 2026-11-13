@@ -1140,6 +1140,21 @@ variable must have the items' type: `for (uint32 n of xs)` over a
 `uint32[?]`. To look at each item write `&uint32 n`; no conversion
 happens inside a `for`.
 
+## E0631: not iterable over this type
+
+A `for` over a value of your own type needs the type to say `with
+Iterable<T>` for the type `T` of the loop variable. A type that is
+`Iterable` over several types (`Iterable<Node> and Iterable<Edge>`) is
+walked once for each: the variable's type picks which. `&T` looks at
+each item; `&mut T` is not available, because `at` hands out values.
+
+## E0632: same method name, several results
+
+A struct may have two methods with the same name and parameters when
+only their results differ, so that it can be `Iterable` over two types
+(`Node? at(uint64 i)` and `Edge? at(uint64 i)`). Calling `g::at(0)` by
+name cannot choose between them; walk the value with `for` instead.
+
 ## W0600: generic never used
 
 A generic function, struct or enum is only checked when something uses

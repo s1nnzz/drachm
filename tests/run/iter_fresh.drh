@@ -1,0 +1,23 @@
+in io;
+
+struct Countdown with Iterable<uint32> {
+public:
+    uint32 n;
+    uint32? at(uint64 i) {
+        if (i >= self.n) { return none; }
+        return self.n - i::to<uint32>();
+    }
+}
+
+uint32 sum<I with Iterable<uint32>>(I source) {
+    mut uint32 total = 0;
+    for (uint32 n of source) { total += n; }
+    return total;
+}
+
+none main() {
+    Countdown source = 3;
+    for (uint32 n of source) { io::outln(n::text()); }
+    for (uint32 n of source) { io::outln(n::text()); }
+    io::outln(sum(source)::text());
+}

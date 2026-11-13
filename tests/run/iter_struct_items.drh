@@ -1,0 +1,39 @@
+in io;
+
+struct Entry {
+public:
+    string label;
+    string[?] tags;
+}
+
+struct Shelf with Iterable<Entry> {
+public:
+    string[?] labels;
+    Entry? at(uint64 i) {
+        if (i >= self.labels::len()) { return none; }
+        string[?] tags = ["a", "b"];
+        return new Entry of (copy self.labels[i], tags);
+    }
+}
+
+uint64 count<S with Iterable<Entry>>(&S shelf) {
+    mut uint64 n = 0;
+    for (&Entry e of shelf) { n += e.tags::len(); }
+    return n;
+}
+
+none main() {
+    Shelf shelf = new Shelf of (["x", "y", "z"]);
+    for (Entry e of shelf) {
+        if (e.label == "y") { continue; }
+        io::outln(e.label);
+        if (e.label == "z") { break; }
+    }
+    io::outln(count(&shelf)::text());
+    for (Entry e of shelf) {
+        for (string t of e.tags) {
+            if (t == "b") { continue; }
+            io::outln(f"${e.label}${t}");
+        }
+    }
+}

@@ -1,0 +1,7 @@
+node 0
+node 1
+node 2
+edge 0-1
+edge 1-2
+view 1
+view 2

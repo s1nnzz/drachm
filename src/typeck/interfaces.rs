@@ -38,6 +38,7 @@ interface Zero { static Self zero(); }
 interface Equal { bool ==(Self o); }
 interface Ordered extends Equal { bool <(Self o); bool <=(Self o); bool >(Self o); bool >=(Self o); }
 interface Text { string text(); }
+interface Iterable<T> { T? at(uint64 i); }
 "#;
 
 pub(super) struct IfaceInfo {
@@ -83,6 +84,8 @@ pub(super) struct State {
     pub records: Vec<hir::Conformance>,
     /// Methods that stand for an interface's: they need a `self` even if unused.
     pub implementing: HashSet<hir::FuncId>,
+    /// For each type, the `at` method that gives its `Iterable<T>`: (instance, method).
+    pub iterable: HashMap<Type, Vec<(usize, hir::FuncId)>>,
     /// The placeholder methods whose interface says `changes self`.
     pub changing: HashSet<hir::FuncId>,
     /// Every signature exists: conformance can be checked at once.
@@ -455,7 +458,7 @@ pub(super) fn validate(g: &mut Globals, diags: &mut Vec<Diagnostic>) {
     let n = g.ifaces.list.len();
     for i in 0..n {
         let decl = g.ifaces.list[i].decl.clone();
-        if !generics::check_tparams(g, &decl.tparams, diags) {
+        if !g.ifaces.list[i].builtin && !generics::check_tparams(g, &decl.tparams, diags) {
             g.ifaces.list[i].usable = false;
         }
     }
@@ -552,7 +555,14 @@ fn check_conformance(g: &mut Globals, ty: Type, with: &[(usize, Span)], diags: &
             let builtin = g.ifaces.list[fm.owner].builtin;
             let owner_name = g.ifaces.list[fm.owner].name.clone();
             let secondary = |d: Diagnostic, what: String| if builtin { d } else { d.label(m.span, what) };
-            let found = methods_of(g, ty).into_iter().find(|x| x.name == m.name);
+            let same: Vec<MethodInfo> = methods_of(g, ty).into_iter().filter(|x| x.name == m.name).collect();
+            // Several methods may differ only in their result: the interface's own result picks.
+            let found = if same.len() > 1 {
+                let (_, iret) = sig_for(g, fm.owner, m, ty);
+                same.iter().find(|x| iret.is_some() && g.sigs[x.func].ret == iret).or(same.first()).cloned()
+            } else {
+                same.into_iter().next()
+            };
             let Some(found) = found else {
                 // Every struct has `==` and `!=` by itself.
                 if matches!(m.operator, Some(ast::BinOp::Eq | ast::BinOp::Ne)) {
@@ -565,6 +575,12 @@ fn check_conformance(g: &mut Globals, ty: Type, with: &[(usize, Span)], diags: &
                 continue;
             };
             g.ifaces.implementing.insert(found.func);
+            if is_iterable(g, fm.owner) {
+                let list = g.ifaces.iterable.entry(ty).or_default();
+                if !list.iter().any(|x| x.0 == fm.owner) {
+                    list.push((fm.owner, found.func));
+                }
+            }
             if !found.public {
                 let d = Diagnostic::at(&codes::E0610, at, format!("`{sname}` says `with {iname}`, but `{}` is private", m.name)).note("an interface's methods are public");
                 let d = secondary(d, promised(g, fm.owner, &format!("`{}`", m.name))).label(g.sigs[found.func].span, "declared in a private section");
@@ -713,6 +729,17 @@ pub(super) fn on_instance(g: &mut Globals, ty: Type, with: &[ast::TypeName], dis
     } else {
         g.ifaces.deferred.push(Deferred::Conform { ty, with, display: display.to_string(), at });
     }
+}
+
+/// Is interface instance `k` the built-in `Iterable<T>`?
+pub(super) fn is_iterable(g: &Globals, k: usize) -> bool {
+    let i = &g.ifaces.list[k];
+    i.builtin && i.decl.name == "Iterable" && i.args.len() == 1
+}
+
+/// The item type of `Iterable<T>` instance `k`.
+pub(super) fn item_of(g: &Globals, k: usize) -> Type {
+    g.ifaces.list[k].args[0]
 }
 
 /// Does `ty` implement interface `k`?
@@ -950,13 +977,23 @@ pub(super) fn populate_placeholder(g: &mut Globals, ty: Type, tp: &ast::TypePara
         for fm in methods {
             let decl = g.ifaces.list[fm.owner].decl.clone();
             let m = &decl.methods[fm.idx];
-            if g.structs[id].methods.iter().any(|x| x.name == m.name) {
+            let (params, ret) = sig_for(g, fm.owner, m, ty);
+            if let Some(x) = g.structs[id].methods.iter().find(|x| x.name == m.name && !(is_iterable(g, fm.owner) && g.sigs[x.func].ret != ret)) {
+                if is_iterable(g, fm.owner) {
+                    let f = x.func;
+                    let list = g.ifaces.iterable.entry(ty).or_default();
+                    if !list.iter().any(|x| x.0 == fm.owner) {
+                        list.push((fm.owner, f));
+                    }
+                }
                 continue;
             }
-            let (params, ret) = sig_for(g, fm.owner, m, ty);
             let func = g.add_sig(Sig { name: format!("{}::{}", tp.name, m.name), params, ret, span: m.span, fails: Vec::new(), outcome: None });
             if fm.changes {
                 g.ifaces.changing.insert(func);
+            }
+            if is_iterable(g, fm.owner) {
+                g.ifaces.iterable.entry(ty).or_default().push((fm.owner, func));
             }
             g.structs[id].methods.push(method_info(&m.name, m.operator, func, m.is_static.is_some()));
         }
