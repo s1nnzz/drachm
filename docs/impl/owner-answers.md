@@ -146,3 +146,8 @@ Q5 interfaces as types: any interface can be used as `&I` (its `static` methods 
 - A call may write a unit argument: `twice<unit m>(3.0<m>)`.
 - When no argument carries a unit, `U` cannot be told (E0601); write `twice<unit m>(3.0)`.
 - `U` inside a bigger unit in a parameter (`float64<U/s> v`) should be solved from the argument (`dist(3.0<m/s>, 2.0<s>)` gives `U = m`). Not built yet (E0901 today): to do.
+
+# Q3 follow-ups, 2026-11-13
+- An optional that holds a borrow is written `maybe &string` (e.g. `maybe &string f = names::first();`); `&string?` stays a borrow of an optional. Built today as `Optional<&string>`: to change.
+- `List<&string>` for a list of borrows; `List<X>` means `X[?]` for any `X`.
+- `==` through borrows compares what they point at; owner adds `===` for a strict address compare, and asks whether value-vs-address compare needs its own design beyond strings (ideas to be offered).
