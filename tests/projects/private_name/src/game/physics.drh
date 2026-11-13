@@ -1,0 +1,3 @@
+out float64 shown() { return 1.0; }
+float64 secret() { return 2.0; }
+float64 hidden() { return 3.0; }

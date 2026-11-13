@@ -1,0 +1,2 @@
+error[E0238]
+the chain: `pong` (game.pong) calls `ping` (main) calls `pong` (game.pong)

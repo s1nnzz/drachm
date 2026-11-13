@@ -1,0 +1,8 @@
+in io;
+in game.world;                       // relative to this file: game/world.drh
+in modulespaths.tools.clock as clk;  // from the source folder, by the project's name
+
+none main() {
+    io::outln(world::describe());
+    io::outln(f"main reads the clock too: ${clk::now()}");
+}

@@ -1,0 +1,10 @@
+in io;
+in * from game.audio as snd;                   // under snd:: only
+in * from game.video as video also bare;       // under video:: and bare
+
+none main() {
+    io::outln(snd::play());
+    io::outln(show());
+    io::outln(video::show());
+    io::outln(f"audio level ${snd::LEVEL}, video level ${LEVEL}");
+}

@@ -1,0 +1,173 @@
+// Part 3 of the voyage, in its own file: ship systems.
+// The rack size lives in rules.drh, one folder up: a file path climbs with `..`.
+in io;
+in RACK_SLOTS from "../rules.drh";
+
+// ---------------------------------------------------------------------------
+// Part 3: interfaces, generics, dynamic borrows, Iterable, built-in interfaces
+// ---------------------------------------------------------------------------
+interface Positioned {
+    float64 x;                          // a required field
+    float64 y;
+}
+
+interface Module {
+    string name();
+    float64 power();
+    static Self standard();             // `Self` is whoever implements it
+}
+
+// Interfaces build on each other; `changes self` marks a mutating method.
+interface Chargeable extends Module and Positioned {
+    none charge(float64 amount) changes self;
+}
+
+struct Reactor with Chargeable {
+public:
+    float64 x;
+    float64 y;
+    mut float64 level;
+    string name() { return "reactor"; }
+    float64 power() { return self.level * 10.0; }
+    none charge(float64 amount) { self.level += amount; }
+    static Reactor standard() { return new Reactor of (0.0, 0.0, 5.0); }
+}
+
+struct Drive with Module {
+public:
+    uint32 thrusters;
+    string name() { return "drive"; }
+    float64 power() { return self.thrusters::to<float64>() * 7.5; }
+    static Drive standard() { return new Drive of (4); }
+}
+
+// A generic function constrained by an interface; checked once, here.
+float64 pair_power<X with Module>(X a, X b) { return a::power() + b::power(); }
+
+// A generic struct that is itself a Module whenever what it holds is.
+struct Bank<X with Module> with Module {
+public:
+    X left;
+    X right;
+    string name() { return f"bank of ${self.left::name()}s"; }
+    float64 power() { return pair_power(self.left, self.right); }
+    static Bank<X> standard() { return new Bank<X> of (X::standard(), X::standard()); }
+}
+
+// Dynamic dispatch: which `power` runs is decided while the program runs.
+none report(&Module m) {
+    string label = m::name()->padRight(16, ".");
+    string watts = m::power()->text()->padLeft(7, " ");
+    io::outln(f"  ${label} ${watts} kW");
+}
+
+none boost(&mut Chargeable c) {
+    c::charge(1.5);
+    c::charge(1.5);
+}
+
+none where_is(&Positioned p) { io::outln(f"  located at (${p.x}, ${p.y})"); }
+
+// `&Chargeable` upcasts to `&Module` and `&Positioned` when passed along.
+none inspect(&Chargeable c) {
+    report(c);
+    where_is(c);
+}
+
+// Types you do not own can promise your interface from outside.
+interface Describe { string describe(); }
+
+uint8 with Describe {
+    string describe() { return f"a byte, ${self}"; }
+}
+
+Drive with trusted Describe {
+    string describe() { return f"a drive with ${self.thrusters} thrusters"; }
+}
+
+string say<X with Describe>(X v) { return v::describe(); }
+
+// Built-in interfaces: Zero, Equal, Ordered, Text.
+X biggest<X with Ordered>(X a, X b) { if (a > b) { return a; } return b; }
+X or_zero<X with Zero>(X v, bool ok) { if (ok) { return v; } return X::zero(); }
+string same<X with Equal>(X a, X b) { if (a == b) { return "equal"; } return "different"; }
+string shout<X with Text>(X v) { return v::text()->upper() + "!"; }
+
+// A generic interface and an Iterable collection of our own.
+interface Source<X> { X next() changes self; }
+
+struct Fuel with Source<uint32> {
+public:
+    mut uint32 left;
+    uint32 next() { self.left -= 10; return self.left; }
+}
+
+struct Convoy with Iterable<Drive> {
+public:
+    uint32 size;
+    Drive? at(uint64 i) {
+        if (i >= self.size) { return none; }
+        return new Drive of (i::to<uint32>() + 1);
+    }
+}
+
+X draw_from<X, Src with Source<X>>(&mut Src s) { return s::next(); }
+
+
+// A value parameter puts a number into the type: a rack has a fixed number of
+// slots, and `Rack<uint32, 3>` is not `Rack<uint32, 4>`.
+struct Rack<X, uint32 Slots> {
+public:
+    X[Slots] mounts;
+    static uint32 slots() { return Slots; }
+    X mounted(uint32 i) { return copy self.mounts[i]; }
+}
+
+// The length is worked out from the array that is passed in.
+float64 total_draw<uint32 Len>(&float64[Len] draws) {
+    mut float64 total = 0.0;
+    for (float64 d of draws) { total += d; }
+    return total;
+}
+
+uint32 count_of<X, uint32 Len>(&X[Len] items) { return Len; }
+
+// A calculation on a value parameter is worked out for each instance, so a
+// `Locker<uint32, 3>` has four shelves: one more than the rack has slots.
+struct Locker<X, uint32 Slots> {
+public:
+    X[Slots + 1] shelves;
+    static uint32 shelf_count() { return Slots + 1; }
+}
+
+out none run() {
+    io::outln("== Part 3: ship systems ==");
+    mut Reactor core = Reactor::standard();
+    Drive engine = Drive::standard();
+    io::outln("power report:");
+    report(&core);
+    report(&engine);
+    boost(&mut core);
+    inspect(&core);
+    Bank<Drive> twin = Bank<Drive>::standard();
+    report(&twin);
+    io::outln(f"  two reactors: ${pair_power(core, core)} kW");
+
+    io::outln(say(7u8));
+    io::outln(say(engine));
+    io::outln(f"${biggest(3, 9)} ${biggest(2.5, 1.5)} ${or_zero(8, false)} ${same("a", "a")} ${same(1, 2)}");
+    io::outln(shout(42));
+
+    mut Fuel tank = 100;
+    io::outln(f"drawn: ${draw_from<uint32, Fuel>(&mut tank)} then ${draw_from<uint32, Fuel>(&mut tank)}");
+    Convoy convoy = new Convoy of (3);
+    mut float64 convoy_power = 0.0;
+    for (Drive d of convoy) { convoy_power += d::power(); }
+    io::outln(f"convoy of ${convoy.size} draws ${convoy_power} kW");
+    Rack<uint32, RACK_SLOTS> rack = new Rack<uint32, RACK_SLOTS> of ([4, 8, 15]);
+    Locker<uint32, RACK_SLOTS> locker = new Locker<uint32, RACK_SLOTS> of ([1, 2, 3, 4]);
+    float64[RACK_SLOTS] draws = [core::power(), engine::power(), convoy_power];
+    io::outln(f"a rack of ${Rack<uint32, RACK_SLOTS>::slots()} holds ${rack::mounted(2)} in its last slot; ${count_of(&draws)} draws total ${total_draw(&draws)} kW");
+    io::outln(f"the locker beside it has ${Locker<uint32, RACK_SLOTS>::shelf_count()} shelves, ${locker.shelves::len()} of them in use");
+    io::outln("");
+}

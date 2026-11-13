@@ -1,0 +1,13 @@
+in io;
+in game.physics as phys;
+in Vector3 as V3, gravity from game.physics;
+
+none main() {
+    V3 v = 3.0, 4.0;
+    io::outln(f"length ${v::length()}");
+
+    phys::Vector3 w = 1.0, 2.0;
+    io::outln(f"w is at ${w.x}, ${w.y}");
+
+    io::outln(f"a second of falling: ${gravity(1.0)}, two: ${phys::gravity(2.0)}");
+}

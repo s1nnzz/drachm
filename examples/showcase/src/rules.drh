@@ -1,0 +1,6 @@
+// Ship-wide constants. Constants can be exported like anything else, and
+// they can size types in the files that import them.
+// A top-level value with a constant initializer is a named constant, and it
+// can size a type. `fixed` makes the compiler check that it is constant.
+out uint32 BAYS = 3;
+out fixed uint32 RACK_SLOTS = BAYS;

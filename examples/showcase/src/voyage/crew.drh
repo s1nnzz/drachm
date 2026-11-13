@@ -1,0 +1,107 @@
+// Part 2 of the voyage, in its own file: the crew.
+in io;
+
+// ---------------------------------------------------------------------------
+// Part 2: structs, constructors, def/fill, operator methods, text, lists, maps
+// ---------------------------------------------------------------------------
+enum Rank { Cadet, Pilot, Captain }
+
+// `def` names a bundle of default field values; `fill ... with` applies it.
+def Rookie of Member { hp = 100; rank = Cadet; missions = 0; }
+def Veteran of Member from Rookie { hp = 180; }
+
+struct Member defaults Rookie {
+public:
+    string name;
+    uint32 hp;
+    Rank rank;
+    mut uint32 missions;
+
+    none fly() { self.missions++; }
+    string label() { return self.name::padRight(8, " ") + " hp " + self.hp::text()->padLeft(3, " "); }
+}
+
+// Fields by position, by name, or built by a constructor with `new ... of`.
+struct Vec2 {
+public:
+    float64 x;
+    float64 y;
+
+    Vec2 +(Vec2 o) { return new Vec2 of (self.x + o.x, self.y + o.y); }
+    Vec2 *(float64 k) { return new Vec2 of (self.x * k, self.y * k); }
+    float64 len2() { return self.x * self.x + self.y * self.y; }
+    static Vec2 origin() { return new Vec2 of (0.0, 0.0); }
+}
+
+Member recruit(string name, bool vet) {
+    Member m;
+    if (vet) {
+        fill m with Veteran { m.name = name; }
+    } else {
+        fill m with defaults { m.name = name; }
+    }
+    return m;
+}
+
+out none run() {
+    io::outln("== Part 2: the crew ==");
+    // A manifest arrives as text; split, lines, chars and trim take it apart.
+    string manifest = "  Ada:vet\nBo:cadet\nCy:vet\nDee:cadet\nEli:vet  ";
+    string[?] rows = manifest::trim()->lines();
+    mut Member[?] crew;
+    for (&string row of rows) {
+        string[?] parts = row::split(":");
+        crew::push(recruit(copy parts[0], parts[1] == "vet"));
+    }
+    string letters = "ABCDE"::chars()->join(" ");
+    io::outln(f"${crew::len()} recruits, first letters: ${letters}");
+
+    // Index (negative counts from the end), change in place, call methods.
+    crew[0].rank = Captain;
+    crew[-1].rank = Pilot;
+    crew[1]::fly();
+    crew[1]::fly();
+    io::outln("member          rank      trips");
+    for (&Member m of crew) {
+        mut string rank = "";
+        match (m.rank) {
+            case Captain { rank = "captain"; }
+            case Pilot { rank = "pilot"; }
+            case Cadet { rank = "cadet"; }
+        }
+        io::outf("% %-9 %\n", m::label(), rank, m.missions);
+    }
+
+    // Operator methods and a plain struct.
+    Vec2 a = 3.0, 4.0;
+    Vec2 b = y: 1.0, x: 1.0;
+    Vec2 c = (a + b) * 2.0;
+    io::outln(f"vector ${c.x}, ${c.y}; length squared ${c::len2()}; origin ${Vec2::origin().x}");
+
+    // Maps: counting words, composite keys, OrderedMap keeps insertion order.
+    mut Map<string, uint32> seen;
+    for (string w of "the ship the crew the stars"::split(" ")) {
+        if (seen[copy w] is empty) { seen[copy w] = 0; }
+        seen[w] += 1;
+    }
+    uint32 the = seen["the"] maybe 0;
+    io::outln(f"'the' appears ${the} times among ${seen::len()} distinct words");
+    mut OrderedMap<string, uint32> fuel = { "alpha": 40, "beta": 25, "gamma": 90 };
+    fuel["beta"] += 10;
+    for (string tank, uint32 litres of fuel) {
+        io::outln(f"  tank ${tank::upper()}: ${litres} L");
+    }
+
+    // Text methods, arrays, list equality, `for` over text.
+    string log = "Day 1: all quiet. Day 2: all quiet. Day 3: comet!";
+    io::outln(f"log has ${log::len()} chars, ${log::count("quiet")} quiet days, first '!' at ${log::find("!")}");
+    io::outln(log::sub(0, 4) + " | " + log::replace("all quiet", "calm")->sub(-12, -1)->upper());
+    uint8[4] rgba = [255, 128, 0, 255];
+    uint32[?] a1 = [1, 2, 3];
+    uint32[?] a2 = [1, 2, 3];
+    io::outln(f"alpha ${rgba[-1]}, lists equal: ${a1 == a2}, contains 2: ${a1::contains(2)}");
+    mut string glyphs = "";
+    for (string ch of "navi") { glyphs = ch::upper() + "." + glyphs; }
+    io::outln(f"reversed initials: ${glyphs}");
+    io::outln("");
+}

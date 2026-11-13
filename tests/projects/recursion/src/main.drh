@@ -1,0 +1,9 @@
+in io;
+in game.pong;
+
+out uint32 ping(uint32 n) {
+    if (n == 0) { return 0; }
+    return pong::pong(n - 1);
+}
+
+none main() { io::outln(ping(3)::text()); }

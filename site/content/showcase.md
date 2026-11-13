@@ -11,10 +11,16 @@ and constructors, enums and `match`, optionals, failures with handlers and
 causes, interfaces and generics, borrows and `lives`, lists, maps, lambdas.
 Each part has a header comment saying what it shows off.
 
-It is a real, tested example: the source is `examples/showcase.drh` and the
-output is `tests/examples/showcase.out`. `cargo test` runs it on both backends and
-checks the output, and this page reads both files when the site is built, so it
-cannot go out of date. Run it yourself with `drachm run examples/showcase.drh`.
+It is a real, tested example, and a project of several files: `examples/showcase/`
+has a `drachm.toml`, `src/main.drh` and a module for each chapter under
+`src/voyage/`, plus `src/rules.drh` for the constants. `main.drh` imports them
+in the different ways a file can (a module, a module under another name, every
+name under a prefix, names bare as well, single items), and `systems.drh`
+reaches `rules.drh` with a file path that climbs a folder. The expected output
+is `examples/showcase/expect.out`. `cargo test` builds the project on both
+backends and checks the output, and this page reads all the files when the site
+is built, so it cannot go out of date. Run it yourself with
+`drachm run examples/showcase`.
 
 The block below can be resized. Drag the divider between the program and its
 output (or press its arrow keys), drag the bar under the panes to make the block

@@ -1,0 +1,35 @@
+// ============================================================================
+//  SHOWCASE: the voyage of the survey ship Drachma
+//
+//  One project, everything the compiler accepts today. The voyage is told in
+//  five chapters, one file each under src/voyage/; this file imports them in
+//  the different ways a file can:
+//
+//      in voyage.units;                          a module under its own name
+//      in voyage.crew as crew;                   a module under a name of your choice
+//      in * from voyage.systems as systems;      every exported name, under systems::
+//      in * from rules as rules also bare;       under rules:: and bare, too
+//      in Order from voyage.orders;              single items
+//
+//  Run it with:
+//      drachm run examples/showcase        (Cranelift)
+//      drachm run examples/showcase -O     (via C; must print the same)
+// ============================================================================
+in io;
+in voyage.units;
+in voyage.crew as crew;
+in * from voyage.systems as systems;
+in * from rules as rules also bare;
+in voyage.mission;
+in voyage.cargo as cargo;
+
+none main() {
+    io::outln(f"the survey ship Drachma: ${BAYS} cargo bays, ${rules::RACK_SLOTS} rack slots");
+    io::outln("");
+    units::run();
+    crew::run();
+    systems::run();
+    mission::run();
+    cargo::run();
+    io::outln("-- end of voyage --");
+}

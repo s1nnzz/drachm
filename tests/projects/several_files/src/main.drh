@@ -1,4 +1,6 @@
 in io;
 in util;
 
-none main() { io::outln("x"); }
+none main() {
+    io::outln(util::greeting("two files"));
+}

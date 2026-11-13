@@ -1,0 +1,5 @@
+in Player from "../game/player.drh";
+
+out uint32 tick(uint32 n) { return n + 1; }
+
+out string who(&Player p) { return copy p.name; }

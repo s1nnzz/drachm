@@ -1,0 +1,14 @@
+// player.drh and scheduler.drh import each other: types may refer across files.
+in "../runtime/scheduler.drh" as scheduler;
+
+def Start of Player { hp = 100; title = "none"; }
+def Hero of Player from Start { hp = 250; }
+
+out struct Player defaults Start {
+    public:
+    string name;
+    uint32 hp;
+    string title;
+}
+
+out uint32 bonus(&Player p) { return scheduler::tick(p.hp); }

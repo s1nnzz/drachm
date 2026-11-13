@@ -45,7 +45,12 @@ pub fn source_name(symbol: &str) -> (bool, String) {
         // An instance of a generic function: `max_Luint32_R` is `max<uint32>`.
         return (false, crate::types::demangle(rest));
     }
-    (false, symbol.strip_prefix("drachm_f_").unwrap_or(symbol).to_string())
+    let plain = symbol.strip_prefix("drachm_f_").unwrap_or(symbol);
+    // A function of another module: `game.physics::gravity`.
+    if plain.contains("_x3a__x3a_") {
+        return (false, crate::types::demangle(plain));
+    }
+    (false, plain.to_string())
 }
 
 const THIS_VALUE: &str = "this value";

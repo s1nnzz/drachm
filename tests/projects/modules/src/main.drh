@@ -1,0 +1,40 @@
+in io;
+in game.shapes;
+in game.physics as phys;
+in Cell from game.store;
+in Player, bonus from game.player;
+in * from game.shapes as sh also bare;
+in * from "runtime/scheduler.drh" as sched;
+
+// A `with` block follows the type: `Circle` is from another file.
+Circle with Named {
+    string name() { return "circle"; }
+}
+
+none main() {
+    Circle c = 2.0;
+    Square sq = 3.0;
+    io::outln(describe(&c));
+    io::outln(sh::describe(&sq));
+    io::outln(shapes::describe(&sq));
+
+    Cell<string> cell = new Cell<string> of ("held");
+    io::outln(cell::get());
+
+    uint32 a = phys::twice(phys::LIMIT);
+    uint8[phys::DOUBLE] raw = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+    io::outln(f"${a} ${raw::len()}");
+    phys::Vector3 up = phys::Vector3::up();
+    io::outln(f"${up.y} ${phys::gravity(2.0)}");
+
+    Player p;
+    fill p with Hero { p.name = "Zed"; }
+    io::outln(f"${p.name} ${p.hp} ${bonus(&p)} ${sched::tick(1)} ${sched::who(&p)}");
+
+    uint32 ok = phys::check(5) maybe 0;
+    uint32 big = phys::check(50) fails with (phys::PhysicsError e) => {
+        io::outln("caught");
+        maybe 99;
+    };
+    io::outln(f"${ok} ${big}");
+}

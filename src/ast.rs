@@ -5,7 +5,7 @@ use crate::consts::Const;
 use crate::diag::Span;
 use crate::types::Type;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Program {
     pub imports: Vec<Import>,
     /// What the file shows to other files: `out A, B as C;` lists and `out`
@@ -219,6 +219,12 @@ pub struct Import {
     pub glob: bool,
     /// `in path as name` (or `in * from path as name`).
     pub alias: Option<(String, Span)>,
+    /// `in * from path as name also bare;`: the names come bare too.
+    pub also_bare: bool,
+    /// The module is named by a file path in a string, relative to the
+    /// importing file (`"../runtime/scheduler.drh"`). `path` then holds the
+    /// file's stem alone, the module's default name.
+    pub file: Option<String>,
     pub span: Span,
 }
 

@@ -30,6 +30,7 @@ pub fn parse(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>) -> Program {
         let start = p.pos;
         // `out` before a declaration (`out struct Vector3 { }`) exports it.
         let out_span = if p.peek() == &Tok::Kw("out") && !p.at_export_list() { Some(p.bump().span) } else { None };
+        let consts_before = program.consts.len();
         let before = [
             program.funcs.len(),
             program.structs.len(),
@@ -64,6 +65,7 @@ pub fn parse(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>) -> Program {
         };
         if let (Some(out), Ok(())) = (out_span, &item) {
             let named = match before {
+                _ if program.consts.len() > consts_before && program.consts.last().is_some_and(|c| c.value.is_some()) => program.consts.last().map(|x| (x.name.clone(), x.name_span)),
                 [f, ..] if program.funcs.len() > f => program.funcs.last().map(|x| (x.name.clone(), x.name_span)),
                 [_, s, ..] if program.structs.len() > s => program.structs.last().map(|x| (x.name.clone(), x.name_span)),
                 [_, _, e, ..] if program.enums.len() > e => program.enums.last().map(|x| (x.name.clone(), x.name_span)),
@@ -172,6 +174,29 @@ impl Parser<'_> {
         }
     }
 
+    /// A name that may be qualified by modules: `Vector3`, `phys::Vector3`.
+    /// The parts are joined with `::` in one string; the resolver
+    /// (`resolve.rs`) turns it into the name the checker uses.
+    fn qual_ident(&mut self, what: &str) -> Parsed<(String, Span)> {
+        let (mut name, mut span) = self.ident(what)?;
+        while self.peek() == &Tok::Sym("::") && matches!(self.peek_at(1), Tok::Ident(_)) {
+            self.bump();
+            let (part, part_span) = self.ident(what)?;
+            name = format!("{name}::{part}");
+            span = span.to(part_span);
+        }
+        Ok((name, span))
+    }
+
+    /// The token offset after the name at `n` and any `::name` parts after it.
+    fn qual_end(&self, n: usize) -> usize {
+        let mut end = n + 1;
+        while self.peek_at(end) == &Tok::Sym("::") && matches!(self.peek_at(end + 1), Tok::Ident(_)) {
+            end += 2;
+        }
+        end
+    }
+
     /// A type: `&`, `&mut` and `*` marks, then a name or the keyword `none`.
     fn ty(&mut self) -> Parsed<TypeName> {
         // `maybe &T`: an optional that holds a borrow (the same type as `Optional<&T>`).
@@ -244,7 +269,13 @@ impl Parser<'_> {
             let unit = self.type_unit()?;
             return Ok(TypeName { mods, unit, ..TypeName::plain("none", span) });
         }
-        let (name, span) = if self.peek() == &Tok::Kw("Self") { ("Self".to_string(), self.bump().span) } else { self.ident("a type")? };
+        let (name, span) = if self.peek() == &Tok::Kw("Self") {
+            ("Self".to_string(), self.bump().span)
+        } else if matches!(self.peek(), Tok::Ident(w) if is_number_name(w)) {
+            self.ident("a type")?
+        } else {
+            self.qual_ident("a type")?
+        };
         // A `<` after a number type opens a unit (`float64<m/s>`); after any
         // other name it opens type arguments (`Map<string, uint32>`).
         let (mut unit, mut args) = (None, Vec::new());
@@ -420,6 +451,13 @@ impl Parser<'_> {
         while self.dim_look(0) {
             let open = self.bump().span;
             let dim = match self.peek().clone() {
+                // `[module::SIZE]`
+                Tok::Ident(module) if self.peek_at(1) == &Tok::Sym("::") && matches!(self.peek_at(2), Tok::Ident(_)) && self.peek_at(3) == &Tok::Sym("]") => {
+                    let first = self.bump().span;
+                    self.bump();
+                    let (name, last) = self.ident("a constant")?;
+                    Dim::Param(types::intern(&format!("{module}::{name}")), first.to(last))
+                }
                 Tok::Ident(name) if self.peek_at(1) == &Tok::Sym("]") => {
                     let at = self.bump().span;
                     Dim::Param(types::intern(&name), at)
@@ -460,6 +498,7 @@ impl Parser<'_> {
         }
         let close = match self.peek_at(n + 1) {
             Tok::Sym("?") => n + 2,
+            Tok::Ident(_) if self.peek_at(n + 2) == &Tok::Sym("::") && matches!(self.peek_at(n + 3), Tok::Ident(_)) && self.peek_at(n + 4) == &Tok::Sym("]") => n + 4,
             Tok::Num(NumLit { value: Const::Int(_), suffix: None, .. }, None) if self.peek_at(n + 2) == &Tok::Sym("]") => n + 2,
             Tok::Ident(_) | Tok::Num(NumLit { value: Const::Int(_), suffix: None, .. }, None) => self.dim_param_end(n + 1)?,
             _ => return None,
@@ -661,7 +700,7 @@ impl Parser<'_> {
         match self.name_look(n, &mut look) {
             Some(end) if !look.half => end,
             _ => {
-                let mut end = n + 1;
+                let mut end = self.qual_end(n);
                 // Every `?` counts, so that `T??` reaches `ty` and is E0901 there.
                 while self.peek_at(end) == &Tok::Sym("?") {
                     end += 1;
@@ -674,7 +713,7 @@ impl Parser<'_> {
     /// Lookahead for the type whose name is at token offset `n`: the offset
     /// after it, if what follows the name reads as a unit part or argument list.
     fn name_look(&self, n: usize, look: &mut Look) -> Option<usize> {
-        let mut end = n + 1;
+        let mut end = self.qual_end(n);
         if self.peek_at(end) == &Tok::Sym("<") {
             let number = matches!(self.peek_at(n), Tok::Ident(w) if is_number_name(w));
             if number {
@@ -853,6 +892,16 @@ impl Parser<'_> {
                 self.at_export_list()
                     || matches!(self.peek_at(1), Tok::Kw("struct" | "enum" | "failure" | "interface"))
                     || {
+                        let mut from = 1;
+                        if matches!(self.peek_at(from), Tok::Ident(w) if w == "fixed") && !matches!(self.peek_at(from + 1), Tok::Sym("=" | ";" | "(" | "<")) {
+                            from += 1;
+                        }
+                        if self.peek_at(from) == &Tok::Kw("mut") {
+                            from += 1;
+                        }
+                        self.type_end(from).is_some_and(|n| matches!(self.peek_at(n), Tok::Ident(_)) && matches!(self.peek_at(n + 1), Tok::Sym("=" | ";")))
+                    }
+                    || {
                         let from = 1 + (self.peek_at(1) == &Tok::Kw("unsafe")) as usize;
                         match self.type_end(from) {
                             Some(n) => matches!(self.peek_at(n), Tok::Ident(_)) && {
@@ -976,6 +1025,31 @@ impl Parser<'_> {
         Ok((path, span, false))
     }
 
+    /// A module named as a path or as a string file path (`"../x/y.drh"`).
+    /// Returns the path (a file path gives its stem), its span, whether it was
+    /// written in words, and the file path.
+    fn module_ref(&mut self) -> Parsed<(Vec<String>, Span, bool, Option<String>)> {
+        if let Tok::Str(pieces) = self.peek().clone() {
+            let span = self.bump().span;
+            let mut text = String::new();
+            for p in &pieces {
+                match p {
+                    StrPiece::Raw(t, _) => text.push_str(t),
+                    _ => return Err(Diagnostic::at(&codes::E0003, span, "a module file path is plain text").help("write the path without escapes or `${}`: `in \"../runtime/scheduler.drh\";`")),
+                }
+            }
+            let stem = text.rsplit('/').next().unwrap_or("").strip_suffix(".drh").unwrap_or("").to_string();
+            if stem.is_empty() || !stem.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') || stem.starts_with(|c: char| c.is_ascii_digit()) {
+                return Err(Diagnostic::at(&codes::E0230, span, format!("`{text}` is not a module file path"))
+                    .note("needs a file name ending in `.drh`")
+                    .help("a module file has a plain name (letters, digits, `_`): `in \"../runtime/scheduler.drh\";`"));
+            }
+            return Ok((vec![stem], span, false, Some(text)));
+        }
+        let (path, span, word) = self.module_path()?;
+        Ok((path, span, word, None))
+    }
+
     /// `in` items; see `ast::Import` for the forms.
     fn import(&mut self) -> Parsed<Import> {
         let start = self.bump().span;
@@ -984,10 +1058,25 @@ impl Parser<'_> {
             if !self.eat_kw("from") {
                 return Err(self.unexpected("`from` after `*`").help(help));
             }
-            let (path, path_span, word_form) = self.module_path()?;
+            let (path, path_span, word_form, file) = self.module_ref()?;
+            let alias = self.alias()?;
+            let mut also_bare = false;
+            if matches!(self.peek(), Tok::Ident(w) if w == "also") && matches!(self.peek_at(1), Tok::Ident(w) if w == "bare") {
+                let at = self.bump().span.to(self.bump().span);
+                if alias.is_none() {
+                    return Err(Diagnostic::at(&codes::E0003, at, "`also bare` needs a name")
+                        .help("without `as`, `in * from m;` already brings the names bare: `in * from game.audio as snd also bare;`"));
+                }
+                also_bare = true;
+            }
+            self.expect(";")?;
+            return Ok(Import { path, path_span, word_form, items: Vec::new(), glob: true, alias, also_bare, file, span: start.to(self.prev_span()) });
+        }
+        if matches!(self.peek(), Tok::Str(_)) {
+            let (path, path_span, word_form, file) = self.module_ref()?;
             let alias = self.alias()?;
             self.expect(";")?;
-            return Ok(Import { path, path_span, word_form, items: Vec::new(), glob: true, alias, span: start.to(self.prev_span()) });
+            return Ok(Import { path, path_span, word_form, items: Vec::new(), glob: false, alias, also_bare: false, file, span: start.to(self.prev_span()) });
         }
         // The first names, as dotted paths for now: `in a.b as c;` is a module,
         // `in a as b, c from m;` is a list of items. `from` tells them apart.
@@ -1010,14 +1099,14 @@ impl Parser<'_> {
                 let full = alias.as_ref().map_or(span, |a| span.to(a.1));
                 items.push(ImportItem { name: path.into_iter().next().unwrap(), alias: alias.map(|a| a.0), span: full });
             }
-            let (path, path_span, word_form) = self.module_path()?;
+            let (path, path_span, word_form, file) = self.module_ref()?;
             if self.peek() == &Tok::Kw("as") {
                 return Err(self
                     .unexpected("`;`")
                     .help("rename an item next to its name: `in Vector3 as V3 from physics;`, or import the module with its own name: `in physics as phys;`"));
             }
             self.expect(";")?;
-            return Ok(Import { path, path_span, word_form, items, glob: false, alias: None, span: start.to(self.prev_span()) });
+            return Ok(Import { path, path_span, word_form, items, glob: false, alias: None, also_bare: false, file, span: start.to(self.prev_span()) });
         }
         if entries.len() != 1 {
             return Err(self.unexpected("`from` after the imported names").help(help));
@@ -1037,7 +1126,7 @@ impl Parser<'_> {
         }
         let alias = if alias.is_none() { self.alias()? } else { alias };
         self.expect(";")?;
-        Ok(Import { path, path_span, word_form, items: Vec::new(), glob: false, alias, span: start.to(self.prev_span()) })
+        Ok(Import { path, path_span, word_form, items: Vec::new(), glob: false, alias, also_bare: false, file: None, span: start.to(self.prev_span()) })
     }
 
     /// `as name`, if written.
@@ -1148,7 +1237,10 @@ impl Parser<'_> {
                             .label(first, "first written here"));
                     }
                     let at = self.bump().span;
-                    fails = self.name_list("a failure type name after `fails`")?;
+                    fails = vec![self.qual_ident("a failure type name after `fails`")?];
+                    while self.eat(",") {
+                        fails.push(self.qual_ident("a failure type name after `fails`")?);
+                    }
                     fails_span = Some(at.to(self.prev_span()));
                 }
                 _ => break,
@@ -1485,7 +1577,7 @@ impl Parser<'_> {
         let mut of_args = Vec::new();
         if self.peek() == &Tok::Kw("of") {
             self.bump();
-            let (n, sp) = self.ident("a struct name after `of`")?;
+            let (n, sp) = self.qual_ident("a struct name after `of`")?;
             if self.peek() == &Tok::Sym("<") && self.type_start_at(1) {
                 of_args = self.type_args()?;
                 self.generics.push(TypeName { args: of_args.clone(), ..TypeName::plain(n.clone(), sp) });
@@ -1495,7 +1587,7 @@ impl Parser<'_> {
         let mut from = None;
         if self.peek() == &Tok::Kw("from") {
             self.bump();
-            from = Some(self.ident("the name of the def to extend after `from`")?);
+            from = Some(self.qual_ident("the name of the def to extend after `from`")?);
         }
         self.expect("{")?;
         let mut assigns = Vec::new();
@@ -1531,7 +1623,7 @@ impl Parser<'_> {
                         return Err(Diagnostic::at(&codes::E0003, self.span(), "the default is named twice").label(first, "first named here"));
                     }
                     self.bump();
-                    defaults = Some(self.ident("the name of the default def after `defaults`")?);
+                    defaults = Some(self.qual_ident("the name of the default def after `defaults`")?);
                 }
                 Tok::Kw("with") => {
                     if let Some(first) = with.first() {
@@ -1844,7 +1936,7 @@ impl Parser<'_> {
             if self.peek() == &Tok::Ident("defaults".to_string()) {
                 Some(FillWith::Defaults(self.bump().span))
             } else {
-                let (n, sp) = self.ident("`defaults` or the name of a def after `with`")?;
+                let (n, sp) = self.qual_ident("`defaults` or the name of a def after `with`")?;
                 Some(FillWith::Named(n, sp))
             }
         } else {
@@ -2084,8 +2176,7 @@ impl Parser<'_> {
                 return Ok(Some(Pattern::Bind { mode: mode.unwrap_or(BindMode::Plain), ty, name, name_span }));
             }
         }
-        let qualified = matches!(self.peek(), Tok::Ident(_)) && self.peek_at(1) == &Tok::Sym("::") && matches!(self.peek_at(2), Tok::Ident(_));
-        let k = if qualified { 3 } else { 1 };
+        let k = if matches!(self.peek(), Tok::Ident(_)) { self.qual_end(0) } else { 1 };
         if !matches!(self.peek(), Tok::Ident(_)) || self.peek_at(k) != &Tok::Sym("(") {
             return Ok(None);
         }
@@ -2096,11 +2187,14 @@ impl Parser<'_> {
     fn variant_pattern(&mut self) -> Parsed<Pattern> {
         let start = self.span();
         let mut enum_name = None;
-        let (mut name, mut name_span) = self.ident("a variant name")?;
-        if self.peek() == &Tok::Sym("::") && matches!(self.peek_at(1), Tok::Ident(_)) {
-            self.bump();
-            enum_name = Some((name, name_span));
-            (name, name_span) = self.ident("a variant name")?;
+        let (mut name, mut name_span) = self.qual_ident("a variant name")?;
+        // `Enum::Variant` or `module::Enum::Variant`: the last part is the variant.
+        if let Some((owner, last)) = name.rsplit_once("::") {
+            let owner_span = Span::new(name_span.start, name_span.end - last.len() - 2);
+            let variant_span = Span::new(name_span.end - last.len(), name_span.end);
+            enum_name = Some((owner.to_string(), owner_span));
+            name = last.to_string();
+            name_span = variant_span;
         }
         let mut args = Vec::new();
         let parens = self.eat("(");
@@ -2491,9 +2585,14 @@ impl Parser<'_> {
                 && targs.is_empty()
                 && unit.is_none()
                 && self.peek() != &Tok::Sym("(")
-                && let ExprKind::Var(owner) = &e.kind
+                && let Some(owner) = match &e.kind {
+                    ExprKind::Var(owner) => Some(owner.clone()),
+                    // `module::Enum::Variant`: the module and the enum are the owner.
+                    ExprKind::Path { owner, name, .. } => Some(format!("{owner}::{name}")),
+                    _ => None,
+                }
             {
-                let (owner, owner_span) = (owner.clone(), e.span);
+                let owner_span = e.span;
                 let span = e.span.to(name_span);
                 e = Expr { kind: ExprKind::Path { owner, owner_span, name, name_span }, span, paren: false };
                 calls = 0;
@@ -2552,7 +2651,7 @@ impl Parser<'_> {
                 } else if otherwise {
                     return Err(self.unexpected("`any`").help("write `otherwise (any e) => { ... }`"));
                 } else {
-                    let (name, span) = self.ident("a failure type")?;
+                    let (name, span) = self.qual_ident("a failure type")?;
                     HandlerKind::Type(name, span)
                 };
                 let bind = self.ident("a name for the failure")?;
@@ -2735,7 +2834,7 @@ impl Parser<'_> {
             Tok::Kw("false") => ExprKind::Bool(false),
             Tok::Kw("none") => ExprKind::NoneValue,
             Tok::Kw("new") => {
-                let (name, name_span) = self.ident("a struct name after `new`")?;
+                let (name, name_span) = self.qual_ident("a struct name after `new`")?;
                 let targs = if self.peek() == &Tok::Sym("<") && self.type_start_at(1) { self.type_args()? } else { Vec::new() };
                 if !targs.is_empty() {
                     self.generics.push(TypeName { args: targs.clone(), ..TypeName::plain(name.clone(), name_span) });
@@ -3576,6 +3675,30 @@ mod tests {
         let g = import_of("in * from game.audio;");
         assert!(g.glob && g.alias.is_none() && g.binding().is_none());
         assert_eq!(import_of("in * from game.audio as audio;").binding(), Some("audio"));
+    }
+
+    #[test]
+    fn import_file_paths_and_also_bare() {
+        let i = import_of("in \"../runtime/scheduler.drh\";");
+        assert_eq!((i.path.as_slice(), i.file.as_deref(), i.binding()), (&["scheduler".to_string()][..], Some("../runtime/scheduler.drh"), Some("scheduler")));
+        let g = import_of("in * from \"../runtime/scheduler.drh\" as sched;");
+        assert!(g.glob && g.file.is_some() && !g.also_bare && g.binding() == Some("sched"));
+        let g = import_of("in * from game.audio as snd also bare;");
+        assert!(g.glob && g.also_bare && g.binding() == Some("snd"));
+        let i = import_of("in tick from \"../runtime/scheduler.drh\";");
+        assert_eq!((i.items.len(), i.file.as_deref()), (1, Some("../runtime/scheduler.drh")));
+        assert!(!errors(&parse_src("in * from game.audio also bare;").1).is_empty());
+        assert!(!errors(&parse_src("in \"nothing\";").1).is_empty());
+    }
+
+    #[test]
+    fn qualified_names() {
+        assert_eq!(let_type("phys::Vector3 v = 1, 2;"), "phys::Vector3");
+        assert_eq!(let_type("phys::Stack<uint32> s;"), "phys::Stack<uint32>");
+        let (p, d) = parse_src("none f(a::B x) fails m::E, F { }\nout uint32 SIZE = 8;\nout fixed uint32 N = 2;");
+        assert!(d.is_empty(), "{:?}", errors(&d));
+        assert_eq!(p.funcs[0].fails.iter().map(|f| f.0.as_str()).collect::<Vec<_>>(), ["m::E", "F"]);
+        assert_eq!(p.exports.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(), ["SIZE", "N"]);
     }
 
     #[test]

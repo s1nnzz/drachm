@@ -1,0 +1,2 @@
+out string show() { return "showing a picture"; }
+out uint32 LEVEL = 9;

@@ -637,7 +637,7 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
         if !f.tparams.is_empty() {
             continue;
         }
-        let checked = check_body(&mut g, src, diags, f, None, format!("drachm_f_{}", f.name));
+        let checked = check_body(&mut g, src, diags, f, None, format!("drachm_f_{}", types::mangle(&f.name)));
         if let Some(id) = *id {
             emit(&mut funcs, id, checked);
         }

@@ -1,0 +1,16 @@
+in io;
+in game.audio;
+in * from game.audio;
+in * from game.video;
+
+// Wins over the import `audio`, with a warning.
+string audio() { return "my audio"; }
+
+// Wins over `volume` from both imports.
+uint32 volume() { return 7; }
+
+none main() {
+    io::outln(play());
+    io::outln(audio());
+    io::outln(volume()::text());
+}
