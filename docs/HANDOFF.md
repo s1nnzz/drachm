@@ -14,14 +14,20 @@ For a new session with no memory of earlier conversations. Read this, then
 - Step 6 leftovers merged (2026-11-13): `not same as`, `same as` on
   maps/structs is E0633, `T as unit`, `take xs[i] leaving v`, ranges `by`.
   Value (length) parameters (Q12) are built (`Type::Val` is the stand-in for
-  a value argument; see `typeck/generics.rs` `value_targ`). Open: calculations on
-  a value parameter inside a type (E0901).
-- **Owner questions pending** (ask in the next batch): what `T as unit` should
-  add, since a type parameter can never share a unit's name (today it equals
-  plain `T` inside `<...>`); a zero or negative `by` step at run time (literal
-  ones are E0901; a runtime 0 loops forever); float ranges with `by` (SPEC
-  says they must give `by`, not built); my reading that `take xs[i] leaving v`
-  counts negative indexes from the end.
+  a value argument; see `typeck/generics.rs` `value_targ`).
+- **Leftovers of 2026-11-13, built** (owner answers "Step 6 leftover
+  follow-ups"): the SI unit is `tesla`; a type parameter named like a unit is
+  W0618, and `X as unit` names the unit anywhere; `by` takes a negative step
+  (counts down), a run-time zero step stops with `range step is zero` (exit
+  101), a literal zero is E0115; float ranges with `by` (value k is
+  `start + k * step`).
+- **To build next (decided 2026-11-13, owner-answers "Step 7 batch D ... Q12
+  follow-ups")**: named constants (non-`mut` top-level with a constant value
+  usable in types; optional `fixed`), constant arithmetic on value parameters
+  in types (`T[N + 1]`, E0901 today).
+- **Owner questions pending**: `10..0 by -2` gives 10..2 in my question's
+  preview but the inclusive end gives 0 too (built: 0 included); on an
+  unsigned loop a literal `by -2` is only W0102: hard error instead?
 - Still undesigned: `exclusive &Shape`, `unit U with X`. Not built: map-walk
   views, interface methods with their own type parameters, borrowing a generic
   interface.

@@ -70,7 +70,7 @@ pub(super) fn declare_units(g: &mut Globals, decls: &[ast::UnitDecl], diags: &mu
     let none = HashMap::new();
     let mut ev = Eval { env: g.units.get_mut(), decls: &by_name, params: &none, stack: Vec::new(), diags, at: Span::new(0, 0) };
     for d in decls {
-        ev.name(&d.name, d.name_span);
+        ev.name(&d.name, d.name_span, false);
     }
 }
 
@@ -89,9 +89,19 @@ struct Eval<'a, 'd> {
 
 impl<'d> Eval<'_, 'd> {
     /// The unit called `name`, declaring it first if the file declares it.
-    fn name(&mut self, name: &str, at: Span) -> Option<&'static Unit> {
-        if let Some(u) = self.params.get(name).and_then(|t| t.as_unit_arg()) {
-            return Some(u);
+    /// `explicit` is `name as unit`: it always means the unit, never a parameter.
+    fn name(&mut self, name: &str, at: Span, explicit: bool) -> Option<&'static Unit> {
+        if !explicit && let Some(t) = self.params.get(name) {
+            if let Some(u) = t.as_unit_arg() {
+                return Some(u);
+            }
+            // A type parameter with a unit's name is the type inside its scope.
+            self.diags.push(
+                Diagnostic::at(&codes::E0402, at, format!("`{name}` is a type parameter here, so it is not a unit"))
+                    .note("inside its scope a type parameter's name is the type")
+                    .help(format!("write `{name} as unit` for the unit `{name}`")),
+            );
+            return None;
         }
         if let Some(u) = self.env.table.lookup(name) {
             return Some(u);
@@ -169,7 +179,7 @@ impl<'d> Eval<'_, 'd> {
         // of the defining expression, so the offsets add up (2.3).
         let mut offset = &base.offset / &factor;
         if let Some((c, span)) = &decl.offset {
-            if !matches!(def.expr, Some(ast::UnitExpr::Name(..))) {
+            if !matches!(def.expr, Some(ast::UnitExpr::Name(..) | ast::UnitExpr::Explicit(..))) {
                 self.offset_error(*span);
                 return None;
             }
@@ -192,7 +202,8 @@ impl<'d> Eval<'_, 'd> {
     /// A unit expression, as written.
     fn expr(&mut self, e: &'d ast::UnitExpr) -> Option<&'static Unit> {
         match e {
-            ast::UnitExpr::Name(n, span) => self.name(n, *span),
+            ast::UnitExpr::Name(n, span) => self.name(n, *span, false),
+            ast::UnitExpr::Explicit(n, span) => self.name(n, *span, true),
             ast::UnitExpr::One(_) => Some(self.env.table.dimensionless()),
             ast::UnitExpr::Mul(a, b) => {
                 let (a, b) = self.operands(a, b)?;
@@ -1311,7 +1322,7 @@ fn visit_stmt(s: &mut hir::Stmt, f: &mut dyn FnMut(&mut Type)) {
             }
         }
         hir::Stmt::Reraise(_) => {}
-        hir::Stmt::Jump(_) | hir::Stmt::Decl(_) | hir::Stmt::Destroy(_) | hir::Stmt::Forget(_) | hir::Stmt::Check { .. } => {}
+        hir::Stmt::Jump(_) | hir::Stmt::Decl(_) | hir::Stmt::Destroy(_) | hir::Stmt::Forget(_) | hir::Stmt::Check { .. } | hir::Stmt::Stop(_) => {}
     }
 }
 

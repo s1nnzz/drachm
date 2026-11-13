@@ -34,10 +34,25 @@ the first part may declare a variable that exists only inside the loop.
 times if `a` is above `b`. The loop variable is not `mut` unless you say so, and
 changing it does not change the range.
 `by n` after the range sets the step: `for (uint32 i of 0..10 by 3)` runs for
-0, 3, 6 and 9. The step is a whole number of the loop's type; a literal zero or
-negative step is E0901 for now.
+0, 3, 6 and 9. The step is a value of the loop's type, and it stops at the last
+value not past the end.
+
+A negative step counts down: `for (sint32 i of 10..0 by -2)` runs for 10, 8, 6,
+4, 2 and 0. A step that points away from the end gives an empty loop, so
+`0..10 by -2` and `10..0 by 2` run zero times. An unsigned loop has no negative
+step, so its direction comes from the step alone. A step written as a literal
+zero is E0115. A step that is zero only when the program runs stops it at that
+point with the run-time error `range step is zero` (exit code 101).
+
+A float range needs its `by`. Value `k` is `start + k * step`, computed from a
+whole-number counter, so the values do not drift. The loop stops at the last
+value not past the end: `0.0..1.0 by 0.25` runs for 0.0, 0.25, 0.5, 0.75 and 1.0,
+and `0.0..1.0 by 0.3` runs for 0.0, 0.3, 0.6 and then the third step, which is
+0.9 up to float rounding. Without `by` a float range is E0101.
 
 <!-- example: loops -->
+
+<!-- example: range-by-sign -->
 
 ### Looping over characters
 

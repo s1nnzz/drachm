@@ -517,12 +517,14 @@ impl Parser<'_> {
         match self.peek().clone() {
             Tok::Ident(name) => {
                 let span = self.bump().span;
-                let base = UnitExpr::Name(name, span);
-                // `T as unit`: the unit named `T`, written out (the same unit as `T`).
-                if self.as_unit_at(0) {
+                // `T as unit`: the unit named `T`, even where a type parameter `T` is in scope.
+                let base = if self.as_unit_at(0) {
                     self.bump();
                     self.bump();
-                }
+                    UnitExpr::Explicit(name, span)
+                } else {
+                    UnitExpr::Name(name, span)
+                };
                 if !self.eat("^") {
                     return Ok(base);
                 }
@@ -2411,7 +2413,10 @@ impl Parser<'_> {
                 while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
                     i += 1;
                 }
-                Tok::Ident(text[from..i].to_string())
+                match &text[from..i] {
+                    "as" => Tok::Kw("as"),
+                    word => Tok::Ident(word.to_string()),
+                }
             } else if c.is_ascii_digit() {
                 while i < bytes.len() && bytes[i].is_ascii_digit() {
                     i += 1;
@@ -3142,6 +3147,7 @@ mod tests {
     fn show(e: &UnitExpr) -> String {
         match e {
             UnitExpr::Name(n, _) => n.clone(),
+            UnitExpr::Explicit(n, _) => format!("{n} as unit"),
             UnitExpr::One(_) => "1".into(),
             UnitExpr::Mul(a, b) => format!("({}*{})", show(a), show(b)),
             UnitExpr::Div(a, b) => format!("({}/{})", show(a), show(b)),

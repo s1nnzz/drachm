@@ -126,9 +126,19 @@ match (x) {
 - `by` sets a range loop's step: `0..10 by 3` is 0, 3, 6, 9. The loop stops at
   the last value not past the end; it never clamps to the end. Integer ranges
   may omit `by` (step 1); float ranges must give it.
-  Built for integer ranges (the step is a value of the loop's type, overflow wraps).
-  A literal zero or negative step is E0901: the SPEC does not say what it does, and
-  a zero step given at run time is not checked yet (open question).
+  Built for integer and float ranges (the step is a value of the loop's type; integer
+  steps wrap on overflow).
+  - Sign: a negative step counts down (`10..0 by -2`); a step pointing away from the
+    end gives an empty loop. Unsigned loops have no negative step, so the direction
+    comes from the step alone. Built (owner, 2026-11-13); open: a literal `by -2`
+    on an unsigned loop is only W0102 (wraps), not an error. Open: the owner's note
+    gives `10..0 by -2` as 10, 8, 6, 4, 2, but the inclusive end and "the last value
+    not past the end" give 10, 8, 6, 4, 2, 0; the build follows the rule (0 included).
+  - A literal zero step is E0115 (compile error). A step that is zero at run time
+    stops the program with `range step is zero` (exit 101), like an out-of-range
+    index. Built.
+  - Floats: value k is `start + k * step` (whole-number k, no drift); the loop stops
+    at the last value not past the end. A float range without `by` is E0101. Built.
 - `match` arms are `case` blocks with no fallthrough. A missing case is a
   **warning** (config can make warnings errors).
 - Patterns: values, `case 1, 2`, inclusive ranges `case 13..19`, strings (a
@@ -458,16 +468,19 @@ float64<m/s> speed = dist / time;     // dist + time is a compile error
     comparison. Unit names are ASCII; prefixes are not automatic (`km` is its
     own declaration).
   - `in si;` loads the SI set as ordinary declarations: base `m s kg A K mol cd`,
-    `rad`; derived `N Pa J W C V F ohm S Wb T H Hz`; `g = 0.001 kg` (kg is the
+    `rad`; derived `N Pa J W C V F ohm S Wb tesla H Hz`; `g = 0.001 kg` (kg is the
     base mass unit), `mm cm km mg ms us ns min h kHz MHz GHz kJ kW kN`, and the
     point `degC`. Without it nothing is predeclared (E0402). A file that declares
     a name the SI set has is E0403.
-  - `T as unit` inside the `<...>` of a number type names the unit `T` explicitly
-    (`float64<T as unit>` is tesla; the literal `0.5<T>` is the same). A type
-    parameter cannot be named like a unit with `in si;` (E0605, which suggests a
-    free letter). Built, with the reading that a type parameter never shadows a
-    unit name in `<...>`; so the explicit form currently means the same as the
-    plain name (owner to confirm whether it should do more).
+  - The SI unit for magnetic flux density is `tesla` (owner, 2026-11-13: it was `T`,
+    which clashed with type parameters). `float64<tesla>`, `0.5<tesla>`.
+  - `X as unit` names the unit X out in full, anywhere a unit goes
+    (`float64<tesla as unit>`, `0.5<tesla as unit>`). Built (2026-11-13, owner).
+  - A type parameter named like a unit (`K` with `in si;`) is a warning, W0618,
+    not an error. Inside the parameter's scope the plain name is the type:
+    `float64<K>` there is E0402 ("a type parameter here, so it is not a unit"),
+    and `float64<K as unit>` is the unit. Built. A struct, enum or built-in type
+    name as a parameter is still E0605.
   - Unit into a plain slot strips to the base amount: `uint8 s = 3<m>;` is 3,
     `uint32 t = 3<km>;` is 3000. Whole numbers truncate toward zero when a unit
     shrinks (W0102 is the implementer's reading).

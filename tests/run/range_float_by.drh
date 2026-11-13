@@ -1,0 +1,23 @@
+in io;
+
+// Float ranges: value k is start + k * step, stopping at the last value not past
+// the end. Nothing drifts: the 0.3 steps are computed from the counter each time.
+unit m;
+
+none main() {
+    for (float64 x of 0.0..1.0 by 0.25) { io::outln(x::text()); }
+    io::outln("--");
+    for (float64 x of 1.0..0.0 by -0.25) { io::outln(x::text()); }
+    io::outln("--");
+    for (float64 x of 0.0..1.0 by 0.3) { io::outln(x::text()); }
+    io::outln("--");
+    for (float64 x of 0.0..1.0 by 2.0) { io::outln(x::text()); }
+    io::outln("--");
+    for (float64 x of 1.0..0.0 by 0.5) { io::outln("never"); }
+    io::outln("--");
+    // A step known only at run time, and a unit on the values.
+    float64 step = -0.5;
+    for (float64 x of 1.0..0.0 by step) { io::outln(x::text()); }
+    for (float64<m> d of 0.0<m>..1.0<m> by 0.5<m>) { io::outln(d::text() + " " + d::unitText()); }
+    io::outln("done");
+}

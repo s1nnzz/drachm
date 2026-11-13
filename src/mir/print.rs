@@ -105,6 +105,7 @@ fn terminator(p: &Program, hir: &hir::Program, k: &TerminatorKind) -> String {
                 Callee::MapOp(f, ty) => format!("Map{f:?}<{ty}>"),
                 Callee::IndexPanic { unsigned: true } => "IndexPanicU".to_string(),
                 Callee::IndexPanic { unsigned: false } => "IndexPanic".to_string(),
+                Callee::Stop(kind) => format!("Stop{kind:?}"),
             };
             let args: Vec<String> = args.iter().map(|a| operand(p, &a.op)).collect();
             let call = format!("call {name}({}) -> {target}", args.join(", "));

@@ -142,6 +142,13 @@ codes! {
         "A value was shifted by a constant amount that is negative or not\n\
          smaller than its width. The amount wraps around the width: a `uint32`\n\
          shifted by 40 is shifted by 8.";
+    E0115: "a range step of zero",
+        "A range loop's `by` step is written as a constant zero, so the loop\n\
+         would never move on. It is rejected at compile time. A step that is\n\
+         zero only when the program runs stops the program at that point with\n\
+         the run-time error `range step is zero` (exit 101).\n\n\
+         \x20   for (uint32 i of 0..10 by 0) { }    // E0115\n\
+         \x20   for (uint32 i of 0..10 by n) { }    // a zero n stops the program";
     E0107: "constant division by zero",
         "A whole-number division or remainder has a constant zero on the right.\n\
          It would always panic, so it is rejected at compile time.";
@@ -437,7 +444,9 @@ codes! {
     E0402: "unknown unit",
         "A unit was used that is not declared. Declare it with `unit NAME;` for a\n\
          new base unit, or `unit NAME = ...;` to give it a size in other units,\n\
-         such as `unit km = 1000 m;`.";
+         such as `unit km = 1000 m;`. Inside a generic, a type parameter named\n\
+         like a unit is the type, so a plain name there is not a unit: write\n\
+         `T as unit` for the unit (W0618).";
     E0403: "bad unit declaration",
         "A `unit` declaration is not valid: a name declared twice, a unit defined\n\
          in terms of itself, a factor that is not a number greater than zero, an\n\
@@ -681,7 +690,8 @@ codes! {
          generic type written alone, has to say what its type parameters are.";
     E0605: "bad type parameter list",
         "A type parameter is declared twice in the same list, or has the name of\n\
-         a struct, enum or unit. A type parameter takes no other name's place.";
+         a struct, enum or type (`Point`, `uint32`). A type parameter takes no\n\
+         other name's place. A unit's name is only a warning (W0618).";
     E0608: "a generic keeps instantiating itself",
         "A generic function calls itself with a bigger type each time\n\
          (`grow<uint32>` calls `grow<uint32?>`, which calls `grow<uint32??>`, ...),\n\
@@ -847,6 +857,15 @@ codes! {
     W0600: "generic never used",
         "A generic function, struct or enum is only checked when something uses\n\
          it with particular types, so one nothing uses is not checked at all.";
+    W0618: "type parameter named like a unit",
+        "A type parameter has the name of a unit, such as `K` (kelvin) or `N`\n\
+         (newton) after `in si;`. Inside the parameter's scope the name is the\n\
+         type, so the parameter works as written. The unit is still there: `X as\n\
+         unit` names it, even inside the scope, as in `float64<K as unit>`.\n\
+         Rename the parameter to remove the warning.\n\n\
+         \x20   in si;\n\
+         \x20   K max<K>(K a, K b) { ... }        // W0618: K is the type here\n\
+         \x20   float64<K as unit> t = 1.0<K>;   // the unit K";
     E0901: "not supported yet",
         "This is part of Drachm's design, but this version of the compiler does\n\
          not implement it yet.";

@@ -1,0 +1,15 @@
+in io;
+in si;
+
+// `tesla as unit` names the unit, written out in full, where a type parameter
+// is in scope too: here the parameter `T` is only a type.
+float64<tesla as unit> doubled<T>(float64<tesla as unit> x) {
+    return x * 2.0;
+}
+
+none main() {
+    float64<tesla as unit> flux = 0.5<tesla as unit>;
+    io::outln(flux::text() + " " + flux::unitText());
+    float64<tesla> twice = doubled<uint32>(flux);
+    io::outln(twice::text() + " " + twice::unitText());
+}

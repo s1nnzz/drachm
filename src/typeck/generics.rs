@@ -189,8 +189,6 @@ pub(super) fn check_tparams(g: &Globals, tparams: &[ast::TypeParam], diags: &mut
                 Some("struct")
             } else if g.enums_by_name.contains_key(&p.name) || g.mono.type_templates.get(&p.name).is_some_and(|t| t.kind == Kind::Enum) {
                 Some("enum")
-            } else if units::is_unit_name(g, &p.name) {
-                Some("unit")
             } else if p.name == "none" || Type::from_name(&p.name).is_ok() {
                 Some("type")
             } else {
@@ -204,6 +202,13 @@ pub(super) fn check_tparams(g: &Globals, tparams: &[ast::TypeParam], diags: &mut
                         .help(format!("a type parameter takes no other name's place: rename it, for example `{}`", free_type_name(g, tparams))),
                 );
                 usable = false;
+            }
+            if units::is_unit_name(g, &p.name) {
+                diags.push(
+                    Diagnostic::at(&codes::W0618, p.span, format!("type parameter `{}` has the same name as a unit", p.name))
+                        .note(format!("inside its scope `{}` means the type parameter", p.name))
+                        .help(format!("write `{0} as unit` to mean the unit, or rename the parameter", p.name)),
+                );
             }
         }
         seen.push((&p.name, p.span));
@@ -249,7 +254,7 @@ fn bare_unit_param(tparams: &[ast::TypeParam], spec: &ast::UnitSpec) -> Option<u
 fn unit_mentions(tparams: &[ast::TypeParam], e: &ast::UnitExpr) -> bool {
     match e {
         ast::UnitExpr::Name(n, _) => tparams.iter().any(|tp| tp.is_unit && tp.name == *n),
-        ast::UnitExpr::One(_) => false,
+        ast::UnitExpr::Explicit(..) | ast::UnitExpr::One(_) => false,
         ast::UnitExpr::Mul(a, b) | ast::UnitExpr::Div(a, b) => unit_mentions(tparams, a) || unit_mentions(tparams, b),
         ast::UnitExpr::Pow(b, _, _) => unit_mentions(tparams, b),
     }
@@ -276,7 +281,7 @@ fn unit_param_names(tparams: &[ast::TypeParam], e: &ast::UnitExpr, out: &mut Vec
                 out.push(n.clone());
             }
         }
-        ast::UnitExpr::One(_) => {}
+        ast::UnitExpr::Explicit(..) | ast::UnitExpr::One(_) => {}
         ast::UnitExpr::Mul(a, b) | ast::UnitExpr::Div(a, b) => {
             unit_param_names(tparams, a, out);
             unit_param_names(tparams, b, out);
@@ -290,7 +295,7 @@ fn unit_param_names(tparams: &[ast::TypeParam], e: &ast::UnitExpr, out: &mut Vec
 fn unit_exp(e: &ast::UnitExpr, name: &str) -> i32 {
     match e {
         ast::UnitExpr::Name(n, _) => i32::from(n == name),
-        ast::UnitExpr::One(_) => 0,
+        ast::UnitExpr::Explicit(..) | ast::UnitExpr::One(_) => 0,
         ast::UnitExpr::Mul(a, b) => unit_exp(a, name) + unit_exp(b, name),
         ast::UnitExpr::Div(a, b) => unit_exp(a, name) - unit_exp(b, name),
         ast::UnitExpr::Pow(b, n, _) => n * unit_exp(b, name),
@@ -315,6 +320,7 @@ fn bound_names(tparams: &[ast::TypeParam], bound: &[Option<(Type, usize)>], name
 fn unit_text(e: &ast::UnitExpr) -> String {
     match e {
         ast::UnitExpr::Name(n, _) => n.clone(),
+        ast::UnitExpr::Explicit(n, _) => format!("{n} as unit"),
         ast::UnitExpr::One(_) => "1".to_string(),
         ast::UnitExpr::Mul(a, b) => format!("{}*{}", unit_text(a), paren_unit(b)),
         ast::UnitExpr::Div(a, b) => format!("{}/{}", unit_text(a), paren_unit(b)),
@@ -421,7 +427,7 @@ pub(super) fn drain(g: &mut Globals, src: &str, prog: &ast::Program, diags: &mut
     }
 }
 
-/// W0601 for each usable template nothing instantiated.
+/// W0618 for each usable template nothing instantiated.
 pub(super) fn warn_unused(g: &Globals, diags: &mut Vec<Diagnostic>) {
     let bounded = |tps: &[ast::TypeParam]| tps.iter().any(|p| !p.bounds.is_empty());
     let mut unused: Vec<&Template> = g.mono.templates.values().filter(|t| t.usable && t.instances == 0 && !bounded(&t.head.tparams)).collect();

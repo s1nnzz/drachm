@@ -246,7 +246,7 @@ impl Cx<'_> {
             Stmt::Reraise(_) => {}
             // Moving a value out through a borrow is an error later (E0310),
             // so `destroy` of a part of `self` is not evidence.
-            Stmt::Destroy(_) | Stmt::Forget(_) | Stmt::Check { .. } => {}
+            Stmt::Destroy(_) | Stmt::Forget(_) | Stmt::Check { .. } | Stmt::Stop(_) => {}
             Stmt::InitField(place, e) => {
                 self.place_write(place, out);
                 self.expr(e, out);
