@@ -813,6 +813,9 @@ pub enum ListOp {
     /// `take xs[i] reorders`: the item at `i` moved out; the last item fills
     /// its place, and the list is one shorter (the order is not kept).
     SwapRemove,
+    /// `take xs[i] leaving v`: the item at `i` moved out, `v` (moved in) takes
+    /// its place. The length and the order are kept.
+    TakeLeaving,
     /// `list::clear()`: drops every item.
     Clear,
     /// `list::join(sep)` of a `string[?]`: the items with `sep` between them.
@@ -822,7 +825,7 @@ pub enum ListOp {
 impl ListOp {
     /// Does the call change the list (it needs a changeable list place)?
     pub fn changes(self) -> bool {
-        matches!(self, ListOp::Pop | ListOp::Insert | ListOp::Remove | ListOp::SwapRemove | ListOp::Clear)
+        matches!(self, ListOp::Pop | ListOp::Insert | ListOp::Remove | ListOp::SwapRemove | ListOp::TakeLeaving | ListOp::Clear)
     }
 }
 

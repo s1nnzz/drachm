@@ -97,15 +97,16 @@ none main() {
 ```
 
 ### Ranges with a step
-<!-- status: not-implemented -->
 
 A range `a..b` in a `for` runs from `a` to `b`, both included, as the loop above
-shows. A step after the range (`by`) is not built yet, so this block is the
-intended shape only:
+shows. A step after the range, `by n`, moves the counter by `n` each round:
+`0..10 by 3` is 0, 3, 6, 9. The loop stops at the last value not past the end,
+so the 10 is never reached.
 
-```drachm
-for (uint32 i of 0..10 by 3) { }       // 0, 3, 6, 9
-```
+<!-- example: lesson-16-step -->
+
+The step can be a value (`by gap`), and it must be a number of the loop's type.
+A step of zero or less is not decided yet (E0901).
 
 ### Walking a map
 

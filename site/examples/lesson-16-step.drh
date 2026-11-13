@@ -1,0 +1,17 @@
+in io;
+
+none main() {
+    // 0, 3, 6, 9: the counter stops at the last value not past 10.
+    for (uint32 i of 0..10 by 3) {
+        io::outln(i::text());
+    }
+    // The step may be a value; a start above the end runs zero times.
+    uint32 gap = 4;
+    for (uint32 i of 1..10 by gap) {
+        io::outln(i::text());
+    }
+    for (uint32 i of 5..4 by 3) {
+        io::outln("never");
+    }
+    io::outln("done");
+}

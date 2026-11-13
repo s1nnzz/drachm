@@ -33,11 +33,9 @@ return an optional.
 
 ## Taking an item out by index
 
-<!-- status: not-implemented -->
-
 `take xs[i] reorders` is built: it moves the item out and fills its place with
-the last item. The form that keeps the order and the length, `take xs[i] leaving v`,
-is E0901 today. See [Taking an item out](reference-collections.md#taking-an-item-out).
+the last item. `take xs[i] leaving v` is built too: it keeps the order and the
+length. See [Taking an item out](reference-collections.md#taking-an-item-out).
 
 ## Views of map entries
 

@@ -150,6 +150,27 @@ fn func_head(f: &ast::Func) -> ast::Func {
     }
 }
 
+/// A single letter that no unit, struct, enum, type or other parameter of
+/// `tparams` has: the one E0605 suggests for a parameter that clashes.
+fn free_type_name(g: &Globals, tparams: &[ast::TypeParam]) -> String {
+    let taken = |name: &str| {
+        units::is_unit_name(g, name)
+            || g.structs_by_name.contains_key(name)
+            || g.enums_by_name.contains_key(name)
+            || g.mono.type_templates.contains_key(name)
+            || name == "none"
+            || Type::from_name(name).is_ok()
+            || tparams.iter().any(|p| p.name == name)
+    };
+    // Common parameter names first, then any capital letter.
+    "UXYZPQRBDEFGHJKLMNOSTVW"
+        .chars()
+        .chain('A'..='Z')
+        .map(|c| c.to_string())
+        .find(|name| !taken(name))
+        .unwrap_or_else(|| "T".to_string())
+}
+
 /// E0605 and E0901 for a type parameter list; false if the template cannot be used.
 pub(super) fn check_tparams(g: &Globals, tparams: &[ast::TypeParam], diags: &mut Vec<Diagnostic>) -> bool {
     let mut usable = true;
@@ -180,7 +201,7 @@ pub(super) fn check_tparams(g: &Globals, tparams: &[ast::TypeParam], diags: &mut
                 diags.push(
                     Diagnostic::at(&codes::E0605, p.span, format!("type parameter `{}` is also the name of {art} {what}", p.name))
                         .note(format!("{art} {what} is already called `{}`", p.name))
-                        .help("a type parameter takes no other name's place: rename it, for example `T`"),
+                        .help(format!("a type parameter takes no other name's place: rename it, for example `{}`", free_type_name(g, tparams))),
                 );
                 usable = false;
             }

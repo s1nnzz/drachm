@@ -90,6 +90,15 @@ fn binary(op: hir::BinOp, l: hir::Expr, r: hir::Expr) -> hir::Expr {
     hir::Expr::new(hir::ExprKind::Binary(op, Box::new(l), Box::new(r)), ty)
 }
 
+/// A range step the language does not settle yet: a literal zero or a negative literal.
+fn undecided_step(step: &ast::Expr) -> bool {
+    match &step.kind {
+        ExprKind::Num(ast::NumLit { value: crate::consts::Const::Int(v), .. }) => *v <= num_bigint::BigInt::from(0),
+        ExprKind::Unary(ast::UnOp::Neg, inner) => matches!(inner.kind, ExprKind::Num(_)),
+        _ => false,
+    }
+}
+
 fn logic(and: bool, lhs: hir::Expr, rhs: hir::Expr) -> hir::Expr {
     hir::Expr::new(hir::ExprKind::Logic { and, lhs: Box::new(lhs), rhs: Box::new(rhs) }, Type::Bool)
 }
@@ -433,13 +442,15 @@ impl Checker<'_> {
     /// start = a; end = b;
     /// if (start <= end) {
     ///     counter = start;
-    ///     loop { name = counter; body; step: if (counter == end) break; counter += 1; }
+    ///     loop { name = counter; body; step: if (counter + by > end || counter + by < counter) break; counter += by; }
     /// }
     /// ```
     ///
-    /// so the counter never steps past `end`, even at the type's largest value.
+    /// `by` is 1 unless the loop says `by n`. The counter never steps past `end`:
+    /// the sum is tested for going over `end`, and for wrapping round at the
+    /// type's largest value (overflow wraps).
     pub(super) fn for_each(&mut self, s: &ast::Stmt, out: &mut hir::Block) {
-        let ast::Stmt::ForEach { mutable, ty: ty_name, name, name_span, iter, body, span } = s else { unreachable!() };
+        let ast::Stmt::ForEach { mutable, ty: ty_name, name, name_span, iter, step, body, span } = s else { unreachable!() };
         let ty = self.g.resolve_binding_type(ty_name, self.diags);
         let ExprKind::Range(lo, hi) = &iter.kind else {
             return self.for_text(s, ty, out);
@@ -465,10 +476,35 @@ impl Checker<'_> {
             }
         };
 
+        // `by n`: the step, of the loop's type. A literal zero or negative step is
+        // not decided yet (E0901); any other step is checked like a value.
+        let by = match (step, &bounds) {
+            (None, _) => None,
+            (Some(st), Some((a, _))) => {
+                if undecided_step(st) {
+                    self.diags.push(
+                        Diagnostic::at(&codes::E0901, st.span, "a range step of zero or less is not supported yet")
+                            .note("what `by 0` and a negative step do is not decided yet")
+                            .help("write a step of 1 or more"),
+                    );
+                    self.expr(st);
+                    None
+                } else {
+                    let t = a.ty;
+                    self.coerce(st, t)
+                }
+            }
+            (Some(st), None) => {
+                self.expr(st);
+                None
+            }
+        };
+
         self.scopes.push(HashMap::new());
         let hidden = bounds.map(|(a, b)| {
             let t = a.ty;
-            (self.hidden_named("range start", t), self.hidden_named("range end", t), self.hidden_named("range counter", t), a, b, t)
+            let by = by.map(|e| (self.hidden_named("range step", t), e));
+            (self.hidden_named("range start", t), self.hidden_named("range end", t), self.hidden_named("range counter", t), a, b, t, by)
         });
         // The variable belongs to the loop: it gets a new value each time round.
         let var = self.declare(name, ty, *mutable, *name_span, false);
@@ -477,29 +513,40 @@ impl Checker<'_> {
         let (body, _) = self.looped(label, *span, body, None);
         self.scopes.pop();
 
-        let Some((start, end, counter, a, b, t)) = hidden else { return };
+        let Some((start, end, counter, a, b, t, by)) = hidden else { return };
         let mut inner = vec![hir::Stmt::Decl(var), hir::Stmt::Assign(hir::Place::local(var), local(counter, t))];
         inner.extend(body);
-        let step = vec![
+        // The next counter value; it is past `end` when it is above `end`, or when the
+        // addition wrapped round (then it is below the counter).
+        let by_now = match &by {
+            Some((id, _)) => local(*id, t),
+            None => int_lit(1, t),
+        };
+        let next = binary(hir::BinOp::Add, local(counter, t), by_now);
+        let past_end = logic(false, binary(hir::BinOp::Gt, next.clone(), local(end, t)), binary(hir::BinOp::Lt, next.clone(), local(counter, t)));
+        let advance = vec![
             hir::Stmt::If {
                 label: self.new_label(),
                 branches: vec![hir::Branch {
-                    test: Some(binary(hir::BinOp::Eq, local(counter, t), local(end, t))),
+                    test: Some(past_end),
                     body: vec![hir::Stmt::Jump(hir::Jump::Break(label))],
                     end: Span::new(0, 0),
                 }],
             },
-            hir::Stmt::Assign(hir::Place::local(counter), binary(hir::BinOp::Add, local(counter, t), int_lit(1, t))),
+            hir::Stmt::Assign(hir::Place::local(counter), next),
         ];
         out.push(hir::Stmt::Assign(hir::Place::local(start), a));
         out.push(hir::Stmt::Assign(hir::Place::local(end), b));
+        if let Some((id, e)) = by {
+            out.push(hir::Stmt::Assign(hir::Place::local(id), e));
+        }
         out.push(hir::Stmt::If {
             label: self.new_label(),
             branches: vec![hir::Branch {
                 test: Some(binary(hir::BinOp::Le, local(start, t), local(end, t))),
                 body: vec![
                     hir::Stmt::Assign(hir::Place::local(counter), local(start, t)),
-                    hir::Stmt::Loop { label, cond: None, body: inner, step, end: body_end },
+                    hir::Stmt::Loop { label, cond: None, body: inner, step: advance, end: body_end },
                 ],
                 end: Span::new(0, 0),
             }],
@@ -521,7 +568,7 @@ impl Checker<'_> {
     /// }
     /// ```
     fn for_text(&mut self, s: &ast::Stmt, ty: Option<Type>, out: &mut hir::Block) {
-        let ast::Stmt::ForEach { mutable, ty: ty_name, name, name_span, iter, body, span } = s else { unreachable!() };
+        let ast::Stmt::ForEach { mutable, ty: ty_name, name, name_span, iter, body, span, .. } = s else { unreachable!() };
         let source = match self.expr(iter) {
             Some(Val::Expr(e)) if e.ty == Type::Str => Some(e),
             Some(Val::Expr(e)) if e.ty.is_list() || e.ty.is_array() => return self.for_list(s, ty, e, iter.span, out),

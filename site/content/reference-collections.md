@@ -148,8 +148,8 @@ for parameter types and an example.
 `take xs[i] reorders` moves the item at `i` out and gives it. The last item
 fills its place and the list gets one shorter, so the order of the other items
 is not kept. It is the way to take an owning item (a `string`, a struct holding
-one) out of a list. A plain `take xs[i]` is E0901 for now, and so is
-`take xs[i] leaving v`, which would keep the length and the order.
+one) out of a list. `take xs[i] leaving v` keeps the length and the order: the
+item moves out and `v` takes its place. A plain `take xs[i]` is E0901 for now.
 
 <!-- example: list-take -->
 

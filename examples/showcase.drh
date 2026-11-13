@@ -40,6 +40,10 @@ none part1() {
     mut uint8 hearts = 250;
     for (uint32 i of 0..9) { hearts++; }
     io::outln(f"overflow wraps: 250 + 10 = ${hearts}");
+    // `by` steps a range: the counter lands on 0, 5, 10, 15 and 20, and stops there.
+    mut uint32 pulses = 0;
+    for (uint32 beat of 0..20 by 5) { pulses = pulses + beat; }
+    io::outln(f"beats 0 to 20 by 5 sum to ${pulses}");
 
     float64<kg> mass = 4000.0<kg>;
     float64<m/s^2> thrust = 12.5<m/s^2>;
@@ -56,6 +60,9 @@ none part1() {
     io::outln(f"doubled: ${doubled(5.0<s>)::text()} ${doubled(5.0<s>)::unitText()}");
     float64<ly> gap = 4.2<ly>;
     io::outln(f"nearest star: ${gap::in<m>()->text()} m");
+    // `T as unit` names the unit T (tesla) inside <...>: the same unit as `T`, written out.
+    float64<T as unit> flux = 0.5<T>;
+    io::outln(f"flux: ${flux::text()} ${flux::unitText()}");
     io::outln("");
 }
 
@@ -538,6 +545,7 @@ none part5() {
     // `containsRef` asks the same of a list of borrows: is this exact place in it?
     List<&string> banner = [&captain, &slogan];
     io::outln(f"the banner holds the slogan: ${banner::containsRef(&slogan)}, its twin: ${banner::containsRef(&twin_slogan)}");
+    io::outln(f"a copy is not the slogan: ${&twin_slogan not same as &slogan}, the slogan is not a copy: ${&slogan not same as &slogan}");
 
     mut string note = "mayday";
     shout_twice(&mut note);
@@ -552,6 +560,9 @@ none part5() {
     mut string[?] queue = ["alpha", "beta", "gamma", "delta"];
     string second = take queue[1] reorders;
     io::outln(f"took ${second}; queue is ${queue::join(", ")}");
+    // `leaving v` keeps the length and the order: the new word takes the old one's place.
+    string third = take queue[1] leaving "omega";
+    io::outln(f"took ${third}; queue is now ${queue::join(", ")}");
 
     // Lambdas: capture by reference, `move` to capture a copy, function types.
     mut uint32 calls = 0;

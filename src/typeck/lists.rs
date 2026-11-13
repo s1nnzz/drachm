@@ -470,6 +470,8 @@ impl Checker<'_> {
             }
             ListOp::Clear => Type::None,
             ListOp::SwapRemove => elem,
+            // Only written as `take xs[i] leaving v` (`take_item`); never through a method name.
+            ListOp::TakeLeaving => unreachable!("`take xs[i] leaving v` is built by `take_item`"),
             ListOp::Join => {
                 all.push(self.coerce(&args[0], Type::Str)?);
                 Type::Str
@@ -675,17 +677,10 @@ impl Checker<'_> {
     }
 
     /// `take xs[i] reorders` (Q11): the item moves out, the last item fills its
-    /// place, and the list is one shorter. `take xs[i] leaving v` is not built yet.
+    /// place, and the list is one shorter. `take xs[i] leaving v`: the item
+    /// moves out and `v` takes its place, so the list keeps its length and order.
     pub(super) fn take_item(&mut self, place: &ast::Expr, recv: &ast::Expr, index: &ast::Expr, leaving: Option<&ast::Expr>, reorders: bool) -> Option<Val> {
-        if leaving.is_some() {
-            self.diags.push(
-                Diagnostic::at(&codes::E0901, place.span, "`take xs[i] leaving v` is not supported yet")
-                    .note("it would put `v` in the item's place and keep the length, which is not built yet")
-                    .help("write `take xs[i] reorders`: the last item fills the place"),
-            );
-            return None;
-        }
-        if !reorders {
+        if leaving.is_none() && !reorders {
             self.diags.push(
                 Diagnostic::at(&codes::E0901, place.span, "`take` of an item of a list is not supported yet")
                     .help("write `take xs[i] reorders`, which fills its place with the last item, or copy it with `copy`"),
@@ -711,7 +706,11 @@ impl Checker<'_> {
         }
         let idx = self.index_arg(index, base.ty, recv.span)?;
         let elem = base.ty.elem()?;
-        Some(Val::Expr(hir::Expr::new(K::ListCall { op: hir::ListOp::SwapRemove, args: vec![base, idx] }, elem).at(place.span)))
+        let Some(v) = leaving else {
+            return Some(Val::Expr(hir::Expr::new(K::ListCall { op: hir::ListOp::SwapRemove, args: vec![base, idx] }, elem).at(place.span)));
+        };
+        let value = self.coerce(v, elem)?;
+        Some(Val::Expr(hir::Expr::new(K::ListCall { op: hir::ListOp::TakeLeaving, args: vec![base, idx, value] }, elem).at(place.span)))
     }
 
     /// `xs::contains(item)`: some item of the list is equal to `item`. The

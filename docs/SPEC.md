@@ -126,6 +126,9 @@ match (x) {
 - `by` sets a range loop's step: `0..10 by 3` is 0, 3, 6, 9. The loop stops at
   the last value not past the end; it never clamps to the end. Integer ranges
   may omit `by` (step 1); float ranges must give it.
+  Built for integer ranges (the step is a value of the loop's type, overflow wraps).
+  A literal zero or negative step is E0901: the SPEC does not say what it does, and
+  a zero step given at run time is not checked yet (open question).
 - `match` arms are `case` blocks with no fallthrough. A missing case is a
   **warning** (config can make warnings errors).
 - Patterns: values, `case 1, 2`, inclusive ranges `case 13..19`, strings (a
@@ -308,8 +311,8 @@ uint32? age = ages["Bob"];                 // missing key -> none
   `mut string[?] xs;`.
 - Taking an item out by index (Q11): `take xs[i] reorders` is built: the item
   moves out, the last item fills its place, and the order of the others is not
-  kept. `take xs[i] leaving v`, which keeps length and order, is decided and not
-  built (E0901).
+  kept. `take xs[i] leaving v` (built) moves the item out and puts `v` in its place,
+  so the length and the order are kept.
 - Items that own memory (S6C.2): `get(i)`, `first()` and `last()` give a view,
   an optional that borrows the list (`&T?`); `copy xs::first()` gives an owned
   `T?`. `contains` takes the value written with `&`: `names::contains(&name)`.
@@ -447,6 +450,12 @@ float64<m/s> speed = dist / time;     // dist + time is a compile error
     base mass unit), `mm cm km mg ms us ns min h kHz MHz GHz kJ kW kN`, and the
     point `degC`. Without it nothing is predeclared (E0402). A file that declares
     a name the SI set has is E0403.
+  - `T as unit` inside the `<...>` of a number type names the unit `T` explicitly
+    (`float64<T as unit>` is tesla; the literal `0.5<T>` is the same). A type
+    parameter cannot be named like a unit with `in si;` (E0605, which suggests a
+    free letter). Built, with the reading that a type parameter never shadows a
+    unit name in `<...>`; so the explicit form currently means the same as the
+    plain name (owner to confirm whether it should do more).
   - Unit into a plain slot strips to the base amount: `uint8 s = 3<m>;` is 3,
     `uint32 t = 3<km>;` is 3000. Whole numbers truncate toward zero when a unit
     shrinks (W0102 is the implementer's reading).
@@ -616,9 +625,12 @@ private:
   "write `&m`".
 - `&T` copies. `&mut T` moves: `&mut string r2 = r;` uses `r` up.
 - Built (Q3 follow-ups): `a same as b` compares addresses of two borrows (and of lists,
-  optionals of borrows, item by item in order); `!(a same as b)` negates it. Owned
+  optionals of borrows, item by item in order); `!(a same as b)` negates it, and so does `a not same as b` (built). Owned
   values are E0633. `xs::containsRef(&p)` is true when a list of borrows holds a borrow
-  of exactly that place. Maps of borrows and structs holding borrows are E0901 for now.
+  of exactly that place. Maps of borrows and structs or enums holding borrows are E0633
+  (no single address; the borrows inside are compared one at a time). Address compare of
+  `&Shape` (a borrow of an interface) is E0901 for now: compare the data address (owner's
+  rule: two borrows are the same when they point at the same address).
 - Two-phase receivers: `s::append(s::len()::text())` is fine. Only borrows still
   alive when the receiver changes are errors: `xs::push(xs::first())`.
 - Borrowing a temporary in a declaration keeps the temporary alive to the end of

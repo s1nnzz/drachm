@@ -384,8 +384,9 @@ pub enum Stmt {
     While { cond: Expr, body: Block, span: Span },
     /// `for (init; cond; step) { }`. Each part may be empty.
     For { init: Option<Box<Stmt>>, cond: Option<Expr>, step: Option<Box<Stmt>>, body: Block, span: Span },
-    /// `for (T name of iter) { }`.
-    ForEach { mutable: bool, ty: TypeName, name: String, name_span: Span, iter: Expr, body: Block, span: Span },
+    /// `for (T name of iter) { }`. `step` is the `by n` after a range
+    /// (`for (uint32 i of 0..10 by 3)`).
+    ForEach { mutable: bool, ty: TypeName, name: String, name_span: Span, iter: Expr, step: Option<Expr>, body: Block, span: Span },
     /// `for (K key, V value of map) { }`: walking a map's entries (Q16).
     ForEntries { key: LoopVar, value: LoopVar, iter: Expr, body: Block, span: Span },
     Match { value: Expr, cases: Vec<Case>, span: Span },
@@ -541,6 +542,8 @@ pub enum BinOp {
     Or,
     /// `a same as b`: two borrows (or values holding borrows) at the same address.
     Same,
+    /// `a not same as b`: the negative of `Same`.
+    NotSame,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -576,6 +579,7 @@ impl BinOp {
             And => "&&",
             Or => "||",
             Same => "same as",
+            NotSame => "not same as",
         }
     }
 
@@ -585,7 +589,7 @@ impl BinOp {
             Add | Sub | Mul | Div | Rem | Pow => OpClass::Arithmetic,
             Shl | Shr => OpClass::Shift,
             BitAnd | BitOr | BitXor => OpClass::Bitwise,
-            Eq | Ne | Lt | Le | Gt | Ge | Same => OpClass::Comparison,
+            Eq | Ne | Lt | Le | Gt | Ge | Same | NotSame => OpClass::Comparison,
             And | Or => OpClass::Logic,
         }
     }

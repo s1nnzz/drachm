@@ -2,12 +2,14 @@
 crew 200, deck -12, stars 1000000000000, hull 2.5, mask 255
 atoms in the cargo hold: 1267650600228229401496703205376
 overflow wraps: 250 + 10 = 4
+beats 0 to 20 by 5 sum to 50
 force: 50000.0 N
 cruise: 20.0 m/s
 cabin: 294.15 K
 mean run 2.5 m, mean leg 4.5 km
 doubled: 10.0 s
 nearest star: 39735067984839360.0 m
+flux: 0.5 T
 
 == Part 2: the crew ==
 5 recruits, first letters: A B C D E
@@ -86,9 +88,11 @@ reader left 15 of 19
 first port Vega, ninth port deep space
 the longer one is the slogan itself: true; a copy of it is not: false
 the banner holds the slogan: true, its twin: false
+a copy is not the slogan: true, the slogan is not a copy: false
 mayday!! / all clear
 took label 'relics', crate now '(empty)'
 took beta; queue is alpha, delta, gamma
+took delta; queue is now alpha, omega, gamma
 lambda total 48 after 3 calls; loads sum to 15
   the crew sings: ad astra
   the crew sings: ad astra

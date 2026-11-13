@@ -1869,7 +1869,7 @@ impl<'a> Builder<'a> {
                     Operand::Copy(Place::local(view))
                 })
             }
-            ListOp::Remove | ListOp::SwapRemove => {
+            ListOp::Remove | ListOp::SwapRemove | ListOp::TakeLeaving => {
                 let ops = self.operands(&es, &borrow);
                 let out = self.decl(elem, LocalKind::Temp);
                 self.call_into(Callee::ListOp(op, elem), ops, Place::local(out));

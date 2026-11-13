@@ -294,6 +294,7 @@ impl Parser<'_> {
             match self.peek_at(n) {
                 Tok::Ident(_) | Tok::Sym("*" | "/" | "^" | "-") => {}
                 Tok::Num(NumLit { value: Const::Int(_), suffix: None, .. }, None) => {}
+                Tok::Kw("as") if self.as_unit_at(n) => {}
                 Tok::Sym("(") => depth += 1,
                 Tok::Sym(")") => depth = depth.checked_sub(1)?,
                 _ => break,
@@ -404,6 +405,11 @@ impl Parser<'_> {
             Tok::Ident(name) => {
                 let span = self.bump().span;
                 let base = UnitExpr::Name(name, span);
+                // `T as unit`: the unit named `T`, written out (the same unit as `T`).
+                if self.as_unit_at(0) {
+                    self.bump();
+                    self.bump();
+                }
                 if !self.eat("^") {
                     return Ok(base);
                 }
@@ -629,10 +635,17 @@ impl Parser<'_> {
             match self.peek_at(j) {
                 Tok::Ident(_) | Tok::Sym("*" | "/" | "^" | "-" | "(" | ")") => j += 1,
                 Tok::Num(NumLit { value: Const::Int(_), suffix: None, .. }, None) => j += 1,
+                Tok::Kw("as") if self.as_unit_at(j) => j += 1,
                 Tok::Sym(">" | ">>") => return Some(j),
                 _ => return None,
             }
         }
+    }
+
+    /// Is the `as` at token offset `n` the `as unit` that follows a unit name
+    /// (`float64<T as unit>`)? `as` is a keyword only in `same as`.
+    fn as_unit_at(&self, n: usize) -> bool {
+        self.peek_at(n) == &Tok::Kw("as") && matches!(self.peek_at(n + 1), Tok::Ident(w) if w == "unit")
     }
 
     /// Does a unit declaration (`unit NAME;` or `unit NAME = ...`) start here?
@@ -1616,10 +1629,11 @@ impl Parser<'_> {
             }
             self.bump();
             let iter = self.expr()?;
+            let step = self.range_step(&iter)?;
             self.expect(")")?;
             let span = start.to(self.prev_span());
             let body = self.block()?;
-            return Ok(Stmt::ForEach { mutable, ty, name, name_span, iter, body, span });
+            return Ok(Stmt::ForEach { mutable, ty, name, name_span, iter, step, body, span });
         }
 
         let init = if self.eat(";") {
@@ -1652,6 +1666,23 @@ impl Parser<'_> {
         let span = start.to(self.prev_span());
         let body = self.block()?;
         Ok(Stmt::For { init, cond, step, body, span })
+    }
+
+    /// The `by n` after the range of a `for ... of a..b by n`, if there is one.
+    /// `by` is a context word: an ordinary name everywhere else, so it only
+    /// counts right after a range.
+    fn range_step(&mut self, iter: &Expr) -> Parsed<Option<Expr>> {
+        if !matches!(self.peek(), Tok::Ident(w) if w == "by") {
+            return Ok(None);
+        }
+        let at = self.span();
+        if !matches!(iter.kind, ExprKind::Range(..)) {
+            return Err(Diagnostic::at(&codes::E0003, at, "`by` goes after a range")
+                .note("this is not a range")
+                .help("write `for (uint32 i of 0..10 by 3) { }`"));
+        }
+        self.bump();
+        Ok(Some(self.expr()?))
     }
 
     /// `match (value) { case p, q { } case _ { } }`
@@ -1909,6 +1940,9 @@ impl Parser<'_> {
         match self.peek() {
             Tok::Sym(sym) => binop(sym).map(|(op, prec)| (op, prec, 1)),
             Tok::Ident(w) if w == "same" && self.peek_at(1) == &Tok::Kw("as") => Some((BinOp::Same, 3, 2)),
+            Tok::Ident(w) if w == "not" && matches!(self.peek_at(1), Tok::Ident(s) if s == "same") && self.peek_at(2) == &Tok::Kw("as") => {
+                Some((BinOp::NotSame, 3, 3))
+            }
             _ => None,
         }
     }
@@ -2869,7 +2903,11 @@ mod tests {
         assert!(d.is_empty(), "{:?}", errors(&d));
         let Stmt::Let { value: Some(Init::Expr(e)), .. } = &s[0] else { panic!() };
         assert!(matches!(e.kind, ExprKind::Binary(BinOp::Same, ..)));
-        assert_eq!(s.len(), 4);
+        let (s, d) = body("bool a = x not same as y; uint32 not = 1; uint32 same = not + 1;");
+        assert!(d.is_empty(), "{:?}", errors(&d));
+        let Stmt::Let { value: Some(Init::Expr(e)), .. } = &s[0] else { panic!() };
+        assert!(matches!(e.kind, ExprKind::Binary(BinOp::NotSame, ..)));
+        assert_eq!(s.len(), 3);
         let (_, d) = body("bool a = x same as;");
         assert!(!d.is_empty());
     }
