@@ -1,0 +1,2 @@
+error[E0602]: `sum` takes a unit for `U`, not a type
+error[E0602]: `pick` takes a type for `Item`, not a unit

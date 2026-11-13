@@ -185,8 +185,8 @@ pub(super) fn check_tparams(g: &Globals, tparams: &[ast::TypeParam], diags: &mut
             }
         }
         seen.push((&p.name, p.span));
-        if p.is_unit {
-            diags.push(Diagnostic::at(&codes::E0901, p.span, "unit parameters (`unit U`) are not supported yet"));
+        if p.is_unit && !p.bounds.is_empty() {
+            diags.push(Diagnostic::at(&codes::E0901, p.span, "a constraint on a unit parameter is not supported yet").help(format!("write `unit {}` with no `with`", p.name)));
             usable = false;
         }
     }
@@ -194,6 +194,53 @@ pub(super) fn check_tparams(g: &Globals, tparams: &[ast::TypeParam], diags: &mut
         usable = false;
     }
     usable
+}
+
+/// Does any of these parameters stand for a unit?
+fn has_unit_params(tparams: &[ast::TypeParam]) -> bool {
+    tparams.iter().any(|p| p.is_unit)
+}
+
+/// The unit parameter a unit written `spec` is, when the unit is just that
+/// parameter (`U`, not `U/s`).
+fn bare_unit_param(tparams: &[ast::TypeParam], spec: &ast::UnitSpec) -> Option<usize> {
+    match &spec.expr {
+        ast::UnitExpr::Name(n, _) if !spec.delta => tparams.iter().position(|tp| tp.is_unit && tp.name == *n),
+        _ => None,
+    }
+}
+
+/// Does a unit expression name a unit parameter anywhere?
+fn unit_mentions(tparams: &[ast::TypeParam], e: &ast::UnitExpr) -> bool {
+    match e {
+        ast::UnitExpr::Name(n, _) => tparams.iter().any(|tp| tp.is_unit && tp.name == *n),
+        ast::UnitExpr::One(_) => false,
+        ast::UnitExpr::Mul(a, b) | ast::UnitExpr::Div(a, b) => unit_mentions(tparams, a) || unit_mentions(tparams, b),
+        ast::UnitExpr::Pow(b, _, _) => unit_mentions(tparams, b),
+    }
+}
+
+/// A parameter type that puts a unit parameter inside a bigger unit
+/// (`float64<U/s>`, `Vec3<float64, unit U/s>`): inference cannot work that out yet.
+fn compound_unit(tparams: &[ast::TypeParam], p: &ast::TypeName) -> bool {
+    let compound = |spec: &Option<ast::UnitSpec>| spec.as_ref().is_some_and(|s| unit_mentions(tparams, &s.expr) && bare_unit_param(tparams, s).is_none());
+    compound(&p.unit) || compound(&p.unit_arg) || p.args.iter().any(|a| compound_unit(tparams, a))
+}
+
+/// A type or unit as a message shows it: a unit by its name.
+fn show_arg(t: &Type) -> String {
+    match t.as_unit_arg() {
+        Some(u) => types::unit_name(u),
+        None => t.to_string(),
+    }
+}
+
+/// A type argument as written in an instance's name: `uint32`, `unit m/s`.
+fn written_arg(t: &Type) -> String {
+    match t.as_unit_arg() {
+        Some(u) => format!("unit {}", types::unit_name(u)),
+        None => t.to_string(),
+    }
 }
 
 /// Records function `f` (at `index` in the program) as a template.
@@ -356,13 +403,28 @@ fn peel(g: &Globals, p: &ast::TypeName, ty: Type) -> Type {
 
 /// Does the written type `p` name one of the type parameters, anywhere?
 fn mentions(tparams: &[ast::TypeParam], p: &ast::TypeName) -> bool {
-    (p.args.is_empty() && tparams.iter().any(|tp| tp.name == p.name)) || p.args.iter().any(|a| mentions(tparams, a))
+    (p.args.is_empty() && tparams.iter().any(|tp| tp.name == p.name))
+        || p.unit.as_ref().is_some_and(|s| unit_mentions(tparams, &s.expr))
+        || p.unit_arg.as_ref().is_some_and(|s| unit_mentions(tparams, &s.expr))
+        || p.args.iter().any(|a| mentions(tparams, a))
 }
 
 /// What a parameter written `p` makes of the type parameters, given an
 /// argument of type `ty`: `(parameter index, type)` for each one it shows.
 fn bindings(g: &Globals, tparams: &[ast::TypeParam], p: &ast::TypeName, ty: Type, out: &mut Vec<(usize, Type)>) {
     let inner = peel(g, p, ty);
+    // `float64<U>` binds `U` to the unit of the value; `unit U` as a type
+    // argument binds it to the unit that argument is.
+    if let Some(k) = p.unit.as_ref().and_then(|s| bare_unit_param(tparams, s))
+        && let Some(u) = inner.unit()
+    {
+        out.push((k, Type::unit_arg(u)));
+    }
+    if let Some(k) = p.unit_arg.as_ref().and_then(|s| bare_unit_param(tparams, s))
+        && let Some(u) = inner.as_unit_arg()
+    {
+        out.push((k, Type::unit_arg(u)));
+    }
     if p.args.is_empty() {
         if let Some(k) = tparams.iter().position(|tp| tp.name == p.name) {
             out.push((k, inner));
@@ -416,6 +478,14 @@ impl Checker<'_> {
             );
             return fail(self);
         }
+        if let Some(p) = params.iter().find(|p| compound_unit(&tparams, p)) {
+            self.diags.push(
+                Diagnostic::at(&codes::E0901, p.span, "a unit parameter inside a bigger unit is not supported yet")
+                    .note("the compiler cannot work out the unit parameter from this parameter")
+                    .help("write the parameter as the whole unit, for example `float64<U>`"),
+            );
+            return fail(self);
+        }
         let mut bound: Vec<Option<(Type, usize)>> = vec![None; n];
         let mut explicit = false;
         if !targs.is_empty() {
@@ -435,6 +505,10 @@ impl Checker<'_> {
                 return fail(self);
             }
             for (i, t) in targs.iter().enumerate() {
+                if tparams[i].is_unit != t.unit_arg.is_some() {
+                    self.diags.push(unit_kind_error(name, &tparams[i], t));
+                    return fail(self);
+                }
                 let Some(ty) = self.g.resolve_binding_type(t, self.diags) else { return fail(self) };
                 bound[i] = Some((ty, usize::MAX));
             }
@@ -454,9 +528,13 @@ impl Checker<'_> {
         if !explicit {
             // The first argument that has a type decides.
             for (i, (a, p)) in args.iter().zip(&params).enumerate() {
-                let Pre::Done(Some(Val::Expr(x))) = &pre[i] else { continue };
                 let mut found = Vec::new();
-                bindings(self.g, &tparams, p, x.ty, &mut found);
+                match &pre[i] {
+                    Pre::Done(Some(Val::Expr(x))) => bindings(self.g, &tparams, p, x.ty, &mut found),
+                    // A constant with a unit binds a unit parameter the same way.
+                    Pre::Done(Some(Val::UConst(_, u))) => found.extend(p.unit.as_ref().and_then(|s| bare_unit_param(&tparams, s)).map(|k| (k, Type::unit_arg(u)))),
+                    _ => continue,
+                }
                 for (k, ty) in found {
                 match bound[k] {
                     None => bound[k] = Some((ty, i)),
@@ -465,11 +543,11 @@ impl Checker<'_> {
                             Diagnostic::at(
                                 &codes::E0603,
                                 a.span,
-                                format!("`{}` is `{first}` from the {} argument, but `{ty}` from the {}", tparams[k].name, ordinal(from), ordinal(i)),
+                                format!("`{}` is `{}` from the {} argument, but `{}` from the {}", tparams[k].name, show_arg(&first), ordinal(from), show_arg(&ty), ordinal(i)),
                             )
-                            .note(format!("this one is `{ty}`"))
-                            .label(args[from].span, format!("this one is `{first}`"))
-                            .help(format!("convert one of them, or write the type: `{name}<{first}>(...)`")),
+                            .note(format!("this one is `{}`", show_arg(&ty)))
+                            .label(args[from].span, format!("this one is `{}`", show_arg(&first)))
+                            .help(format!("convert one of them, or write the type: `{name}<{}>(...)`", written_arg(&first))),
                         );
                         for (j, a) in args.iter().enumerate() {
                             if j > i && matches!(pre[j], Pre::Later) {
@@ -497,11 +575,12 @@ impl Checker<'_> {
             if let Some(k) = bound.iter().position(Option::is_none) {
                 let tp = &tparams[k].name;
                 let sample = if args.is_empty() { "()" } else { "(...)" };
+                let example = if tparams[k].is_unit { "unit m" } else { "uint32" };
                 self.diags.push(
                     Diagnostic::at(&codes::E0601, span, format!("cannot tell what `{tp}` is in this call of `{name}`"))
                         .note(format!("no argument shows `{tp}`"))
                         .label(self.g.mono.templates[name].head.name_span, format!("`{tp}` is declared here"))
-                        .help(format!("write it out: `{name}<uint32>{sample}`")),
+                        .help(format!("write it out: `{name}<{example}>{sample}`")),
                 );
                 for (a, p) in args.iter().zip(&pre) {
                     if matches!(p, Pre::Later) {
@@ -598,6 +677,19 @@ impl Checker<'_> {
     }
 }
 
+/// A type argument of the wrong kind: a unit for a type parameter, or a type for a unit one.
+fn unit_kind_error(name: &str, tp: &ast::TypeParam, t: &ast::TypeName) -> Diagnostic {
+    if tp.is_unit {
+        Diagnostic::at(&codes::E0602, t.span, format!("`{name}` takes a unit for `{}`, not a type", tp.name))
+            .note("a unit parameter is given a unit")
+            .help(format!("write the unit with `unit`: `{name}<unit m>(...)`"))
+    } else {
+        Diagnostic::at(&codes::E0602, t.span, format!("`{name}` takes a type for `{}`, not a unit", tp.name))
+            .note("a type parameter is given a type")
+            .help(format!("write the type, for example `{name}<uint32>(...)`"))
+    }
+}
+
 /// The instance of generic function `name` for `types`, made on first use.
 pub(super) fn make_fn_instance(g: &mut Globals, diags: &mut Vec<Diagnostic>, name: &str, types: Vec<Type>, call: Span) -> Option<FuncId> {
     let key = (name.to_string(), types);
@@ -605,7 +697,7 @@ pub(super) fn make_fn_instance(g: &mut Globals, diags: &mut Vec<Diagnostic>, nam
         return Some(id);
     }
     let types = key.1.clone();
-    let list: Vec<String> = types.iter().map(Type::to_string).collect();
+    let list: Vec<String> = types.iter().map(written_arg).collect();
     let display = format!("{name}<{}>", list.join(", "));
     let depth = g.mono.depth + 1;
     if depth > MAX_DEPTH {
@@ -1161,13 +1253,15 @@ fn mentions_name(d: &Diagnostic, name: &str) -> bool {
 pub(super) fn definition_pass(g: &mut Globals, src: &str, prog: &ast::Program, diags: &mut Vec<Diagnostic>) {
     let bounded = |tps: &[ast::TypeParam]| tps.iter().any(|p| !p.bounds.is_empty());
     let mut jobs: Vec<(usize, String, bool)> = Vec::new();
+    // A template with a unit parameter is not checked here: the definition
+    // pass would need a stand-in unit for it. Its instances are checked.
     for (n, t) in &g.mono.templates {
-        if t.usable && bounded(&t.head.tparams) {
+        if t.usable && bounded(&t.head.tparams) && !has_unit_params(&t.head.tparams) {
             jobs.push((t.head.name_span.start, n.clone(), true));
         }
     }
     for (n, t) in &g.mono.type_templates {
-        if t.usable && bounded(&t.tparams) {
+        if t.usable && bounded(&t.tparams) && !has_unit_params(&t.tparams) {
             jobs.push((t.name_span.start, n.clone(), false));
         }
     }

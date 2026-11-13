@@ -1,0 +1,11 @@
+in io;
+in si;
+
+// No argument has a unit, so nothing says what `U` is.
+float64<U> plain<unit U>(float64 x) {
+    return x;
+}
+
+none main() {
+    io::outln(f"${plain(1.0)::text()}");
+}

@@ -1,0 +1,16 @@
+in io;
+in si;
+
+float64<U> sum<unit U>(float64<U> a, float64<U> b) {
+    return a + b;
+}
+
+Item pick<Item>(Item a) {
+    return a;
+}
+
+none main() {
+    float64<m> d = 1.0<m>;
+    io::outln(f"${sum<float64>(d, d)::text()}");
+    io::outln(f"${pick<unit m>(d)::text()}");
+}

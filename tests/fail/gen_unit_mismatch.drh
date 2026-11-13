@@ -1,0 +1,12 @@
+in io;
+in si;
+
+float64<U> sum<unit U>(float64<U> a, float64<U> b) {
+    return a + b;
+}
+
+none main() {
+    float64<m> d = 1.0<m>;
+    float64<s> t = 2.0<s>;
+    io::outln(f"${sum(d, t)::text()}");
+}
