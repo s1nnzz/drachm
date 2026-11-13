@@ -137,6 +137,32 @@ struct Loader<'a> {
     diags: &'a mut Vec<Diagnostic>,
 }
 
+thread_local! {
+    /// Text that stands in for files on disk while loading (the language
+    /// server's unsaved buffers), by canonical path.
+    static OVERLAY: std::cell::RefCell<HashMap<PathBuf, String>> = std::cell::RefCell::new(HashMap::new());
+}
+
+/// The key `with_overlay` files are looked up by.
+pub fn overlay_key(path: &Path) -> PathBuf {
+    path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
+}
+
+/// Run `f` with `files` read instead of the files of the same path on disk.
+pub fn with_overlay<R>(files: HashMap<PathBuf, String>, f: impl FnOnce() -> R) -> R {
+    let old = OVERLAY.with(|o| std::mem::replace(&mut *o.borrow_mut(), files));
+    let r = f();
+    OVERLAY.with(|o| *o.borrow_mut() = old);
+    r
+}
+
+fn read_source(path: &Path) -> std::io::Result<String> {
+    if let Some(t) = OVERLAY.with(|o| o.borrow().get(&overlay_key(path)).cloned()) {
+        return Ok(t);
+    }
+    std::fs::read_to_string(path)
+}
+
 /// A path as text, with `/` on every system.
 fn shown(p: &Path) -> String {
     p.to_string_lossy().replace('\\', "/")
@@ -174,7 +200,7 @@ impl Loader<'_> {
         if let Some(&i) = self.by_path.get(&key) {
             return Some(i);
         }
-        let text = match std::fs::read_to_string(path) {
+        let text = match read_source(path) {
             Ok(t) => t,
             Err(e) => {
                 let msg = format!("cannot read `{}`: {e}", self.display(path));
