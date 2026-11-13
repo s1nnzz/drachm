@@ -1,0 +1,15 @@
+in io;
+
+none main() {
+    uint32[?] scores = [4, 8, 15];
+    mut uint32 total = 0;
+    for (uint32 n of scores) {
+        total = total + n;
+    }
+    io::outln(total::text());
+
+    // A range runs from the first number to the last, both included.
+    for (uint32 i of 0..3) {
+        io::outln(i::text());
+    }
+}

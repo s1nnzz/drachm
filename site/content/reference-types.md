@@ -44,7 +44,10 @@ A type name followed by `<` is read as a unit only after a number type
 after a type write a list and an array. `Map<K, V>` and `OrderedMap<K, V>` are
 built too; see [Maps](reference-collections.md#maps). Type arguments work for generic
 functions, structs and enums today, and `Optional<T>` is `T?` spelled out; see
-[Generics](reference-generics.md).
+[Generics](reference-generics.md). `List<X>` is `X[?]` spelled out, so a list of
+borrows is `List<&string>`; `T[N]` is an array whose length is a number (an
+array length as a generic parameter is [still to come](design-generics.md#array-lengths-as-parameters)).
+The collection types are on [Arrays and lists](reference-collections.md).
 
 ## Optional types
 

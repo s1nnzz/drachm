@@ -124,7 +124,8 @@ four (`uint8[4]`); they can be stacked (`uint32[?][?]`) and followed by `?`
 (`string[?]?`). A length of 0 is an error. Lists and arrays are described in
 [Arrays and lists](reference-collections.md); a generic function can take
 `&T[?]` and have `T` worked out from the list. An array length as a generic
-value parameter (`struct Buffer<T, uint32 N>`) is not built yet (E0901).
+value parameter (`struct Buffer<T, uint32 N>`) is not built yet; see
+[Array lengths as parameters](design-generics.md#array-lengths-as-parameters).
 
 ## Generic structs and enums
 

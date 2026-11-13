@@ -1,33 +1,47 @@
 ---
 title: Collections
-description: Arrays, lists, maps, ordered maps, indexing rules and for over collections.
-status: not-implemented
+description: Arrays, lists and maps as designed, the settings that will change lookups, and the parts still to come.
 ---
 
 # Collections
 
-The [collections reference](reference-collections.md) describes the array,
-list and map operations the compiler accepts today.
+Arrays, lists, maps, ordered maps, indexing, changing a list, walking
+collections and splitting text all work. The [collections reference](reference-collections.md)
+describes what the compiler accepts, and the [lesson](lesson-16-collections.md)
+introduces them. This page keeps the design of the settings and marks the
+parts still to come.
+
+## Changing a list
+
+A list changes through methods and needs a binding that allows it. See
+[Changing a list](reference-collections.md#changing-a-list).
+
+## Walking a map
+
+`for (string name, uint32 age of ages)` visits each entry, and `each` takes a
+callback. A `Map`'s iteration order is unspecified, and an `OrderedMap` keeps
+insertion order. See [Walking a map](reference-collections.md#walking-a-map).
 
 ## Configuring lookups
+
+<!-- status: not-implemented -->
 
 The `bounds` setting in [Config](design-config.md) will control indexing
 outside an array or list. The `missing_key` setting will let a missing
 `map[key]` stop the program. The `map::get(key)` method will continue to
 return an optional.
 
-## Changing a list
+## Taking an item out by index
 
-A list changes through methods and needs a binding that allows it. `open`
-allows changes without allowing the name to be assigned a new list.
+<!-- status: not-implemented -->
 
-```drachm
-open string[?] xs = [];
-xs::push("a");
-```
+`take xs[i] reorders` is built: it moves the item out and fills its place with
+the last item. The form that keeps the order and the length, `take xs[i] leaving v`,
+is E0901 today. See [Taking an item out](reference-collections.md#taking-an-item-out).
 
-## Walking a map
+## Views of map entries
 
-`for (string name, uint32 age of ages)` visits each entry (it works now; see
-the [reference](reference-collections.md#walking-a-map)). A `Map`'s iteration
-order is unspecified, and an `OrderedMap` keeps insertion order.
+<!-- status: not-implemented -->
+
+Walking a map gives copies of the keys and values. Looking at them without
+copying, `for (&string k, uint32 v of ages)`, is E0901 today. See [Walking a map](reference-collections.md#walking-a-map).

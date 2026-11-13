@@ -1,0 +1,12 @@
+in io;
+
+none main() {
+    mut OrderedMap<string, uint32> ages = { "Illy": 18, "Sam": 20 };
+    ages["Bob"] = 31;
+    ages["Sam"] += 1;
+
+    // A map is walked with two loop variables, in the order its keys were added.
+    for (string name, uint32 age of ages) {
+        io::outln(f"${name} is ${age}");
+    }
+}

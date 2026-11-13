@@ -1,0 +1,16 @@
+in io;
+
+// Works for any T that has >. The compiler works T out from the arguments.
+T max<T>(T a, T b) {
+    if (a > b) { return a; }
+    return b;
+}
+
+none main() {
+    uint32 a = 4;
+    uint32 b = 9;
+    uint32 m = max(a, b);
+    uint32 n = max<uint32>(5, 9);
+    io::outln(m::text());
+    io::outln(n::text());
+}

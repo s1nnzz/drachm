@@ -1,12 +1,9 @@
 ---
 title: "Lesson 16: Collections and for-each"
 description: Fixed arrays, growable lists and maps, indexing, and walking them with for and of.
-status: not-implemented
 ---
 
 # Lesson 16: Collections and for-each
-
-The array, list and map examples run today, including walking a map with two loop variables (see the [reference](reference-collections.md#walking-a-map)).
 
 **Goal:** keep many values together, look them up, and visit each one.
 
@@ -16,20 +13,16 @@ Three kinds of collection have a short spelling. A type followed by `[n]` is a
 fixed-size array. A type followed by `[?]` is a list that can grow. `Map<K, V>`
 looks values up by key.
 
-<!-- focus: 1 -->
+<!-- focus: 4 -->
 Four bytes, no more and no fewer.
 
-<!-- focus: 2 -->
+<!-- focus: 5 -->
 Two strings, and more can be added later.
 
-<!-- focus: 3 -->
+<!-- focus: 6 -->
 Each entry is a key, a colon and a value.
 
-```drachm
-uint8[4] rgba = [255, 0, 0, 255];
-string[?] names = ["Illy", "Sam"];
-Map<string, uint32> ages = { "Illy": 18 };
-```
+<!-- example: lesson-16-literals -->
 
 ## Indexing
 
@@ -40,53 +33,35 @@ A map lookup with `[]` gives an optional ([lesson 13](lesson-13-enums.md)),
 which is `none` when the key is missing. That is why `maybe` is so often at the
 end of a lookup.
 
-<!-- focus: 1 -->
+<!-- focus: 7 -->
 `Bob` is not in the map, so `age` is `none`.
 
-<!-- focus: 2 -->
+<!-- focus: 8 -->
 With `maybe 0` the missing key gives 0.
 
-```drachm
-uint32? age = ages["Bob"];
-uint32 a = ages["Bob"] maybe 0;
-```
+<!-- example: lesson-16-index -->
 
 ## Changing a list
 
 A list changes through methods such as `push`, and the binding must allow it.
-`open` allows changes without letting the name be assigned a new list
-([lesson 8](lesson-8-ownership.md) covers the ownership side).
+A list declared without a value starts empty, so `mut string[?] names;` can
+be pushed to at once. `open` allows changes without letting the name be
+assigned a new list ([lesson 8](lesson-8-ownership.md) covers the ownership side).
 
-```drachm
-open string[?] xs = [];
-xs::push("a");
-```
+<!-- example: lesson-16-change -->
 
 ## Walking a collection
 
 `for` with `of` visits each item in turn. The name before `of` holds the current
-item. Planned map loops will use two bindings. An `OrderedMap` will visit its
-entries in insertion order, while an ordinary map has no promised order.
+item.
 
-<!-- focus: 2 -->
+<!-- focus: 5 -->
 `total` is declared `mut` so the loop can add to it.
 
-<!-- focus: 3-5 -->
+<!-- focus: 6-8 -->
 `n` is each number in turn.
 
-```drachm
-uint32[?] scores = [4, 8, 15];
-mut uint32 total = 0;
-for (uint32 n of scores) {
-    total = total + n;
-}
-```
-
-The same `for` runs over a range, and `by` sets the step:
-
-```drachm
-for (uint32 i of 0..10 by 3) { }       // 0, 3, 6, 9
-```
+<!-- example: lesson-16-walk -->
 
 ### Your turn: add them up
 
@@ -107,6 +82,7 @@ none main() {
 27
 ```
 
+<!-- solution-of: solution-16-1 -->
 ```drachm solution
 in io;
 
@@ -119,6 +95,25 @@ none main() {
     io::outln(total::text());
 }
 ```
+
+### Ranges with a step
+<!-- status: not-implemented -->
+
+A range `a..b` in a `for` runs from `a` to `b`, both included, as the loop above
+shows. A step after the range (`by`) is not built yet, so this block is the
+intended shape only:
+
+```drachm
+for (uint32 i of 0..10 by 3) { }       // 0, 3, 6, 9
+```
+
+### Walking a map
+
+A map is walked with two loop variables, one for the key and one for the value.
+An `OrderedMap` visits its entries in the order the keys were added. An ordinary
+`Map` visits them in an order that is not promised.
+
+<!-- example: lesson-16-map -->
 
 ### Your turn: look up with a fallback
 
@@ -138,6 +133,7 @@ none main() {
 0
 ```
 
+<!-- solution-of: solution-16-2 -->
 ```drachm solution
 in io;
 
@@ -151,14 +147,12 @@ none main() {
 ## Splitting strings
 
 Several string methods return lists: `split(sep)`, `lines()` and `chars()`, and
-`join` on a list goes back. Looping directly over the characters of a string
-with `for` is planned along with them.
+`join` on a list goes back. Looping with `for` over the characters of a string
+works too (see [Control flow](reference-control-flow.md#looping-over-characters)).
 
-```drachm
-string[?] parts = "a,b,c"::split(",");
-string back = parts::join("-");
-```
+<!-- example: lesson-16-split -->
 
-[Collections](design-collections.md) has the rest of the design, including the
-settings that change what an out-of-range index does. Next, splitting a program
-across files: [Lesson 17: Modules and projects](lesson-17-modules.md).
+[Collections](reference-collections.md) has the full list of methods and the
+errors, and [Collections and for-each](design-collections.md) has the settings
+still to come. Next, splitting a program across files:
+[Lesson 17: Modules and projects](lesson-17-modules.md).
