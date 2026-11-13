@@ -22,7 +22,7 @@ several, separated by commas.
 
 A name for a type parameter is a name like any other, so it cannot be a
 struct, enum or built-in type name, and a list cannot name one twice (E0605).
-A unit's name is allowed with a warning (W0601): inside the function or
+A unit's name is allowed with a warning (W0618): inside the function or
 struct, the name stands for the type, and `X as unit` still names the unit
 (see [units](reference-units.md)). A function with type parameters is not a function until it is
 called, so its name alone is not a value (E0604), and it is defined once like

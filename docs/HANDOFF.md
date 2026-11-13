@@ -17,7 +17,7 @@ For a new session with no memory of earlier conversations. Read this, then
   changes `Type` (a value argument), give it to `drachm-architect`.
 - **Leftovers of 2026-11-13, built** (owner answers "Step 6 leftover
   follow-ups"): the SI unit is `tesla`; a type parameter named like a unit is
-  W0601, and `X as unit` names the unit anywhere; `by` takes a negative step
+  W0618, and `X as unit` names the unit anywhere; `by` takes a negative step
   (counts down), a run-time zero step stops with `range step is zero` (exit
   101), a literal zero is E0115; float ranges with `by` (value k is
   `start + k * step`).

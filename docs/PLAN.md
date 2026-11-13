@@ -673,7 +673,7 @@ Interims still open (each is E0901 unless noted; the question says what the owne
 
 Leftover follow-ups (owner, 2026-11-13, "Step 6 leftover follow-ups"):
 - SI unit `T` is `tesla` (done, commit "Rename the SI unit T to tesla").
-- A type parameter named like a unit is warning W0601 (was E0605); inside its
+- A type parameter named like a unit is warning W0618 (was E0605); inside its
   scope the plain name is the type (E0402 where a unit is meant); `X as unit`
   names the unit anywhere (done).
 - Range `by` sign: a negative step counts down, a step pointing away gives an empty

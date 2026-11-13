@@ -205,7 +205,7 @@ pub(super) fn check_tparams(g: &Globals, tparams: &[ast::TypeParam], diags: &mut
             }
             if units::is_unit_name(g, &p.name) {
                 diags.push(
-                    Diagnostic::at(&codes::W0601, p.span, format!("type parameter `{}` has the same name as a unit", p.name))
+                    Diagnostic::at(&codes::W0618, p.span, format!("type parameter `{}` has the same name as a unit", p.name))
                         .note(format!("inside its scope `{}` means the type parameter", p.name))
                         .help(format!("write `{0} as unit` to mean the unit, or rename the parameter", p.name)),
                 );
@@ -414,7 +414,7 @@ pub(super) fn drain(g: &mut Globals, src: &str, prog: &ast::Program, diags: &mut
     }
 }
 
-/// W0601 for each usable template nothing instantiated.
+/// W0618 for each usable template nothing instantiated.
 pub(super) fn warn_unused(g: &Globals, diags: &mut Vec<Diagnostic>) {
     let bounded = |tps: &[ast::TypeParam]| tps.iter().any(|p| !p.bounds.is_empty());
     let mut unused: Vec<&Template> = g.mono.templates.values().filter(|t| t.usable && t.instances == 0 && !bounded(&t.head.tparams)).collect();

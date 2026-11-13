@@ -616,7 +616,7 @@ A unit was used that is not declared. Declare it with `unit NAME;` for a
 new base unit, or `unit NAME = ...;` to give it a size in other units,
 such as `unit km = 1000 m;`. Inside a generic, a type parameter named
 like a unit is the type, so a plain name there is not a unit: write
-`T as unit` for the unit (W0601).
+`T as unit` for the unit (W0618).
 
 ## E0403: bad unit declaration
 
@@ -989,7 +989,7 @@ generic type written alone, has to say what its type parameters are.
 
 A type parameter is declared twice in the same list, or has the name of
 a struct, enum or type (`Point`, `uint32`). A type parameter takes no
-other name's place. A unit's name is only a warning (W0601).
+other name's place. A unit's name is only a warning (W0618).
 
 ## E0608: a generic keeps instantiating itself
 
@@ -1201,7 +1201,7 @@ name cannot choose between them; walk the value with `for` instead.
 A generic function, struct or enum is only checked when something uses
 it with particular types, so one nothing uses is not checked at all.
 
-## W0601: type parameter named like a unit
+## W0618: type parameter named like a unit
 
 A type parameter has the name of a unit, such as `K` (kelvin) or `N`
 (newton) after `in si;`. Inside the parameter's scope the name is the
@@ -1210,7 +1210,7 @@ unit` names it, even inside the scope, as in `float64<K as unit>`.
 Rename the parameter to remove the warning.
 
     in si;
-    K max<K>(K a, K b) { ... }        // W0601: K is the type here
+    K max<K>(K a, K b) { ... }        // W0618: K is the type here
     float64<K as unit> t = 1.0<K>;   // the unit K
 
 ## E0901: not supported yet

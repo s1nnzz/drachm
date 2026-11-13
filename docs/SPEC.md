@@ -464,7 +464,7 @@ float64<m/s> speed = dist / time;     // dist + time is a compile error
     which clashed with type parameters). `float64<tesla>`, `0.5<tesla>`.
   - `X as unit` names the unit X out in full, anywhere a unit goes
     (`float64<tesla as unit>`, `0.5<tesla as unit>`). Built (2026-11-13, owner).
-  - A type parameter named like a unit (`K` with `in si;`) is a warning, W0601,
+  - A type parameter named like a unit (`K` with `in si;`) is a warning, W0618,
     not an error. Inside the parameter's scope the plain name is the type:
     `float64<K>` there is E0402 ("a type parameter here, so it is not a unit"),
     and `float64<K as unit>` is the unit. Built. A struct, enum or built-in type

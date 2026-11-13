@@ -56,7 +56,7 @@ that declares a name `in si;` already has is an error ([E0403](errors.md)).
 `float64<tesla as unit>` is the same type as `float64<tesla>`, and
 `0.5<tesla as unit>` is the same value as `0.5<tesla>`. It is also how a unit
 is reached where a type parameter has the same name. A type parameter named
-like a unit is allowed with a warning (W0601). Inside its scope the plain name
+like a unit is allowed with a warning (W0618). Inside its scope the plain name
 is the type, so `float64<K>` there is an error (E0402); `float64<K as unit>`
 is the unit `K`.
 

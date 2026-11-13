@@ -1,7 +1,7 @@
 in io;
 in si;
 
-// `K` is kelvin after `in si;`, but here it is the type parameter (W0601).
+// `K` is kelvin after `in si;`, but here it is the type parameter (W0618).
 K largest<K>(K a, K b) {
     if (a > b) {
         return a;
