@@ -32,6 +32,17 @@ For a new session with no memory of earlier conversations. Read this, then
 - **Early language server merged**: `drachm lsp` and the VS Code extension
   provide live diagnostics, hover, definition and completion. See PLAN step 8
   for remaining work and the extension README for setup.
+- **Step 7.1 built (2026-11-13)**: C header imports. `src/cimport.rs` (libclang
+  through `clang-sys`), `src/cbind.rs` (C declarations as syntax-tree items, the
+  resolver binds `Target::C`), `Type::C`, `Type::CEnum`, `Type::Foreign`, foreign
+  calls on both backends, the `[native]` table and linking (`hir::LinkPlan`),
+  `p::text()`, `&s as c string`, callbacks, function-like macros through a C
+  shim. Tests: `tests/projects/c_*` (golden, both backends), `tests/c_imports.rs`,
+  fixture `tests/c/drachm_fixture.{h,c}`; docs `site/content/guide-c-imports.md`
+  and `reference-c-imports.md`; showcase part 6 (`examples/showcase/c/`).
+  Interims and open questions: PLAN step 7.1. Needs libclang at run time
+  (`LIBCLANG_PATH`) and, for `-resource-dir`, `clang` or
+  `DRACHM_CLANG_RESOURCE_DIR`.
 - **Step 7**: modules, config and public dependency imports are built.
   Libraries check without `main()`. The showcase uses source tabs.
   Bounds, unsigned negation and missing-map-key settings work. Overflow,

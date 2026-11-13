@@ -26,7 +26,7 @@ answers into `docs/SPEC.md` and the design doc, and note leftovers under that st
 | 5 | Constructors, enums, `fails` / `maybe` | done (the `crash` setting of `unhandled_fail` waits for step 7): S5A.1 done (enums with data, `match` with bindings/`take`/`copy`/guards/nesting/alternatives/values, exhaustiveness, `Switch`; `==` for payload-free enums) and S5B done (constructors, overloads, `new ... of`, named values, `Person(auto);`, `fill`, `fill partial`, `def`, `defaults`, `now`); optionals done (S5A.2, below); failures done (S5C and S5D, below: `failure`, `fails`, `fail`, `maybe`/`fails` on calls, handlers, `because`, `ConvertError`, exit codes, failing constructors and `drop()`) |
 | 6 | Generics, interfaces, collections | done (S6Z sweep, 2026-11-13): generic functions, structs and enums (inferred and written type arguments, borrows as type arguments, units); interfaces (`with`, `and`, `extends`, `Self`, `changes self`, built-in `Zero`/`Equal`/`Ordered`/`Text`, `with trusted`, generic interfaces, `&Shape` with vtables, `Iterable<T>` with `at(i)`); arrays, lists and maps (indexing, the methods, `take xs[i] reorders`, views of owning items, scalar and composite keys with `key()`, two-variable walks, `each`); function types, lambdas with inferred captures. The interims still open are listed in the step 6 section, each with its question number |
 | 7 | Modules, config, scripts, stdlib | in progress: WP1 done (source map with global offsets, import/export grammar, `src/modules.rs` graph loader, project folders, E0230-E0235); WP2 done (names across files, `src/resolve.rs`); follow-ups 2026-11-13: a call through a module chains with `::` or `->` (done); W0240's help asks whether the module's name was meant (done); `in si;` is per file (done, E0402 in a file without it); spec `docs/impl/step7-modules.md` |
-| 7.1 | C header import (`in * from c."SDL2/SDL.h" as sdl;`), right after step 7 | not started; owner, 2026-11-13: scheduled next after step 7; not all calls `unsafe` if avoidable |
+| 7.1 | C header import (`in * from c."SDL2/SDL.h" as sdl;`), right after step 7 | built (2026-11-13): discovery (`src/cimport.rs`, libclang through `clang-sys`), `[native]` table, scalars, `foreign *T`, text both ways, structs, enums, macros, callbacks, linking, docs and showcase; interims and open questions in the step 7.1 section below |
 | 7.6 | Package manager (`drachm add/remove/update`, git tags as versions, per-project `deps/`, later the Agora; ties into C header packages) | not started; owner answers "Package manager, 2026-11-13" |
 | 7.5 | MIR optimiser: SSA, inlining, scalar replacement, constant folding, loop opts, check elimination, alias info from borrows | not started |
 | 8 | Language server | partly done (pulled forward): `drachm lsp` (`src/lsp/`, `lsp-server`), diagnostics on change/save for files and projects, parser recovery for unclosed blocks, hover, go to definition and completion from a typeck side table (`src/typeck/index.rs`), VS Code client; left: inlay hint for the inferred `self` mode, imports completion, rename, references, formatting |
@@ -804,9 +804,68 @@ Owner, 2026-11-13: scheduled straight after step 7, before 7.6 and 7.5 ("that's
 when proper stuff can be done with the lang"). SPEC design: `in * from
 c."SDL2/SDL.h" as sdl;` read via libclang (`clang-sys`), C types mapped to
 Drachm types. Imported C calls are unsafe. Drachm code exposes safe wrappers,
-and projects specify native libraries in `drachm.toml`. The implementation spec
-still needs decisions on pointers, structs, enums, unions, macros, callbacks,
-strings, and ownership of returned memory.
+and projects specify native libraries in `drachm.toml`. The owner's answers are
+in `docs/impl/owner-answers.md` ("C bindings and library checks", "C header
+imports batch A-D"); the implementation spec is `docs/impl/step7.1-c-imports.md`.
+
+**Built (2026-11-13):**
+- `src/cimport.rs`: libclang (`clang-sys`, loaded at run time, per thread) reads a
+  synthetic `#include <header>` with the `[native]` include dirs and defines. It
+  records functions, structs (with layout checked against the natural one),
+  enums, enumerators, typedefs and macros, and for anything it cannot map the
+  reason, so use reports E0901 with it. Macros are evaluated on demand through
+  `clang_Cursor_Evaluate`.
+- `src/cbind.rs`: C declarations as syntax-tree items. The resolver binds the
+  alias (`Target::C`), gives `alias::name` its program-wide name, and writes the
+  declarations the program used as `ast::Func` (with `foreign: Some(symbol)`),
+  `ast::Struct` and `Program::c_enums`; objects-like macros become literals.
+- Types: `Type::C(CKind)` (`c::int`, `c::long`, `c::size_t`, `c::char`, `c::bool`,
+  ...), `Type::CEnum`, `Type::Foreign { to }` (`foreign *T`, copyable, in
+  `is_ptr`). C numbers erase to their integers with `Type::bare` before MIR.
+  E0704 (C and Drachm numbers do not mix), E0705 (`match` on a C enum needs
+  `case _`).
+- Calls: foreign functions are `unsafe` `hir::Func`s with no MIR body; the
+  symbol table is `hir::Program::foreign`. Cranelift declares them with
+  `Linkage::Import` and the C ABI (narrow integer extension, System V x86-64
+  eightbyte passing for structs of up to 16 bytes); the C backend declares them
+  with an assembler label. `[native]` (`include`, `defines`, `libraries`,
+  `library_dirs`, `sources`) goes to `link.rs` through `hir::LinkPlan`;
+  dependencies' tables are merged for the files of the build.
+- Text: `p::text()` (`SystemOp::CText`, fails `InvalidText`), `&s as c string`
+  (`StrFn::CPtr` on `s + "\0"`, a temporary).
+- Macros: `from c macro NAME(params) gives T;` writes a C shim
+  (`hir::Program::shim`) compiled with the project.
+- Callbacks: `Constant::FuncAddr` for the name of a plain top-level function.
+- `x as T` for C numbers only (desugars to `::to<T>()`).
+
+**Interims (E0901 or the narrowest reading), for the owner to rule on:**
+1. A `foreign *T` goes to `foreign *none` implicitly, and a `*T` / `*fixed T`
+   goes to `foreign *T` (same `T`) or `foreign *none` implicitly. The reverse
+   (`foreign *none` to a typed pointer) is not implicit.
+2. `foreign` pointers are `Copy` (C owns the target); `*T` still is not.
+3. `p::text()` fails with a new failure `InvalidText` (one variant, for bad
+   UTF-8 and null alike); wording is mine.
+4. `&s as c string` with a NUL inside stops the program (exit 101); it is only
+   allowed as a direct argument of a C call (E0901 elsewhere).
+5. `as` is accepted only where a C number or enum is involved (E0901 for other
+   numbers: `::to<T>()` stays the general conversion).
+6. A function-like macro finds its header among the C imports of the file that
+   declares it; the declared name is called as `alias::NAME`.
+7. Object-like macros are untyped constants; enumerators are typed with their
+   enum; enumerators of an anonymous enum are plain numbers.
+8. `[native]` keys `library_dirs` and `sources` (C files compiled with the
+   project) are my additions to the owner's "include dirs, defines, libraries";
+   no platform-specific settings.
+9. Calling C needs both the file flag `//--!$unsafe: true` and an `unsafe`
+   block, as for raw pointers. The flag is read from the entry file only (an
+   existing limit of `unsafe_allowed`), so a dependency's wrappers need it in
+   the app's main file too.
+10. Not built: variadics (after 7.1, as decided), unions, bit-fields, flexible
+    array members, `static inline` functions (they would need the macro-style
+    declaration), global variables, `long double`, 128-bit C integers, structs
+    over 16 bytes by value, struct passing off System V x86-64, callbacks with
+    struct parameters, import forms other than `in * from c."h" as alias;`,
+    hover on C names in the language server.
 
 ---
 

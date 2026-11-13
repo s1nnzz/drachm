@@ -938,7 +938,27 @@ phys::Vector3 v = 1, 2, 3;
   in the `[native]` table in `drachm.toml`, alongside include directories and
   definitions. The import exposes declarations from the named header and its
   transitive includes. Scripts can check headers with the default search path.
-  Linking requires a project manifest.
+  Linking requires a project manifest. Consumers inherit the native link
+  requirements of the dependencies they import.
+  Built (2026-11-13), owner decisions of the same day:
+  - C numbers are types of their own (`c::int`, `c::long`, `c::size_t`,
+    `c::char`, `c::bool`, ...), converted with `as` (or `::to<T>()`).
+  - C pointers are `foreign *T` (`void *` is `foreign *none`, null is `none`);
+    only `unsafe` code opens them. `p::text()` on a `foreign *uint8` reads to
+    the NUL, checks UTF-8 and fails on bad text. `&s as c string` passes a
+    Drachm string to C for that one call.
+  - C structs are value structs with the exact C layout (field access, by-value
+    passing); unions are readable only in `unsafe`, bit-fields go through
+    generated code, flexible array members are foreign pointers (the last three
+    are not built yet).
+  - A C enum is a foreign enum type that admits unknown values: a `match` on it
+    needs `case _`.
+  - Object-like macros that evaluate to a number or string are constants; a
+    function-like macro is callable after `from c macro NAME(params) gives T;`.
+  - A plain top-level Drachm function (no captures) is a C callback; variadic C
+    functions wait until after 7.1.
+  - Memory returned by C is released by the wrapper (e.g. in `drop()`), never
+    inferred; C error conventions are ordinary wrapper code.
 
 ## 10. Projects, config, scripts, tooling
 

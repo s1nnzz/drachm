@@ -1,0 +1,16 @@
+//--!$unsafe: true
+in io;
+in * from c."SDL3/SDL.h" as sdl;
+
+none main() {
+    unsafe {
+        c::int v = sdl::SDL_GetVersion();
+        io::outln(f"SDL version number ${v as sint32}");
+        uint32 video = sdl::SDL_INIT_VIDEO;
+        io::outln(f"init video flag ${video}");
+        foreign *uint8 rev = sdl::SDL_GetRevision();
+        io::outln(rev::text() maybe "?");
+        sdl::SDL_Rect r = 1, 2, 30, 40;
+        io::outln(f"rect ${r.w as sint32}x${r.h as sint32}");
+    }
+}
