@@ -26,6 +26,7 @@ answers into `docs/SPEC.md` and the design doc, and note leftovers under that st
 | 5 | Constructors, enums, `fails` / `maybe` | done (the `crash` setting of `unhandled_fail` waits for step 7): S5A.1 done (enums with data, `match` with bindings/`take`/`copy`/guards/nesting/alternatives/values, exhaustiveness, `Switch`; `==` for payload-free enums) and S5B done (constructors, overloads, `new ... of`, named values, `Person(auto);`, `fill`, `fill partial`, `def`, `defaults`, `now`); optionals done (S5A.2, below); failures done (S5C and S5D, below: `failure`, `fails`, `fail`, `maybe`/`fails` on calls, handlers, `because`, `ConvertError`, exit codes, failing constructors and `drop()`) |
 | 6 | Generics, interfaces, collections | done (S6Z sweep, 2026-11-13): generic functions, structs and enums (inferred and written type arguments, borrows as type arguments, units); interfaces (`with`, `and`, `extends`, `Self`, `changes self`, built-in `Zero`/`Equal`/`Ordered`/`Text`, `with trusted`, generic interfaces, `&Shape` with vtables, `Iterable<T>` with `at(i)`); arrays, lists and maps (indexing, the methods, `take xs[i] reorders`, views of owning items, scalar and composite keys with `key()`, two-variable walks, `each`); function types, lambdas with inferred captures. The interims still open are listed in the step 6 section, each with its question number |
 | 7 | Modules, config, scripts, stdlib | in progress: WP1 done (source map with global offsets, import/export grammar, `src/modules.rs` graph loader, project folders, E0230-E0235; a program of several files stops at E0901 until WP2 resolves names across files); spec `docs/impl/step7-modules.md` |
+| 7.6 | Package manager (`drachm add/remove/update`, git tags as versions, per-project `deps/`, later the Agora; ties into C header packages) | not started; owner answers "Package manager, 2026-11-13" |
 | 7.5 | MIR optimiser: SSA, inlining, scalar replacement, constant folding, loop opts, check elimination, alias info from borrows | not started |
 | 8 | Language server | not started |
 | D | Documentation site (cross-cutting) | live locally: lessons 1-9, reference, design pages with status badges |
@@ -738,6 +739,20 @@ covers module imports, item clashes wait for WP2; cross-file mutual recursion
 (Q8) is a WP2 check. Next: WP2 (scoped names), then the rest.
 
 **Open (ask owner):** the full `[warnings]` name list (grows as warnings are added).
+
+---
+
+## Step 7.6: Package manager
+
+Owner, 2026-11-13 (owner-answers "Package manager"): Drachm's own package
+manager in the spirit of pnpm/bun, built after step 7. `drachm add URL@^0.4`,
+`drachm remove`, `drachm update` write `drachm.toml` and the lock file; packages
+live per project in `deps/`; versions are git tags (`^` ranges pick the newest
+matching tag); git repos until the Agora registry exists. Packages may wrap C
+libraries (headers, sources, link flags) for `in * from c."..." as x;`.
+**Open:** lock file format, resolution of shared transitive deps (one version
+or several), `deps/` in git or ignored, build scripts for C packages, Agora
+protocol.
 
 ---
 

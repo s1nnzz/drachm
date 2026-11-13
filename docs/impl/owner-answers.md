@@ -208,3 +208,11 @@ Q5 interfaces as types: any interface can be used as `&I` (its `static` methods 
 - `in * from game.audio as snd;` brings every exported name in bare and also under `snd::` (`play()` and `snd::play()` are the same). Owner's note: "in * from x as y means it puts all of it in y" (my reading: everything is reachable as `snd::name`; the bare names come with it as in the option picked).
 - Correction (owner, same day): `in * from x as y` puts everything under `y::` only, no bare names, unless written `also bare`: `in * from game.audio as snd also bare;` gives both `play()` and `snd::play()`.
 - Climbing folders: a string path relative to the importing file, with `..`: from `src/game/physics.drh`, `in * from "../runtime/scheduler.drh" as scheduler;`. My reading: a string path works wherever a module path does (`in "../runtime/scheduler.drh";`, `in tick from "../runtime/scheduler.drh";`), and without `as` the module is named after the file (`scheduler`).
+
+# Package manager, 2026-11-13
+- Owner wants Drachm's own package manager, in the spirit of pnpm and bun, working off git repos until the central registry (the Agora, SPEC 10) exists.
+- `drachm add github.com/someone/sdl-drh@v0.4`, `drachm remove sdl-drh`, `drachm update`: the commands write `drachm.toml` and the lock file.
+- Downloaded packages live per project, in the project's `deps/` folder (`project/deps/sdl/`), not a global store.
+- Versions of git packages are git tags (`v0.4.1`); `@^0.4` picks the newest matching tag.
+- Built after step 7, as its own step (7.6). Step 7 keeps plain git dependencies + lock file (WP3).
+- Owner's note: "this can link into the C compat stuff" (my reading: a package can wrap a C library, i.e. carry C headers/sources for `in * from c."..." as x;` imports and the link flags, and the manager fetches/builds those too; to design with the C-header step).
