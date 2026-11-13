@@ -175,3 +175,10 @@ Q5 interfaces as types: any interface can be used as `&I` (its `static` methods 
 - Q2 paths are relative to the importing file's folder; a path from the source root starts with the project's name from the config: `in mygame.game.physics;`. Climbing one folder up: not answered (my reading: write it from the root; no `up` form for now).
 - Q3 exports: an `out` list and `out` on a declaration, mixed freely in one file; the list may rename (`out Vector3 as Vec3;`). Re-exporting an imported name: not asked separately (open).
 - Q4 a local name that clashes with an imported module shadows it in its scope, with a warning.
+
+# Step 7 batch B (Q5-Q8), 2026-11-13
+- Q5 several items: a comma list, each may be renamed: `in Vector3 as V3, gravity from physics;`.
+- Q6 two modules with the same file name (`game/audio`, `engine/audio`): an error at the second import, with the fix-it `in engine.audio as engineAudio;`.
+- Q6b `X with I { }` blocks and `def`s follow the type: visible wherever the struct or the interface is visible (`in Circle from shapes;` brings Circle's `with` blocks). For `def`s, my reading: visible where the type they define on is visible.
+- Q7 `in *` clashes (with `import_clash = warn`): a local declaration beats imports; between imports the first wins; the warning is at the later import line.
+- Q8 import cycles are allowed (declarations see each other across files), except cross-file recursion: a function in a.drh that calls into b.drh which calls back into a.drh is an error (owner: "allowed unless code calls itself"; clarified as cross-file mutual recursion, not top-level init loops or types). My reading: recursion within one file stays fine; the error shows the call chain.
