@@ -7,6 +7,7 @@
 //! - `03xx` ownership and borrowing (step 3)
 //! - `05xx` constructors, enums, optionals and failures (step 5)
 //! - `06xx` generics, interfaces, collections and lambdas (step 6)
+//! - `08xx` project files, dependencies and `drachm new` (step 7)
 //! - `09xx` things this compiler version cannot do yet
 //!
 //! `explain` is the long text shown by `drachm explain <code>`.
@@ -909,6 +910,66 @@ codes! {
          \x20   in si;\n\
          \x20   K max<K>(K a, K b) { ... }        // W0618: K is the type here\n\
          \x20   float64<K as unit> t = 1.0<K>;   // the unit K";
+    E0800: "project file is not valid",
+        "A project file cannot be read, or is not valid TOML: `drachm.toml`,\n\
+         `srachm.toml` and `drachm.lock` are TOML files. The label points at\n\
+         the first thing the TOML reader could not parse.";
+    E0801: "unknown setting",
+        "A key or table in `drachm.toml` or `srachm.toml` is not one the\n\
+         compiler knows, so it would do nothing. The sections are `[project]`,\n\
+         `[dependencies]`, `[build]`, `[warnings]` and `[behaviour]`. A close\n\
+         spelling is suggested.";
+    E0802: "bad setting value",
+        "A setting has a value it does not accept: a word that is not one of\n\
+         the choices (`overflow = \"clamp\"`), text where a number or a list\n\
+         goes, a `kind` other than `program` or `library`, or an `entry` that is\n\
+         not a `.drh` file inside the project.";
+    E0803: "required setting missing",
+        "A setting that must be there is not: `[project] name` in a project, a\n\
+         git dependency's `tag`, or the `path` or `git` of a dependency.\n\n\
+         \x20   [project]\n\
+         \x20   name = \"mygame\"";
+    E0804: "bad dependency",
+        "A `[dependencies]` entry is not usable: its name is not a plain name,\n\
+         it is not a table, it mixes `path` and `git`, or it has a key that is\n\
+         not `path`, `git` or `tag`.\n\n\
+         \x20   sdl = { git = \"https://example.org/sdl.git\", tag = \"v0.4\" }\n\
+         \x20   utils = { path = \"../utils\" }";
+    E0805: "invalid project name",
+        "The project's name is part of every path that starts at the source\n\
+         folder, so it must be a plain name: letters, digits and `_`, starting\n\
+         with a letter or `_`. `2fast` and `my-game` are not names.";
+    E0806: "behaviour set in a file flag",
+        "A `//--!$` file flag sets a behaviour that must be the same across the\n\
+         whole project: `missing_key`, `unhandled_fail` or `import_clash`. Set\n\
+         those in `[behaviour]` of `drachm.toml`. Only `overflow`, `bounds` and\n\
+         `unsigned_negate` may differ from file to file.";
+    E0807: "project and script config both here",
+        "A folder has both `drachm.toml` (a project) and `srachm.toml` (a\n\
+         script). A folder is one or the other. Keep the one that fits.";
+    E0808: "cannot fetch a git dependency",
+        "A `git` dependency could not be fetched: `git` is not installed, the\n\
+         address is wrong, or the tag does not exist. Dependencies are cloned\n\
+         into the compiler's cache folder. The message shows what git said.";
+    E0809: "git tag moved",
+        "The tag of a git dependency now points at a different commit than\n\
+         `drachm.lock` records. The lock file pins the commit that was built\n\
+         before, so the compiler refuses the new one. If the change is wanted,\n\
+         delete `drachm.lock` and build again: the new commit is then recorded.";
+    E0810: "dependency cycle",
+        "A dependency depends on itself, directly or through other\n\
+         dependencies. A project's dependencies must form a tree.";
+    E0811: "library has no program",
+        "`drachm run` and `drachm build` make a program, and a project with\n\
+         `kind = \"library\"` has no program to make: its code is used by other\n\
+         projects. Change `kind` to `\"program\"` to build it, or run a program\n\
+         project instead.";
+    E0812: "entry file not found",
+        "The project's `entry` (`src/main.drh` by default) is not a file. Create\n\
+         it, or change `entry` in `[project]`.";
+    E0813: "cannot make a new project",
+        "`drachm new NAME` needs NAME to be a plain name and a folder that does\n\
+         not exist yet in the current folder.";
     E0901: "not supported yet",
         "This is part of Drachm's design, but this version of the compiler does\n\
          not implement it yet.";
