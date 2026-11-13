@@ -1,3 +1,4 @@
+//--!$unsafe: true
 // ============================================================================
 //  SHOWCASE: the voyage of the survey ship Drachma
 //
@@ -10,6 +11,7 @@
 //      in * from voyage.systems as systems;      every exported name, under systems::
 //      in * from rules as rules also bare;       under rules:: and bare, too
 //      in Order from voyage.orders;              single items
+//      in * from c."harbour.h" as harbour;       a C header (src/voyage/ports.drh)
 //
 //  Run it with:
 //      drachm run examples/showcase        (Cranelift)
@@ -25,6 +27,7 @@ in * from voyage.systems as systems;
 in * from rules as rules also bare;
 in voyage.mission;
 in voyage.cargo as cargo;
+in voyage.ports as ports;
 
 none main() {
     io::outln(f"the survey ship Drachma: ${BAYS} cargo bays, ${rules::RACK_SLOTS} rack slots");
@@ -36,6 +39,7 @@ none main() {
     systems::run();
     mission::run();
     cargo::run();
+    ports::run();
     string platform = os::platform();
     if (platform != "") { io::outln("voyage platform available"); }
     string manifest = fs::read("examples/showcase/drachm.toml") maybe "";

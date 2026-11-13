@@ -7,3 +7,7 @@ charts = { path = "charts" }
 
 [behaviour]
 missing_key = "panic"
+
+[native]
+include = ["c"]
+sources = ["c/harbour.c"]

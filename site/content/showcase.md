@@ -8,12 +8,15 @@ description: One program that uses everything the compiler accepts today, beside
 This is the voyage of the survey ship Drachma: one program that uses everything
 the compiler accepts today. Numbers of every width, units of measure, structs
 and constructors, enums and `match`, optionals, failures with handlers and
-causes, interfaces and generics, borrows and `lives`, lists, maps, lambdas.
+causes, interfaces and generics, borrows and `lives`, lists, maps, lambdas, and a
+C library (the harbours of part 6, `examples/showcase/c/`) called through a
+safe wrapper.
 Each part has a header comment saying what it shows off.
 
 It is a real, tested example, and a project of several files: `examples/showcase/`
-has a `drachm.toml`, `src/main.drh` and a module for each chapter under
-`src/voyage/`, plus `src/rules.drh` for the constants. `main.drh` imports them
+has a `drachm.toml` (with a `[native]` table for the C helper), `src/main.drh` and
+a module for each chapter under `src/voyage/`, plus `src/rules.drh` for the
+constants. `main.drh` imports them
 in the different ways a file can (a module, a module under another name, every
 name under a prefix, names bare as well, single items), and `systems.drh`
 reaches `rules.drh` with a file path that climbs a folder. The expected output
