@@ -6,9 +6,12 @@ with environment and process originally listed separately. The owner has now
 selected this split:
 
 - `fs` reads, writes and creates files. Write replaces the contents. Create is
-  exclusive and fails if the destination exists.
+  exclusive and fails if the destination exists. It takes a path and optional
+  initial text and returns the shared `File` used by reader and writer APIs
+  for line reads and writes. Cursor and opening modes are pending.
 - Failures are typed by cause, such as `FileMissing` and `AccessDenied`.
 - `os` exposes platform, current working directory and environment lookup.
+  `os::getEnv` returns `string?` with `none` for a missing variable.
 - Process execution belongs to a separate module. If later approved, pass the
   executable and argument vector directly to the OS. Shell syntax, expansion
   and interpolation require an explicit shell invocation.
@@ -25,7 +28,7 @@ Rust static library on both backends via `build.rs` and `src/link.rs`. Have the
 main agent coordinate ownership of this file and agree the ABI before parallel
 edits. Helpers borrow length-delimited Drachm strings and return an explicit
 status. A read writes one owned Drachm string to an output slot on success.
-Write and create need no output slot. Keep the status mapping synchronized
+Write needs no output slot. Create needs a separate owned-handle ABI. Keep the status mapping synchronized
 between the runtime, MIR and `runtime/strings.h`. Map host errors centrally by
 cause, including missing paths, permission denial and existing destinations.
 Reserve a distinct status for unmapped errors and settle its public failure
@@ -61,7 +64,8 @@ call the common helper. Later `os` calls can reuse the status-to-outcome code.
 
 ## OS second
 
-Land FS before editing the overlapping compiler and runtime files for OS.
+Land whole-file read and write first. Platform and environment lookup can
+land before the shared File API or cwd.
 Read the platform from the compiled runtime target and query cwd and the
 environment in the running executable. Use the same owned string convention
 for returned text. Keep absence separate from an empty environment value and
@@ -70,14 +74,14 @@ once their public behavior is decided.
 
 ## Owner questions for main
 
-- Confirm the public signatures. Does create take initial text, or create an
-  empty file? Does write create a missing file? Is replacing contents a
-  truncating write, or must replacement be atomic?
+- Does write create a missing file? Is replacing contents a truncating write,
+  or must replacement be atomic? Decide the shared File cursor and opening
+  modes before exposing create or the line APIs.
 - Confirm text and path encoding and the public cause names for existing
   destinations, invalid paths, invalid file text and other host errors. Should
   failure values include the path or a platform error detail?
 - Confirm OS function names and types, platform spelling, cwd failure types,
-  and how missing, invalid and non-Unicode environment values are exposed.
+  and how invalid names and non-Unicode environment values are exposed.
   Keep unresolved compiler entry points at E0901 and report each interim.
 
 ## Verification and landing
