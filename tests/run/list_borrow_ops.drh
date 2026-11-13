@@ -1,0 +1,22 @@
+in io;
+
+none main() {
+    string a = "apple";
+    string b = "fig";
+    string c = "pear";
+    mut List<&string> xs = [&a, &b];
+    xs::insert(1, &c);
+    io::outln(f"${xs::len()}");
+    for (&string s of xs) { io::outln(s); }
+    Optional<&string> got = xs::get(1);
+    io::outln(got maybe &a);
+    io::outln(xs::last() maybe &a);
+    xs::each((&string s) => { io::outln(s::upper()); });
+    List<&string> ys = copy xs;
+    io::outln(f"${ys::len()}");
+    xs::remove(0);
+    xs::clear();
+    io::outln(f"${xs::len()}");
+    io::outln(f"${ys == xs}");
+    io::outln(f"${ys::contains(&c)}");
+}

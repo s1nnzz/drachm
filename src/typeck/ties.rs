@@ -49,6 +49,7 @@ impl Globals {
                 s.lives.iter().filter_map(|&f| s.fields[f].ty).map(|t| self.slots_deep(t, depth + 1)).sum()
             }
             Type::List { elem } | Type::Array { elem, .. } => self.slots_deep(*elem, depth + 1),
+            Type::Map { key, val, .. } => self.slots_deep(*key, depth + 1) + self.slots_deep(*val, depth + 1),
             Type::Enum { id, .. } => self.enums[id].variants.iter().flat_map(|v| &v.fields).filter_map(|f| f.ty).map(|t| self.slots_deep(t, depth + 1)).sum(),
             _ => 0,
         }

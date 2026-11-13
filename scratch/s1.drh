@@ -1,0 +1,22 @@
+in io;
+
+struct Stack<T> {
+    public:
+    T[?] items;
+    none push(T x) { self.items::push(x); }
+    uint64 len() { return self.items::len(); }
+    T? pop() { return self.items::pop(); }
+}
+
+none main() {
+    string name = "ann";
+    string other = "bob";
+    mut Stack<&string> s = new Stack<&string> of ([]);
+    s::push(&name);
+    s::push(&other);
+    io::outln(f"${s::len()}");
+    Optional<&string> top = s::pop();
+    string fallback = "none";
+    io::outln(top maybe &fallback);
+    if (top has value) { io::outln("has"); }
+}

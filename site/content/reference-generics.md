@@ -204,7 +204,7 @@ error[E0306]: `name` does not live long enough
 A generic struct made this way may not be used as the field of another struct
 that is not generic (E0901 for now), and a generic function called with a
 borrow type argument (`same<&string>(&s)`) is still E0901: write `&T` in the
-parameter. A list of borrows is spelled through a generic type for now.
+parameter. A list of borrows is spelled `List<&string>`.
 
 ## Optional types
 
@@ -358,8 +358,11 @@ What a `&Shape` cannot do:
   known (E0619). Call it on the struct, or in a generic constrained with the
   interface.
 - A struct that does not implement the interface does not convert (E0640).
-- A method that returns a borrow, a required field written to, a `&Circle`
-  where `Circle` itself holds borrows, and a list of `&Shape` are E0901 for now.
+- A method that returns a borrow, a required field written to, and a `&Circle`
+  where `Circle` itself holds borrows are E0901 for now. A list of `&Shape` works
+  (`List<&Shape>`), but `==` and `contains` on it are E0901.
+
+<!-- example: dyn-list -->
 
 ```text
 error[E0640]: `Plain` does not implement `Shape`, so `&p` is not a `&Shape`

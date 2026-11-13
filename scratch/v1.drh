@@ -1,0 +1,14 @@
+in io;
+
+none main() {
+    mut string[?] names = ["Ann", "Bob", "Cy"];
+    string none_text = "nobody";
+    io::outln(names::first() maybe &none_text);
+    io::outln(names::last() maybe &none_text);
+    io::outln(names::get(1) maybe &none_text);
+    io::outln(names::get(7) maybe &none_text);
+    io::outln(names::get(-2) maybe &none_text);
+    if (names::first() has value) { io::outln("some"); }
+    names::push("Di");
+    io::outln(f"${names::len()}");
+}

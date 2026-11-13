@@ -1,0 +1,9 @@
+in io;
+
+none main() {
+    mut string[?] names = ["Ann", "Bob"];
+    string fallback = "nobody";
+    Optional<&string> first = names::first();
+    names::push("Cy");
+    io::outln(first maybe &fallback);
+}

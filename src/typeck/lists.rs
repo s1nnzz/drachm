@@ -45,7 +45,7 @@ impl Globals {
     }
 
     /// `elem` with the written `dim` after it. Reports why not.
-    fn collection_of(&self, elem: Type, dim: &ast::Dim, diags: &mut Vec<Diagnostic>) -> Option<Type> {
+    pub(super) fn collection_of(&self, elem: Type, dim: &ast::Dim, diags: &mut Vec<Diagnostic>) -> Option<Type> {
         let at = match dim {
             ast::Dim::List(s) | ast::Dim::Array(_, s) => *s,
         };
@@ -127,8 +127,8 @@ impl Checker<'_> {
                 self.diags.push(Diagnostic::at(&codes::E0652, first.span, "a function value cannot be stored in a list"));
                 return None;
             }
-            if x.ty == Type::None || x.ty.is_borrow() {
-                self.diags.push(Diagnostic::at(&codes::E0901, first.span, "a list of borrows is not supported yet"));
+            if x.ty == Type::None {
+                self.diags.push(Diagnostic::at(&codes::E0104, first.span, "a list cannot hold `none`").note("`none` holds no value"));
                 return None;
             }
             want = Some(self.g.make_list(x.ty));
@@ -515,6 +515,11 @@ impl Globals {
     /// `a == b` for two items of type `elem`, as a value of type `bool`.
     fn item_same(&mut self, a: hir::Expr, b: hir::Expr, elem: Type) -> hir::Expr {
         let eq = |a, b| hir::Expr::new(K::Binary(hir::BinOp::Eq, Box::new(a), Box::new(b)), Type::Bool);
+        // Borrowed items are equal when what they point at is.
+        if elem.is_borrow() && let Some(target) = elem.target() {
+            let look = |e: hir::Expr| hir::Expr::new(K::Deref(Box::new(e)), target);
+            return self.item_same(look(a), look(b), target);
+        }
         if let Some(inner) = elem.struct_id() {
             // The comparison consumes its right side, so it gets a copy of a place.
             let b = if b.is_place() && !self.copy_of(elem) { hir::Expr::new(K::DeepCopy(Box::new(b)), elem) } else { b };
@@ -608,7 +613,10 @@ pub(super) fn list_func_body(g: &mut Globals, kind: ListFunc, list: Type, f: Fun
         ListFunc::Each(callback) => {
             let Type::Func(sig) = callback else { unreachable!("an each callback") };
             let element = item(whole(0));
-            let arg = if sig.params[0].is_borrow() {
+            let arg = if elem.is_borrow() && sig.params[0] == elem {
+                // The items are borrows already: the callback gets the borrow itself.
+                element
+            } else if sig.params[0].is_borrow() {
                 hir::Expr::new(K::Borrow { mutable: false, place: Box::new(element) }, sig.params[0])
             } else if g.plain_copy(Some(elem)) {
                 element
@@ -646,6 +654,9 @@ impl Checker<'_> {
     pub(super) fn list_compare(&mut self, op: ast::BinOp, lhs: hir::Expr, lo: Origin, rv: Val, ro: Origin) -> Option<Val> {
         let t = lhs.ty;
         let elem = t.elem()?;
+        if self.refuse_dyn_items(elem, lo.span.to(ro.span)) {
+            return None;
+        }
         if let Some(bad) = self.payload_enum_in(elem) {
             self.diags.push(
                 Diagnostic::at(&codes::E0527, lo.span.to(ro.span), format!("`{t}` holds a `{bad}`, which has variants with values, so it cannot be compared with `{}`", op.symbol()))
@@ -704,9 +715,24 @@ impl Checker<'_> {
 
     /// `xs::contains(item)`: some item of the list is equal to `item`. The
     /// items must be Copy for now (an owning item would be moved into the search).
+    /// E0901 for comparing lists whose items are borrows of an interface: there is no `==` on one.
+    fn refuse_dyn_items(&mut self, elem: Type, at: Span) -> bool {
+        if elem.is_borrow() && matches!(elem.target(), Some(Type::Dyn { .. })) {
+            self.diags.push(Diagnostic::at(&codes::E0901, at, format!("comparing items of type `{elem}` is not supported yet")).note("an interface has no `==`"));
+            return true;
+        }
+        false
+    }
+
     fn list_contains(&mut self, v: hir::Expr, recv: &ast::Expr, name_span: Span, args: &[ast::Expr]) -> Option<Val> {
         let ty = v.ty;
         let elem = ty.elem()?;
+        if self.refuse_dyn_items(elem, name_span) {
+            for a in args {
+                self.expr(a);
+            }
+            return None;
+        }
         let [arg] = args else {
             self.diags.push(
                 Diagnostic::at(&codes::E0103, name_span, format!("`contains` takes 1 argument, but {} given", args.len()))

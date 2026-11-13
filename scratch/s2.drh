@@ -1,0 +1,18 @@
+in io;
+
+struct Stack<T> {
+    public:
+    T[?] items;
+    none push(T x) { self.items::push(x); }
+    uint64 len() { return self.items::len(); }
+    T? pop() { return self.items::pop(); }
+}
+
+none main() {
+    mut Stack<&string> s = new Stack<&string> of ([]);
+    if (true) {
+        string name = "ann";
+        s::push(&name);
+    }
+    io::outln(f"${s::len()}");
+}

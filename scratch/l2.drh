@@ -1,0 +1,10 @@
+in io;
+
+none main() {
+    mut List<&string> views = [];
+    if (true) {
+        string temp = "short lived";
+        views::push(&temp);
+    }
+    io::outln(f"${views::len()}");
+}

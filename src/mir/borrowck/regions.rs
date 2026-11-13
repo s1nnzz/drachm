@@ -37,6 +37,7 @@ fn slots_deep(hir: &hir::Program, ty: Type, depth: usize) -> usize {
             def.lives.iter().map(|&f| slots_deep(hir, def.fields[f].ty, depth + 1)).sum()
         }
         Type::List { elem } | Type::Array { elem, .. } => slots_deep(hir, *elem, depth + 1),
+        Type::Map { key, val, .. } => slots_deep(hir, *key, depth + 1) + slots_deep(hir, *val, depth + 1),
         Type::Enum { id, .. } => hir.enums[id].variants.iter().flat_map(|v| &v.fields).map(|f| slots_deep(hir, f.ty, depth + 1)).sum(),
         _ => 0,
     }
@@ -163,6 +164,10 @@ pub fn slot_variance(hir: &hir::Program, ty: Type, k: usize) -> Variance {
                 }
             }
             Type::List { elem } | Type::Array { elem, .. } => walk(hir, *elem, base, k, under_mut),
+            Type::Map { key, val, .. } => {
+                let nk = region_slots(hir, *key);
+                if k < base + nk { walk(hir, *key, base, k, under_mut) } else { walk(hir, *val, base + nk, k, under_mut) }
+            }
             Type::Enum { id, .. } => {
                 let mut at = base;
                 for var in &hir.enums[id].variants {

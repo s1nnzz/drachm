@@ -263,6 +263,38 @@ impl Gen<'_> {
                 }
                 return;
             }
+            Callee::MapOp(mf, map_ty) => {
+                use crate::mir::MapFn;
+                let Some((key, val)) = map_ty.map_parts() else { return };
+                let Some(map) = args.first().and_then(|a| self.operand_vids(&a.op)) else { return };
+                let (nk, nv) = (region_slots(self.hir, key), region_slots(self.hir, val));
+                let keys = (map.0.start + 1)..(map.0.start + 1 + nk);
+                let vals = keys.end..(keys.end + nv);
+                match mf {
+                    MapFn::Set => {
+                        if let Some(k) = args.get(1).and_then(|a| self.operand_vids(&a.op)) {
+                            self.relate(k.0, key, keys, loc, ConstraintKind::Call);
+                        }
+                        if let Some(v) = args.get(2).and_then(|a| self.operand_vids(&a.op)) {
+                            self.relate(v.0, val, vals, loc, ConstraintKind::Call);
+                        }
+                    }
+                    MapFn::Get(_) | MapFn::Expect | MapFn::ValAt => {
+                        if let Some(d) = dest {
+                            let dv = self.place_vids(d);
+                            self.relate(vals, val, dv, loc, ConstraintKind::Call);
+                        }
+                    }
+                    MapFn::KeyAt => {
+                        if let Some(d) = dest {
+                            let dv = self.place_vids(d);
+                            self.relate(keys, key, dv, loc, ConstraintKind::Call);
+                        }
+                    }
+                    MapFn::Remove | MapFn::Len | MapFn::More | MapFn::After => {}
+                }
+                return;
+            }
             _ => return,
         }
         let Callee::Func(f) = *callee else { return };

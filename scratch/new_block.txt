@@ -1,0 +1,6 @@
+        // Items that own memory are lent out, not copied: `get`, `first` and `last` give a
+        // view, an optional holding a borrow of the item (`copy` asks for an owned item).
+        let mut op = op;
+        if op == ListOp::Get && !self.g.plain_copy(Some(elem)) && !copying {
+            op = ListOp::View;
+        }
