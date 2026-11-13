@@ -49,11 +49,12 @@ pub fn front(src: &str) -> (Option<hir::Program>, Vec<Diagnostic>) {
     (Some(checked), diags)
 }
 
-/// Writes the message of each `assert`: its condition's text and its place,
-/// which needs the files' names, so it is done once the files are known.
+/// Writes the message of each `assert`: its heading (the condition and the
+/// message) and its place, which needs the files' names, so it is done once
+/// the files are known.
 fn locate_asserts(program: &mut hir::Program, map: &diag::SourceMap) {
     for a in &mut program.asserts {
-        a.message = format!("assertion failed: {}\n  --> {}", a.text, map.file_line(a.span.start));
+        a.message = format!("{}\n  --> {}", a.heading, map.file_line(a.span.start));
     }
 }
 
@@ -176,6 +177,13 @@ pub fn build(program: &hir::Program, out: &std::path::Path, optimise: bool) -> R
     mir::cleanup::cleanup_program(program, &mut mir);
     mir::drops::elaborate_program(program, &mut mir);
     mir::cleanup::cleanup_program(program, &mut mir);
+    // Test blocks are checked but not built: only the test that `drachm test`
+    // makes `main` has a body here.
+    for t in &program.tests {
+        if t.func != program.main {
+            mir.bodies[t.func] = None;
+        }
+    }
     if optimise {
         link::compile_c(&cgen_mir::generate(program, &mir), out)
     } else {

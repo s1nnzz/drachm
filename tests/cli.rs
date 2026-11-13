@@ -339,6 +339,32 @@ fn test_passes_with_exit_zero_and_handles_no_tests() {
 }
 
 #[test]
+fn test_name_filter_runs_only_the_tests_whose_name_contains_it() {
+    let s = Scratch::new("testfilter");
+    fs::write(s.dir.join("sums.drh"), TESTS_FILE).unwrap();
+    for flags in [&[][..], &["-O"][..]] {
+        // One test matches: it runs, and the other two are counted as filtered out.
+        let mut args = vec!["test", "sums.drh", "wrong"];
+        args.extend(flags);
+        let out = drachm(&s.dir, &args);
+        let stdout = text(&out.stdout);
+        assert_eq!(out.status.code(), Some(1), "{stdout}\n{}", text(&out.stderr));
+        assert!(stdout.starts_with("running 1 test\n"), "{stdout}");
+        assert!(stdout.contains("test a wrong sum ... FAILED\n"), "{stdout}");
+        assert!(!stdout.contains("adds small numbers"), "{stdout}");
+        assert!(!stdout.contains("negative sums"), "{stdout}");
+        assert!(stdout.ends_with("\ntest result: FAILED. 0 passed; 1 failed; 2 filtered out\n"), "{stdout}");
+
+        // A name that matches a passing test: exit 0.
+        let mut args = vec!["test", "sums.drh", "negative"];
+        args.extend(flags);
+        let out = drachm(&s.dir, &args);
+        assert!(out.status.success(), "{}", text(&out.stdout));
+        assert!(text(&out.stdout).ends_with("\ntest result: ok. 1 passed; 0 failed; 2 filtered out\n"), "{}", text(&out.stdout));
+    }
+}
+
+#[test]
 fn test_runs_the_tests_of_a_library_without_a_main() {
     let s = Scratch::new("testlib");
     fs::create_dir_all(s.dir.join("mathlib/src")).unwrap();
@@ -354,7 +380,7 @@ fn test_runs_the_showcase_project_tests() {
     let showcase = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/showcase");
     let out = drachm(&showcase, &["test"]);
     assert!(out.status.success(), "{}{}", text(&out.stdout), text(&out.stderr));
-    assert!(text(&out.stdout).ends_with("\ntest result: ok. 2 passed; 0 failed\n"), "{}", text(&out.stdout));
+    assert!(text(&out.stdout).ends_with("\ntest result: ok. 3 passed; 0 failed\n"), "{}", text(&out.stdout));
 }
 
 #[test]
@@ -364,4 +390,114 @@ fn duplicate_test_names_are_e0239() {
     let out = drachm(&s.dir, &["check", "dup.drh"]);
     assert_eq!(out.status.code(), Some(1));
     assert!(text(&out.stderr).contains("error[E0239]"), "{}", text(&out.stderr));
+}
+
+#[test]
+fn test_failure_prints_the_assert_message_after_the_condition() {
+    let s = Scratch::new("testmsg");
+    fs::write(s.dir.join("msg.drh"), "test \"sum\" {\n    assert(1 + 1 == 3, \"one and one make two\");\n}\n\nnone main() { }\n").unwrap();
+    let out = drachm(&s.dir, &["test", "msg.drh"]);
+    assert_eq!(out.status.code(), Some(1), "{}", text(&out.stdout));
+    assert!(text(&out.stdout).contains("    drachm: panic: assertion failed: 1 + 1 == 3: one and one make two\n      --> msg.drh:2\n"), "{}", text(&out.stdout));
+}
+
+/// Four tests: two pass (an expected failure, and a text that is not a
+/// number), two do not (no failure at all, and a different failure).
+const EXPECT_FILE: &str = r#"
+in io;
+
+failure Boom { Bang "it went bang" }
+failure Other { Odd "it went oddly" }
+
+string named(uint32 n) fails Boom {
+    if (n == 0) {
+        fail Boom::Bang;
+    }
+    return "ok";
+}
+
+uint32 two_ways(uint32 n) fails Boom, Other {
+    if (n == 0) {
+        fail Boom::Bang;
+    }
+    if (n == 1) {
+        fail Other::Odd;
+    }
+    return n;
+}
+
+test "the expected failure passes" {
+    expect failure Boom from named(0);
+    io::outln("this line is hidden when the test passes");
+}
+
+test "a text that is not a number" {
+    expect failure ConvertError from "x"::to<uint32>();
+}
+
+test "no failure" {
+    expect failure Boom from named(1);
+}
+
+test "another failure" {
+    expect failure Boom from two_ways(1);
+}
+
+none main() {
+    io::outln("main runs");
+}
+"#;
+
+#[test]
+fn test_expect_failure_passes_or_stops_the_test_with_a_message() {
+    let s = Scratch::new("expectfail");
+    fs::write(s.dir.join("expect.drh"), EXPECT_FILE).unwrap();
+    let plain = drachm(&s.dir, &["test", "expect.drh"]);
+    let optimised = drachm(&s.dir, &["test", "expect.drh", "-O"]);
+    for out in [&plain, &optimised] {
+        let stdout = text(&out.stdout);
+        assert_eq!(out.status.code(), Some(1), "{stdout}\n{}", text(&out.stderr));
+        assert!(stdout.starts_with("running 4 tests\n"), "{stdout}");
+        assert!(stdout.contains("test the expected failure passes ... ok\n"), "{stdout}");
+        assert!(!stdout.contains("this line is hidden"), "{stdout}");
+        assert!(stdout.contains("test a text that is not a number ... ok\n"), "{stdout}");
+        assert!(stdout.contains("test no failure ... FAILED\n"), "{stdout}");
+        assert!(stdout.contains("    drachm: panic: expected a `Boom` failure from `named(1)`, but the call did not fail\n"), "{stdout}");
+        assert!(stdout.contains("      --> expect.drh:34\n"), "{stdout}");
+        assert!(stdout.contains("test another failure ... FAILED\n"), "{stdout}");
+        assert!(stdout.contains("    drachm: panic: expected a `Boom` failure from `two_ways(1)`, but the call failed with a different failure\n"), "{stdout}");
+        assert!(stdout.contains("      --> expect.drh:38\n"), "{stdout}");
+        assert!(stdout.ends_with("\ntest result: FAILED. 2 passed; 2 failed\n"), "{stdout}");
+    }
+    assert_eq!(text(&plain.stdout), text(&optimised.stdout));
+    // A normal run checks the tests and runs only `main`.
+    let run = drachm(&s.dir, &["run", "expect.drh"]);
+    assert!(run.status.success(), "{}", text(&run.stderr));
+    assert_eq!(text(&run.stdout), "main runs\n");
+}
+
+#[test]
+fn test_blocks_are_left_out_of_normal_builds_but_drachm_test_builds_them() {
+    let s = Scratch::new("testleftout");
+    let src = "in io;\n\ntest \"only a test\" {\n    assert(1 == 2, \"a message only the tests build\");\n}\n\nnone main() {\n    io::outln(\"main\");\n}\n";
+    fs::write(s.dir.join("left.drh"), src).unwrap();
+    let marker = b"a message only the tests build";
+    for flags in [&[][..], &["-O"][..]] {
+        let mut args = vec!["build", "left.drh", "-o", "left_exe"];
+        args.extend(flags);
+        let build = drachm(&s.dir, &args);
+        assert!(build.status.success(), "{}", text(&build.stderr));
+        let exe = fs::read(s.dir.join("left_exe")).unwrap();
+        assert!(!exe.windows(marker.len()).any(|w| w == marker), "a normal build contains the test's text");
+        let run = Command::new(s.dir.join("left_exe")).output().unwrap();
+        assert_eq!(text(&run.stdout), "main\n");
+    }
+    // The test is still type-checked and built by `drachm test`, which fails it.
+    let test = drachm(&s.dir, &["test", "left.drh"]);
+    assert_eq!(test.status.code(), Some(1), "{}", text(&test.stdout));
+    assert!(text(&test.stdout).contains("drachm: panic: assertion failed: 1 == 2: a message only the tests build"), "{}", text(&test.stdout));
+    // Its text is a check: a test that breaks the build is an error in a normal build too.
+    fs::write(s.dir.join("broken.drh"), "test \"typo\" {\n    uint32 n = \"text\";\n}\n\nnone main() { }\n").unwrap();
+    let check = drachm(&s.dir, &["check", "broken.drh"]);
+    assert_eq!(check.status.code(), Some(1));
 }

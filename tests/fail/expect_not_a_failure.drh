@@ -1,0 +1,5 @@
+test "a number is not a failure" {
+    expect failure uint32 from "x"::to<uint32>();
+}
+
+none main() { }

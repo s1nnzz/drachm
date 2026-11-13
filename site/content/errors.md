@@ -123,6 +123,18 @@ a compound assignment, `++` / `--`, or a call:
 
     for (mut uint32 i = 0; i < 10; i += 2) { }
 
+## E0014: `expect failure` outside a test
+
+`expect failure` checks that a call fails with a given failure. It only
+means something in a `test` block, where a wrong outcome fails the test,
+so anywhere else it is an error:
+
+    test "bad text" {
+        expect failure ConvertError from "x"::to<uint32>();
+    }
+
+Outside a test, handle the failure with `fails with` instead.
+
 ## E0101: type mismatch
 
 A value of one type was used where another is required.

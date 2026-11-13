@@ -184,11 +184,12 @@ file above it prints:
 
 ```text title="terminal"
 $ drachm test test-blocks.drh
-running 2 tests
+running 3 tests
 test adds small numbers ... ok
 test negative sums ... ok
+test a text that is not a number ... ok
 
-test result: ok. 2 passed; 0 failed
+test result: ok. 3 passed; 0 failed
 $ echo $?
 0
 ```
@@ -216,15 +217,62 @@ What the rules are:
 - Each test is built and run as a program of its own. A test passes when its
   program exits with 0. The output of a test is shown only when it fails.
 - Test names are unique within a file (E0239).
+- `expect failure` checks a failing call inside a test (see below).
 - A normal `build` or `run` checks the test blocks too, so a broken test is an
-  error in every build. It never runs them: only `main` runs.
+  error in every build. It leaves their code out of the executable: only `main`
+  is built. `drachm test` builds each test.
 - `drachm test` works on a library as well as a program, and `-O` runs the
   tests on the optimised build.
 - The exit code is 0 when every test passes and 1 otherwise.
 - A test block in a script that also has top-level statements is not supported
   yet (E0901). Put the tests in a file with `main`, or in a project.
 
-These are not decided yet, so the compiler does not accept them: choosing
-tests by name, `expect failure` (a test that must fail), and a message after
-the condition in `assert`. Until the owner decides, write the check as a plain
-`assert` and use the expected-output technique above for the rest.
+An `assert` can name what it checks, after the condition:
+`assert(add(2, 3) == 6, "the sum of two and three");`. The message is plain text,
+and a failing check prints it after the condition, for example
+`assertion failed: add(2, 3) == 6: the sum of two and three`.
+
+### Expecting a failure
+
+Some code must fail, and a test should check that it does. `expect failure`
+names the failure a call must end with:
+
+```drachm
+test "a text that is not a number" {
+    expect failure ConvertError from "x"::to<uint32>();
+}
+```
+
+The test passes when the call fails with `ConvertError`. Three other outcomes
+stop the test with a message:
+
+- the call does not fail at all;
+- the call fails with another failure of the same call;
+- the call can never fail with the named failure (a compile error, E0545).
+
+```text title="terminal"
+$ drachm test expect.drh
+running 2 tests
+test a text that is not a number ... ok
+test no failure ... FAILED
+    drachm: panic: expected a `ConvertError` failure from `"7"::to<uint32>()`, but the call did not fail
+      --> expect.drh:6
+    exit code 101
+
+test result: FAILED. 1 passed; 1 failed
+```
+
+`expect failure` is only allowed in a `test` block (E0014). The call must be
+one that can fail (E0003 otherwise), and the failure must be a `failure` type
+(E0540).
+
+To run some tests, give a name after the file. Only the tests whose name
+contains it run, and the summary says how many were filtered out:
+
+```text title="terminal"
+$ drachm test test-blocks.drh negative
+running 1 test
+test negative sums ... ok
+
+test result: ok. 1 passed; 0 failed; 2 filtered out
+```

@@ -177,6 +177,18 @@ $ echo $?
 101
 ```
 
-The condition is the only argument. A message after it, such as
-`assert(n == 4, "four")`, is not supported yet (E0901), and the `test` blocks
-that run assertions are [the testing guide](guide-testing.md#the-test-keyword).
+A message can follow the condition, after a comma. It is plain text (no `${}`),
+and a false check prints it after the condition, then the line:
+
+<!-- example: assert-message -->
+
+```text title="terminal"
+$ drachm run seats.drh
+drachm: panic: assertion failed: seats == 5: the crew has five seats
+  --> seats.drh:7
+$ echo $?
+101
+```
+
+The `test` blocks that run assertions are
+[the testing guide](guide-testing.md#the-test-keyword).

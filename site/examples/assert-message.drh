@@ -1,0 +1,9 @@
+// An `assert` can say what it checks. The message is plain text, and it is
+// printed after the condition only when the check fails.
+in io;
+
+none main() {
+    uint32 seats = 4;
+    assert(seats == 4, "the crew has four seats");
+    io::outln(f"the crew has ${seats} seats");
+}
