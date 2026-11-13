@@ -778,7 +778,7 @@ may be folders (`site/examples/NAME/`, `expect.out`). Interims: calls through
 methods are not followed by the recursion check; `//--!$unsafe` of the entry
 file decides for all files. Each file using SI units needs its own `in si;`.
 A local declaration or item clashing with an explicit item import is E0232
-(only `*` clashes warn).
+(only `*` clashes warn). Applying `import_clash = error` waits for WP4.
 
 **Open (ask owner):** the full `[warnings]` name list (grows as warnings are added).
 Also: should `check` on a library skip the `main` requirement (E0204)? A `deps/`
