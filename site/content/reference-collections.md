@@ -162,7 +162,7 @@ the same as a method, `m::remove(k)` takes the entry out, and `m::len()`
 counts the entries. Changes require a `mut` or `open` binding, or an
 `&mut` borrow.
 
-Keys can be whole numbers up to 128 bits, `bool`, `string` or floats. A float key is compared
+Keys can be whole numbers up to 128 bits, `bool`, `string`, floats, and structs, enums, optionals and arrays made of those (see below). A float key is compared
 by its bits, so `NaN` finds itself and `-0.0` and `0.0` are different keys.
 A map owns its keys and values, which move in when they are added. Reading a
 value with `m[k]` or `m::get(k)` returns an independent copy. This allocates
@@ -215,12 +215,29 @@ loop is E0901. The `each` method form waits for lambdas.
 
 ### Composite keys and `key()`
 
-<!-- status: not-implemented -->
+A struct, enum, optional or array is a key when everything inside it can be
+a key. A map hashes and compares these field by field, a variant's tag first
+and then its values, so `none` and an empty `string?` are different keys.
 
-Structs, enums, optionals and arrays with hashable contents will be hashable.
-A struct's `key()` method will define how a map hashes and compares its keys,
-including when the struct has a custom `==` for ordinary comparisons. These
-key types currently give E0901.
+<!-- example: map-composite-key -->
+
+A struct with a `key()` method is hashed and compared by what `key()` returns,
+and its own `==` stays what it is for ordinary comparisons. `key()` takes
+nothing, is not `static`, and returns something that can be a key (E0628
+otherwise). A struct with its own `==` and no `key()` cannot be a key, because
+a map could not know how to hash it (E0627), and neither can a struct that
+holds one. Lists, maps, borrows and pointers inside a key are E0626, and the
+message names the field:
+
+```text
+error[E0626]: `Pos` cannot be a map key: `Pos.tags` is a `string[?]`
+  --> main.drh:7:9
+   |
+ 7 |     Map<Pos, string> m;
+   |         ^^^ `string[?]` is not hashed
+   |
+ help: give `Pos` a `key()` returning a whole number or text, which a map hashes instead
+```
 
 ### Borrowed values
 

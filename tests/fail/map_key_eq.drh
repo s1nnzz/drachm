@@ -1,0 +1,15 @@
+struct Tag {
+public:
+    string text;
+    bool ==(Tag o) { return self.text == o.text; }
+}
+
+struct Item {
+    Tag tag;
+    uint32 n;
+}
+
+none main() {
+    Map<Tag, uint32> a;
+    Map<Item, uint32> b;
+}

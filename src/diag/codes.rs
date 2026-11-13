@@ -779,8 +779,20 @@ codes! {
          items: `uint8[4] a = [1, 2, 3, 4];`.";
     E0626: "this type cannot be a map key",
         "A map finds an entry by hashing its key, so a key must be hashable: a whole\n\
-         number, a float (compared by its bits), `bool` or `string`. Lists, maps,\n\
-         borrows and pointers cannot be keys.";
+         number, a float (compared by its bits), `bool` or `string`, or a struct,\n\
+         enum, optional or array made only of those. Lists, maps, borrows and\n\
+         pointers cannot be keys, and neither can a struct or enum that holds one:\n\
+         give the struct a `key()` method that returns something hashable.";
+    E0627: "a key type has `==` but no `key()`",
+        "A map hashes a struct field by field, and compares keys the same way. A\n\
+         struct with its own `==` method may call two values equal that differ field\n\
+         by field, so the fields would give equal keys different hashes. Give the\n\
+         struct a `key()` method returning what makes two of them equal; the map then\n\
+         hashes and compares that result instead, and `==` stays whatever it is.";
+    E0628: "a `key()` method has the wrong shape",
+        "`key()` tells a map what to hash a struct by. It must take no parameters,\n\
+         must not be `static`, must not fail, and must return a value a map can\n\
+         hash: `string key() { return self.name; }`.";
     E0629: "a map literal gives the same key twice",
         "Each key of a map literal is stored once: a second entry with the same\n\
          constant key would replace the first, so the literal would not say what it\n\

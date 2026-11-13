@@ -15,7 +15,7 @@ use crate::cgen_common::{bits, c_str_value, c_type, halves, main_fn, prelude, si
 use crate::hir::{self, BinOp};
 use crate::mir::drops::{copy_glue_types, drop_glue_types, glue_name, holds_string};
 use crate::mir::MapFn;
-use crate::codegen_common::{key_tag, map_ops_type};
+use crate::codegen_common::{key_is_composite, key_tag, map_ops_type};
 use crate::mir::traversal::reverse_postorder;
 use crate::mir::ty::{operand_ty, place_ty};
 use crate::mir::*;
@@ -1060,18 +1060,26 @@ fn named_locals(text: &str) -> std::collections::BTreeSet<usize> {
 
 /// The C functions that hash and compare keys of each tag used by a map type.
 fn key_fns_c(hir: &hir::Program) -> String {
-    let mut tags: Vec<&'static str> = Vec::new();
+    let mut tags: Vec<(String, Type)> = Vec::new();
     for t in &hir.collections {
         if let Some((k, _)) = t.map_parts() {
             let tag = key_tag(k);
-            if !tags.contains(&tag) {
-                tags.push(tag);
+            if !tags.iter().any(|(t, _)| *t == tag) {
+                tags.push((tag, k.bare()));
             }
         }
     }
     let mut out = String::new();
-    for tag in tags {
-        let (hash, eq) = match tag {
+    let mut walker = KeyC { hir, next: 0 };
+    for (tag, key) in tags {
+        let (hash, eq) = match tag.as_str() {
+            _ if key_is_composite(key) => {
+                let c = c_type(key);
+                let (mut h, mut e) = (String::new(), String::new());
+                walker.hash(&format!("(*(const {c} *)p)"), key, &mut h);
+                walker.eq(&format!("(*(const {c} *)a)"), &format!("(*(const {c} *)b)"), key, "return 0;", &mut e);
+                (format!("uint64_t h = 0;\n{h}return h;\n"), format!("{e}return 1;\n"))
+            }
             "str" => (
                 "return drachm_str_hash((const drachm_str *)p);".to_string(),
                 "return drachm_str_eq((const drachm_str *)a, (const drachm_str *)b);".to_string(),
@@ -1081,7 +1089,7 @@ fn key_fns_c(hir: &hir::Program) -> String {
                 "return memcmp(a, b, sizeof(drachm_u128)) == 0;".to_string(),
             ),
             _ => {
-                let c = match tag {
+                let c = match tag.as_str() {
                     "u8" => "uint8_t",
                     "u16" => "uint16_t",
                     "u32" => "uint32_t",
@@ -1096,6 +1104,129 @@ fn key_fns_c(hir: &hir::Program) -> String {
     out
 }
 
+/// Hash and equality of composite keys, as C, walking the key's type.
+struct KeyC<'a> {
+    hir: &'a hir::Program,
+    next: usize,
+}
+
+impl KeyC<'_> {
+    fn id(&mut self) -> usize {
+        self.next += 1;
+        self.next
+    }
+
+    /// Statements that fold the value `a` (an lvalue of type `ty`) into `h`.
+    fn hash(&mut self, a: &str, ty: Type, out: &mut String) {
+        match ty.bare() {
+            Type::Str => {
+                let _ = writeln!(out, "h = drachm_hash_combine(h, drachm_str_hash(&{a}));");
+            }
+            Type::Struct { id, .. } => {
+                let def = &self.hir.structs[id];
+                if let Some(f) = def.key_fn {
+                    let (n, ret) = (self.id(), self.hir.funcs[f].ret);
+                    let _ = writeln!(out, "{{ {} r{n} = {}(({} *)&{a});", c_type(ret), self.hir.funcs[f].symbol, c_type(ty));
+                    self.hash(&format!("r{n}"), ret, out);
+                    out.push_str(&self.drop_result(&format!("r{n}"), ret));
+                    out.push_str("}\n");
+                } else {
+                    for f in &def.fields {
+                        self.hash(&format!("{a}.f_{}", f.name), f.ty, out);
+                    }
+                }
+            }
+            t @ Type::Enum { .. } => {
+                let def = self.hir.enum_def(t);
+                let _ = writeln!(out, "h = drachm_hash_combine(h, (uint64_t){a}.tag);\nswitch ({a}.tag) {{");
+                for (vi, v) in def.variants.iter().enumerate() {
+                    let mut body = String::new();
+                    for f in &v.fields {
+                        self.hash(&format!("{a}.u.v{vi}.f_{}", f.name), f.ty, &mut body);
+                    }
+                    if !body.is_empty() {
+                        let _ = writeln!(out, "case {vi}: {{\n{body}break; }}");
+                    }
+                }
+                out.push_str("default: break;\n}\n");
+            }
+            Type::Array { elem, len } => {
+                let n = self.id();
+                let mut body = String::new();
+                self.hash(&format!("{a}.a[i{n}]"), *elem, &mut body);
+                let _ = writeln!(out, "for (uint64_t i{n} = 0; i{n} < {len}; i{n}++) {{\n{body}}}");
+            }
+            t => match crate::hir::scalar_size(t) {
+                Some(16) => {
+                    let _ = writeln!(out, "{{ drachm_u128 n; memcpy(&n, &{a}, sizeof n); h = drachm_hash_combine(drachm_hash_combine(h, (uint64_t)n), (uint64_t)(n >> 64)); }}");
+                }
+                Some(size) => {
+                    let _ = writeln!(out, "{{ uint{}_t n; memcpy(&n, &{a}, sizeof n); h = drachm_hash_combine(h, n); }}", size * 8);
+                }
+                None => unreachable!("checked by typeck"),
+            },
+        }
+    }
+
+    /// Statements that run `fail` when the values `a` and `b` (lvalues of type `ty`) differ.
+    fn eq(&mut self, a: &str, b: &str, ty: Type, fail: &str, out: &mut String) {
+        match ty.bare() {
+            Type::Str => {
+                let _ = writeln!(out, "if (!drachm_str_eq(&{a}, &{b})) {fail}");
+            }
+            Type::Struct { id, .. } => {
+                let def = &self.hir.structs[id];
+                if let Some(f) = def.key_fn {
+                    let (n, ret) = (self.id(), self.hir.funcs[f].ret);
+                    let (sym, c) = (&self.hir.funcs[f].symbol, c_type(ty));
+                    let _ = writeln!(out, "{{ {r} ra{n} = {sym}(({c} *)&{a}); {r} rb{n} = {sym}(({c} *)&{b}); int same{n} = 1;", r = c_type(ret));
+                    self.eq(&format!("ra{n}"), &format!("rb{n}"), ret, &format!("{{ same{n} = 0; goto end{n}; }}"), out);
+                    let _ = writeln!(out, "end{n}:;");
+                    out.push_str(&self.drop_result(&format!("ra{n}"), ret));
+                    out.push_str(&self.drop_result(&format!("rb{n}"), ret));
+                    let _ = writeln!(out, "if (!same{n}) {fail} }}");
+                } else {
+                    for f in &def.fields {
+                        self.eq(&format!("{a}.f_{}", f.name), &format!("{b}.f_{}", f.name), f.ty, fail, out);
+                    }
+                }
+            }
+            t @ Type::Enum { .. } => {
+                let def = self.hir.enum_def(t);
+                let _ = writeln!(out, "if ({a}.tag != {b}.tag) {fail}\nswitch ({a}.tag) {{");
+                for (vi, v) in def.variants.iter().enumerate() {
+                    let mut body = String::new();
+                    for f in &v.fields {
+                        self.eq(&format!("{a}.u.v{vi}.f_{}", f.name), &format!("{b}.u.v{vi}.f_{}", f.name), f.ty, fail, &mut body);
+                    }
+                    if !body.is_empty() {
+                        let _ = writeln!(out, "case {vi}: {{\n{body}break; }}");
+                    }
+                }
+                out.push_str("default: break;\n}\n");
+            }
+            Type::Array { elem, len } => {
+                let n = self.id();
+                let mut body = String::new();
+                self.eq(&format!("{a}.a[i{n}]"), &format!("{b}.a[i{n}]"), *elem, fail, &mut body);
+                let _ = writeln!(out, "for (uint64_t i{n} = 0; i{n} < {len}; i{n}++) {{\n{body}}}");
+            }
+            _ => {
+                let _ = writeln!(out, "if (memcmp(&{a}, &{b}, sizeof {a}) != 0) {fail}");
+            }
+        }
+    }
+
+    /// Drops the owned result of a `key()` call held in `r`.
+    fn drop_result(&self, r: &str, ty: Type) -> String {
+        match ty {
+            Type::Str => format!("if ({r}.cap != 0) drachm_str_drop(&{r});\n"),
+            _ if crate::mir::needs_drop(self.hir, ty) => format!("drachm_drop_{}(&{r});\n", glue_name(ty)),
+            _ => String::new(),
+        }
+    }
+}
+
 /// The address of the static runtime operations table for this map.
 fn map_ops_c(mt: Type) -> String {
     format!("&drachm_ops_{}", glue_name(map_ops_type(mt)))
@@ -1105,18 +1236,17 @@ fn map_ops_init(hir: &hir::Program, mt: Type) -> String {
     let (k, v) = mt.map_parts().expect("a map has key and value types");
     let (ks, ka) = hir.size_align(k);
     let (vs, va) = hir.size_align(v);
-    let drop_k = if k == Type::Str { "(drachm_drop_fn)drachm_str_drop".to_string() } else { "NULL".to_string() };
-    let copy_k = if k == Type::Str { "(drachm_copy_fn)drachm_str_copy".to_string() } else { "NULL".to_string() };
-    let drop_v = match v {
+    let drop_of = |v: Type| match v {
         _ if !crate::mir::needs_drop(hir, v) => "NULL".to_string(),
         Type::Str => "(drachm_drop_fn)drachm_str_drop".to_string(),
         _ => format!("(drachm_drop_fn)drachm_drop_{}", glue_name(v)),
     };
-    let copy_v = match v {
+    let copy_of = |v: Type| match v {
         _ if !holds_string(hir, v) => "NULL".to_string(),
         Type::Str => "(drachm_copy_fn)drachm_str_copy".to_string(),
         _ => format!("(drachm_copy_fn)drachm_copy_{}", glue_name(v)),
     };
+    let (drop_k, copy_k, drop_v, copy_v) = (drop_of(k), copy_of(k), drop_of(v), copy_of(v));
     let tag = key_tag(k);
     format!(
         "{{ .ksize = {ks}, .kalign = {ka}, .vsize = {vs}, .valign = {va}, .hash = drachm_keyhash_{tag}, .eq = drachm_keyeq_{tag}, .drop_key = {drop_k}, .drop_val = {drop_v}, .copy_key = {copy_k}, .copy_val = {copy_v} }}"

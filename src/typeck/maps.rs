@@ -5,7 +5,7 @@
 //! a whole number, a float (hashed and compared by its bits, Q14), a `bool` or
 //! a `string`. Other key types wait (E0901) until their hashing is built.
 
-use super::{Checker, Globals, Val, optionals};
+use super::{Checker, Globals, MethodInfo, StructInfo, Val, optionals};
 use crate::ast::{self, BinOp};
 use crate::diag::{Diagnostic, Span, codes};
 use crate::hir;
@@ -34,17 +34,154 @@ impl Globals {
     }
 }
 
-/// Can a value of type `key` be a map key? `Err` says why not, as
-/// the diagnostic to report.
-pub(super) fn check_key(key: Type, at: crate::diag::Span) -> Result<(), Diagnostic> {
-    match key.bare() {
-        Type::Int { .. } | Type::Float(_) | Type::Bool | Type::Str => Ok(()),
-        Type::List { .. } | Type::Map { .. } | Type::Ref { .. } | Type::Ptr { .. } | Type::FixedPtr { .. } => Err(
-            Diagnostic::at(&codes::E0626, at, format!("`{key}` cannot be a map key"))
+/// Checks that wait for every method to be declared (a composite key is known
+/// to be hashable only once its `key()` and `==` are).
+#[derive(Default)]
+pub(super) struct KeyChecks {
+    pending: std::cell::RefCell<Vec<(Type, Span)>>,
+    ready: std::cell::Cell<bool>,
+}
+
+/// The `key()` method of a struct, if it has one of the right shape: not
+/// `static`, no parameters, a result, and no failure.
+pub(super) fn key_method(g: &Globals, s: &StructInfo) -> Option<MethodInfo> {
+    let m = s.methods.iter().find(|m| m.name == "key" && m.operator.is_none())?;
+    let sig = &g.sigs[m.func];
+    (!m.is_static && sig.params.is_empty() && sig.ret.is_some_and(|r| r != Type::None) && sig.outcome.is_none()).then(|| m.clone())
+}
+
+/// Why a type is not a key, and where in it.
+struct Unhashable {
+    /// The path to the part, `Pos.tags`; the type's own name for the key itself.
+    path: String,
+    /// The part itself.
+    part: Type,
+    why: Why,
+    /// The span of a method to point at.
+    method: Option<Span>,
+}
+
+enum Why {
+    /// Never hashed: lists, maps, borrows, pointers, failures.
+    Kind { holder: Option<Type> },
+    /// Has its own `==` and no `key()`.
+    EqNoKey,
+    /// `key()` has the wrong shape.
+    KeyShape(String),
+}
+
+/// Run the key checks that were waiting for the methods, and stop waiting.
+pub(super) fn check_pending_keys(g: &Globals, diags: &mut Vec<Diagnostic>) {
+    g.keys.ready.set(true);
+    let pending = std::mem::take(&mut *g.keys.pending.borrow_mut());
+    for (key, at) in pending {
+        if let Err(d) = g.check_key_now(key, at) {
+            diags.push(d);
+        }
+    }
+}
+
+impl Globals {
+    /// Can a value of type `key` be a map key? `Err` is the diagnostic to
+    /// report. A composite key waits (`Ok`) until the methods are declared.
+    pub(super) fn check_key(&self, key: Type, at: Span) -> Result<(), Diagnostic> {
+        if !self.keys.ready.get() && matches!(key.bare(), Type::Struct { .. } | Type::Enum { .. } | Type::Array { .. }) {
+            self.keys.pending.borrow_mut().push((key, at));
+            return Ok(());
+        }
+        self.check_key_now(key, at)
+    }
+
+    fn check_key_now(&self, key: Type, at: Span) -> Result<(), Diagnostic> {
+        let name = key.to_string();
+        let Some(bad) = self.unhashable(key, name.clone(), &mut Vec::new()) else { return Ok(()) };
+        let whole = bad.path == name;
+        let part = bad.part;
+        let mut d = match bad.why {
+            Why::Kind { .. } if whole => Diagnostic::at(&codes::E0626, at, format!("`{key}` cannot be a map key"))
                 .note(format!("`{key}` is not hashed"))
-                .help("use a whole number, a float, `bool` or `string` as the key"),
-        ),
-        _ => Err(Diagnostic::at(&codes::E0901, at, format!("`{key}` as a map key is not supported yet")).note("only numbers, `bool` and `string` are hashed so far")),
+                .help("use a whole number, a float, `bool` or `string` as the key, or a struct or enum made of those"),
+            Why::Kind { holder } => Diagnostic::at(&codes::E0626, at, format!("`{key}` cannot be a map key: `{}` is a `{part}`", bad.path))
+                .note(format!("`{part}` is not hashed"))
+                .help(match holder {
+                    Some(h) => format!("give `{h}` a `key()` returning a whole number or text, which a map hashes instead"),
+                    None => "use a whole number, a float, `bool` or `string` instead, or a struct that has a `key()`".to_string(),
+                }),
+            Why::EqNoKey if whole => Diagnostic::at(&codes::E0627, at, format!("`{key}` defines `==` but no `key()`, so a map cannot know how to hash it"))
+                .help(format!("add a `key()` to `{key}` that returns what makes two of them equal: `string key() {{ ... }}`")),
+            Why::EqNoKey => Diagnostic::at(&codes::E0627, at, format!("`{key}` cannot be a map key: `{}` is a `{part}`, which defines `==` but no `key()`", bad.path))
+                .note("a map cannot know how to hash it")
+                .help(format!("add a `key()` to `{part}` that returns what makes two of them equal")),
+            Why::KeyShape(what) => Diagnostic::at(&codes::E0628, at, format!("the `key()` of `{part}` {what}"))
+                .help("write it as `string key() { ... }`: no parameters, not `static`, and a result a map can hash"),
+        };
+        if let Some(m) = bad.method {
+            d = d.label(m, "this one");
+        }
+        Err(d)
+    }
+
+    /// The first part of `t` that cannot be hashed, with the path to it.
+    /// `seen` holds the types being walked, so a type that holds itself ends.
+    fn unhashable(&self, t: Type, path: String, seen: &mut Vec<Type>) -> Option<Unhashable> {
+        let t = t.bare();
+        let holder = seen.iter().rev().copied().find(|s| matches!(s, Type::Struct { .. }));
+        let kind = |path: String| Some(Unhashable { path, part: t, why: Why::Kind { holder }, method: None });
+        match t {
+            Type::Int { .. } | Type::Float(_) | Type::Bool | Type::Str => None,
+            Type::Struct { id, .. } => {
+                if seen.contains(&t) {
+                    return None;
+                }
+                let s = &self.structs[id];
+                if let Some(m) = s.methods.iter().find(|m| m.name == "key" && m.operator.is_none()) {
+                    let sig = &self.sigs[m.func];
+                    let wrong = |what: &str| Some(Unhashable { path: path.clone(), part: t, why: Why::KeyShape(what.into()), method: Some(sig.span) });
+                    if m.is_static {
+                        return wrong("must not be `static`");
+                    }
+                    if !sig.params.is_empty() {
+                        return wrong("must take no parameters");
+                    }
+                    if sig.outcome.is_some() {
+                        return wrong("must not fail");
+                    }
+                    let Some(ret) = sig.ret.filter(|r| *r != Type::None) else { return wrong("must return a value") };
+                    seen.push(t);
+                    let bad = self.unhashable(ret, ret.to_string(), seen);
+                    seen.pop();
+                    return bad.map(|_| Unhashable { path, part: t, why: Why::KeyShape(format!("returns `{ret}`, which a map cannot hash")), method: Some(sig.span) });
+                }
+                if let Some(op) = self.operator(id, BinOp::Eq) {
+                    return Some(Unhashable { path, part: t, why: Why::EqNoKey, method: Some(self.sigs[op.func].span) });
+                }
+                seen.push(t);
+                let found = s.fields.iter().filter_map(|f| f.ty.map(|ft| (f, ft))).find_map(|(f, ft)| self.unhashable(ft, format!("{path}.{}", f.name), seen));
+                seen.pop();
+                found
+            }
+            Type::Enum { id, .. } => {
+                if seen.contains(&t) {
+                    return None;
+                }
+                let e = &self.enums[id];
+                if e.kind == hir::EnumKind::Failure {
+                    return kind(path);
+                }
+                seen.push(t);
+                let optional = matches!(e.kind, hir::EnumKind::Optional(_));
+                let found = e.variants.iter().find_map(|v| {
+                    v.fields.iter().filter_map(|f| f.ty.map(|ft| (f, ft))).find_map(|(f, ft)| {
+                        let at = if optional { format!("{path}.value") } else { format!("{path}::{}.{}", v.name, f.name) };
+                        self.unhashable(ft, at, seen)
+                    })
+                });
+                seen.pop();
+                found
+            }
+            Type::Array { elem, .. } => self.unhashable(*elem, format!("{path}[]"), seen),
+            _ => kind(path),
+        }
     }
 }
 
@@ -56,7 +193,7 @@ impl Globals {
         let key = self.resolve(&t.args[0], diags)?;
         let val = self.resolve(&t.args[1], diags)?;
         let at = t.args[0].span;
-        if let Err(d) = check_key(key, at) {
+        if let Err(d) = self.check_key(key, at) {
             diags.push(d);
             return None;
         }
@@ -117,7 +254,7 @@ impl Checker<'_> {
                     self.diags.push(d);
                     return None;
                 }
-                if let Err(d) = check_key(kt, k0.span) {
+                if let Err(d) = self.g.check_key(kt, k0.span) {
                     self.diags.push(d);
                     return None;
                 }
@@ -132,7 +269,7 @@ impl Checker<'_> {
             }
         };
         let (kt, vt) = want.map_parts()?;
-        if let Err(d) = check_key(kt, pairs.first().map_or(span, |p| p.0.span)) {
+        if let Err(d) = self.g.check_key(kt, pairs.first().map_or(span, |p| p.0.span)) {
             self.diags.push(d);
             return None;
         }

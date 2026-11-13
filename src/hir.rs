@@ -165,6 +165,8 @@ pub struct StructDef {
     pub stays: bool,
     /// The `drop()` method, if there is one.
     pub has_drop: Option<FuncId>,
+    /// The `key()` method, if there is one: what a map hashes this struct by.
+    pub key_fn: Option<FuncId>,
     /// Indexes of the borrow fields named by `lives`.
     pub lives: Vec<usize>,
 }

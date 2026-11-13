@@ -213,6 +213,7 @@ pub(super) fn lay_out(g: &Globals) -> (Vec<hir::StructDef>, Vec<hir::EnumDef>) {
                 copy: g.copy_of(s.ty),
                 stays: s.stays,
                 has_drop: s.has_drop,
+                key_fn: super::maps::key_method(g, s).map(|m| m.func),
                 lives: s.lives.clone(),
             }
         })

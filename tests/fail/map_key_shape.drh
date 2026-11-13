@@ -1,0 +1,16 @@
+struct Tag {
+public:
+    string text;
+    string key(uint32 n) { return self.text; }
+}
+
+struct Plain {
+public:
+    string text;
+    string[?] key() { return [self.text]; }
+}
+
+none main() {
+    Map<Tag, uint32> a;
+    Map<Plain, uint32> b;
+}

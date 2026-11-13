@@ -124,6 +124,8 @@ struct Globals {
     unsafe_allowed: bool,
     /// Memoised layout, ownership and copy answers (`layout`).
     layouts: std::cell::RefCell<layout::Cache>,
+    /// Map key checks that wait for the methods (`maps.rs`).
+    keys: maps::KeyChecks,
     /// The units declared in the file (`typeck::units`).
     units: std::cell::RefCell<units::UnitEnv>,
     /// The `def`s of the file (`fill.rs`).
@@ -178,7 +180,7 @@ impl Globals {
         let args = args?;
         if maps::is_map_name(&t.name) && t.args.len() == 2 {
             let [key, val] = args[..] else { return None };
-            maps::check_key(key, t.args[0].span).ok()?;
+            self.check_key(key, t.args[0].span).ok()?;
             self.check_map_value(val, t.args[1].span, &t.name).ok()?;
             return Some(self.make_map(key, val, t.name == "OrderedMap"));
         }
@@ -515,6 +517,7 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
         })
         .collect();
 
+    maps::check_pending_keys(&g, diags);
     fill::declare_defs(&mut g, src, prog, diags);
 
     match g.funcs_by_name.get("main").map(|&id| &g.sigs[id]) {
