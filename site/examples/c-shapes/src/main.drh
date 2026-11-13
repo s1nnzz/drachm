@@ -1,0 +1,37 @@
+//--!$unsafe: true
+in io;
+in * from c."shape.h" as shape;
+
+// A `match` on a C enum always needs `case _`: C can send a value the
+// header does not name.
+string describe(shape::shape_kind kind) {
+    match (kind) {
+        case shape::SHAPE_SQUARE { return "square"; }
+        case shape::SHAPE_WIDE { return "wide"; }
+        case shape::SHAPE_TALL { return "tall"; }
+        case _ { return "something else"; }
+    }
+}
+
+none main() {
+    // A C struct is an ordinary struct with the exact C layout.
+    mut shape::shape_point p = 3, 4;
+    p.x += 10;
+    unsafe { shape::shape_move(address of p, 1, 1); }
+    io::outln(f"point ${p.x as sint32}, ${p.y as sint32}");
+
+    // Small structs also cross a call by value, in both directions.
+    unsafe {
+        shape::shape_point home = shape::shape_origin();
+        io::outln(f"origin ${home.x as sint32}, ${home.y as sint32}");
+
+        shape::shape_size size = 3.0, 2.0;
+        shape::shape_size big = shape::shape_scale(size, 2.5);
+        io::outln(f"scaled ${big.w as float64} by ${big.h as float64}");
+
+        io::outln(describe(shape::shape_kind_of(size)));
+        shape::shape_size tall = 1.0, 4.0;
+        io::outln(describe(shape::shape_kind_of(tall)));
+    }
+    io::outln(describe(7 as shape::shape_kind));
+}

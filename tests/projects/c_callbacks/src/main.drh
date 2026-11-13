@@ -1,0 +1,29 @@
+//--!$unsafe: true
+in io;
+in * from c."drachm_fixture.h" as fx;
+
+// A plain top-level function with the C types can be a C callback.
+c::int double(c::int x) {
+    return x * 2;
+}
+
+c::int addThree(c::int x) {
+    return x + 3;
+}
+
+sint32 apply(sint32 v) {
+    unsafe {
+        return fx::fx_apply(double, v::to<c::int>())::to<sint32>();
+    }
+}
+
+sint32 applyMany(sint32 v, sint32 times) {
+    unsafe {
+        return fx::fx_apply_n(addThree, v::to<c::int>(), times::to<c::int>())::to<sint32>();
+    }
+}
+
+none main() {
+    io::outln(f"apply: ${apply(21)}");
+    io::outln(f"many: ${applyMany(1, 4)}");
+}

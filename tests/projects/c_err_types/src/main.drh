@@ -1,0 +1,12 @@
+//--!$unsafe: true
+in io;
+in * from c."drachm_fixture.h" as fx;
+
+none main() {
+    unsafe {
+        sint32 a = fx::fx_add(1, 2);
+        c::int b = fx::fx_add(1, 2);
+        sint32 c = b + 1;
+        io::outln(f"${a}");
+    }
+}

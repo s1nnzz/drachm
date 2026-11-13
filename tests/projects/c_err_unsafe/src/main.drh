@@ -1,0 +1,8 @@
+//--!$unsafe: true
+in io;
+in * from c."drachm_fixture.h" as fx;
+
+none main() {
+    c::int sum = fx::fx_add(40, 2);
+    io::outln(f"add: ${sum::to<sint32>()}");
+}

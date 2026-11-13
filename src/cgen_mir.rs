@@ -24,6 +24,15 @@ use crate::types::Type;
 pub fn generate(hir: &hir::Program, mir: &Program) -> String {
     let mut out = prelude();
     out += &struct_defs(hir, true);
+    // C functions (step 7.1) are declared under a name of ours that the
+    // assembler label maps to the real symbol, so a header the runtime
+    // includes cannot disagree with the types written here.
+    for (&f, symbol) in &hir.foreign {
+        let func = &hir.funcs[f];
+        let params: Vec<String> = func.locals[..func.params].iter().map(|l| c_type(l.ty)).collect();
+        let params = if params.is_empty() { "void".to_string() } else { params.join(", ") };
+        let _ = writeln!(out, "extern {} {}({params}) __asm__(\"{symbol}\");", c_type(func.ret), func.symbol);
+    }
     // A function without a body is a test block that this build leaves out (see `lib::build`).
     let bodies: Vec<&Body> = mir.bodies.iter().take(hir.funcs.len()).flatten().collect();
     for &body in &bodies {
@@ -504,6 +513,7 @@ impl Gen<'_> {
             Operand::Const(Constant::Float(v, Type::Float(32))) => format!("drachm_f32_bits(UINT32_C({}))", (*v as f32).to_bits()),
             Operand::Const(Constant::Float(v, _)) => format!("drachm_f64_bits(UINT64_C({}))", v.to_bits()),
             Operand::Const(Constant::Bool(b)) => format!("((uint8_t){})", *b as u8),
+            Operand::Const(Constant::FuncAddr(f, ty)) => format!("(({})(void *){})", c_type(*ty), self.hir.funcs[*f].symbol),
             Operand::Const(Constant::Str(id)) => format!("((drachm_str){})", c_str_value(&self.mir.strings[*id])),
         }
     }

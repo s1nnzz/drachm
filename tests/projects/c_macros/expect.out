@@ -1,0 +1,5 @@
+count 12, mask 32, ratio 2.5
+name fixture
+as c::int: 12
+square: 49
+twice: 42

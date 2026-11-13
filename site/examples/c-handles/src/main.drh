@@ -1,0 +1,69 @@
+//--!$unsafe: true
+in io;
+in * from c."notes.h" as c_notes;
+
+// The wrapper owns the C handle. Nothing frees it for us: `drop()` pairs the
+// `notes_new` with its `notes_free`, whichever way the scope ends.
+struct Notes {
+    foreign *c_notes::notes handle;
+
+    none add(string text) {
+        unsafe { c_notes::notes_add(self.handle, &text as c string); }
+    }
+
+    sint32 count() {
+        unsafe { return c_notes::notes_count(self.handle) as sint32; }
+    }
+
+    // A C string comes back as a pointer. `text()` reads up to the NUL,
+    // checks the UTF-8, and fails on a null pointer or bad text.
+    string get(sint32 index) fails InvalidText {
+        unsafe {
+            foreign *uint8 p = c_notes::notes_get(self.handle, index as c::int);
+            return p::text() fails;
+        }
+    }
+
+    // C calls `show` once per note.
+    none walk() {
+        unsafe { c_notes::notes_walk(self.handle, show); }
+    }
+
+    none drop() {
+        unsafe { c_notes::notes_free(self.handle); }
+    }
+}
+
+Notes openNotes() {
+    unsafe { return new Notes of (handle: c_notes::notes_new()); }
+}
+
+// A plain top-level function with the C types is a callback.
+none show(c::int index, c::int length) {
+    io::outln(f"  note ${index as sint32} is ${length as sint32} bytes long");
+}
+
+sint32 alive() {
+    unsafe { return c_notes::notes_alive() as sint32; }
+}
+
+none report(sint32 stop) {
+    Notes notes = openNotes();
+    notes::add("buy milk");
+    notes::add("call Zoë");
+    if (stop == 1) {
+        io::outln("leaving early");
+        return;
+    }
+    notes::add("write docs");
+    io::outln(f"${notes::count()} notes");
+    io::outln(notes::get(1) maybe "?");
+    io::outln(notes::get(9) maybe "no such note");
+    notes::walk();
+}
+
+none main() {
+    report(0);
+    report(1);
+    io::outln(f"alive afterwards: ${alive()}");
+}

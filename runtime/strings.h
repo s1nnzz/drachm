@@ -34,6 +34,12 @@ typedef struct {
 uint8_t drachm_fs_read(const drachm_str *path, drachm_str *out);
 uint8_t drachm_fs_write(const drachm_str *path, const drachm_str *value);
 void drachm_os_platform(drachm_str *out);
+// The text of a C string (up to its NUL), checked as UTF-8: zero on success,
+// 1 for a null pointer or bytes that are not UTF-8 (nothing is written).
+uint8_t drachm_c_text(const uint8_t *p, drachm_str *out);
+// The bytes of a string whose last byte is the terminating NUL (`&s as c
+// string`); a NUL anywhere else is a runtime error.
+uint8_t *drachm_str_c_ptr(const drachm_str *s);
 uint8_t drachm_os_get_env(const drachm_str *key, drachm_str *out);
 
 // ---- lifetime ----

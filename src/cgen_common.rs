@@ -37,16 +37,21 @@ pub(crate) fn prelude() -> String {
 /// An enum is a tag and a union of one struct per variant that has values.
 pub(crate) fn struct_defs(prog: &Program, asserts: bool) -> String {
     let mut out = String::new();
+    // Every struct is named up front: a pointer to one may come before its definition.
+    for def in &prog.structs {
+        let name = struct_name(&def.name);
+        let _ = writeln!(out, "typedef struct {name} {name};");
+    }
     for item in type_order(prog) {
         match item {
             Item::Struct(s) => {
                 let def = &prog.structs[s];
                 let name = struct_name(&def.name);
-                let _ = writeln!(out, "typedef struct {{");
+                let _ = writeln!(out, "struct {name} {{");
                 for f in &def.fields {
                     let _ = writeln!(out, "    {} f_{};", c_type(f.ty), f.name);
                 }
-                let _ = writeln!(out, "}} {name};\n");
+                let _ = writeln!(out, "}};\n");
                 if asserts {
                     let mut checks = format!("sizeof({name}) == {}", def.size);
                     for f in &def.fields {
@@ -204,12 +209,13 @@ pub(crate) fn c_type(t: Type) -> String {
         Type::None => "void",
         Type::Unit { .. } => unreachable!("units are erased before the backends"),
         Type::Val { .. } => unreachable!("a value argument is no type of the program"),
+        Type::C(_) | Type::CEnum { .. } => unreachable!("C types are erased before the backends"),
         Type::Struct { name, .. } => return struct_name(name),
         Type::Enum { id, .. } => return enum_name(id),
         Type::Ref { to: Type::Dyn { .. }, .. } => "drachm_dyn",
         Type::Func(_) => "drachm_fn",
         Type::Dyn { .. } => unreachable!("an interface is only the target of a borrow"),
-        Type::Ref { to, .. } | Type::Ptr { to } | Type::FixedPtr { to } => return format!("{} *", c_type(*to)),
+        Type::Ref { to, .. } | Type::Ptr { to } | Type::FixedPtr { to } | Type::Foreign { to } => return format!("{} *", c_type(*to)),
     };
     name.to_string()
 }

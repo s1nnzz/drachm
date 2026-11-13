@@ -110,6 +110,24 @@ lambda total 48 after 3 calls; loads sum to 15
   fuel 5: critical
   leaving part 5; c drops now
   [crate (empty) unloaded]
+== Part 6: the harbours (C) ==
+3 berths each, motto 'safe water, honest scales'
+Vega and Sol; harbours open: 2
+Wren -> berth 0, toll 4
+Ibis -> berth 1, toll 6
+Kite -> berth 2, toll 8
+Lark -> berth 99, toll 10
+berths: taken, taken, closed, closed
+  berth 0: 25 t
+  berth 1: 45 t
+  berth 2: 65 t
+distance Vega to Sol: 5.0
+an unlisted state is still a number: 7
+inside: Brief, open 3
+  [harbour closed]
+after the stop: harbours open 2
+  [harbour closed]
+  [harbour closed]
 voyage platform available
 read voyage manifest
 -- end of voyage --

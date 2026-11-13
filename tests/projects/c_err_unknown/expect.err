@@ -1,0 +1,7 @@
+E0703
+has no `fx_ad`
+did you mean `fx_add`?
+E0901
+`fx::fx_printf` cannot be used yet: it takes a variable number of arguments
+`fx::fx_twice` cannot be used yet: it is a `static inline` function
+`fx::fx_wide_sum` cannot be used yet: passing `fx_wide` (20 bytes) by value is not supported yet

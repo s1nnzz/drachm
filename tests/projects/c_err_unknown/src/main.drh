@@ -1,0 +1,13 @@
+//--!$unsafe: true
+in io;
+in * from c."drachm_fixture.h" as fx;
+
+none main() {
+    unsafe {
+        c::int a = fx::fx_ad(1, 2);
+        c::int b = fx::fx_printf(1);
+        c::int c = fx::fx_twice(1);
+        c::int d = fx::fx_wide_sum(fx::fx_wide_sum);
+        io::outln("x");
+    }
+}

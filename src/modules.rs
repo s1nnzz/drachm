@@ -41,13 +41,15 @@ pub struct ProjectInfo {
     pub requires_main: bool,
     /// Dependency aliases declared in this project.
     pub dependency_names: Vec<String>,
+    /// The `[native]` settings C header imports are read with.
+    pub native: crate::cimport::Settings,
 }
 
 impl ProjectInfo {
     /// A script or a single file: its root is its own folder.
     pub fn script(file: &Path) -> ProjectInfo {
         let dir = file.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
-        ProjectInfo { name: None, root: dir.to_path_buf(), display_base: None, script: true, requires_main: true, dependency_names: Vec::new() }
+        ProjectInfo { name: None, root: dir.to_path_buf(), display_base: None, script: true, requires_main: true, dependency_names: Vec::new(), native: Default::default() }
     }
 
 }
@@ -59,6 +61,8 @@ pub enum Target {
     File(usize),
     /// A module built into the compiler.
     Std(&'static str),
+    /// A C header: an index into `ModuleGraph::c_units`.
+    C(usize),
 }
 
 #[derive(Debug)]
@@ -78,6 +82,8 @@ pub struct ModuleGraph {
     /// The entry file first, then the others in the order they were found.
     pub modules: Vec<Module>,
     pub map: SourceMap,
+    /// The C headers the files import, each read once per effective settings.
+    pub c_units: Vec<crate::cimport::CUnit>,
 }
 
 impl ModuleGraph {
@@ -129,7 +135,7 @@ pub fn load(entry: &Path, info: &ProjectInfo, diags: &mut Vec<Diagnostic>) -> Mo
 pub(crate) fn load_with_dependencies(entry: &Path, info: &ProjectInfo, deps: &[crate::deps::Root], diags: &mut Vec<Diagnostic>) -> ModuleGraph {
     let project_dir = info.display_base.as_deref().unwrap_or(&info.root);
     let project_dir = overlay_key(project_dir);
-    let mut ld = Loader { info, deps, project_dir, graph: ModuleGraph { modules: Vec::new(), map: SourceMap::new() }, by_path: HashMap::new(), diags };
+    let mut ld = Loader { info, deps, project_dir, graph: ModuleGraph { modules: Vec::new(), map: SourceMap::new(), c_units: Vec::new() }, by_path: HashMap::new(), diags };
     ld.add_file(entry, None);
     let mut i = 0;
     while i < ld.graph.modules.len() {
@@ -286,20 +292,21 @@ impl Loader<'_> {
     }
 
     fn resolve_imports(&mut self, m: usize) {
-        let imports: Vec<(Vec<String>, Span, Option<String>, Span, Option<String>)> = self.graph.modules[m]
+        let imports: Vec<(Vec<String>, Span, Option<String>, Span, Option<String>, Option<String>)> = self.graph.modules[m]
             .program
             .imports
             .iter()
-            .map(|i| (i.path.clone(), i.path_span, i.binding().map(String::from), i.span, i.file.clone()))
+            .map(|i| (i.path.clone(), i.path_span, i.binding().map(String::from), i.span, i.file.clone(), i.c_header.as_ref().map(|h| h.0.clone())))
             .collect();
         let importer = self.graph.modules[m].path.clone();
         let mut targets = Vec::new();
         // The name each module import gives, for the same-name check.
         let mut bound: Vec<(String, Target)> = Vec::new();
-        for (path, path_span, binding, whole, file) in imports {
-            let target = match &file {
-                Some(f) => self.resolve_file(&importer, f, path_span),
-                None => self.resolve(&importer, &path, path_span),
+        for (path, path_span, binding, whole, file, c_header) in imports {
+            let target = match (&file, &c_header) {
+                (_, Some(h)) => self.resolve_c(&importer, h, path_span),
+                (Some(f), None) => self.resolve_file(&importer, f, path_span),
+                (None, None) => self.resolve(&importer, &path, path_span),
             };
             if let (Some(name), Some(t)) = (binding, target) {
                 match bound.iter().find(|(n, _)| *n == name) {
@@ -311,6 +318,53 @@ impl Loader<'_> {
             targets.push(target);
         }
         self.graph.modules[m].targets = targets;
+    }
+
+    /// A C header (step 7.1): read with the `[native]` settings of the project
+    /// the importing file belongs to.
+    fn resolve_c(&mut self, importer: &Path, header: &str, at: Span) -> Option<Target> {
+        use crate::cimport::{discover, Failure};
+        let settings = match self.dependency_owner(importer) {
+            Some(dep) => dep.config.native.settings(&dep.dir),
+            None => self.info.native.clone(),
+        };
+        if let Some(i) = self.graph.c_units.iter().position(|u| u.header == header && u.settings == settings) {
+            return Some(Target::C(i));
+        }
+        match discover(header, &settings) {
+            Ok(unit) => {
+                self.graph.c_units.push(unit);
+                Some(Target::C(self.graph.c_units.len() - 1))
+            }
+            Err(Failure::NoLibclang(why)) => {
+                self.diags.push(
+                    Diagnostic::at(&codes::E0700, at, "libclang could not be loaded, so C headers cannot be read")
+                        .note_line(why)
+                        .help("install libclang (the LLVM/Clang libraries) and make sure `libclang.so` can be found; set `LIBCLANG_PATH` to its folder if it is somewhere unusual"),
+                );
+                None
+            }
+            Err(Failure::NotFound(text)) => {
+                let mut d = Diagnostic::at(&codes::E0701, at, format!("the C header `{header}` was not found"))
+                    .note("no such header on the include path")
+                    .help("install the library's development files, or add its header folder to `include` in the `[native]` table of `drachm.toml`");
+                for line in text.lines().take(3) {
+                    d = d.note_line(line.to_string());
+                }
+                self.diags.push(d);
+                None
+            }
+            Err(Failure::Parse(text)) => {
+                let mut d = Diagnostic::at(&codes::E0702, at, format!("the C header `{header}` has errors"))
+                    .note("libclang could not read it")
+                    .help("check the `include` and `defines` of the `[native]` table; the header may need a definition or another header first");
+                for line in text.lines().take(6) {
+                    d = d.note_line(line.to_string());
+                }
+                self.diags.push(d);
+                None
+            }
+        }
     }
 
     /// An import by file path: relative to the importing file's folder, `..` allowed.

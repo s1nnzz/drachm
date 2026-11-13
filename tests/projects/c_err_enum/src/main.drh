@@ -1,0 +1,15 @@
+in io;
+in * from c."drachm_fixture.h" as fx;
+
+string describe(fx::fx_color c) {
+    match (c) {
+        case fx::FX_RED { return "red"; }
+        case fx::FX_GREEN { return "green"; }
+        case fx::FX_BLUE { return "blue"; }
+    }
+}
+
+none main() {
+    io::outln(describe(fx::FX_RED));
+    sint32 n = fx::FX_BLUE;
+}

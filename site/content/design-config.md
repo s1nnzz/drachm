@@ -62,6 +62,13 @@ items with `out`. The dependency can import its private modules internally.
 
 <!-- example: dependency-modules -->
 
+## Native libraries
+
+The `[native]` table names what C imports need: `include` (header folders),
+`defines`, `libraries`, `library_dirs` and `sources` (C files compiled with the
+project). A project that imports a dependency links what the dependency's table
+asks for. See [C imports](reference-c-imports.md#the-native-table).
+
 ## Build settings
 <!-- status: not-implemented -->
 

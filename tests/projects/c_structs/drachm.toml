@@ -1,0 +1,6 @@
+[project]
+name = "c_structs"
+
+[native]
+include = ["../../c"]
+sources = ["../../c/drachm_fixture.c"]

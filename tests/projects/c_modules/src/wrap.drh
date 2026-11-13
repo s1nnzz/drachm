@@ -1,0 +1,16 @@
+//--!$unsafe: true
+// A module with its own C import, under its own alias, and safe wrappers.
+in * from c."drachm_fixture.h" as fixture;
+
+out sint32 total(sint32 a, sint32 b) {
+    unsafe {
+        return fixture::fx_add(a as c::int, b as c::int) as sint32;
+    }
+}
+
+out string corner() {
+    unsafe {
+        fixture::fx_point p = fixture::fx_point_make(4, 9);
+        return f"${p.x as sint32},${p.y as sint32}";
+    }
+}

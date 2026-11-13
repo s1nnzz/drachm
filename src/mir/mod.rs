@@ -320,6 +320,8 @@ pub enum Constant {
     Bool(bool),
     /// A non-owning `string` value.
     Str(StrId),
+    /// The address of a function (a callback for C), of the given pointer type.
+    FuncAddr(hir::FuncId, Type),
 }
 
 #[derive(Debug)]
@@ -450,6 +452,8 @@ pub fn is_copy(hir: &hir::Program, ty: Type) -> bool {
         Type::Enum { id, .. } => hir.enums[id].copy,
         Type::Ref { mutable, .. } => !mutable,
         Type::Ptr { .. } | Type::FixedPtr { .. } => false,
+        // C owns what a foreign pointer points at: copying the address is free.
+        Type::Foreign { .. } => true,
         _ => true,
     }
 }

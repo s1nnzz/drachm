@@ -158,6 +158,7 @@ fn constant(p: &Program, c: &Constant) -> String {
         Constant::Float(v, Type::Float(w)) => format!("{v:?}f{w}"),
         Constant::Float(v, ty) => format!("{v:?}{ty}"),
         Constant::Bool(b) => b.to_string(),
+        Constant::FuncAddr(f, _) => format!("&fn{f}"),
         Constant::Str(id) => format!("{:?}", p.strings[*id]),
     }
 }

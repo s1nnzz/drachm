@@ -88,7 +88,7 @@ copied, not the value it points at, so such a method stays a read-only one.
 A whole function may be written in assembly, never mixed into other code.
 The instructions go one per line, and the function is called like any unsafe
 function. The register and ABI mapping, the syntax flavour (Intel or AT&T) and
-other CPUs are not designed yet, and this is scheduled after C header import.
+other CPUs are not designed yet, and this is scheduled after C header import, which is built.
 
 ```drachm
 unsafe uint64 cycles() asm { rdtsc; shl rdx, 32; or rax, rdx }

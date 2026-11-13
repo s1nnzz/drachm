@@ -8,6 +8,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicU32, Ordering};
 
+use crate::hir::LinkPlan;
+
 const RUNTIME_C: &str = include_str!("../runtime/runtime.c");
 /// The string runtime's interface, which `runtime.c` includes.
 const STRINGS_H: &str = include_str!("../runtime/strings.h");
@@ -138,19 +140,68 @@ fn runtime_object(scratch: &Path) -> Result<PathBuf, String> {
     Ok(obj)
 }
 
+/// The C sources of `plan` compiled to objects in `scratch`, and the flags
+/// that follow every object on the link line: library folders, then libraries
+/// (after the objects that need them).
+fn native_inputs(plan: &LinkPlan, shim: &str, scratch: &Path) -> Result<(Vec<PathBuf>, Vec<String>), String> {
+    let mut objects = Vec::new();
+    let mut sources = plan.sources.clone();
+    if !shim.is_empty() {
+        let path = scratch.join("macro-shims.c");
+        std::fs::write(&path, shim).map_err(|e| e.to_string())?;
+        sources.push(path);
+    }
+    for (i, src) in sources.iter().enumerate() {
+        let obj = scratch.join(format!("native{i}.o"));
+        let mut args: Vec<std::ffi::OsString> = vec!["-O2".into(), "-c".into()];
+        for d in &plan.include_dirs {
+            args.push(format!("-I{}", d.display()).into());
+        }
+        for d in &plan.defines {
+            args.push(format!("-D{d}").into());
+        }
+        args.extend([src.as_os_str().to_owned(), "-o".into(), obj.as_os_str().to_owned()]);
+        let refs: Vec<&OsStr> = args.iter().map(|a| a.as_os_str()).collect();
+        cc(&refs, &format!("compiling the C source `{}` of the `[native]` table", src.display()))?;
+        objects.push(obj);
+    }
+    let mut flags: Vec<String> = plan.library_dirs.iter().map(|d| format!("-L{}", d.display())).collect();
+    flags.extend(plan.libraries.iter().map(|l| format!("-l{l}")));
+    Ok((objects, flags))
+}
+
+/// A link failure with a hint about the `[native]` table when the linker names
+/// a missing library or symbol.
+fn explain_link_failure(message: String, plan: &LinkPlan) -> String {
+    let mut out = message.clone();
+    for line in message.lines() {
+        if let Some(rest) = line.split("cannot find -l").nth(1) {
+            out += &format!("\nhelp: the library `{}` was not found; install it, or add its folder to `library_dirs` in the `[native]` table of drachm.toml", rest.trim());
+        } else if let Some(rest) = line.split("undefined reference to `").nth(1) {
+            let symbol = rest.trim_end_matches('\'');
+            out += &format!("\nhelp: the C symbol `{symbol}` is not defined; name the library that provides it in `libraries` of the `[native]` table of drachm.toml{}", if plan.libraries.is_empty() { " (it lists none)" } else { "" });
+            break;
+        }
+    }
+    out
+}
+
 /// Link an object file from the Cranelift backend with the runtime.
-pub fn link_object(obj: &[u8], out: &Path) -> Result<(), String> {
+pub fn link_object(obj: &[u8], out: &Path, plan: &LinkPlan, shim: &str) -> Result<(), String> {
     let scratch = scratch_dir()?;
     let result = (|| {
         let obj_path = scratch.join("prog.o");
         std::fs::write(&obj_path, obj).map_err(|e| e.to_string())?;
         let runtime = runtime_object(&scratch)?;
         let strings = strings_archive(&scratch)?;
+        let (native, native_flags) = native_inputs(plan, shim, &scratch)?;
         let out = exe_path(out);
         let mut args: Vec<&OsStr> = vec![obj_path.as_ref(), runtime.as_ref(), strings.as_ref()];
+        args.extend(native.iter().map(|o| o.as_os_str()));
+        args.extend(native_flags.iter().map(OsStr::new));
         args.extend(LINK_FLAGS.iter().map(OsStr::new));
         args.extend([OsStr::new("-o"), out.as_ref()]);
-        cc(&args, "linking")
+        cc(&args, "linking").map_err(|e| explain_link_failure(e, plan))
     })();
     let _ = std::fs::remove_dir_all(&scratch);
     result
@@ -158,18 +209,21 @@ pub fn link_object(obj: &[u8], out: &Path) -> Result<(), String> {
 
 /// Compile C from the optimising backend. Floating point stays strict IEEE:
 /// no fast-math, and no fusing of multiply-add, so results match plain builds.
-pub fn compile_c(source: &str, out: &Path) -> Result<(), String> {
+pub fn compile_c(source: &str, out: &Path, plan: &LinkPlan, shim: &str) -> Result<(), String> {
     let scratch = scratch_dir()?;
     let result = (|| {
         let src = scratch.join("prog.c");
         std::fs::write(&src, source).map_err(|e| e.to_string())?;
         let strings = strings_archive(&scratch)?;
+        let (native, native_flags) = native_inputs(plan, shim, &scratch)?;
         let out = exe_path(out);
         let mut args: Vec<&OsStr> = ["-O3", "-ffp-contract=off", "-w"].iter().map(OsStr::new).collect();
         args.extend([src.as_os_str(), strings.as_os_str()]);
+        args.extend(native.iter().map(|o| o.as_os_str()));
+        args.extend(native_flags.iter().map(OsStr::new));
         args.extend(LINK_FLAGS.iter().map(OsStr::new));
         args.extend([OsStr::new("-o"), out.as_ref()]);
-        cc(&args, "compiling the generated C")
+        cc(&args, "compiling the generated C").map_err(|e| explain_link_failure(e, plan))
     })();
     let _ = std::fs::remove_dir_all(&scratch);
     result

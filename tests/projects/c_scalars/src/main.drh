@@ -1,0 +1,27 @@
+//--!$unsafe: true
+in io;
+in * from c."drachm_fixture.h" as fx;
+
+none main() {
+    unsafe {
+        c::int sum = fx::fx_add(40, 2);
+        io::outln(f"add: ${sum as sint32}");
+        io::outln(f"big: ${fx::fx_big(21) as sint64}");
+        io::outln(f"byte: ${fx::fx_byte(255)::to<uint8>()}");
+        io::outln(f"sbyte: ${fx::fx_sbyte(-128)::to<sint8>()}");
+        io::outln(f"neg16: ${fx::fx_neg16(-32768)::to<sint16>()}");
+        io::outln(f"u16: ${fx::fx_u16(65535)::to<uint16>()}");
+        io::outln(f"u32: ${fx::fx_u32(4294967295)::to<uint32>()}");
+        io::outln(f"ll: ${fx::fx_ll(3000000000)::to<sint64>()}");
+        io::outln(f"scale: ${fx::fx_scale(1.5, 4.0)::to<float64>()}");
+        io::outln(f"count: ${fx::FX_COUNT}");
+        io::outln(f"name: ${fx::FX_NAME}");
+        c::bool even = fx::fx_is_even(10);
+        io::outln(f"even: ${even::to<bool>()}");
+        c::char next = fx::fx_char(65);
+        io::outln(f"char: ${next::to<uint8>()}");
+        fx::fx_touch();
+        fx::fx_touch();
+        io::outln(f"touched: ${fx::fx_touched()::to<sint32>()}");
+    }
+}

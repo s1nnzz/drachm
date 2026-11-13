@@ -1,0 +1,23 @@
+//--!$unsafe: true
+in io;
+in * from c."drachm_fixture.h" as fx;
+
+// A function-like macro is callable once its types are declared.
+from c macro FX_SQUARE(c::int x) gives c::int;
+// So is a `static inline` function, which has no symbol of its own.
+from c macro fx_twice(c::int x) gives c::int;
+
+none main() {
+    // Object-like macros that are numbers or text come in as constants.
+    uint32 count = fx::FX_COUNT;
+    uint32 mask = fx::FX_MASK;
+    float64 ratio = fx::FX_RATIO;
+    io::outln(f"count ${count}, mask ${mask}, ratio ${ratio}");
+    io::outln(f"name ${fx::FX_NAME}");
+    c::int big = fx::FX_COUNT;
+    io::outln(f"as c::int: ${big::to<sint32>()}");
+    unsafe {
+        io::outln(f"square: ${fx::FX_SQUARE(7)::to<sint32>()}");
+        io::outln(f"twice: ${fx::fx_twice(21) as sint32}");
+    }
+}

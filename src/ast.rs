@@ -43,6 +43,22 @@ pub struct Program {
     /// It is an error unless the name is a module, which only the resolver
     /// (or the single-file check) knows: it decides and reports these.
     pub chain_slips: Vec<ChainSlip>,
+    /// The C enums a header import brings (step 7.1): name and integer type.
+    pub c_enums: Vec<(String, crate::types::CKind)>,
+    /// `from c macro NAME(...) gives T;` declarations.
+    pub c_macros: Vec<CMacroDecl>,
+    /// The C source of the shims that call macros; filled by the resolver.
+    pub c_shim: String,
+}
+
+/// `from c macro SDL_MUSTLOCK(foreign *sdl::SDL_Surface s) gives bool;`
+#[derive(Debug)]
+pub struct CMacroDecl {
+    pub name: String,
+    pub name_span: Span,
+    pub params: Vec<Param>,
+    pub ret: TypeName,
+    pub span: Span,
 }
 
 /// A `::` where `->` is wanted, after the first call on `owner`: the E0007
@@ -242,6 +258,9 @@ pub struct Import {
     /// importing file (`"../runtime/scheduler.drh"`). `path` then holds the
     /// file's stem alone, the module's default name.
     pub file: Option<String>,
+    /// `in * from c."SDL2/SDL.h" as sdl;`: the module is a C header, with the
+    /// header text as written (step 7.1). `path` holds the alias.
+    pub c_header: Option<(String, Span)>,
     pub span: Span,
 }
 
@@ -432,6 +451,8 @@ pub enum TypeMod {
     Ptr,
     /// `*fixed T`
     FixedPtr,
+    /// `foreign *T`: a pointer the C side owns (step 7.1).
+    ForeignPtr,
 }
 
 #[derive(Debug, Clone)]
@@ -479,6 +500,8 @@ pub struct Func {
     pub fails_span: Option<Span>,
     /// From the return type to the closing `)`.
     pub span: Span,
+    /// A C function from a header import: the symbol to call. It has no body.
+    pub foreign: Option<String>,
     /// `test "name" { }`: the name and where it is written. A test takes
     /// nothing, returns nothing, and is run by `drachm test`.
     pub test: Option<(String, Span)>,
@@ -826,6 +849,11 @@ pub enum ExprKind {
     Take { place: Box<Expr>, leaving: Option<Box<Expr>>, reorders: bool },
     /// `lend e`
     Lend(Box<Expr>),
+    /// A named constant of a C enum, made by the resolver for `alias::NAME`
+    /// (step 7.1): the enum's name in the program, and the value.
+    CConst { enum_name: String, value: i128 },
+    /// `&s as c string`: a NUL-terminated copy of the string for one C call (step 7.1).
+    CString(Box<Expr>),
     /// `address of e`
     AddressOf(Box<Expr>),
     /// `none` as a value.

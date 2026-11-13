@@ -1,0 +1,6 @@
+[project]
+name = "c_handles"
+
+[native]
+include = ["c"]
+sources = ["c/notes.c"]

@@ -1,0 +1,72 @@
+//--!$unsafe: true
+in io;
+in * from c."drachm_fixture.h" as fx;
+
+// A wrapper that owns a C handle and releases it itself.
+struct Counter {
+    foreign *fx::fx_counter handle;
+
+    none add(sint32 n) {
+        unsafe { fx::fx_counter_add(self.handle, n::to<c::int>()); }
+    }
+
+    sint32 get() {
+        unsafe { return fx::fx_counter_get(self.handle)::to<sint32>(); }
+    }
+
+    none drop() {
+        unsafe { fx::fx_counter_free(self.handle); }
+    }
+}
+
+Counter makeCounter(sint32 start) {
+    unsafe {
+        return new Counter of (handle: fx::fx_counter_new(start::to<c::int>()));
+    }
+}
+
+sint32 alive() {
+    unsafe { return fx::fx_counters_alive()::to<sint32>(); }
+}
+
+sint32 work(sint32 early) {
+    Counter c = makeCounter(10);
+    c::add(5);
+    if (early == 1) {
+        return c::get();
+    }
+    c::add(100);
+    return c::get();
+}
+
+none main() {
+    // A C struct is a plain value struct with its exact layout.
+    mut fx::fx_point p = 3, 4;
+    p.x += 10;
+    unsafe { fx::fx_point_move(address of p, 1, 1); }
+    io::outln(f"point: ${p.x::to<sint32>()}, ${p.y::to<sint32>()}");
+
+    mut fx::fx_rect r = origin: p, w: 6, h: 7;
+    r.origin.y = 9;
+    io::outln(f"rect: ${r.origin.x::to<sint32>()}, ${r.origin.y::to<sint32>()}, ${r.w::to<sint32>()}x${r.h::to<sint32>()}");
+
+    fx::fx_size s = 1.5, 2.5;
+    io::outln(f"size: ${s.w::to<float64>()} ${s.h::to<float64>()}");
+
+    // Small structs go to C and come back by value.
+    unsafe {
+        fx::fx_point made = fx::fx_point_make(7, 8);
+        io::outln(f"made: ${made.x as sint32}, ${made.y as sint32}");
+        fx::fx_rect box = origin: made, w: 3, h: 5;
+        io::outln(f"area: ${fx::fx_rect_area(box) as sint32}");
+        fx::fx_size sz = fx::fx_size_make(2.5, 4.0);
+        io::outln(f"size: ${sz.w as float64} by ${sz.h as float64}");
+        fx::fx_mixed mixed = fx::fx_mixed_make(1, 2.0, 3.5);
+        io::outln(f"mixed: ${fx::fx_mixed_sum(mixed) as float64}");
+        fx::fx_tri tri = fx::fx_tri_make(10);
+        io::outln(f"tri: ${tri.a as sint32} ${tri.c as sint32} sum ${fx::fx_tri_sum(tri) as sint32}");
+    }
+
+    io::outln(f"work: ${work(1)} ${work(0)}");
+    io::outln(f"alive: ${alive()}");
+}

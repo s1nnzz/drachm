@@ -1,0 +1,7 @@
+# A smoke test against the real SDL3 (not run by `cargo test`: it needs SDL3
+# installed). `drachm run examples/sdl3-smoke` prints its version, a macro and a struct.
+[project]
+name = "sdlsmoke"
+
+[native]
+libraries = ["SDL3"]

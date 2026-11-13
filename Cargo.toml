@@ -17,3 +17,4 @@ num-rational = "0.4.2"
 num-traits = "0.2.19"
 serde_json = "1.0.154"
 toml_edit = "0.22"
+clang-sys = { version = "1.8", features = ["runtime", "clang_10_0"] }

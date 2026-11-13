@@ -1,0 +1,6 @@
+[project]
+name = "c_pointers"
+
+[native]
+include = ["../../c"]
+sources = ["../../c/drachm_fixture.c"]

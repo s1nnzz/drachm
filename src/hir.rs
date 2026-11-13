@@ -59,6 +59,43 @@ pub struct Program {
     /// because they come from the same type parameter. A slot is
     /// (parameter, slot within it), the parameter `None` for the result.
     pub ties: std::collections::BTreeMap<FuncId, Vec<Vec<(Option<usize>, usize)>>>,
+    /// C functions from header imports: the symbol each is called by. They
+    /// have no body; the backends declare them as imports.
+    pub foreign: std::collections::BTreeMap<FuncId, String>,
+    /// What linking needs besides the runtime: the `[native]` tables of the
+    /// project and of the dependencies it uses (set after checking).
+    pub link: LinkPlan,
+    /// C source compiled with the program: the functions that call C macros.
+    pub shim: String,
+}
+
+/// The native inputs of a link (step 7.1), with absolute paths.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LinkPlan {
+    /// C source files, compiled with `include_dirs` and `defines`.
+    pub sources: Vec<std::path::PathBuf>,
+    pub include_dirs: Vec<std::path::PathBuf>,
+    pub defines: Vec<String>,
+    pub libraries: Vec<String>,
+    pub library_dirs: Vec<std::path::PathBuf>,
+}
+
+impl LinkPlan {
+    /// Add `other`'s inputs after this plan's, each once.
+    pub fn merge(&mut self, other: LinkPlan) {
+        fn add<T: PartialEq>(into: &mut Vec<T>, from: Vec<T>) {
+            for x in from {
+                if !into.contains(&x) {
+                    into.push(x);
+                }
+            }
+        }
+        add(&mut self.sources, other.sources);
+        add(&mut self.include_dirs, other.include_dirs);
+        add(&mut self.defines, other.defines);
+        add(&mut self.libraries, other.libraries);
+        add(&mut self.library_dirs, other.library_dirs);
+    }
 }
 
 pub struct Closure {
@@ -336,7 +373,7 @@ pub fn scalar_size(t: Type) -> Option<u32> {
         Type::Int { bits, .. } | Type::Float(bits) => Some(bits as u32 / 8),
         Type::Bool => Some(1),
         fat if fat.is_fat() => None,
-        Type::Ref { .. } | Type::Ptr { .. } | Type::FixedPtr { .. } => Some(8),
+        Type::Ref { .. } | Type::Ptr { .. } | Type::FixedPtr { .. } | Type::Foreign { .. } => Some(8),
         _ => None,
     }
 }
@@ -719,6 +756,8 @@ pub enum ExprKind {
     PtrConv(Box<Expr>),
     /// A named function adapted to the function-value ABI.
     FuncRef(FuncId),
+    /// The address of a function, for a C callback (step 7.1).
+    FuncAddr(FuncId),
     /// A lifted function with its captures as places in the enclosing function.
     Closure(FuncId, Vec<Expr>),
     /// Indirect call with the callable value at index zero.
@@ -763,7 +802,7 @@ impl Expr {
     pub fn children(&self) -> Vec<&Expr> {
         use ExprKind as K;
         match &self.kind {
-            K::Int(_) | K::Float(_) | K::Bool(_) | K::Str(_) | K::Local(_) | K::FuncRef(_) | K::NullPtr | K::InLine | K::InEnded | K::IncDec { .. } => Vec::new(),
+            K::Int(_) | K::Float(_) | K::Bool(_) | K::Str(_) | K::Local(_) | K::FuncRef(_) | K::FuncAddr(_) | K::NullPtr | K::InLine | K::InEnded | K::IncDec { .. } => Vec::new(),
             K::Field(x, _)
             | K::Neg(x)
             | K::Not(x)
@@ -919,6 +958,9 @@ pub enum StrFn {
     Lines,
     /// The characters of a text, one owned string each: a `string[?]`.
     Chars,
+    /// The address of the bytes of a text that ends in a NUL (`&s as c string`
+    /// builds the text); a NUL inside is a runtime error.
+    CPtr,
 }
 
 const S: Type = Type::Str;
@@ -962,6 +1004,7 @@ impl StrFn {
             Split => "drachm_str_split",
             Lines => "drachm_str_lines",
             Chars => "drachm_str_chars",
+            CPtr => "drachm_str_c_ptr",
         }
     }
 
@@ -970,7 +1013,7 @@ impl StrFn {
         match self {
             Len | IsEmpty | Reverse | Upper | Lower | Trim => &[S],
             Concat | Append | Eq | Cmp | Find | Contains | StartsWith | EndsWith | Count | Glob | Split => &[S, S],
-            Lines | Chars => &[S],
+            Lines | Chars | CPtr => &[S],
             Sub | Remove => &[S, S64, S64],
             Insert => &[S, S64, S],
             Replace => &[S, S, S],
@@ -992,6 +1035,7 @@ impl StrFn {
             Len | Count | ByteLen => U64,
             Find => S64,
             Split | Lines | Chars => Type::list(S),
+            CPtr => Type::Foreign { to: &Type::U8 },
             _ => S,
         }
     }
@@ -1004,6 +1048,9 @@ pub enum SystemOp {
     Write,
     Platform,
     GetEnv,
+    /// `p::text()` on a C text pointer (step 7.1): the bytes up to the NUL,
+    /// checked as UTF-8.
+    CText,
 }
 
 impl SystemOp {
@@ -1013,6 +1060,7 @@ impl SystemOp {
             Self::Write => "drachm_fs_write",
             Self::Platform => "drachm_os_platform",
             Self::GetEnv => "drachm_os_get_env",
+            Self::CText => "drachm_c_text",
         }
     }
 
@@ -1022,22 +1070,23 @@ impl SystemOp {
             Self::Write => "fs::write",
             Self::Platform => "os::platform",
             Self::GetEnv => "os::getEnv",
+            Self::CText => "text",
         }
     }
 
     pub fn inputs(self) -> usize {
         match self {
             Self::Platform => 0,
-            Self::Read | Self::GetEnv => 1,
+            Self::Read | Self::GetEnv | Self::CText => 1,
             Self::Write => 2,
         }
     }
 
     pub fn has_slot(self) -> bool {
-        matches!(self, Self::Read | Self::GetEnv)
+        matches!(self, Self::Read | Self::GetEnv | Self::CText)
     }
 
     pub fn fs_result(self) -> Type {
-        if self == Self::Read { Type::Str } else { Type::None }
+        if matches!(self, Self::Read | Self::CText) { Type::Str } else { Type::None }
     }
 }

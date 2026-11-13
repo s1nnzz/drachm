@@ -1,0 +1,6 @@
+2 + 3 = 5
+clamped: 100 -7 -100
+tally limit 100
+mean 1.5
+next byte 0
+double 42

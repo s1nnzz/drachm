@@ -1,0 +1,6 @@
+[project]
+name = "c_first_call"
+
+[native]
+include = ["c"]
+sources = ["c/tally.c"]

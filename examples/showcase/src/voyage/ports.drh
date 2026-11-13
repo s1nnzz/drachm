@@ -1,0 +1,130 @@
+//--!$unsafe: true
+// Part 6 of the voyage, in its own file: the harbours, which are a C library.
+// `c/harbour.h` is imported like a module; `[native]` in drachm.toml says where
+// the header is and which C file to compile and link.
+in io;
+in * from c."harbour.h" as harbour;
+
+// ---------------------------------------------------------------------------
+// Part 6: C imports: scalars, constants, macros, structs, enums, handles, callbacks
+// ---------------------------------------------------------------------------
+
+// A function-like macro is callable once its types are declared.
+from c macro HARBOUR_TOLL(c::int tons) gives c::int;
+
+failure HarbourFull {
+    Full(string ship) f"no berth left for ${ship}" exit 6,
+}
+
+// A C struct is a value struct with the exact C layout; `x` and `y` are
+// `c::double`, a type of its own that `as` converts.
+float64 gap(harbour::sky_point a, harbour::sky_point b) {
+    unsafe {
+        return harbour::harbour_distance(a, b) as float64;
+    }
+}
+
+// The wrapper owns the C handle. Nothing frees it for us: `drop()` pairs
+// `harbour_open` with `harbour_close`, whichever way the scope ends.
+struct Harbour {
+    foreign *harbour::harbour handle;
+
+    // C text goes in as `&s as c string`, for that one call.
+    uint32 dock(string ship, uint32 tons) fails HarbourFull {
+        unsafe {
+            c::int berth = harbour::harbour_dock(self.handle, &ship as c string, tons as c::int);
+            if (berth < 0) {
+                fail Full(ship);
+            }
+            return berth as uint32;
+        }
+    }
+
+    // C text comes back as a pointer; `text()` reads up to the NUL, checks the
+    // UTF-8, and fails on a null pointer or bad text.
+    string name() {
+        unsafe {
+            foreign *uint8 p = harbour::harbour_name(self.handle);
+            return p::text() maybe "unnamed";
+        }
+    }
+
+    // A C enum can hold values its header does not list, so `match` needs `case _`.
+    string berth(uint32 n) {
+        unsafe {
+            harbour::berth_state state = harbour::harbour_berth(self.handle, n as c::int);
+            match (state) {
+                case harbour::BERTH_FREE { return "free"; }
+                case harbour::BERTH_TAKEN { return "taken"; }
+                case _ { return "closed"; }
+            }
+        }
+    }
+
+    harbour::sky_point position() {
+        unsafe { return harbour::harbour_position(self.handle); }
+    }
+
+    // C calls `show` once for every ship in port.
+    none manifest() {
+        unsafe { harbour::harbour_each(self.handle, show); }
+    }
+
+    none drop() {
+        unsafe { harbour::harbour_close(self.handle); }
+        io::outln("  [harbour closed]");
+    }
+}
+
+// A plain top-level function with the C types can be given to C as a callback.
+none show(c::int berth, c::int tons) {
+    io::outln(f"  berth ${berth as sint32}: ${tons as sint32} t");
+}
+
+Harbour openHarbour(string name, float64 x, float64 y) {
+    unsafe {
+        harbour::sky_point where = x as c::double, y as c::double;
+        return new Harbour of (harbour::harbour_open(&name as c string, where));
+    }
+}
+
+sint32 openCount() {
+    unsafe { return harbour::harbour_open_count() as sint32; }
+}
+
+// A safe signature for a function-like macro.
+sint32 toll(sint32 tons) {
+    unsafe { return harbour::HARBOUR_TOLL(tons as c::int) as sint32; }
+}
+
+none dockAll(&Harbour port, string[?] ships) {
+    mut uint32 weight = 25;
+    for (string ship of ships) {
+        uint32 berth = port::dock(copy ship, weight) maybe 99;
+        io::outln(f"${ship} -> berth ${berth}, toll ${toll(weight::to<sint32>())}");
+        weight += 20;
+    }
+}
+
+// The harbour is closed when the function ends, early return or not.
+none briefStop() {
+    Harbour brief = openHarbour("Brief", 1.0, 1.0);
+    io::outln(f"inside: ${brief::name()}, open ${openCount()}");
+}
+
+out none run() {
+    io::outln("== Part 6: the harbours (C) ==");
+    // Macros that are numbers or text come in as plain constants.
+    io::outln(f"${harbour::HARBOUR_BERTHS} berths each, motto '${harbour::HARBOUR_MOTTO}'");
+    Harbour vega = openHarbour("Vega", 3.0, 4.0);
+    Harbour sol = openHarbour("Sol", 0.0, 0.0);
+    io::outln(f"${vega::name()} and ${sol::name()}; harbours open: ${openCount()}");
+    dockAll(&vega, ["Wren", "Ibis", "Kite", "Lark"]);
+    io::outln(f"berths: ${vega::berth(0)}, ${vega::berth(2)}, ${vega::berth(3)}, ${vega::berth(9)}");
+    vega::manifest();
+    io::outln(f"distance Vega to Sol: ${gap(vega::position(), sol::position())}");
+    harbour::berth_state odd = 7 as harbour::berth_state;
+    io::outln(f"an unlisted state is still a number: ${odd as sint32}");
+    briefStop();
+    io::outln(f"after the stop: harbours open ${openCount()}");
+}

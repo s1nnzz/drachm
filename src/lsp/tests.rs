@@ -49,6 +49,21 @@ fn a_project_file_is_checked_with_its_project() {
     assert!(all.iter().any(|(f, d)| f.ends_with("main.drh") && d.is_empty()), "{all:?}");
 }
 
+#[test]
+fn a_project_with_c_imports_is_analysed_without_noise() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/projects/c_structs");
+    let entry = dir.join("src/main.drh");
+    let a = Analysis::run(&entry, &HashMap::new());
+    assert_eq!(a.entry, entry);
+    let all = a.lsp_diagnostics();
+    assert!(all.iter().all(|(_, d)| d.is_empty()), "{all:?}");
+    // A mistake in the file is still found, with the C names resolved.
+    let text = std::fs::read_to_string(&entry).unwrap().replace("p.x += 10;", "p.x += \"ten\";");
+    let a = Analysis::run(&entry, &HashMap::from([(entry.clone(), text)]));
+    let all = a.lsp_diagnostics();
+    assert!(all.iter().any(|(_, d)| d.iter().any(|d| d.code == Some(NumberOrString::String("E0101".into())))), "{all:?}");
+}
+
 fn parse(src: &str) -> (crate::ast::Program, Vec<crate::diag::Diagnostic>) {
     let mut diags = Vec::new();
     let tokens = crate::lexer::lex(src, &mut diags);

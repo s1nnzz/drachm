@@ -1,0 +1,6 @@
+[project]
+name = "c_shapes"
+
+[native]
+include = ["c"]
+sources = ["c/shape.c"]

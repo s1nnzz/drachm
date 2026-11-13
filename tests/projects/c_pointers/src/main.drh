@@ -1,0 +1,72 @@
+//--!$unsafe: true
+in io;
+in * from c."drachm_fixture.h" as fx;
+
+// A safe wrapper: the unsafe calls stay inside.
+string greeting() fails InvalidText {
+    unsafe {
+        foreign *uint8 p = fx::fx_greeting();
+        return p::text() fails;
+    }
+}
+
+// Passing Drachm text to C for one call.
+uint64 lengthOf(string s) {
+    unsafe {
+        return fx::fx_len(&s as c string)::to<uint64>();
+    }
+}
+
+// Returned memory is released by the wrapper.
+struct Copy {
+    foreign *uint8 data;
+
+    none drop() {
+        unsafe { fx::fx_free(self.data); }
+    }
+}
+
+string shout(string s) fails InvalidText {
+    unsafe {
+        foreign *uint8 p = fx::fx_dup(&s as c string);
+        string text = p::text() fails;
+        fx::fx_free(p);
+        return text;
+    }
+}
+
+sint32 divide(sint32 a, sint32 b) {
+    unsafe {
+        mut c::int result = 0;
+        c::int status = fx::fx_divide(a::to<c::int>(), b::to<c::int>(), address of result);
+        if (status < 0) {
+            return -1;
+        }
+        return result::to<sint32>();
+    }
+}
+
+string nothing() {
+    unsafe {
+        foreign *uint8 p = none;
+        if (p == none) {
+            return "null: " + (p::text() maybe "failed");
+        }
+        return "not null";
+    }
+}
+
+none main() {
+    io::outln(greeting() maybe "?");
+    io::outln(f"length: ${lengthOf("héllo")}");
+    io::outln(f"dup: ${shout("copy me") maybe "?"}");
+    io::outln(f"live: ${unsafe_live()}");
+    io::outln(nothing());
+    io::outln(f"divide: ${divide(84, 2)} ${divide(1, 0)}");
+}
+
+sint32 unsafe_live() {
+    unsafe {
+        return fx::fx_live()::to<sint32>();
+    }
+}

@@ -96,6 +96,20 @@ target = "linux-x64"
 opt = true
 ```
 
+## Native libraries
+
+A project that calls C says where the headers are and what to link in a
+`[native]` table:
+
+```toml
+[native]
+include = ["vendor/include"]
+libraries = ["SDL2"]
+sources = ["c/helpers.c"]
+```
+
+See [Calling C libraries](guide-c-imports.md).
+
 ## Behaviour settings
 
 Settings that change what a program does live in `[behaviour]`, each with a
