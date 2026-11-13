@@ -219,6 +219,11 @@ pub struct TypeName {
     pub dims: Vec<Dim>,
     /// A number written where a type argument goes.
     pub is_number: bool,
+    /// A value written where a type argument goes (`4`, `-1`, `2 * 8`):
+    /// a constant expression for a value parameter (`uint32 N`). Set with
+    /// `is_number`. A bare name there is an ordinary `TypeName`; which of the
+    /// two it means depends on the parameter.
+    pub val: Option<Box<ConstExpr>>,
     /// A unit written where a type argument goes: `Vec3<float64, unit m/s>`.
     /// Its `name` is empty; the unit is here.
     pub unit_arg: Option<UnitSpec>,
@@ -236,7 +241,7 @@ pub struct FuncType {
 impl TypeName {
     /// A bare name with nothing else written.
     pub fn plain(name: impl Into<String>, span: Span) -> TypeName {
-        TypeName { name: name.into(), span, func: None, mods: Vec::new(), unit: None, optional: None, args: Vec::new(), dims: Vec::new(), is_number: false, unit_arg: None, self_ty: false }
+        TypeName { name: name.into(), span, func: None, mods: Vec::new(), unit: None, optional: None, args: Vec::new(), dims: Vec::new(), is_number: false, val: None, unit_arg: None, self_ty: false }
     }
 }
 
@@ -245,6 +250,29 @@ impl TypeName {
 pub enum Dim {
     List(Span),
     Array(u64, Span),
+    /// `[N]`: the length is a value parameter.
+    Param(&'static str, Span),
+    /// `[N + 1]` and the like: a length computed from more than one name or number.
+    Complex(Span),
+}
+
+/// A constant expression written as a value argument: whole numbers, value
+/// parameter names and arithmetic.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ConstExpr {
+    Num(num_bigint::BigInt, Span),
+    Name(String, Span),
+    Neg(Box<ConstExpr>, Span),
+    Not(Box<ConstExpr>, Span),
+    Bin(BinOp, Box<ConstExpr>, Box<ConstExpr>, Span),
+}
+
+impl ConstExpr {
+    pub fn span(&self) -> Span {
+        match self {
+            ConstExpr::Num(_, s) | ConstExpr::Name(_, s) | ConstExpr::Neg(_, s) | ConstExpr::Not(_, s) | ConstExpr::Bin(_, _, _, s) => *s,
+        }
+    }
 }
 
 /// A unit written in angle brackets after a number type or a number literal,
@@ -313,6 +341,8 @@ pub struct TypeParam {
     pub is_unit: bool,
     /// `T with A and B`.
     pub bounds: Vec<TypeName>,
+    /// `uint32 N`: a value parameter; the integer type it was written with.
+    pub value: Option<(String, Span)>,
 }
 
 #[derive(Debug)]

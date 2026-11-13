@@ -178,6 +178,10 @@ fn tkey(t: &ast::TypeName, env: &HashMap<String, Type>) -> String {
         s.push_str(&tkey(&f.ret, env));
         return s;
     }
+    if let Some(e) = &t.val {
+        s.push_str(&format!("{e:?}"));
+        return s;
+    }
     if let Some(ty) = env.get(&t.name).filter(|_| t.args.is_empty()) {
         s.push_str(&ty.to_string());
     } else {
@@ -195,6 +199,11 @@ fn tkey(t: &ast::TypeName, env: &HashMap<String, Type>) -> String {
         match d {
             ast::Dim::List(_) => s.push_str("[?]"),
             ast::Dim::Array(n, _) => s.push_str(&format!("[{n}]")),
+            ast::Dim::Param(n, _) => match env.get(*n).and_then(|t| t.as_val()) {
+                Some((_, v)) => s.push_str(&format!("[{v}]")),
+                None => s.push_str(&format!("[{n}]")),
+            },
+            ast::Dim::Complex(_) => s.push_str("[..]"),
         }
     }
     if t.optional.is_some() {

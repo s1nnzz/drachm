@@ -173,7 +173,7 @@ impl Globals {
         }
         if let Some(&ty) = self.tenv.get(&t.name) {
             // A unit parameter is no type (E0609, reported by `resolve`).
-            return ty.as_unit_arg().is_none().then_some(ty);
+            return (ty.as_unit_arg().is_none() && ty.as_val().is_none()).then_some(ty);
         }
         if t.name == "none" {
             return Some(Type::None);
@@ -196,7 +196,10 @@ impl Globals {
     /// The instance a type written with arguments names (`Stack<uint32>`,
     /// `Optional<uint32>`), if it was made.
     fn instance_of(&self, t: &ast::TypeName) -> Option<Type> {
-        let args: Option<Vec<Type>> = t.args.iter().map(|a| if a.is_number { None } else { self.resolve_quiet(a) }).collect();
+        let args: Option<Vec<Type>> = match self.mono.type_templates.get(&t.name) {
+            Some(tpl) => generics::resolve_targs(self, &t.name, &tpl.tparams, &t.args, true, &mut Vec::new()),
+            None => t.args.iter().map(|a| if a.is_number { None } else { self.resolve_quiet(a) }).collect(),
+        };
         let args = args?;
         if maps::is_map_name(&t.name) && t.args.len() == 2 {
             let [key, val] = args[..] else { return None };
@@ -252,6 +255,14 @@ impl Globals {
                 Diagnostic::at(&codes::E0609, t.span, format!("`{}` is a unit, so it cannot be a type", t.name))
                     .note("a unit parameter stands for a unit")
                     .help(format!("use it inside a number type: `float64<{}>`", t.name)),
+            );
+            return None;
+        }
+        if t.args.is_empty() && t.unit.is_none() && self.tenv.get(&t.name).is_some_and(|ty| ty.as_val().is_some()) {
+            diags.push(
+                Diagnostic::at(&codes::E0609, t.span, format!("`{}` is a value, so it cannot be a type", t.name))
+                    .note("a value parameter stands for a number")
+                    .help(format!("use it where a value goes, or as an array length: `T[{}]`", t.name)),
             );
             return None;
         }
@@ -2770,6 +2781,11 @@ impl<'a> Checker<'a> {
             ExprKind::Lambda { moves, params, body } => self.lambda_expr(*moves, params, body, e.span).map(Val::Expr),
             ExprKind::Var(name) => match self.lookup(name) {
                 Some(id) => self.read_local(id, e.span).map(Val::Expr),
+                // A value parameter is a constant of its type.
+                None if let Some((ty, v)) = self.g.tenv.get(name).and_then(|t| t.as_val()) => {
+                    let c = Const::Int(num_bigint::BigInt::from(v));
+                    Some(Val::Expr(self.fit_const(&c, ty, e.span, true)))
+                }
                 None if self.ambiguous_bare(name, e.span) => None,
                 None if self.g.mono.templates.contains_key(name) && !self.g.funcs_by_name.contains_key(name) => {
                     self.generic_by_name(name, e.span);

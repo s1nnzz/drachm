@@ -207,6 +207,19 @@ pub(super) fn check_tparams(g: &Globals, tparams: &[ast::TypeParam], diags: &mut
             }
         }
         seen.push((&p.name, p.span));
+        if let Some((ty, at)) = &p.value {
+            if !matches!(Type::from_name(ty), Ok(Type::Int { .. })) {
+                diags.push(
+                    Diagnostic::at(&codes::E0605, *at, format!("value parameter `{}` has type `{ty}`, which is not a whole-number type", p.name))
+                        .help("a value parameter is a whole number: `uint32`, `sint64` and so on"),
+                );
+                usable = false;
+            }
+            if !p.bounds.is_empty() {
+                diags.push(Diagnostic::at(&codes::E0901, p.span, "a constraint on a value parameter is not supported yet").help(format!("write `{ty} {}` with no `with`", p.name)));
+                usable = false;
+            }
+        }
         if p.is_unit && !p.bounds.is_empty() {
             diags.push(Diagnostic::at(&codes::E0901, p.span, "a constraint on a unit parameter is not supported yet").help(format!("write `unit {}` with no `with`", p.name)));
             usable = false;
@@ -220,7 +233,7 @@ pub(super) fn check_tparams(g: &Globals, tparams: &[ast::TypeParam], diags: &mut
 
 /// Does any of these parameters stand for a unit?
 fn has_unit_params(tparams: &[ast::TypeParam]) -> bool {
-    tparams.iter().any(|p| p.is_unit)
+    tparams.iter().any(|p| p.is_unit || p.value.is_some())
 }
 
 /// The unit parameter a unit written `spec` is, when the unit is just that
@@ -508,7 +521,7 @@ fn peel(g: &Globals, p: &ast::TypeName, ty: Type) -> Type {
     // `T[?]` and `T[4]` bind `T` to the item type.
     for d in p.dims.iter().rev() {
         t = match (d, t) {
-            (ast::Dim::List(_), Type::List { elem }) | (ast::Dim::Array(..), Type::Array { elem, .. }) => *elem,
+            (ast::Dim::List(_), Type::List { elem }) | (ast::Dim::Array(..) | ast::Dim::Param(..), Type::Array { elem, .. }) => *elem,
             _ => t,
         };
     }
@@ -517,7 +530,8 @@ fn peel(g: &Globals, p: &ast::TypeName, ty: Type) -> Type {
 
 /// Does the written type `p` name one of the type parameters, anywhere?
 fn mentions(tparams: &[ast::TypeParam], p: &ast::TypeName) -> bool {
-    (p.args.is_empty() && tparams.iter().any(|tp| tp.name == p.name))
+    p.dims.iter().any(|d| matches!(d, ast::Dim::Param(n, _) if tparams.iter().any(|tp| tp.name == *n)))
+        || (p.args.is_empty() && tparams.iter().any(|tp| tp.name == p.name))
         || p.unit.as_ref().is_some_and(|s| unit_mentions(tparams, &s.expr))
         || p.unit_arg.as_ref().is_some_and(|s| unit_mentions(tparams, &s.expr))
         || p.args.iter().any(|a| mentions(tparams, a))
@@ -526,6 +540,34 @@ fn mentions(tparams: &[ast::TypeParam], p: &ast::TypeName) -> bool {
 /// What a parameter written `p` makes of the type parameters, given an
 /// argument of type `ty`: `(parameter index, type)` for each one it shows.
 fn bindings(g: &Globals, tparams: &[ast::TypeParam], p: &ast::TypeName, ty: Type, out: &mut Vec<(usize, Type)>) {
+    // `T[N]` binds `N` to the length of the array.
+    if p.dims.iter().any(|d| matches!(d, ast::Dim::Param(..))) {
+        let mut t = ty;
+        for (m, _) in &p.mods {
+            t = match (m, t) {
+                (ast::TypeMod::Ref { .. }, Type::Ref { to, .. }) => *to,
+                (ast::TypeMod::Ptr, Type::Ptr { to }) | (ast::TypeMod::FixedPtr, Type::FixedPtr { to }) => *to,
+                _ => t,
+            };
+        }
+        if p.optional.is_some() && let Some(inner) = optionals::inner_of(g, t) {
+            t = inner;
+        }
+        for d in p.dims.iter().rev() {
+            match (d, t) {
+                (ast::Dim::Param(n, _), Type::Array { elem, len }) => {
+                    if let Some(k) = tparams.iter().position(|tp| tp.name == *n)
+                        && let Some(vt) = tparams[k].value.as_ref().and_then(|(t, _)| Type::from_name(t).ok())
+                    {
+                        out.push((k, Type::val(vt, i128::from(len))));
+                    }
+                    t = *elem;
+                }
+                (ast::Dim::List(_), Type::List { elem }) | (ast::Dim::Array(..), Type::Array { elem, .. }) => t = *elem,
+                _ => {}
+            }
+        }
+    }
     let inner = peel(g, p, ty);
     // `float64<U>` binds `U` to the unit of the value; `unit U` as a type
     // argument binds it to the unit that argument is.
@@ -618,11 +660,12 @@ impl Checker<'_> {
                 return fail(self);
             }
             for (i, t) in targs.iter().enumerate() {
-                if tparams[i].is_unit != t.unit_arg.is_some() {
+                if kind_mismatch(self.g, &tparams[i], t) {
                     self.diags.push(unit_kind_error(name, &tparams[i], t));
                     return fail(self);
                 }
-                let Some(ty) = self.g.resolve_binding_type(t, self.diags) else { return fail(self) };
+                let ty = if tparams[i].value.is_some() { value_targ(self.g, name, &tparams[i], t, self.diags) } else { self.g.resolve_binding_type(t, self.diags) };
+                let Some(ty) = ty else { return fail(self) };
                 bound[i] = Some((ty, usize::MAX));
             }
             explicit = true;
@@ -670,7 +713,11 @@ impl Checker<'_> {
                             )
                             .note(format!("this one is `{}`", show_arg(&ty)))
                             .label(args[from].span, format!("this one is `{}`", show_arg(&first)))
-                            .help(format!("convert one of them, or write the type: `{name}<{}>(...)`", written_arg(&first))),
+                            .help(if ty.as_val().is_some() {
+                                format!("`{}` is one length: give the arguments the same length", tparams[k].name)
+                            } else {
+                                format!("convert one of them, or write the type: `{name}<{}>(...)`", written_arg(&first))
+                            }),
                         );
                         for (j, a) in args.iter().enumerate() {
                             if j > i && matches!(pre[j], Pre::Later) {
@@ -787,7 +834,13 @@ impl Checker<'_> {
             if let Some(k) = bound.iter().position(Option::is_none) {
                 let tp = &tparams[k].name;
                 let sample = if args.is_empty() { "()" } else { "(...)" };
-                let example = if tparams[k].is_unit { "unit m" } else { "uint32" };
+                let example = if tparams[k].is_unit {
+                    "unit m"
+                } else if tparams[k].value.is_some() {
+                    "8"
+                } else {
+                    "uint32"
+                };
                 self.diags.push(
                     Diagnostic::at(&codes::E0601, span, format!("cannot tell what `{tp}` is in this call of `{name}`"))
                         .note(format!("no argument shows `{tp}`"))
@@ -889,17 +942,192 @@ impl Checker<'_> {
     }
 }
 
+/// Is `a` the wrong kind of argument for `tp`: a unit for a type parameter, a
+/// type for a unit or a value parameter, a number for a type parameter?
+pub(super) fn kind_mismatch(g: &Globals, tp: &ast::TypeParam, a: &ast::TypeName) -> bool {
+    if tp.is_unit != a.unit_arg.is_some() {
+        return true;
+    }
+    if tp.value.is_some() {
+        return !is_value_arg(g, a);
+    }
+    a.is_number
+}
+
+/// Can `a` be read as a value: a number or calculation, or a bare name that is
+/// not a type?
+fn is_value_arg(g: &Globals, a: &ast::TypeName) -> bool {
+    if a.is_number {
+        return true;
+    }
+    let plain = a.args.is_empty()
+        && a.mods.is_empty()
+        && a.dims.is_empty()
+        && a.optional.is_none()
+        && a.unit.is_none()
+        && a.unit_arg.is_none()
+        && a.func.is_none()
+        && !a.self_ty;
+    if !plain {
+        return false;
+    }
+    match g.tenv.get(&a.name) {
+        Some(t) => t.as_val().is_some(),
+        None => g.resolve_base_quiet(a).is_none() && !g.mono.type_templates.contains_key(&a.name),
+    }
+}
+
 /// A type argument of the wrong kind: a unit for a type parameter, or a type for a unit one.
-fn unit_kind_error(name: &str, tp: &ast::TypeParam, t: &ast::TypeName) -> Diagnostic {
+pub(super) fn unit_kind_error(name: &str, tp: &ast::TypeParam, t: &ast::TypeName) -> Diagnostic {
     if tp.is_unit {
         Diagnostic::at(&codes::E0602, t.span, format!("`{name}` takes a unit for `{}`, not a type", tp.name))
             .note(format!("`{}` stands for a unit", tp.name))
             .help("write the unit with `unit` in front, for example `unit m`")
+    } else if let Some((ty, _)) = &tp.value {
+        Diagnostic::at(&codes::E0602, t.span, format!("`{name}` takes a value for `{}`, not a type", tp.name))
+            .note(format!("`{}` stands for a whole number of type `{ty}`", tp.name))
+            .help("write a number here, for example `16`")
+    } else if t.is_number {
+        Diagnostic::at(&codes::E0602, t.span, format!("`{name}` takes a type for `{}`, not a number", tp.name))
+            .note(format!("`{}` stands for a type", tp.name))
+            .help(format!("write a type here, for example `uint32`; to take a number, declare `{}` as a value parameter: `uint32 {}`", tp.name, tp.name))
     } else {
         Diagnostic::at(&codes::E0602, t.span, format!("`{name}` takes a type for `{}`, not a unit", tp.name))
             .note(format!("`{}` stands for a type", tp.name))
             .help("write a type here, for example `uint32`")
     }
+}
+
+/// The value a whole-number constant expression has (names are value parameters
+/// in scope). The flag says whether a name took part.
+fn eval_value(g: &Globals, e: &ast::ConstExpr) -> Result<(num_bigint::BigInt, bool), Diagnostic> {
+    use crate::consts::{Const, FoldError, Folded};
+    let whole = |c: Const| match c {
+        Const::Int(v) => v,
+        _ => unreachable!("whole numbers stay whole"),
+    };
+    match e {
+        ast::ConstExpr::Num(v, _) => Ok((v.clone(), false)),
+        ast::ConstExpr::Name(n, span) => match g.tenv.get(n) {
+            Some(t) => match t.as_val() {
+                Some((_, v)) => Ok((num_bigint::BigInt::from(v), true)),
+                None => Err(Diagnostic::at(&codes::E0602, *span, format!("`{n}` is a type, not a value"))
+                    .help("a value argument is a number or a value parameter declared as `uint32 N`")),
+            },
+            None => Err(Diagnostic::at(&codes::E0634, *span, format!("`{n}` is not a constant"))
+                .note("a value argument must be known when the program is compiled")
+                .help("write a number, a calculation on numbers, or a value parameter of the enclosing generic")),
+        },
+        ast::ConstExpr::Neg(inner, span) => {
+            let (v, named) = eval_value(g, inner)?;
+            if named {
+                return Err(calc_on_param(*span));
+            }
+            Ok((-v, false))
+        }
+        ast::ConstExpr::Not(inner, span) => {
+            let (v, named) = eval_value(g, inner)?;
+            if named {
+                return Err(calc_on_param(*span));
+            }
+            Ok((whole(Const::Int(v).bit_not().map_err(|_| Diagnostic::at(&codes::E0634, *span, "`~` needs a whole number"))?), false))
+        }
+        ast::ConstExpr::Bin(op, l, r, span) => {
+            let ((a, an), (b, bn)) = (eval_value(g, l)?, eval_value(g, r)?);
+            if an || bn {
+                return Err(calc_on_param(*span));
+            }
+            match Const::binary(*op, &Const::Int(a), &Const::Int(b)) {
+                Ok(Folded::Value(c)) => Ok((whole(c), false)),
+                Ok(Folded::Bool(_)) => Err(Diagnostic::at(&codes::E0634, *span, "a value argument is a whole number")),
+                Err(FoldError::DivisionByZero) => Err(Diagnostic::at(&codes::E0107, *span, "this constant expression divides by zero").label(r.span(), "this is zero")),
+                Err(FoldError::TooLarge) => Err(Diagnostic::at(&codes::E0002, *span, "this constant expression is too large to evaluate")),
+                Err(_) => Err(Diagnostic::at(&codes::E0634, *span, "this calculation has no whole-number result")),
+            }
+        }
+    }
+}
+
+fn calc_on_param(span: Span) -> Diagnostic {
+    Diagnostic::at(&codes::E0901, span, "a calculation on a value parameter in a type is not supported yet")
+        .help("pass the value parameter alone, or write the calculation on numbers")
+}
+
+/// The stand-in type for the value of argument `a` of value parameter `tp`.
+/// Reports why not.
+pub(super) fn value_targ(g: &Globals, name: &str, tp: &ast::TypeParam, a: &ast::TypeName, diags: &mut Vec<Diagnostic>) -> Option<Type> {
+    use num_bigint::BigInt;
+    use num_traits::ToPrimitive;
+    if !is_value_arg(g, a) {
+        diags.push(unit_kind_error(name, tp, a));
+        return None;
+    }
+    let expr = match &a.val {
+        Some(e) => (**e).clone(),
+        None => ast::ConstExpr::Name(a.name.clone(), a.span),
+    };
+    let v = match eval_value(g, &expr) {
+        Ok((v, _)) => v,
+        Err(d) => {
+            diags.push(d);
+            return None;
+        }
+    };
+    let (ty_name, _) = tp.value.as_ref()?;
+    let ty = Type::from_name(ty_name).ok()?;
+    let Type::Int { bits, signed } = ty else { return None };
+    let fits = if signed {
+        let lim = BigInt::from(1) << (bits - 1);
+        v >= -lim.clone() && v < lim
+    } else {
+        v >= BigInt::from(0) && v < (BigInt::from(1) << bits)
+    };
+    if !fits {
+        let range = if signed {
+            format!("{} to {}", -(BigInt::from(1) << (bits - 1)), (BigInt::from(1) << (bits - 1)) - 1)
+        } else {
+            format!("0 to {}", (BigInt::from(1) << bits) - 1)
+        };
+        diags.push(
+            Diagnostic::at(&codes::E0635, a.span, format!("{v} does not fit `{ty}`, the type of `{}`", tp.name))
+                .note(format!("`{}` is a `{ty}`: {range}", tp.name))
+                .help(format!("use a value in range, or declare `{}` with a wider type", tp.name)),
+        );
+        return None;
+    }
+    match v.to_i128() {
+        Some(v) => Some(Type::val(ty, v)),
+        None => {
+            diags.push(Diagnostic::at(&codes::E0901, a.span, "a value above the largest `sint128` is not supported yet"));
+            None
+        }
+    }
+}
+
+/// The types the arguments `args` of generic `name` stand for. `quiet` reports nothing.
+pub(super) fn resolve_targs(g: &Globals, name: &str, tparams: &[ast::TypeParam], args: &[ast::TypeName], quiet: bool, diags: &mut Vec<Diagnostic>) -> Option<Vec<Type>> {
+    let mut out = Vec::with_capacity(args.len());
+    let mut ok = true;
+    for (i, a) in args.iter().enumerate() {
+        let ty = match tparams.get(i) {
+            Some(tp) if tp.value.is_some() => {
+                let mut own = Vec::new();
+                let t = value_targ(g, name, tp, a, &mut own);
+                if !quiet {
+                    diags.extend(own);
+                }
+                t
+            }
+            _ if a.is_number => None,
+            _ if quiet => g.resolve_quiet(a),
+            _ => g.resolve(a, diags),
+        };
+        match ty {
+            Some(t) => out.push(t),
+            None => ok = false,
+        }
+    }
+    ok.then_some(out)
 }
 
 /// The instance of generic function `name` for `types`, made on first use.
@@ -1110,12 +1338,8 @@ pub(super) fn check_type_args(g: &Globals, t: &ast::TypeName, diags: &mut Vec<Di
         );
         return Some(false);
     }
-    if let Some((p, a)) = tpl.tparams.iter().zip(&t.args).find(|(p, a)| p.is_unit != a.unit_arg.is_some()) {
+    if let Some((p, a)) = tpl.tparams.iter().zip(&t.args).find(|(p, a)| kind_mismatch(g, p, a)) {
         diags.push(unit_kind_error(&t.name, p, a));
-        return Some(false);
-    }
-    if let Some(a) = t.args.iter().find(|a| a.is_number) {
-        diags.push(Diagnostic::at(&codes::E0901, a.span, "a number as a type argument is not supported yet"));
         return Some(false);
     }
     Some(true)
@@ -1139,17 +1363,11 @@ pub(super) fn type_by_name(g: &Globals, t: &ast::TypeName, diags: &mut Vec<Diagn
 
 /// The instance `t` names was not made: report why, or say it is not supported.
 pub(super) fn missing_instance(g: &Globals, t: &ast::TypeName, diags: &mut Vec<Diagnostic>) {
-    let mut ok = true;
-    let mut types = Vec::new();
-    for a in &t.args {
-        match g.resolve(a, diags) {
-            Some(ty) => types.push(ty),
-            None => ok = false,
-        }
-    }
-    if !ok {
-        return;
-    }
+    let types = match g.mono.type_templates.get(&t.name) {
+        Some(tpl) => resolve_targs(g, &t.name, &tpl.tparams, &t.args, false, diags),
+        None => t.args.iter().map(|a| g.resolve(a, diags)).collect::<Option<Vec<_>>>(),
+    };
+    let Some(types) = types else { return };
     if t.name == "Optional" && types.first().is_some_and(|x| x.is_borrow()) {
         return;
     }
@@ -1180,7 +1398,10 @@ fn ensure_type(g: &mut Globals, t: &ast::TypeName, diags: &mut Vec<Diagnostic>) 
     for a in &t.args {
         ensure_type(g, a, diags);
     }
-    let args: Option<Vec<Type>> = t.args.iter().map(|a| if a.is_number { None } else { g.resolve_quiet(a) }).collect();
+    let args: Option<Vec<Type>> = match g.mono.type_templates.get(&t.name) {
+        Some(tpl) => resolve_targs(g, &t.name, &tpl.tparams, &t.args, true, &mut Vec::new()),
+        None => t.args.iter().map(|a| if a.is_number { None } else { g.resolve_quiet(a) }).collect(),
+    };
     let Some(args) = args else { return };
     if t.name == "Optional" && !user_optional(g) {
         if let [inner] = args[..] {
@@ -1190,11 +1411,11 @@ fn ensure_type(g: &mut Globals, t: &ast::TypeName, diags: &mut Vec<Diagnostic>) 
         return;
     }
     let Some(tpl) = g.mono.type_templates.get(&t.name) else { return };
-    if !tpl.usable || tpl.tparams.len() != args.len() || t.args.iter().any(|a| a.is_number) {
+    if !tpl.usable || tpl.tparams.len() != args.len() {
         return;
     }
     // A type where a unit goes (or the reverse) is reported when it is resolved.
-    if tpl.tparams.iter().zip(&t.args).any(|(p, a)| p.is_unit != a.unit_arg.is_some()) {
+    if tpl.tparams.iter().zip(&t.args).any(|(p, a)| kind_mismatch(g, p, a)) {
         return;
     }
     let key = (t.name.clone(), args.clone());
