@@ -86,7 +86,7 @@ pub fn accesses(hir: &hir::Program, body: &Body, loc: Location) -> Vec<Access> {
                     Rvalue::Use(o) | Rvalue::Neg(o) | Rvalue::Not(o) | Rvalue::BitNot(o) | Rvalue::Convert(o, _) | Rvalue::Unsize(o, _) => {
                         operand_access(o, s.span, loc, Via::Plain, &mut out)
                     }
-                    Rvalue::Binary(_, a, b) | Rvalue::IntPow(a, b) => {
+                    Rvalue::Binary(_, a, b) | Rvalue::IntPow(a, b) | Rvalue::Checked(_, _, a, b) => {
                         operand_access(a, s.span, loc, Via::Plain, &mut out);
                         operand_access(b, s.span, loc, Via::Plain, &mut out);
                     }

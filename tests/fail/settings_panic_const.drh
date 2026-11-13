@@ -1,0 +1,6 @@
+//--!$overflow: panic
+none main() {
+    uint8 a = 300;
+    uint32 one = 1;
+    uint32 b = one << 40;
+}

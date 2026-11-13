@@ -180,6 +180,18 @@ A value was shifted by a constant amount that is negative or not
 smaller than its width. The amount wraps around the width: a `uint32`
 shifted by 40 is shifted by 8.
 
+## E0116: constant does not fit (overflow = panic)
+
+A constant was written where its type cannot hold it, in a function or
+file whose `overflow` setting is `panic`. With `wrap` or `saturate` the
+constant is changed to a value that fits (and W0102 says so); with
+`panic` it is an error, since the program could never run it.
+
+    //--!$overflow: panic
+    uint8 a = 300;        // E0116
+
+Use a value that fits, or a bigger type.
+
 ## E0115: a range step of zero
 
 A range loop's `by` step is written as a constant zero, so the loop

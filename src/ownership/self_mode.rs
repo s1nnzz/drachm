@@ -271,6 +271,7 @@ impl Cx<'_> {
             | ExprKind::Not(inner)
             | ExprKind::BitNot(inner)
             | ExprKind::Convert(inner)
+            | ExprKind::Overflow(inner, _)
             | ExprKind::PtrConv(inner)
             | ExprKind::Unsize(inner)
             | ExprKind::Sleep(inner)

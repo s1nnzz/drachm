@@ -1,0 +1,2 @@
+error[E0116]: `300` does not fit `uint8`
+error[E0116]: shifting a `uint32` by `40` is out of range

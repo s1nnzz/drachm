@@ -152,6 +152,14 @@ codes! {
         "A value was shifted by a constant amount that is negative or not\n\
          smaller than its width. The amount wraps around the width: a `uint32`\n\
          shifted by 40 is shifted by 8.";
+    E0116: "constant does not fit (overflow = panic)",
+        "A constant was written where its type cannot hold it, in a function or\n\
+         file whose `overflow` setting is `panic`. With `wrap` or `saturate` the\n\
+         constant is changed to a value that fits (and W0102 says so); with\n\
+         `panic` it is an error, since the program could never run it.\n\n\
+         \x20   //--!$overflow: panic\n\
+         \x20   uint8 a = 300;        // E0116\n\n\
+         Use a value that fits, or a bigger type.";
     E0115: "a range step of zero",
         "A range loop's `by` step is written as a constant zero, so the loop\n\
          would never move on. It is rejected at compile time. A step that is\n\

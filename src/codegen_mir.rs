@@ -1204,6 +1204,7 @@ impl Cg<'_, '_> {
                 let v = self.operand(op);
                 self.convert(v, from, *to)
             }
+            Rvalue::Checked(op, mode, a, b) => self.checked(*op, *mode, a, b),
             Rvalue::Discriminant(p) => {
                 let (loc, ty) = self.locate(p);
                 let Loc::Mem(base, off) = loc else { unreachable!("an enum is in memory") };
@@ -1822,6 +1823,97 @@ impl Cg<'_, '_> {
             types::I128 => self.b.ins().iconcat(pair[0], pair[1]),
             types::I64 => pair[0],
             _ => self.b.ins().ireduce(ty, pair[0]),
+        }
+    }
+
+    /// An operation under `overflow = saturate | panic`: the runtime does it
+    /// on 128-bit values and the result keeps the low bits.
+    fn checked(&mut self, op: OvfOp, mode: crate::config::Overflow, l: &Operand, r: &Operand) -> Value {
+        let m = if mode == crate::config::Overflow::Saturate { 1 } else { 2 };
+        let aty = self.op_ty(l);
+        let av = self.operand(l);
+        let (i32t, i64t) = (types::I32, types::I64);
+        let int_bits = |t: Type| match t.bare() {
+            Type::Int { bits, .. } => bits as i64,
+            _ => 0,
+        };
+        let int_signed = |t: Type| matches!(t.bare(), Type::Int { signed: true, .. }) as i64;
+        let c32 = |this: &mut Self, v: i64| this.b.ins().iconst(i32t, v);
+        let mode_v = c32(self, m);
+        match op {
+            OvfOp::Convert(to) if aty.is_float() => {
+                let d = if matches!(aty.bare(), Type::Float(32)) { self.b.ins().fpromote(types::F64, av) } else { av };
+                let (tb, ts) = (c32(self, int_bits(to)), c32(self, int_signed(to)));
+                let res = self.rt("drachm_ovf_f2i", &[i32t, i32t, i32t, types::F64], &[i64t, i64t], &[mode_v, tb, ts, d]);
+                self.join_halves(&res, cl_type(to).unwrap())
+            }
+            OvfOp::Convert(to) => {
+                let (tb, ts, fs) = (c32(self, int_bits(to)), c32(self, int_signed(to)), c32(self, int_signed(aty)));
+                let [lo, hi] = self.halves(av, aty);
+                let res = self.rt("drachm_ovf_conv", &[i32t, i32t, i32t, i32t, i64t, i64t], &[i64t, i64t], &[mode_v, tb, ts, fs, lo, hi]);
+                self.join_halves(&res, cl_type(to).unwrap())
+            }
+            OvfOp::Shl | OvfOp::Shr => {
+                let bty = self.op_ty(r);
+                let bv = self.operand(r);
+                let (left, tb, ts) = (c32(self, (op == OvfOp::Shl) as i64), c32(self, int_bits(aty)), c32(self, int_signed(aty)));
+                let asg = c32(self, int_signed(bty));
+                let [vlo, vhi] = self.halves(av, aty);
+                let [nlo, nhi] = self.halves(bv, bty);
+                let res = self.rt(
+                    "drachm_ovf_shift",
+                    &[i32t, i32t, i32t, i32t, i64t, i64t, i64t, i64t, i32t],
+                    &[i64t, i64t],
+                    &[left, mode_v, tb, ts, vlo, vhi, nlo, nhi, asg],
+                );
+                self.join_halves(&res, cl_type(aty).unwrap())
+            }
+            OvfOp::Pow => {
+                let xty = self.op_ty(r);
+                let xv = self.operand(r);
+                let (tb, ts) = (c32(self, int_bits(aty)), c32(self, int_signed(aty)));
+                let negative = if int_signed(xty) == 1 {
+                    let zero = self.zero(self.b.func.dfg.value_type(xv));
+                    let lt = self.b.ins().icmp(IntCC::SignedLessThan, xv, zero);
+                    self.b.ins().uextend(i32t, lt)
+                } else {
+                    c32(self, 0)
+                };
+                let [blo, bhi] = self.halves(av, aty);
+                let [xlo, xhi] = self.halves(xv, xty);
+                let res = self.rt(
+                    "drachm_ovf_pow",
+                    &[i32t, i32t, i32t, i64t, i64t, i64t, i64t, i32t],
+                    &[i64t, i64t],
+                    &[mode_v, tb, ts, blo, bhi, xlo, xhi, negative],
+                );
+                self.join_halves(&res, cl_type(aty).unwrap())
+            }
+            _ => {
+                let code = match op {
+                    OvfOp::Add => 0,
+                    OvfOp::Sub => 1,
+                    OvfOp::Mul => 2,
+                    OvfOp::Div => 3,
+                    _ => 4,
+                };
+                let (opv, tb, ts) = (c32(self, code), c32(self, int_bits(aty)), c32(self, int_signed(aty)));
+                let [alo, ahi] = self.halves(av, aty);
+                let [blo, bhi] = if op == OvfOp::Neg {
+                    let zero = self.b.ins().iconst(i64t, 0);
+                    [zero, zero]
+                } else {
+                    let bv = self.operand(r);
+                    self.halves(bv, aty)
+                };
+                let res = self.rt(
+                    "drachm_ovf_arith",
+                    &[i32t, i32t, i32t, i32t, i64t, i64t, i64t, i64t],
+                    &[i64t, i64t],
+                    &[opv, mode_v, tb, ts, alo, ahi, blo, bhi],
+                );
+                self.join_halves(&res, cl_type(aty).unwrap())
+            }
         }
     }
 

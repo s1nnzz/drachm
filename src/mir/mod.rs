@@ -324,6 +324,23 @@ pub enum Constant {
     FuncAddr(hir::FuncId, Type),
 }
 
+/// What a `Rvalue::Checked` computes.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum OvfOp {
+    Add,
+    Sub,
+    Mul,
+    /// Whole-number division: only the smallest value divided by -1 overflows.
+    Div,
+    Neg,
+    Shl,
+    Shr,
+    Pow,
+    /// To this type: whole number to a type that does not cover its range, or
+    /// a float to a whole number.
+    Convert(Type),
+}
+
 #[derive(Debug)]
 pub enum Rvalue {
     Use(Operand),
@@ -335,6 +352,10 @@ pub enum Rvalue {
     IntPow(Operand, Operand),
     /// Numeric only.
     Convert(Operand, Type),
+    /// Arithmetic of a function whose `overflow` is `saturate` or `panic`
+    /// (never `wrap`: that is the plain variants). The second operand of a
+    /// one-operand operation (`Neg`, `Convert`) is a dummy constant.
+    Checked(OvfOp, crate::config::Overflow, Operand, Operand),
     /// A `&S` made a `&Iface` of the given type: the borrow and the vtable
     /// of `S` for the interface, two words.
     MakeFn(FuncId, Type, Option<Place>),

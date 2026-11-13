@@ -122,6 +122,8 @@ pub fn rvalue_ty(body: &Body, hir: &hir::Program, rv: &Rvalue) -> Result<Type, S
         }
         Rvalue::Shift { value, .. } => operand_ty(body, hir, value)?,
         Rvalue::IntPow(base, _) => operand_ty(body, hir, base)?,
+        Rvalue::Checked(OvfOp::Convert(t), ..) => *t,
+        Rvalue::Checked(_, _, a, _) => operand_ty(body, hir, a)?,
         Rvalue::Convert(_, t) | Rvalue::Unsize(_, t) | Rvalue::MakeFn(_, t, _) => *t,
         Rvalue::Ref(kind, p) => {
             let t = place_ty(body, hir, p)?;

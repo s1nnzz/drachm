@@ -1,0 +1,11 @@
+//--!$overflow: panic
+in io;
+
+none main() {
+    sint64 low = -9223372036854775807;
+    io::outln(f"${-low}");
+    sint64 minus_one = -1;
+    io::outln(f"${(low - 1) / 1}");
+    io::outln(f"${(low - 1) / minus_one}");
+    io::outln("not reached");
+}

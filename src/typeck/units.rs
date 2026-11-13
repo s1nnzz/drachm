@@ -1369,6 +1369,7 @@ fn children_mut(e: &mut hir::Expr) -> Vec<&mut hir::Expr> {
         | K::Not(x)
         | K::BitNot(x)
         | K::Convert(x)
+        | K::Overflow(x, _)
         | K::PtrConv(x)
         | K::Unsize(x)
         | K::Sleep(x)

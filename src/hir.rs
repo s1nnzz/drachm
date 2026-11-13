@@ -681,6 +681,12 @@ pub enum ExprKind {
     Logic { and: bool, lhs: Box<Expr>, rhs: Box<Expr> },
     /// Numeric conversion from the inner expression's type to `ty`.
     Convert(Box<Expr>),
+    /// A `Neg`, `Binary`, `Shift`, `IntPow` or `Convert` written by the user,
+    /// in a function whose `overflow` setting is `saturate` or `panic`. The
+    /// type is the inner expression's. Under `wrap` the inner expression stands
+    /// alone, so synthetic arithmetic (loop counters, unit scaling) never
+    /// carries a mode.
+    Overflow(Box<Expr>, crate::config::Overflow),
     /// Arguments in order; an owning one is handed to the callee. For a
     /// function with `has_self`, the first argument is the receiver, which the
     /// callee works on in place.
@@ -808,6 +814,7 @@ impl Expr {
             | K::Not(x)
             | K::BitNot(x)
             | K::Convert(x)
+            | K::Overflow(x, _)
             | K::PtrConv(x)
             | K::Unsize(x)
             | K::Sleep(x)

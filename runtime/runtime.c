@@ -468,6 +468,161 @@ DRACHM_FN double drachm_s128_to_f64(uint64_t lo, uint64_t hi) { return (double)(
 DRACHM_FN float drachm_u128_to_f32(uint64_t lo, uint64_t hi) { return (float)drachm_join(lo, hi); }
 DRACHM_FN float drachm_s128_to_f32(uint64_t lo, uint64_t hi) { return (float)(drachm_s128)drachm_join(lo, hi); }
 
+// ---- overflow = saturate | panic -------------------------------------------
+
+// Arithmetic, shifts, powers and conversions of a function whose overflow
+// setting is not `wrap`. Operands arrive as 128-bit values extended by their
+// own signedness; the result is the bit pattern (the caller keeps the low
+// bits). `mode` is 1 = saturate, 2 = panic. Both backends call these, except
+// that the C backend does + - * inline with __builtin_*_overflow, to the same
+// rules.
+
+#define DRACHM_OVF_SATURATE 1
+
+static inline __attribute__((unused)) drachm_u128 drachm_ovf_max(uint32_t bits, int sgn) {
+    if (sgn) return ((drachm_u128)1 << (bits - 1)) - 1;
+    return bits == 128 ? ~(drachm_u128)0 : (((drachm_u128)1 << bits) - 1);
+}
+
+static inline __attribute__((unused)) drachm_u128 drachm_ovf_min(uint32_t bits, int sgn) {
+    return sgn ? -((drachm_u128)1 << (bits - 1)) : 0;
+}
+
+// verdict: 0 the value fits, 1 it is above the type's range, -1 below.
+static inline __attribute__((unused)) drachm_pair drachm_ovf_done(int mode, uint32_t bits, int sgn, int verdict, drachm_u128 r, const char *msg) {
+    if (verdict == 0) return drachm_split(r);
+    if (mode != DRACHM_OVF_SATURATE) drachm_panic(msg);
+    return drachm_split(verdict > 0 ? drachm_ovf_max(bits, sgn) : drachm_ovf_min(bits, sgn));
+}
+
+// How a mathematical value that fit in 128 bits sits against a narrower type.
+static inline __attribute__((unused)) int drachm_ovf_range(uint32_t bits, int sgn, drachm_u128 r) {
+    if (bits == 128) return 0;
+    if (sgn) {
+        drachm_s128 v = (drachm_s128)r, hi = (drachm_s128)drachm_ovf_max(bits, 1);
+        return v > hi ? 1 : v < -hi - 1 ? -1 : 0;
+    }
+    return r > drachm_ovf_max(bits, 0) ? 1 : 0;
+}
+
+// op: 0 add, 1 sub, 2 mul, 3 div, 4 neg (b is ignored).
+DRACHM_FN drachm_pair drachm_ovf_arith(int op, int mode, uint32_t bits, int sgn, uint64_t alo, uint64_t ahi,
+                                       uint64_t blo, uint64_t bhi) {
+    drachm_u128 a = drachm_join(alo, ahi), b = drachm_join(blo, bhi), r = 0;
+    int of = 0, verdict = 0;
+    if (sgn) {
+        drachm_s128 x = (drachm_s128)a, y = (drachm_s128)b, z = 0;
+        switch (op) {
+        case 0: of = __builtin_add_overflow(x, y, &z); verdict = y > 0 ? 1 : -1; break;
+        case 1: of = __builtin_sub_overflow(x, y, &z); verdict = y < 0 ? 1 : -1; break;
+        case 2: of = __builtin_mul_overflow(x, y, &z); verdict = (x < 0) == (y < 0) ? 1 : -1; break;
+        case 3:
+            if (y == 0) drachm_div_zero();
+            of = x == (drachm_s128)drachm_ovf_min(bits, 1) && y == -1;
+            verdict = 1;
+            z = of ? 0 : x / y;
+            break;
+        default:
+            of = x == (drachm_s128)drachm_ovf_min(bits, 1);
+            verdict = 1;
+            z = of ? 0 : -x;
+            break;
+        }
+        r = (drachm_u128)z;
+    } else {
+        drachm_u128 z = 0;
+        switch (op) {
+        case 0: of = __builtin_add_overflow(a, b, &z); verdict = 1; break;
+        case 1: of = __builtin_sub_overflow(a, b, &z); verdict = -1; break;
+        case 2: of = __builtin_mul_overflow(a, b, &z); verdict = 1; break;
+        case 3:
+            if (b == 0) drachm_div_zero();
+            z = a / b;
+            break;
+        default: of = a != 0; verdict = -1; break;
+        }
+        r = z;
+    }
+    if (!of) verdict = drachm_ovf_range(bits, sgn, r);
+    return drachm_ovf_done(mode, bits, sgn, verdict, r, "arithmetic overflow");
+}
+
+// base ** exp. `exp` is extended by the exponent's own signedness;
+// `exp_negative` is the whole-number reading of a negative exponent, as in
+// drachm_ipow128 (never an overflow).
+DRACHM_FN drachm_pair drachm_ovf_pow(int mode, uint32_t bits, int sgn, uint64_t blo, uint64_t bhi, uint64_t elo,
+                                     uint64_t ehi, int exp_negative) {
+    drachm_u128 base = drachm_join(blo, bhi), exp = drachm_join(elo, ehi);
+    if (exp_negative) {
+        if (base == 1) return drachm_split(1);
+        if (sgn && base == ~(drachm_u128)0) return drachm_split((exp & 1) ? base : 1);
+        if (base == 0) drachm_div_zero();
+        return drachm_split(0);
+    }
+    const char *msg = "arithmetic overflow";
+    int up = sgn && (drachm_s128)base < 0 && (exp & 1) ? -1 : 1;
+    drachm_u128 result = 1;
+    while (exp != 0) {
+        if (exp & 1) {
+            if (sgn ? __builtin_mul_overflow((drachm_s128)result, (drachm_s128)base, (drachm_s128 *)&result)
+                    : __builtin_mul_overflow(result, base, &result))
+                return drachm_ovf_done(mode, bits, sgn, up, 0, msg);
+        }
+        exp >>= 1;
+        // The square is only needed if a higher bit of the exponent is set,
+        // and then the result is at least that big.
+        if (exp != 0) {
+            if (sgn ? __builtin_mul_overflow((drachm_s128)base, (drachm_s128)base, (drachm_s128 *)&base)
+                    : __builtin_mul_overflow(base, base, &base))
+                return drachm_ovf_done(mode, bits, sgn, up, 0, msg);
+        }
+    }
+    return drachm_ovf_done(mode, bits, sgn, drachm_ovf_range(bits, sgn, result), result, msg);
+}
+
+// A shift whose amount may be outside 0..bits (or negative). Saturate: the
+// bits all fall off, leaving 0 (or -1 for a negative value shifted right).
+DRACHM_FN drachm_pair drachm_ovf_shift(int left, int mode, uint32_t bits, int sgn, uint64_t vlo, uint64_t vhi,
+                                       uint64_t nlo, uint64_t nhi, int amount_signed) {
+    drachm_u128 v = drachm_join(vlo, vhi), n = drachm_join(nlo, nhi);
+    int outside = (amount_signed && (drachm_s128)n < 0) || n >= bits;
+    if (outside) {
+        if (mode != DRACHM_OVF_SATURATE) drachm_panic("shift amount out of range");
+        return drachm_split(!left && sgn && (drachm_s128)v < 0 ? ~(drachm_u128)0 : 0);
+    }
+    if (left) return drachm_split(v << n);
+    return drachm_split(sgn ? (drachm_u128)((drachm_s128)v >> n) : v >> n);
+}
+
+// An integer to a narrower or differently signed integer type.
+DRACHM_FN drachm_pair drachm_ovf_conv(int mode, uint32_t to_bits, int to_sgn, int from_sgn, uint64_t lo, uint64_t hi) {
+    drachm_u128 a = drachm_join(lo, hi);
+    int verdict = 0;
+    if (from_sgn && (drachm_s128)a < 0) {
+        if (!to_sgn) verdict = -1;
+        else if (to_bits < 128 && (drachm_s128)a < -(drachm_s128)drachm_ovf_max(to_bits, 1) - 1) verdict = -1;
+    } else if (a > drachm_ovf_max(to_bits, to_sgn)) {
+        verdict = 1;
+    }
+    return drachm_ovf_done(mode, to_bits, to_sgn, verdict, a, "conversion overflow");
+}
+
+// A float to an integer: the fraction is dropped and an out of range value
+// clamps. NaN and the infinities become 0 (a panic in panic mode).
+DRACHM_FN drachm_pair drachm_ovf_f2i(int mode, uint32_t to_bits, int to_sgn, double x) {
+    const char *msg = "conversion overflow";
+    if (x != x || x - x != 0) {
+        if (mode != DRACHM_OVF_SATURATE) drachm_panic(msg);
+        return drachm_split(0);
+    }
+    double t = trunc(x);
+    double hi = ldexp(1.0, to_sgn ? (int)to_bits - 1 : (int)to_bits);
+    double lo = to_sgn ? -hi : 0.0;
+    if (t >= hi) return drachm_ovf_done(mode, to_bits, to_sgn, 1, 0, msg);
+    if (t < lo) return drachm_ovf_done(mode, to_bits, to_sgn, -1, 0, msg);
+    return drachm_split(to_sgn ? (drachm_u128)(drachm_s128)t : (drachm_u128)t);
+}
+
 // ---- 128-bit division -----------------------------------------------------
 
 DRACHM_FN drachm_pair drachm_div_u128(uint64_t alo, uint64_t ahi, uint64_t blo, uint64_t bhi) {

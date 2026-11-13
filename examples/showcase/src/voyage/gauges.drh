@@ -1,0 +1,15 @@
+//--!$overflow: saturate
+// The ship's gauges, in a file of their own. A gauge that reads past its scale
+// should stick at the end of the scale, not wrap round to the other end, so
+// this file asks for `overflow = saturate` with a file flag. The rest of the
+// project keeps the default (wrap); the flag is per function, so one build has
+// both behaviours. It covers arithmetic, shifts and conversions alike.
+out uint8 brighten(uint8 level, uint8 by) { return level + by; }
+
+out sint8 trim(sint8 level, sint8 by) { return level - by; }
+
+// A reading from a wider sensor, squeezed onto a one-byte dial.
+out uint8 narrow(sint32 reading) { return reading::to<uint8>(); }
+
+// Bits pushed past the width fall off the end instead of the amount wrapping.
+out uint32 lamp(uint32 pattern, uint8 steps) { return pattern << steps; }

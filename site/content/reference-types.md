@@ -122,7 +122,9 @@ fraction first, and `bool` never converts to or from a number.
 ## Operators
 
 Arithmetic is `+ - * / % **`. Division of whole numbers drops the fraction,
-overflow wraps around (255 plus 1 in a `uint8` is 0), and dividing by zero
+overflow wraps around by default (255 plus 1 in a `uint8` is 0; the
+`overflow` setting can make it clamp or stop the program, see
+[Overflow](design-config.md#overflow)), and dividing by zero
 panics at run time with exit code 101. A division by zero that the compiler can
 see in constants is an error (E0107).
 

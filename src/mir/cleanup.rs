@@ -140,7 +140,7 @@ pub(crate) fn rvalue_places(rv: &Rvalue) -> Vec<&Place> {
         Rvalue::MakeFn(_, _, Some(p)) => return vec![p],
         Rvalue::MakeFn(_, _, None) => Vec::new(),
         Rvalue::Use(a) | Rvalue::Neg(a) | Rvalue::Not(a) | Rvalue::BitNot(a) | Rvalue::Convert(a, _) | Rvalue::Unsize(a, _) => vec![a],
-        Rvalue::Binary(_, a, b) | Rvalue::IntPow(a, b) => vec![a, b],
+        Rvalue::Binary(_, a, b) | Rvalue::IntPow(a, b) | Rvalue::Checked(_, _, a, b) => vec![a, b],
         Rvalue::Shift { value, amount, .. } => vec![value, amount],
         Rvalue::Aggregate(_, ops) | Rvalue::Variant(_, _, ops) | Rvalue::Array(_, ops) => ops.iter().collect(),
         Rvalue::ListNew(..) | Rvalue::MapNew(_) => Vec::new(),

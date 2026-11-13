@@ -184,6 +184,21 @@ impl Const {
         wrapped.to_u128().unwrap()
     }
 
+    /// The bits of this constant in integer type `ty`, dropping any fraction
+    /// and clamping to the type's nearest end if it does not fit.
+    pub fn saturate_to_int(&self, ty: Type) -> u128 {
+        let whole = match self {
+            Const::Int(v) => v.clone(),
+            Const::Dec(r) => r.trunc().to_integer(),
+            Const::NegZero => BigInt::zero(),
+        };
+        let (lo, hi) = ty.int_range().unwrap();
+        let clamped = whole.max(lo).min(hi);
+        let Type::Int { bits, .. } = ty.bare() else { unreachable!() };
+        let modulus = BigInt::one() << bits;
+        (((clamped % &modulus) + &modulus) % &modulus).to_u128().unwrap()
+    }
+
     /// The nearest value in float type `ty`.
     pub fn to_float(&self, ty: Type) -> f64 {
         let f = if matches!(self, Const::NegZero) { -0.0 } else { self.rational().to_f64().unwrap_or(f64::NAN) };

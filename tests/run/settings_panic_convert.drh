@@ -1,0 +1,11 @@
+//--!$overflow: panic
+in io;
+
+none main() {
+    sint32 ok = 255;
+    io::outln(f"${ok::to<uint8>()}");
+    sint32 negative = -1;
+    io::outln(f"${negative::to<sint8>()}");
+    io::outln(f"${negative::to<uint8>()}");
+    io::outln("not reached");
+}

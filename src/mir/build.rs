@@ -945,6 +945,7 @@ impl<'a> Builder<'a> {
             | ExprKind::Shift { .. }
             | ExprKind::IntPow(..)
             | ExprKind::Convert(_)
+            | ExprKind::Overflow(..)
             | ExprKind::PtrConv(_)
             | ExprKind::FuncRef(_)
             | ExprKind::Closure(..)
@@ -1201,6 +1202,7 @@ impl<'a> Builder<'a> {
             | ExprKind::Shift { .. }
             | ExprKind::IntPow(..)
             | ExprKind::Convert(_)
+            | ExprKind::Overflow(..)
             | ExprKind::PtrConv(_)
             | ExprKind::FuncRef(_)
             | ExprKind::Closure(..)
@@ -1316,7 +1318,13 @@ impl<'a> Builder<'a> {
                 let old = self.decl(e.ty, LocalKind::Temp);
                 self.assign_stmt(Place::local(old), Rvalue::Use(Operand::Copy(p.clone())));
                 let op = if *inc { hir::BinOp::Add } else { hir::BinOp::Sub };
-                self.assign_stmt(p.clone(), Rvalue::Binary(op, Operand::Copy(p.clone()), Operand::Const(one)));
+                let mode = self.hir.settings.get(self.id).map_or(crate::config::Overflow::Wrap, |s| s.overflow);
+                let step = if mode != crate::config::Overflow::Wrap && matches!(e.ty.bare(), Type::Int { .. }) {
+                    Rvalue::Checked(if *inc { OvfOp::Add } else { OvfOp::Sub }, mode, Operand::Copy(p.clone()), Operand::Const(one))
+                } else {
+                    Rvalue::Binary(op, Operand::Copy(p.clone()), Operand::Const(one))
+                };
+                self.assign_stmt(p.clone(), step);
                 if *prefix {
                     let new = self.decl(e.ty, LocalKind::Temp);
                     self.assign_stmt(Place::local(new), Rvalue::Use(Operand::Copy(p)));
@@ -1393,6 +1401,47 @@ impl<'a> Builder<'a> {
         }
     }
 
+    /// `e` (a `Neg`, `Binary`, `Shift`, `IntPow` or `Convert`) under an
+    /// `overflow` setting other than `wrap`.
+    fn checked_rvalue(&mut self, e: &Expr, mode: crate::config::Overflow) -> Rvalue {
+        let none = |_: usize| None;
+        let dummy = || Operand::Const(Constant::Bool(false));
+        let mut two = |this: &mut Self, a: &Expr, b: &Expr| {
+            let mut o = this.operands(&[a, b], &none).into_iter();
+            (o.next().unwrap().op, o.next().unwrap().op)
+        };
+        match &e.kind {
+            ExprKind::Neg(a) => {
+                let x = self.operand(a);
+                Rvalue::Checked(OvfOp::Neg, mode, x, dummy())
+            }
+            ExprKind::Binary(op, a, b) => {
+                let (x, y) = two(self, a, b);
+                let op = match op {
+                    hir::BinOp::Add => OvfOp::Add,
+                    hir::BinOp::Sub => OvfOp::Sub,
+                    hir::BinOp::Mul => OvfOp::Mul,
+                    hir::BinOp::Div => OvfOp::Div,
+                    other => unreachable!("{other:?} has no overflow"),
+                };
+                Rvalue::Checked(op, mode, x, y)
+            }
+            ExprKind::Shift { left, value, amount } => {
+                let (x, y) = two(self, value, amount);
+                Rvalue::Checked(if *left { OvfOp::Shl } else { OvfOp::Shr }, mode, x, y)
+            }
+            ExprKind::IntPow(a, b) => {
+                let (x, y) = two(self, a, b);
+                Rvalue::Checked(OvfOp::Pow, mode, x, y)
+            }
+            ExprKind::Convert(a) => {
+                let x = self.operand(a);
+                Rvalue::Checked(OvfOp::Convert(e.ty), mode, x, dummy())
+            }
+            _ => unreachable!("only arithmetic carries an overflow mode"),
+        }
+    }
+
     /// The rvalue computing `e` (one of the kinds `assign` hands over).
     fn rvalue(&mut self, e: &Expr) -> Rvalue {
         let none = |_: usize| None;
@@ -1423,6 +1472,7 @@ impl<'a> Builder<'a> {
                 Rvalue::IntPow(o.next().unwrap().op, o.next().unwrap().op)
             }
             ExprKind::Convert(a) => Rvalue::Convert(first(self.operands(&[&**a], &none)), e.ty),
+            ExprKind::Overflow(inner, mode) => self.checked_rvalue(inner, *mode),
             ExprKind::PtrConv(a) => Rvalue::Use(first(self.operands(&[&**a], &none))),
             ExprKind::FuncRef(id) => Rvalue::MakeFn(*id, e.ty, None),
             ExprKind::Closure(id, captures) => {
@@ -2060,6 +2110,7 @@ fn kind_name(k: &ExprKind) -> &'static str {
         ExprKind::Logic { .. } => "Logic",
         ExprKind::Maybe { .. } => "Maybe",
         ExprKind::Convert(_) => "Convert",
+        ExprKind::Overflow(..) => "Overflow",
         ExprKind::PtrConv(_) => "PtrConv",
         ExprKind::FuncRef(_) => "FuncRef",
         ExprKind::FuncAddr(_) => "FuncAddr",
