@@ -222,3 +222,23 @@ none main() {
     let stderr = text(&out.stderr);
     assert!(stderr.contains("E0101") && stderr.contains("unsigned_negate = error"), "{stderr}");
 }
+
+#[test]
+fn missing_key_panic_is_identical_on_both_backends() {
+    let s = Scratch::new("missing-key");
+    fs::create_dir(s.dir.join("src")).unwrap();
+    fs::write(s.dir.join("drachm.toml"), "[project]\nname = \"demo\"\n[behaviour]\nmissing_key = \"panic\"\n").unwrap();
+    fs::write(s.dir.join("src/main.drh"), r#"
+none main() {
+    Map<string, string> cargo = { "A2": "beacons" };
+    string contents = cargo["B2"];
+}
+"#).unwrap();
+    let plain = drachm(&s.dir, &["run"]);
+    let optimized = drachm(&s.dir, &["run", "-O"]);
+    for out in [&plain, &optimized] {
+        assert_eq!(out.status.code(), Some(101), "{}", text(&out.stderr));
+        assert!(text(&out.stderr).contains("the key is not in the map"), "{}", text(&out.stderr));
+    }
+    assert_eq!(text(&plain.stderr), text(&optimized.stderr));
+}

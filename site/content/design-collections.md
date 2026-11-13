@@ -28,11 +28,9 @@ The `bounds` setting in [Config](design-config.md) controls runtime checks
 for array and list indexes.
 
 ### Missing keys
-<!-- status: not-implemented -->
-
-The `missing_key` setting will let a missing
-`map[key]` stop the program. The `map::get(key)` method will continue to
-return an optional.
+With [`missing_key = "panic"`](design-config.md#missing-map-keys), a missing
+`map[key]` stops the program. The `map::get(key)` method always returns an
+optional.
 
 ## Taking an item out by index
 

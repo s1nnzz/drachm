@@ -1,0 +1,5 @@
+[project]
+name = "supplies"
+
+[behaviour]
+missing_key = "panic"

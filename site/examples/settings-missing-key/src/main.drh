@@ -1,0 +1,7 @@
+in io;
+
+none main() {
+    Map<string, string> cargo = { "A2": "survey beacons" };
+    string contents = cargo["A2"];
+    io::outln(contents);
+}

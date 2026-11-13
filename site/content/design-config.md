@@ -106,6 +106,14 @@ the result has the next wider signed type. Widening `uint128` requires
 
 <!-- example: settings-unsigned-negate -->
 
+### Missing map keys
+
+`missing_key = "panic"` makes `map[key]` return the value directly and stops
+the program with exit status 101 if the key is missing. The default,
+`optional`, returns an optional. `map::get(key)` always returns an optional.
+
+<!-- example: settings-missing-key -->
+
 ### Other behaviour settings
 <!-- status: not-implemented -->
 

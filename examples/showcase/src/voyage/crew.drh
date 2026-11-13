@@ -81,10 +81,10 @@ out none run() {
     // Maps: counting words, composite keys, OrderedMap keeps insertion order.
     mut Map<string, uint32> seen;
     for (string w of "the ship the crew the stars"::split(" ")) {
-        if (seen[copy w] is empty) { seen[copy w] = 0; }
+        if (seen::get(copy w) is empty) { seen[copy w] = 0; }
         seen[w] += 1;
     }
-    uint32 the = seen["the"] maybe 0;
+    uint32 the = seen["the"];
     io::outln(f"'the' appears ${the} times among ${seen::len()} distinct words");
     mut OrderedMap<string, uint32> fuel = { "alpha": 40, "beta": 25, "gamma": 90 };
     fuel["beta"] += 10;

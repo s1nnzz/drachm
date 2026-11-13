@@ -4,3 +4,6 @@ kind = "program"
 
 [dependencies]
 charts = { path = "charts" }
+
+[behaviour]
+missing_key = "panic"

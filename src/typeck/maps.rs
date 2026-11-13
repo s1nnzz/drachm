@@ -366,12 +366,15 @@ impl Checker<'_> {
         Some(hir::Expr::new(hir::ExprKind::Map(out), want).at(span))
     }
 
-    /// `map[key]` as a value: `V?`, the value under `key` if there is one.
+    /// `map[key]` returns an optional or requires the key, depending on the project.
     pub(super) fn map_index(&mut self, base: hir::Expr, index: &ast::Expr) -> Option<Val> {
         let (kt, vt) = base.ty.map_parts()?;
         let key = self.coerce(index, kt)?;
-        let result = optionals::optional_of(self.g, vt)?;
-        Some(Val::Expr(hir::Expr::new(hir::ExprKind::MapCall { op: hir::MapOp::Get, args: vec![base, key] }, result)))
+        let (op, result) = match self.g.settings_at(index.span).missing_key {
+            crate::config::MissingKey::Optional => (hir::MapOp::Get, optionals::optional_of(self.g, vt)?),
+            crate::config::MissingKey::Panic => (hir::MapOp::Expect, vt),
+        };
+        Some(Val::Expr(hir::Expr::new(hir::ExprKind::MapCall { op, args: vec![base, key] }, result)))
     }
 
     /// `map::get(k)`, `map::set(k, v)`, `map::remove(k)`, `map::len()`.
