@@ -32,6 +32,11 @@ For a new session with no memory of earlier conversations. Read this, then
 - **Early language server merged**: `drachm lsp` and the VS Code extension
   provide live diagnostics, hover, definition and completion. See PLAN step 8
   for remaining work and the extension README for setup.
+- **Step 7 WP9 built** (2026-11-13): `assert(cond);` in every build, `test "name" { }`
+  blocks in project files (E0239 for a repeated name; E0901 in a script with
+  top-level statements), `drachm test FILE|FOLDER [-O]` (one program per test).
+  Open for the owner: name filter, `expect failure`, a message in `assert`,
+  whether test code leaves normal builds. See `docs/PLAN.md` step 7 WP9.
 - **Step 7**: modules, config and public dependency imports are built.
   Libraries check without `main()`. The showcase uses source tabs.
   Bounds, unsigned negation and missing-map-key settings work. Overflow,
