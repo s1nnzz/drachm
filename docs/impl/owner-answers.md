@@ -156,3 +156,16 @@ Q5 interfaces as types: any interface can be used as `&I` (its `static` methods 
 - `a not same as b` is the negative form (alongside `!(a same as b)`).
 - `same as` is not allowed on maps of borrows or on structs/enums that hold borrows (an error, not an interim). Owner's note on the meaning: two borrows are the same when they point at the same address; the binding names don't matter.
 - `in si` clash: keep the error when a type parameter is named like a unit (`<T>` with tesla in scope). Owner adds: write `T as unit` to mean the unit explicitly (tesla), same for `S as unit` (my reading: inside `<...>` of a number type, e.g. `float64<T as unit>`).
+
+# Step 6 leftover follow-ups, 2026-11-13
+- SI tesla is renamed: the unit is `tesla`, not `T` (owner: "just rename the unit T to tesla and this all goes away").
+- Other single-letter units (`K`, `V`, `A`, `S`, `N`, `C`, `F`, `H`, `W`, ...): a type parameter with the same name wins inside its scope, with a warning (replaces E0605 the error); `K as unit` reaches the unit there.
+- `X as unit` stays as a harmless explicit spelling (`float64<tesla as unit>` = `float64<tesla>`).
+- A `by` step's sign sets the direction: `10..0 by -2` is 10, 8, 6, 4, 2; a sign that points away from the end gives an empty loop; a zero step stops the program at run time (my reading: a literal zero is a compile error).
+- Float ranges with `by`: value k is `start + k*step` (no drift); the loop stops at the last value not past the end.
+- `take xs[i] leaving v`: negative indexes count from the end, like `xs[i]` (confirmed).
+
+# Q12 details (array length parameters), 2026-11-13
+- A length argument is any compile-time constant expression: `Buffer<sint32, 16>`, `Buffer<sint32, SIZE * 2>`.
+- Functions may take length parameters and they are worked out from the argument: `sint32 sum<uint32 N>(&sint32[N] a)`, `sum(arr)` gives `N = 4`.
+- A length/value parameter may be any integer type (owner: "any integer btw int64 doesnt exist its either uint or sint"), i.e. `uintN`/`sintN`; the body may use it as a constant of that type (my reading, from the option picked: `uint32 capacity() { return N; }`; non-length uses like `struct Mod<uint64 P>` allowed).
