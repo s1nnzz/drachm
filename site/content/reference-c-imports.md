@@ -135,8 +135,8 @@ shape::shape_kind`. A `match` on one needs `case _` (E0705).
 ## Text, memory and callbacks
 
 - `p::text()` on a `foreign *uint8`, in `unsafe`: the text up to the NUL as a
-  `string`. Fails with `InvalidText` for a null pointer or bytes that are not
-  UTF-8.
+  `string?`. A null pointer gives `none`. Bytes that are not UTF-8 fail with
+  `InvalidText` ("the C text is not valid UTF-8"); nothing else fails.
 - `&s as c string`, written as an argument of a C call: a `foreign *uint8` to a
   NUL-terminated copy of `s` that lives until the end of the statement. A NUL
   inside `s` is a run-time error (exit code 101).

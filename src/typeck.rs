@@ -3637,7 +3637,8 @@ impl<'a> Checker<'a> {
                 failures::outcome_type(self.g, op.fs_result(), &fails);
                 op.fs_result()
             }
-            Platform | CText => Type::Str,
+            Platform => Type::Str,
+            CText => optionals::optional_of(self.g, Type::Str)?,
             GetEnv => optionals::optional_of(self.g, Type::Str)?,
         };
         Some(Val::Expr(hir::Expr::new(hir::ExprKind::System(op, args, fails), ty).at(span)))
@@ -3783,7 +3784,8 @@ impl<'a> Checker<'a> {
     }
 
     /// `p::text()` on a `foreign *uint8`: the text up to the NUL, checked as
-    /// UTF-8. It fails (`InvalidText`) on bad text and on a null pointer.
+    /// UTF-8, as a `string?`. A null pointer gives `none`; bad UTF-8 fails
+    /// (`InvalidText`).
     fn foreign_text(&mut self, v: hir::Expr, recv: Span, name_span: Span, targs: &[ast::TypeName], args: &[ast::Expr], span: Span) -> Option<Val> {
         let _ = recv;
         for a in args {
@@ -3796,8 +3798,9 @@ impl<'a> Checker<'a> {
         let _ = name_span;
         let fail = *self.g.enums_by_name.get("InvalidText")?;
         let fails = vec![fail];
-        failures::outcome_type(self.g, Type::Str, &fails);
-        Some(Val::Expr(hir::Expr::new(hir::ExprKind::System(hir::SystemOp::CText, vec![v], fails), Type::Str).at(span)))
+        let text = optionals::optional_of(self.g, Type::Str)?;
+        failures::outcome_type(self.g, text, &fails);
+        Some(Val::Expr(hir::Expr::new(hir::ExprKind::System(hir::SystemOp::CText, vec![v], fails), text).at(span)))
     }
 
     /// `p::freeze()` (`*T` to `*fixed T`) and `p::thaw()` (the reverse).

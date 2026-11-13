@@ -2,5 +2,6 @@ hello from C
 length: 6
 dup: copy me
 live: 0
-null: failed
+null: none
+bad: caught the failure
 divide: 42 -1

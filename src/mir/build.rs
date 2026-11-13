@@ -1860,6 +1860,9 @@ impl<'a> Builder<'a> {
             self.assign_stmt(present.clone(), Rvalue::Binary(hir::BinOp::Ne, status, Operand::Const(Constant::Int(0, Type::U8))));
             return self.optional_if(ty, Operand::Copy(present), |_| Operand::Move(slot.unwrap()));
         }
+        if op == CText {
+            return self.c_text(ty, status, slot.expect("a C text call writes its text"), fails);
+        }
 
         let out = Place::local(self.new_temp(ty));
         let outcome = ty.enum_id().expect("a filesystem call has an outcome");
@@ -1887,6 +1890,43 @@ impl<'a> Builder<'a> {
             self.assign_stmt(out.clone(), Rvalue::Variant(outcome, 1, vec![payload]));
             self.goto(join);
         }
+        self.cur = join;
+        Operand::Move(out)
+    }
+
+    /// `p::text()` (step 7.1). The runtime answers 0 with the text, 1 for a null
+    /// pointer (which is `none`, not a failure) and 2 for bad UTF-8 (the
+    /// failure, the only one of `fails`). `ty` is the outcome of a `string?`.
+    fn c_text(&mut self, ty: Type, status: Operand, text: Place, fails: &[hir::EnumId]) -> Operand {
+        let outcome = ty.enum_id().expect("a C text call has an outcome");
+        let optional = self.hir.enum_def(ty).variants[0].fields[0].ty;
+        let fail_set = self.hir.enum_def(ty).variants[1].fields[0].ty;
+        let code = Place::local(self.decl(Type::U8, LocalKind::Temp));
+        self.assign_stmt(code.clone(), Rvalue::Use(status));
+        // The optional is made before the branch, so every path assigns it
+        // (the text is read only when the answer is 0).
+        let present = Place::local(self.decl(Type::Bool, LocalKind::Temp));
+        self.assign_stmt(present.clone(), Rvalue::Binary(hir::BinOp::Eq, Operand::Copy(code.clone()), Operand::Const(Constant::Int(0, Type::U8))));
+        let value = self.optional_if(optional, Operand::Copy(present), |_| Operand::Move(text));
+        let out = Place::local(self.new_temp(ty));
+        let (ok, bad, join) = (self.new_block(), self.new_block(), self.new_block());
+        self.end(TerminatorKind::Switch { discr: Operand::Copy(code), cases: vec![(2, bad)], otherwise: ok });
+        self.cur = ok;
+        self.assign_stmt(out.clone(), Rvalue::Variant(outcome, 0, vec![value]));
+        self.goto(join);
+        self.cur = bad;
+        let failure = fails[0];
+        let value = Place::local(self.decl(self.hir.enum_type(failure), LocalKind::Temp));
+        self.assign_stmt(value.clone(), Rvalue::Variant(failure, 0, vec![Operand::Const(Constant::Int(0, Type::U64))]));
+        let payload = if fail_set == self.hir.enum_type(failure) {
+            Operand::Move(value)
+        } else {
+            let set = Place::local(self.decl(fail_set, LocalKind::Temp));
+            self.assign_stmt(set.clone(), Rvalue::Variant(fail_set.enum_id().unwrap(), 0, vec![Operand::Move(value)]));
+            Operand::Move(set)
+        };
+        self.assign_stmt(out.clone(), Rvalue::Variant(outcome, 1, vec![payload]));
+        self.goto(join);
         self.cur = join;
         Operand::Move(out)
     }

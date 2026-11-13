@@ -15,12 +15,14 @@ struct Notes {
         unsafe { return c_notes::notes_count(self.handle) as sint32; }
     }
 
-    // A C string comes back as a pointer. `text()` reads up to the NUL,
-    // checks the UTF-8, and fails on a null pointer or bad text.
+    // A C string comes back as a pointer. `text()` reads up to the NUL and
+    // checks the UTF-8: a null pointer (no such note) is `none`, and bad text
+    // fails. The wrapper turns `none` into a text of its own.
     string get(sint32 index) fails InvalidText {
         unsafe {
             foreign *uint8 p = c_notes::notes_get(self.handle, index as c::int);
-            return p::text() fails;
+            string? text = p::text() fails;
+            return text maybe "no such note";
         }
     }
 

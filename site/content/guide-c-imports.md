@@ -94,10 +94,12 @@ C pointers are `foreign *T`. A `char *` is a `foreign *uint8`, a `void *` is a
 `foreign *none`, and `none` is the null pointer. Only `unsafe` code uses them;
 the wrapper turns them into Drachm values:
 
-- `p::text()` reads the bytes up to the NUL, checks that they are UTF-8 and
-  gives a `string`. It fails with `InvalidText` for a null pointer or bad text,
-  so it is called like any failing function (`p::text() fails`, or
-  `p::text() maybe "fallback"`).
+- `p::text()` reads the bytes up to the NUL and checks that they are UTF-8. It
+  gives a `string?`: `none` for a null pointer, which is an answer and not a
+  failure, and it fails with `InvalidText` only for bad text. Because it is an
+  optional that can fail, the wrapper unwraps it: `string? t = p::text() fails;`
+  then `return t maybe "fallback";`, or `p::text() maybe none` where no
+  failure is wanted.
 - `&s as c string` passes a Drachm string where C wants a `const char *`. The
   text is a copy that ends in a NUL and lives for that one call; a NUL inside
   the string stops the program, since C would see a shorter string than the
