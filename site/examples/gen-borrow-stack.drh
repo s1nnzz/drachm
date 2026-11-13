@@ -1,0 +1,30 @@
+in io;
+
+// A type argument may be a borrow. `Stack<&string>` holds borrows of strings
+// that live somewhere else, so the stack is tied to those strings: they must
+// outlive every use of the stack.
+struct Stack<T> {
+    public:
+    T[?] items;
+    none push(T x) { self.items::push(x); }
+    uint64 len() { return self.items::len(); }
+    T? pop() { return self.items::pop(); }
+}
+
+none main() {
+    string name = "ann";
+    string other = "bob";
+    mut Stack<&string> s = new Stack<&string> of ([]);
+    s::push(&name);
+    s::push(&other);
+    io::outln(f"${s::len()}");
+
+    // `pop` gives the borrow back, as an optional that holds a borrow.
+    Optional<&string> top = s::pop();
+    string fallback = "none";
+    io::outln(top maybe &fallback);
+    match (top) {
+        case &string n { io::outln(n); }
+        case none { io::outln("empty"); }
+    }
+}

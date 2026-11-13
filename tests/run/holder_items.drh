@@ -1,0 +1,29 @@
+in io;
+
+struct Parser lives src {
+    public:
+    &string src;
+    uint32 pos;
+}
+
+enum Maybe<T> {
+    Just(T value),
+    Nothing,
+}
+
+none main() {
+    string text = "abc";
+    mut Parser[?] ps = [];
+    ps::push(new Parser of (&text, 1));
+    io::outln(f"${ps[0].pos}");
+    Parser? v = ps::first();
+    match (v) {
+        case Parser p { io::outln(p.src); }
+        case none { io::outln("none"); }
+    }
+    Maybe<&string> m = Just(&text);
+    match (m) {
+        case Just(&string s) { io::outln(s); }
+        case Nothing { io::outln("nothing"); }
+    }
+}

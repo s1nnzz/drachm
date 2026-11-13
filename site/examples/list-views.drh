@@ -1,0 +1,23 @@
+in io;
+
+none main() {
+    string[?] names = ["Ann", "Bob", "Cy"];
+
+    // `first`, `last` and `get` on items that own memory give a view: an
+    // optional that holds a borrow of the item. The list stays borrowed while
+    // the view is in use.
+    string nobody = "nobody";
+    io::outln(names::first() maybe &nobody);
+    io::outln(names::last() maybe &nobody);
+    io::outln(names::get(-2) maybe &nobody);
+    io::outln(names::get(7) maybe &nobody);
+
+    match (names::get(1)) {
+        case &string n { io::outln(n::upper()); }
+        case none { io::outln("nobody"); }
+    }
+
+    // `copy` gives an owned `string?` instead.
+    string? owned = copy names::first();
+    io::outln(owned maybe "nobody");
+}

@@ -270,13 +270,7 @@ impl Globals {
         if val == Type::None {
             return Err(Diagnostic::at(&codes::E0104, at, "a map cannot hold `none`").note("`none` holds no value"));
         }
-        if self.holds_borrow(val) {
-            return Err(
-                Diagnostic::at(&codes::E0901, at, format!("a `{map_name}` of borrows is not supported yet"))
-                    .note("this map would hold a borrow")
-                    .help("keep the values themselves in the map, and borrow them where you use them"),
-            );
-        }
+        let _ = map_name;
         Ok(())
     }
 }

@@ -363,7 +363,6 @@ impl<'a> Builder<'a> {
     /// range ends the program through `IndexPanic`, in a block of its own.
     fn index_local(&mut self, base: &Place, ty: Type, idx: &Expr) -> Local {
         self.at(expr_span(idx));
-        let span = self.span;
         let iop = self.operand(idx);
         // A constant index into an array was checked by the type checker (E0620).
         if let (ExprKind::Int(_), Type::Array { .. }) = (&idx.kind, ty) {
@@ -371,7 +370,13 @@ impl<'a> Builder<'a> {
             self.assign_stmt(Place::local(a), Rvalue::Use(iop));
             return a;
         }
-        let signed = matches!(idx.ty, Type::Int { signed: true, .. });
+        self.index_local_of(base, ty, iop, idx.ty)
+    }
+
+    /// `index_local` for an index already evaluated, of type `idx_ty`.
+    fn index_local_of(&mut self, base: &Place, ty: Type, iop: Operand, idx_ty: Type) -> Local {
+        let span = self.span;
+        let signed = matches!(idx_ty, Type::Int { signed: true, .. });
         let len_op = match ty {
             Type::Array { len, .. } => Operand::Const(Constant::Int(len as u128, Type::U64)),
             _ => {
@@ -391,7 +396,7 @@ impl<'a> Builder<'a> {
         let a = self.decl(Type::U64, LocalKind::Temp);
         let shown;
         if signed {
-            let i = conv(self, iop, idx.ty, Type::S64);
+            let i = conv(self, iop, idx_ty, Type::S64);
             let i = self.freeze(i, Type::S64);
             shown = i.clone();
             let neg = self.decl(Type::Bool, LocalKind::Temp);
@@ -407,7 +412,7 @@ impl<'a> Builder<'a> {
             self.goto(join);
             self.cur = join;
         } else {
-            let u = conv(self, iop, idx.ty, Type::U64);
+            let u = conv(self, iop, idx_ty, Type::U64);
             shown = u.clone();
             self.assign_stmt(Place::local(a), Rvalue::Use(u));
         }
@@ -1843,6 +1848,25 @@ impl<'a> Builder<'a> {
                     let args = vec![Arg { op: Operand::Copy(Place::local(r)), span: b.span }, Arg { op: idx, span: b.span }];
                     b.call_into(Callee::ListOp(ListOp::Get, elem), args, Place::local(out));
                     b.read(Place::local(out), elem)
+                })
+            }
+            ListOp::View => {
+                // `get(i)` of items that own memory: `ListHas` says whether the item is
+                // there; the view is a borrow of the item's place, so it keeps the list borrowed.
+                let list = self.as_place(&args[0]);
+                let idx_ty = args[1].ty;
+                let idx = self.operands(&[&args[1]], &|_| None).remove(0).op;
+                let r = self.new_ref_temp(list_ty, false);
+                self.assign_stmt(Place::local(r), Rvalue::Ref(BorrowKind::Shared, list.clone()));
+                let found_args = vec![Arg { op: Operand::Copy(Place::local(r)), span: self.span }, Arg { op: idx.clone(), span: self.span }];
+                let found = self.call(Callee::ListHas(elem), found_args, Type::Bool);
+                self.optional_if(e.ty, found, |b| {
+                    let at = b.index_local_of(&list, list_ty, idx, idx_ty);
+                    let mut item = list.clone();
+                    item.proj.push(Proj::Index(at));
+                    let view = b.new_ref_temp(elem, false);
+                    b.assign_stmt(Place::local(view), Rvalue::Ref(BorrowKind::Shared, item));
+                    Operand::Copy(Place::local(view))
                 })
             }
             ListOp::Remove | ListOp::SwapRemove => {

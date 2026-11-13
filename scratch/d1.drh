@@ -1,0 +1,36 @@
+in io;
+
+interface Shape {
+    float64 area();
+    string name();
+}
+
+struct Circle with Shape {
+    public:
+    float64 r;
+    float64 area() { return 3.0 * self.r * self.r; }
+    string name() { return "circle"; }
+}
+
+struct Square with Shape {
+    public:
+    float64 side;
+    float64 area() { return self.side * self.side; }
+    string name() { return "square"; }
+}
+
+none main() {
+    Circle c = 2.0;
+    Square q = 3.0;
+    mut List<&Shape> shapes = [];
+    shapes::push(&c);
+    shapes::push(&q);
+    for (&Shape s of shapes) {
+        io::outln(f"${s::name()} with area ${s::area()}");
+    }
+    Optional<&Shape> first = shapes::first();
+    match (first) {
+        case &Shape s { io::outln(s::name()); }
+        case none { io::outln("none"); }
+    }
+}

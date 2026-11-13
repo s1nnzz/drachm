@@ -98,7 +98,12 @@ pub fn findings(sol: &Solution) -> Findings {
     for (u, uni) in sol.universals.iter().enumerate() {
         let Some(p) = uni.param else { continue };
         for v in sol.values[RegionVid::new(u)].ends.iter() {
-            if v == u {
+            // Slots of one type parameter are one region, and the borrow around
+            // such a slot cannot outlive it: that is not a flow between parameters.
+            let touches = |a: &super::borrowck::regions::Universal, b: &super::borrowck::regions::Universal| {
+                a.tie.is_some() && sol.universals.iter().any(|w| w.tie == a.tie && w.param == b.param)
+            };
+            if v == u || touches(uni, &sol.universals[v]) || touches(&sol.universals[v], uni) {
                 continue;
             }
             match sol.universals[v].param {

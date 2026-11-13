@@ -372,7 +372,7 @@ impl Validator<'_> {
                 let list = Type::list(elem);
                 let (mut_list, shared_list) = (Want::Exact(Type::borrow(true, list)), Want::Exact(Type::borrow(false, list)));
                 match op {
-                    hir::ListOp::Get => (Some(vec![shared_list, Want::Any]), elem),
+                    hir::ListOp::Get | hir::ListOp::View => (Some(vec![shared_list, Want::Any]), elem),
                     hir::ListOp::Remove | hir::ListOp::SwapRemove => (Some(vec![mut_list, Want::Any]), elem),
                     hir::ListOp::Insert => (Some(vec![mut_list, Want::Any, Want::Exact(elem)]), Type::None),
                     hir::ListOp::Clear => (Some(vec![mut_list]), Type::None),

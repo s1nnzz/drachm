@@ -1,0 +1,15 @@
+in io;
+
+none main() {
+    string a = "apple";
+    string b = "banana";
+    mut Map<string, &string> m = {};
+    m["x"] = &a;
+    m["y"] = &b;
+    io::outln(f"${m::len()}");
+    Optional<&string> got = m["x"];
+    io::outln(got maybe &b);
+    for (string k, &string v of m) {
+        io::outln(f"${k} ${v}");
+    }
+}

@@ -1579,7 +1579,7 @@ impl Cg<'_, '_> {
         let (size, align) = self.hir.size_align(elem);
         let size_v = self.b.ins().iconst(i64t, size as i64);
         match op {
-            ListOp::Pop => unreachable!("`pop` is a test and a `Remove`, not a call"),
+            ListOp::Pop | ListOp::View => unreachable!("`pop` is a test and a `Remove`, a view is a borrow, not a call"),
             ListOp::Get => {
                 // The item is copied out only when the runtime found one.
                 let idx = self.operand(&args[1].op);

@@ -1,0 +1,10 @@
+in io;
+
+none main() {
+    mut Map<string, &string> m = {};
+    if (true) {
+        string temp = "short lived";
+        m["x"] = &temp;
+    }
+    io::outln(f"${m::len()}");
+}

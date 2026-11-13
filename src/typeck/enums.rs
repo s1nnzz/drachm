@@ -94,7 +94,10 @@ pub(super) fn declare_variants(g: &mut Globals, id: EnumId, e: &ast::Enum, diags
         let mut fields: Vec<FieldInfo> = Vec::new();
         for f in &v.fields {
             let ty = g.resolve_storable(&f.ty, diags);
-            if ty.is_some_and(|t| t.is_borrow() || t.is_ptr() || g.holds_borrow(t)) {
+            // In an instance of a generic enum the payload may hold a borrow that came in through a type
+            // argument (`Maybe<&string>`); one written as a borrow in the template is still refused.
+            let via_argument = !g.tenv.is_empty() && !f.ty.mods.iter().any(|(m, _)| matches!(m, ast::TypeMod::Ref { .. } | ast::TypeMod::Ptr | ast::TypeMod::FixedPtr));
+            if ty.is_some_and(|t| t.is_ptr() || ((t.is_borrow() || g.holds_borrow(t)) && !via_argument)) {
                 diags.push(
                     Diagnostic::at(&codes::E0901, f.ty.span, "a variant holding a borrow or a pointer is not supported yet")
                         .note(format!("`{}` holds a `{}`", f.name, ty.unwrap()))

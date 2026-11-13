@@ -735,6 +735,14 @@ pub(super) fn make_fn_instance(g: &mut Globals, diags: &mut Vec<Diagnostic>, nam
     let broken = sig.params.iter().any(Option::is_none) || sig.ret.is_none();
     let index = t.index;
     let id = g.add_sig(sig);
+    g.tie_jobs.push(super::ties::Job {
+        id,
+        tparams: t.head.tparams.iter().map(|p| p.name.clone()).collect(),
+        has_self: false,
+        owner: None,
+        params: t.head.params.iter().map(|p| p.ty.clone()).collect(),
+        ret: t.head.ret.clone(),
+    });
     g.mono.templates.insert(name.to_string(), t);
     g.mono.instances.insert(key, id);
     if !broken {
@@ -753,12 +761,6 @@ impl State {
             Head::Struct(s) => s.defaults.clone(),
             Head::Enum(_) => None,
         }
-    }
-}
-
-fn push_once(g: &mut Globals, diags: &mut Vec<Diagnostic>, d: Diagnostic) {
-    if first_report(g, &d) {
-        diags.push(d);
     }
 }
 
@@ -970,12 +972,8 @@ fn ensure_type(g: &mut Globals, t: &ast::TypeName, diags: &mut Vec<Diagnostic>) 
     let Some(args) = args else { return };
     if t.name == "Optional" && !user_optional(g) {
         if let [inner] = args[..] {
-            if inner.is_borrow() {
-                let d = Diagnostic::at(&codes::E0901, t.span, "a type argument cannot be a borrow yet").note(format!("it is `{inner}` here")).help("use the value itself");
-                push_once(g, diags, d);
-            } else {
-                optionals::declare_optionals(g, &t.args[..1]);
-            }
+            let _ = inner;
+            optionals::declare_optionals(g, &t.args[..1]);
         }
         return;
     }
@@ -989,15 +987,6 @@ fn ensure_type(g: &mut Globals, t: &ast::TypeName, diags: &mut Vec<Diagnostic>) 
     }
     let key = (t.name.clone(), args.clone());
     if g.mono.type_instances.contains_key(&key) || g.mono.refused.contains(&key) {
-        return;
-    }
-    if let Some(bad) = args.iter().position(|a| a.is_borrow() || g.holds_borrow(*a)) {
-        let d = Diagnostic::at(&codes::E0901, t.args[bad].span, "a type argument cannot be a borrow yet")
-            .note(format!("`{}` is `{}` here", tpl.tparams[bad].name, args[bad]))
-            .help("hold the value itself, or write the borrow as a field: `&T`");
-        g.mono.refused.insert(key);
-        g.mono.type_templates.get_mut(&t.name).unwrap().instances += 1;
-        push_once(g, diags, d);
         return;
     }
     instantiate_type(g, &t.name, args, t.span, diags);
@@ -1060,6 +1049,14 @@ pub(super) fn instantiate_type(g: &mut Globals, name: &str, types: Vec<Type>, at
             for (j, mid) in ids.into_iter().enumerate() {
                 let Some(mid) = mid else { continue };
                 let m = &s.methods[j];
+                g.tie_jobs.push(super::ties::Job {
+                    id: mid,
+                    tparams: tparams.iter().map(|p| p.name.clone()).collect(),
+                    has_self: m.is_static.is_none() && !m.ctor,
+                    owner: Some((ty, s.fields.iter().map(|f| (f.name.clone(), f.ty.clone())).collect())),
+                    params: m.func.params.iter().map(|p| p.ty.clone()).collect(),
+                    ret: m.func.ret.clone(),
+                });
                 let ctx = MethodCtx { struct_id: id, func: mid, static_span: m.is_static, ctor: m.ctor, no_fails: false, ext: None, trusted: true };
                 let symbol = method_symbol(&display, m, j, &s.methods);
                 g.mono.pending.push_back(Pending {
@@ -1199,6 +1196,7 @@ fn mark(g: &mut Globals) -> Mark {
 fn rollback(g: &mut Globals, m: Mark) {
     let (nf, ns, ne) = (m.sigs, m.structs, m.enums);
     g.sigs.truncate(nf);
+    g.tie_jobs.retain(|j| j.id < nf);
     g.self_use.truncate(nf);
     g.structs.truncate(ns);
     g.enums.truncate(ne);

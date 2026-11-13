@@ -186,8 +186,8 @@ impl Cx<'_> {
             let def = &self.hir.structs[id];
             let holders = self.holders(loan);
             let base = self.cg.local_start[l];
-            for (k, &f) in def.lives.iter().enumerate() {
-                if holders.contains(&(base + k)) {
+            for &f in &def.lives {
+                if super::regions::struct_field_slots(self.hir, id, f).any(|k| holders.contains(&(base + k))) {
                     return Some(format!("{name}.{}", def.fields[f].name));
                 }
             }

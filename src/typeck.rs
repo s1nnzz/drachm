@@ -18,6 +18,7 @@ mod maps;
 mod optionals;
 mod overload;
 mod strings;
+mod ties;
 mod units;
 
 use std::collections::HashMap;
@@ -120,6 +121,9 @@ struct Globals {
     /// those whose bodies are not built yet.
     list_funcs: HashMap<(lists::ListFunc, Type), FuncId>,
     list_pending: Vec<(lists::ListFunc, Type, FuncId)>,
+    /// Region ties of instances whose type arguments hold borrows (`hir::Program::ties`).
+    ties: std::collections::BTreeMap<FuncId, Vec<Vec<(Option<usize>, usize)>>>,
+    tie_jobs: Vec<ties::Job>,
     io_imported: bool,
     /// The file flag `//--!$unsafe: true`.
     unsafe_allowed: bool,
@@ -175,6 +179,15 @@ impl Globals {
             .or_else(|| self.enums_by_name.get(&t.name).map(|&id| self.enums[id].ty))
     }
 
+    /// Is `t` the built-in `List<X>` (no struct, enum or template of that name)?
+    fn is_list_name(&self, t: &ast::TypeName) -> bool {
+        t.name == "List"
+            && !t.args.is_empty()
+            && !self.structs_by_name.contains_key("List")
+            && !self.enums_by_name.contains_key("List")
+            && !self.mono.type_templates.contains_key("List")
+    }
+
     /// The instance a type written with arguments names (`Stack<uint32>`,
     /// `Optional<uint32>`), if it was made.
     fn instance_of(&self, t: &ast::TypeName) -> Option<Type> {
@@ -189,6 +202,10 @@ impl Globals {
         if t.name == "Optional" {
             let [inner] = args[..] else { return None };
             return self.optional_ids.get(&inner).map(|&id| self.enums[id].ty);
+        }
+        if self.is_list_name(t) {
+            let [elem] = args[..] else { return None };
+            return (elem != Type::None).then(|| self.make_list(elem));
         }
         self.mono.type_instances.get(&(t.name.clone(), args)).copied()
     }
@@ -257,6 +274,21 @@ impl Globals {
                 return None;
             }
             let base = self.resolve_map(t, diags)?;
+            let base = optionals::wrap(self, t, base)?;
+            return Some(t.mods.iter().rev().fold(base, |ty, (m, _)| match m {
+                ast::TypeMod::Ref { mutable } => Type::borrow(*mutable, ty),
+                ast::TypeMod::Ptr => Type::ptr(ty),
+                ast::TypeMod::FixedPtr => Type::fixed_ptr(ty),
+            }));
+        }
+        if self.is_list_name(t) {
+            // `List<&string>` is `string[?]` spelled out; the only way to write a list of borrows.
+            if t.args.len() != 1 || t.args[0].is_number {
+                diags.push(Diagnostic::at(&codes::E0602, t.span, "`List` takes 1 type argument").help("write `List<&string>`, or `string[?]`"));
+                return None;
+            }
+            let elem = self.resolve_binding_type(&t.args[0], diags)?;
+            let base = self.collection_of(elem, &ast::Dim::List(t.span), diags)?;
             let base = optionals::wrap(self, t, base)?;
             return Some(t.mods.iter().rev().fold(base, |ty, (m, _)| match m {
                 ast::TypeMod::Ref { mutable } => Type::borrow(*mutable, ty),
@@ -334,7 +366,7 @@ impl Globals {
                     .note("units go only on number types")
                     .help("for example `float64<m>`"),
             );
-        } else if matches!(t.name.as_str(), "List" | "Array" | "Iterable") {
+        } else if matches!(t.name.as_str(), "Array" | "Iterable") {
             diags.push(Diagnostic::at(&codes::E0901, t.span, format!("`{}` is not supported yet", t.name)));
         } else if self.tenv.contains_key(&t.name) {
             diags.push(
@@ -368,9 +400,20 @@ impl Globals {
 
     /// Does a value of type `t` hold a borrow (so `lives` may name it)?
     fn holds_borrow(&self, t: Type) -> bool {
+        self.holds_borrow_deep(t, 0)
+    }
+
+    fn holds_borrow_deep(&self, t: Type, depth: usize) -> bool {
+        if depth > 8 {
+            return false;
+        }
         match t {
             Type::Ref { .. } => true,
             Type::Struct { id, .. } => self.structs[id].declared_lives || !self.structs[id].lives.is_empty(),
+            Type::List { elem } | Type::Array { elem, .. } => self.holds_borrow_deep(*elem, depth + 1),
+            Type::Map { key, val, .. } => self.holds_borrow_deep(*key, depth + 1) || self.holds_borrow_deep(*val, depth + 1),
+            Type::Unit { of, .. } => self.holds_borrow_deep(*of, depth + 1),
+            Type::Enum { id, .. } => self.enums[id].variants.iter().flat_map(|v| &v.fields).any(|f| f.ty.is_some_and(|t| self.holds_borrow_deep(t, depth + 1))),
             _ => false,
         }
     }
@@ -652,6 +695,7 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
     }
     // `copy` depends on which structs have a `drop()`; the queries answer for
     // every type that exists now, including those made while bodies were checked.
+    g.compute_ties();
     let (structs, enum_defs) = layout::lay_out(&g);
     let mut collections: Vec<Type> = Vec::new();
     for t in g.collections() {
@@ -661,7 +705,7 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
     }
     let conformances = std::mem::take(&mut g.ifaces.records);
     let (dyn_ifaces, vtables) = dynamic::finish(&mut g, &structs);
-    let mut program = hir::Program { funcs: funcs.into_iter().map(|f| f.unwrap_or_else(placeholder)).collect(), structs, enums: enum_defs, main, collections, conformances, dyn_ifaces, vtables, closures: std::mem::take(&mut g.lambdas.closures) };
+    let mut program = hir::Program { funcs: funcs.into_iter().map(|f| f.unwrap_or_else(placeholder)).collect(), structs, enums: enum_defs, main, collections, conformances, dyn_ifaces, vtables, closures: std::mem::take(&mut g.lambdas.closures), ties: std::mem::take(&mut g.ties) };
     if !diags.iter().any(Diagnostic::is_error) {
         lambdas::infer_captures(&mut program, diags);
     }
@@ -824,7 +868,13 @@ fn check_struct_lives(g: &mut Globals, prog: &ast::Program, ids: &[Option<Struct
 fn check_one_struct_lives(g: &mut Globals, id: StructId, s: &ast::Struct, diags: &mut Vec<Diagnostic>) {
     let sname = g.structs[id].name.clone();
     let fields = &g.structs[id].fields;
-    let borrows: Vec<usize> = (0..fields.len()).filter(|&i| fields[i].ty.is_some_and(Type::is_borrow)).collect();
+    // A generic struct made with a borrow type argument holds borrows in fields
+    // written `T`: those are not written as borrows, so `lives` need not name them.
+    let written_borrow = |i: usize| -> bool {
+        g.tenv.is_empty() || s.fields.iter().find(|f| f.name == fields[i].name).is_none_or(|f| f.ty.mods.iter().any(|(m, _)| matches!(m, ast::TypeMod::Ref { .. })))
+    };
+    let borrows: Vec<usize> = (0..fields.len()).filter(|&i| fields[i].ty.is_some_and(Type::is_borrow) && written_borrow(i)).collect();
+    let held: Vec<usize> = (0..fields.len()).filter(|&i| !borrows.contains(&i) && fields[i].ty.is_some_and(|t| g.holds_borrow(t))).collect();
     let mut named = Vec::new();
     for (name, span) in &s.lives {
         match fields.iter().position(|f| f.name == *name).filter(|i| borrows.contains(i)) {
@@ -861,6 +911,21 @@ fn check_one_struct_lives(g: &mut Globals, id: StructId, s: &ast::Struct, diags:
         if inner.and_then(Type::struct_id).is_some_and(|o| g.structs[o].declared_lives) {
             diags.push(Diagnostic::at(&codes::E0901, f.span, "a field that borrows a struct with `lives` is not supported yet"));
         }
+    }
+    if g.tenv.is_empty() {
+        // Only an instance of a generic struct may hold a borrow inside a container or optional.
+        for &i in &held {
+            let f = &fields[i];
+            if f.ty.is_some_and(|t| t.struct_id().is_none_or(|o| !g.structs[o].declared_lives)) {
+                diags.push(
+                    Diagnostic::at(&codes::E0901, f.span, "a field that holds borrows inside a container is not supported yet")
+                        .note("this field would hold a borrow")
+                        .help("hold the borrow in its own field: `&T`, named by `lives`"),
+                );
+            }
+        }
+    } else {
+        named.extend(held.iter().copied());
     }
     named.sort_unstable();
     named.dedup();

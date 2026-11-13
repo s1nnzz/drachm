@@ -1,0 +1,24 @@
+in io;
+
+&string longest(&List<&string> xs) {
+    mut &string best = xs[0];
+    for (&string s of xs) {
+        if (s::len() > best::len()) { best = s; }
+    }
+    return best;
+}
+
+none main() {
+    string a = "apple";
+    string b = "fig";
+    string c = "banana";
+    mut List<&string> views = [&a, &b];
+    views::push(&c);
+    io::outln(f"${views::len()}");
+    io::outln(longest(&views));
+    io::outln(views[1]);
+    Optional<&string> last = views::pop();
+    io::outln(last maybe &a);
+    List<&string> more = copy views;
+    io::outln(f"${more::len()}");
+}

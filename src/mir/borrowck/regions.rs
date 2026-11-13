@@ -18,12 +18,59 @@ use crate::types::Type;
 
 /// The number of region slots in a value of type `ty`.
 pub fn region_slots(hir: &hir::Program, ty: Type) -> usize {
+    slots_deep(hir, ty, 0)
+}
+
+/// A type that contains itself (a generic struct holding a list of itself) is
+/// cut off here; the checker refuses such an instance before it gets so far.
+const MAX_DEPTH: usize = 12;
+
+fn slots_deep(hir: &hir::Program, ty: Type, depth: usize) -> usize {
+    if depth > MAX_DEPTH {
+        return 0;
+    }
     match ty {
         Type::Func(_) => 1,
-        Type::Ref { to, .. } => 1 + region_slots(hir, *to),
-        Type::Struct { id, .. } => hir.structs[id].lives.len(),
+        Type::Ref { to, .. } => 1 + slots_deep(hir, *to, depth + 1),
+        Type::Struct { id, .. } => {
+            let def = &hir.structs[id];
+            def.lives.iter().map(|&f| slots_deep(hir, def.fields[f].ty, depth + 1)).sum()
+        }
+        Type::List { elem } | Type::Array { elem, .. } => slots_deep(hir, *elem, depth + 1),
+        Type::Map { key, val, .. } => slots_deep(hir, *key, depth + 1) + slots_deep(hir, *val, depth + 1),
+        Type::Enum { id, .. } => hir.enums[id].variants.iter().flat_map(|v| &v.fields).map(|f| slots_deep(hir, f.ty, depth + 1)).sum(),
         _ => 0,
     }
+}
+
+/// The slots of field `f` of struct `sid`, as a range into the struct's slots.
+pub fn struct_field_slots(hir: &hir::Program, sid: StructId, f: usize) -> Range<usize> {
+    let def = &hir.structs[sid];
+    let mut at = 0;
+    for &l in &def.lives {
+        let n = slots_deep(hir, def.fields[l].ty, 1);
+        if l == f {
+            return at..at + n;
+        }
+        at += n;
+    }
+    at..at
+}
+
+/// The slots of field `f` of variant `v` of enum `eid`, as a range into the enum's slots.
+pub fn enum_field_slots(hir: &hir::Program, eid: usize, v: usize, f: usize) -> Range<usize> {
+    let def = &hir.enums[eid];
+    let mut at = 0;
+    for (vi, var) in def.variants.iter().enumerate() {
+        for (fi, field) in var.fields.iter().enumerate() {
+            let n = slots_deep(hir, field.ty, 1);
+            if (vi, fi) == (v, f) {
+                return at..at + n;
+            }
+            at += n;
+        }
+    }
+    at..at
 }
 
 /// How a region parameter of a struct may vary.
@@ -37,13 +84,16 @@ pub enum Variance {
 /// field (a `mut &string cur;` can be pointed elsewhere through a shared path).
 pub fn struct_variance(hir: &hir::Program, sid: StructId) -> Vec<Variance> {
     let def = &hir.structs[sid];
-    def.lives
-        .iter()
-        .map(|&f| {
-            let field = &def.fields[f];
-            if field.mutable || matches!(field.ty, Type::Ref { mutable: true, .. }) { Variance::Invariant } else { Variance::Covariant }
-        })
-        .collect()
+    let mut out = Vec::new();
+    for &f in &def.lives {
+        let field = &def.fields[f];
+        let n = slots_deep(hir, field.ty, 1);
+        for k in 0..n {
+            let v = if field.mutable || matches!(field.ty, Type::Ref { mutable: true, .. }) { Variance::Invariant } else { slot_variance(hir, field.ty, k) };
+            out.push(v);
+        }
+    }
+    out
 }
 
 /// The slots of the value at `place`, as a range into its local's slot vector.
@@ -54,6 +104,7 @@ pub fn slots_of_place(hir: &hir::Program, body: &Body, place: &Place) -> Range<u
 pub fn slots_of_projection(hir: &hir::Program, local_ty: Type, proj: &[Proj]) -> Range<usize> {
     let mut ty = local_ty;
     let mut r = 0..region_slots(hir, ty);
+    let mut variant = None;
     for pr in proj {
         match *pr {
             Proj::Deref => match ty {
@@ -67,19 +118,26 @@ pub fn slots_of_projection(hir: &hir::Program, local_ty: Type, proj: &[Proj]) ->
                     ty = ty.target().unwrap_or(ty);
                 }
             },
-            // Enums have no region slots, and neither does anything inside one.
-            Proj::Downcast(_) => return r.end..r.end,
-            // Lists and arrays cannot hold borrows (E0901), so nothing inside has slots.
-            Proj::Index(_) => return r.end..r.end,
-            Proj::Field(f) => {
-                let Type::Struct { id, .. } = ty else { return r.end..r.end };
-                let def = &hir.structs[id];
-                r = match def.lives.iter().position(|&x| x == f) {
-                    Some(k) => (r.start + k)..(r.start + k + 1),
-                    None => r.start..r.start,
-                };
-                ty = def.fields[f].ty;
+            Proj::Downcast(v) => variant = Some(v),
+            // Every item of a list or array shares the item type's slots.
+            Proj::Index(_) => {
+                let Some(elem) = ty.elem() else { return r.end..r.end };
+                ty = elem;
             }
+            Proj::Field(f) => match ty {
+                Type::Struct { id, .. } => {
+                    let sub = struct_field_slots(hir, id, f);
+                    r = (r.start + sub.start)..(r.start + sub.end);
+                    ty = hir.structs[id].fields[f].ty;
+                }
+                Type::Enum { id, .. } => {
+                    let Some(v) = variant.take() else { return r.end..r.end };
+                    let sub = enum_field_slots(hir, id, v, f);
+                    r = (r.start + sub.start)..(r.start + sub.end);
+                    ty = hir.enums[id].variants[v].fields[f].ty;
+                }
+                _ => return r.end..r.end,
+            },
         }
     }
     r
@@ -105,6 +163,24 @@ pub fn slot_variance(hir: &hir::Program, ty: Type, k: usize) -> Variance {
                     None => Variance::Covariant,
                 }
             }
+            Type::List { elem } | Type::Array { elem, .. } => walk(hir, *elem, base, k, under_mut),
+            Type::Map { key, val, .. } => {
+                let nk = region_slots(hir, *key);
+                if k < base + nk { walk(hir, *key, base, k, under_mut) } else { walk(hir, *val, base + nk, k, under_mut) }
+            }
+            Type::Enum { id, .. } => {
+                let mut at = base;
+                for var in &hir.enums[id].variants {
+                    for f in &var.fields {
+                        let n = slots_deep(hir, f.ty, 1);
+                        if (at..at + n).contains(&k) {
+                            return walk(hir, f.ty, at, k, under_mut);
+                        }
+                        at += n;
+                    }
+                }
+                Variance::Covariant
+            }
             _ => Variance::Covariant,
         }
     }
@@ -120,6 +196,14 @@ pub struct Universal {
     pub slot: usize,
     /// For messages: `a`, `p.src`, or `the result`.
     pub name: String,
+    /// The group of slots of this function that are one region (they come from
+    /// the same type parameter of an instance, `hir::Program::ties`).
+    pub tie: Option<usize>,
+}
+
+/// The tie group of a slot of function `f`, if it has one.
+pub fn tie_class(hir: &hir::Program, f: FuncId, param: Option<usize>, slot: usize) -> Option<usize> {
+    hir.ties.get(&f)?.iter().position(|group| group.contains(&(param, slot)))
 }
 
 /// The number of slots of parameter `i` of `f`. A method's receiver is a
@@ -145,7 +229,7 @@ fn slot_name(hir: &hir::Program, base: &str, ty: Type, k: usize) -> String {
             Type::Struct { id, .. } => {
                 let def = &hir.structs[id];
                 let j = k.checked_sub(at)?;
-                def.lives.get(j).map(|&f| def.fields[f].name.clone())
+                def.lives.iter().find(|&&f| struct_field_slots(hir, id, f).contains(&j)).map(|&f| def.fields[f].name.clone())
             }
             _ => None,
         }
@@ -168,12 +252,12 @@ pub fn universals(hir: &hir::Program, body: &Body) -> Vec<Universal> {
             _ => format!("argument {}", i + 1),
         };
         for k in 0..region_slots(hir, ty) {
-            out.push(Universal { param: Some(i), slot: k, name: slot_name(hir, &name, ty, k) });
+            out.push(Universal { param: Some(i), slot: k, name: slot_name(hir, &name, ty, k), tie: tie_class(hir, body.func, Some(i), k) });
         }
     }
     let ret = body.locals[Local(0)].ty;
     for k in 0..region_slots(hir, ret) {
-        out.push(Universal { param: None, slot: k, name: slot_name(hir, "the result", ret, k) });
+        out.push(Universal { param: None, slot: k, name: slot_name(hir, "the result", ret, k), tie: tie_class(hir, body.func, None, k) });
     }
     out
 }
@@ -226,7 +310,7 @@ none main() { }
         assert_eq!(slots_of_projection(&hir, r, &[Proj::Deref, Proj::Field(1)]), 2..3);
         let parser = ty_of(&hir, "Parser");
         // `pos` has no slots.
-        assert_eq!(slots_of_projection(&hir, parser, &[Proj::Field(1)]), 0..0);
+        assert!(slots_of_projection(&hir, parser, &[Proj::Field(1)]).is_empty());
     }
 
     #[test]

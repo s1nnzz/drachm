@@ -1690,7 +1690,7 @@ impl Parser<'_> {
             Tok::Kw("copy") => Some(BindMode::Copy),
             _ => None,
         };
-        if mode.is_some() || matches!(self.peek(), Tok::Ident(_)) {
+        if mode.is_some() || matches!(self.peek(), Tok::Ident(_) | Tok::Sym("&")) {
             let from = mode.is_some() as usize;
             if let Some(n) = self.type_end(from)
                 && matches!(self.peek_at(n), Tok::Ident(_))

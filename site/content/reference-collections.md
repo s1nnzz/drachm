@@ -32,7 +32,7 @@ makes an independent copy, items included. An array owns what its items own.
 It copies by itself, like a small struct, when its items copy and it is at
 most 32 bytes, and moves otherwise.
 
-A list or array cannot hold borrows yet (E0901), `none` is not an item type
+A list of borrows is spelled `List<&string>` (`&string[?]` is a borrow of a list). It is tied to what its items borrow, like any holder; `contains` and `==` compare what the items point at (E0901 for items that are `&Shape`). `none` is not an item type
 (E0104), an array cannot contain itself (E0210; a list can, since it holds
 its items on the heap), and an array above 1 MiB is E0901.
 
@@ -99,15 +99,22 @@ list usable.
 `none` when there is no such item, so they never stop the program. They copy
 the item, so for items that copy (numbers, `bool`, Copy structs) that is all
 there is to it. For items that own memory (`string`, structs with a `string`)
-the answer is meant to be a view of the item that borrows the list;
-`copy xs::first()` gives an owned `T?` copy of it and works today. The view
-itself is **not implemented yet**: `names::first()` on a list of `string`s is
-E0901 and its message points at the `copy` form. `xs::join(sep)` puts the items
+the answer is a view of the item: an optional that holds a borrow of the list
+(written `Optional<&string>`). While the
+view is in use the list cannot change (`push` is E0302), exactly as for
+`&xs[0]`. `copy xs::first()` gives an owned `T?` copy of the item instead, and
+a view cannot be assigned to an owned `string?` (E0531, which points at
+`copy`). Read a view with `maybe &fallback`, `has value`, or `match` with a
+`&T` pattern: `case &string n { ... }`. `xs::join(sep)` puts the items
 of a `string[?]` together with `sep` between them (`""` for an empty list).
 
 <!-- example: list-methods -->
 
 <!-- example: list-owning-items -->
+
+<!-- example: list-views -->
+
+<!-- example: list-borrows -->
 
 `xs::contains(item)` is true when some item is equal to `item`. Lists and
 arrays compare with `==` and `!=`: they are equal when they have the same
@@ -264,10 +271,12 @@ error[E0626]: `Pos` cannot be a map key: `Pos.tags` is a `string[?]`
 
 ### Borrowed values
 
-<!-- status: not-implemented -->
+A map may store borrowed values (`Map<string, &string>`) or structs that hold
+a borrow. The map becomes a borrower of what its values borrow, so those must
+outlive every later use of the map (E0306 otherwise). Keys cannot be borrows
+(E0626).
 
-Maps that store borrowed values or structs that hold a borrow currently give
-E0901.
+<!-- example: map-borrows -->
 
 ## Not built yet
 

@@ -397,6 +397,7 @@ impl fmt::Display for Type {
             Type::Ptr { to } => write!(f, "*{to}"),
             Type::FixedPtr { to } => write!(f, "*fixed {to}"),
             Type::Unit { of, unit } => write!(f, "{of}<{}>", unit_name(unit)),
+            Type::List { elem } if elem.is_borrow() => write!(f, "List<{elem}>"),
             Type::List { elem } => write!(f, "{elem}[?]"),
             Type::Func(sig) => {
                 f.write_str("(")?;
@@ -408,6 +409,7 @@ impl fmt::Display for Type {
                 }
                 write!(f, ") => {}", sig.ret)
             }
+            Type::Array { elem, len } if elem.is_borrow() => write!(f, "Array<{elem}, {len}>"),
             Type::Array { elem, len } => write!(f, "{elem}[{len}]"),
             Type::Map { key, val, ordered } => write!(f, "{}<{key}, {val}>", if *ordered { "OrderedMap" } else { "Map" }),
         }

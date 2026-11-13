@@ -173,8 +173,40 @@ error[E0112]: `Opaque` has no `>` operator
 Writing a generic type without arguments (`Cell c;`) is E0604, the wrong
 number of arguments or arguments on a type that takes none is E0602, a struct
 that holds itself through an instance is E0210 as for any struct, and a type
-that asks for ever bigger instances of itself is E0608. A type argument that
-is a borrow (`Stack<&string>`) is not supported yet (E0901).
+that asks for ever bigger instances of itself is E0608.
+
+### Borrows as type arguments
+
+A type argument of a generic struct or enum may be a borrow, or a type that
+holds one. `Stack<&string>` is a stack of borrows of strings that live
+elsewhere, and the stack becomes a borrower: its lifetime is worked out from
+what is put into it, with nothing written. `s::push(&name)` ties `s` to
+`name`, so `name` has to outlive every later use of `s`.
+
+<!-- example: gen-borrow-stack -->
+
+The methods of the instance are checked as if `T` were written out as
+`&string`. Everything the template declares as `T` is one lifetime, so
+`push(T x)` may keep `x` inside `self`, and `T? pop()` hands the same borrow
+back. Ending the borrowed string's block before the stack's last use is the
+usual E0306:
+
+```text
+error[E0306]: `name` does not live long enough
+  --> stack.drh:16:5
+   |
+15 |         s::push(&name);
+   |                 ----- `name` is borrowed here, and kept in `s.items`
+16 |     }
+   |     ^ `name` is dropped here, at the end of its block
+17 |     io::outln(f"${s::len()}");
+   |                   - the borrow is still used here
+```
+
+A generic struct made this way may not be used as the field of another struct
+that is not generic (E0901 for now), and a generic function called with a
+borrow type argument (`same<&string>(&s)`) is still E0901: write `&T` in the
+parameter. A list of borrows is spelled `List<&string>`.
 
 ## Optional types
 
@@ -328,8 +360,11 @@ What a `&Shape` cannot do:
   known (E0619). Call it on the struct, or in a generic constrained with the
   interface.
 - A struct that does not implement the interface does not convert (E0640).
-- A method that returns a borrow, a required field written to, a `&Circle`
-  where `Circle` itself holds borrows, and a list of `&Shape` are E0901 for now.
+- A method that returns a borrow, a required field written to, and a `&Circle`
+  where `Circle` itself holds borrows are E0901 for now. A list of `&Shape` works
+  (`List<&Shape>`), but `==` and `contains` on it are E0901.
+
+<!-- example: dyn-list -->
 
 ```text
 error[E0640]: `Plain` does not implement `Shape`, so `&p` is not a `&Shape`

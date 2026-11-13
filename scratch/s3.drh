@@ -1,0 +1,4 @@
+struct P lives a { public: &string a; }
+none main() {
+    P s;
+}

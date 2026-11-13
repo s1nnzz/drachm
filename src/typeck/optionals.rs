@@ -47,7 +47,7 @@ pub(super) fn declare_optionals(g: &mut Globals, written: &[ast::TypeName]) {
 /// Makes the optional of `inner` (`T?`) and returns its type.
 fn make_optional(g: &mut Globals, inner: Type, span: Span) -> Type {
     let id = g.enums.len();
-    let name = format!("{inner}?");
+    let name = if inner.is_borrow() { format!("Optional<{inner}>") } else { format!("{inner}?") };
     let ty = Type::Enum { id, name: types::intern(&name) };
     let none = VariantInfo { name: "none".to_string(), name_span: span, fields: Vec::new() };
     let some = VariantInfo {
@@ -118,7 +118,11 @@ impl Checker<'_> {
         let Some(inner) = inner_of(self.g, ty) else { return };
         let what = self.quote(at.span, "this value");
         let name = self.text(at.span).to_string();
-        let help = format!("write `{name} maybe {}` to give a `{inner}` for `none`, or test it with `{name} has value`", sample(to.unwrap_or(inner)));
+        let mut help = format!("write `{name} maybe {}` to give a `{inner}` for `none`, or test it with `{name} has value`", sample(to.unwrap_or(inner)));
+        // A view of an item wanted as an owned optional: `copy` makes the copy.
+        if inner.is_borrow() && let Some(t) = to && (Some(t) == inner.target() || inner_of(self.g, t) == inner.target()) {
+            help = format!("`{name}` only lends the item (`{ty}`); write `copy {name}` for an owned `{}?`, or `{name} maybe &fallback` to keep it a view", inner.target().unwrap_or(inner));
+        }
         let msg = match to {
             Some(t) => format!("{what} is a `{ty}`, which may be `none`, so it is not a `{t}`"),
             None => format!("{what} is a `{ty}`, which may be `none`, so this operator cannot use it"),
