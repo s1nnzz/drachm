@@ -94,6 +94,6 @@ files cannot be built yet (error E0901): naming things across files is still to
 come.
 
 A project with `kind = "library"` has no program: `build` and `run` say so
-(E0811), and `check` checks it. A folder with no `drachm.toml` is an error
+(E0811), and `check` checks it without requiring `main()`. A folder with no `drachm.toml` is an error
 (E0814), and so is a missing entry file (E0812). The settings are described in
 [Projects and config](design-config.md).

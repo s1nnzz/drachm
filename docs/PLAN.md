@@ -747,8 +747,7 @@ exact `tag`, `[build]` target / opt, `[warnings]` as_errors (stored only),
 (08xx). `config::open` replaces the scanner: a folder is a project, a file takes
 the nearest config above it, and both `drachm.toml` and `srachm.toml` in one
 folder is E0807. `kind = "library"`: `run` and `build` are E0811, `check` runs
-the program checks (a library without `main` gets E0204; interim, needs an
-owner decision). `src/deps.rs`: path deps are folders; git deps clone into
+the library checks without requiring `main`. `src/deps.rs`: path deps are folders; git deps clone into
 `deps/NAME/` of the project (owner, 2026-11-13: per project, not a user cache),
 `drachm.lock` pins the commit (`[[git]]` url, tag, commit), a moved tag is E0809
 only when the commit must be fetched, two sources under one name E0804, cycles
@@ -782,7 +781,7 @@ import is E0232 (only `*` clashes warn); `import_clash = error` waits for the
 config (WP3).
 
 **Open (ask owner):** the full `[warnings]` name list (grows as warnings are added).
-Also: should `check` on a library skip the `main` requirement (E0204)? A `deps/`
+Also: a `deps/`
 folder in `.gitignore` or committed? Whether `drachm new` should write a
 `.gitignore`. Dependency names clash only per build (no module-level names yet).
 
@@ -793,13 +792,10 @@ folder in `.gitignore` or committed? Whether `drachm new` should write a
 Owner, 2026-11-13: scheduled straight after step 7, before 7.6 and 7.5 ("that's
 when proper stuff can be done with the lang"). SPEC design: `in * from
 c."SDL2/SDL.h" as sdl;` read via libclang (`clang-sys`), C types mapped to
-Drachm types. Owner on `unsafe`: not "always unsafe" if there is any other
-way, since that is a pain to use; offer designs where most calls are safe
-(e.g. safe when the signature maps to safe Drachm types, unsafe only for raw
-pointers, or a per-function opt-in) and ask. Needs a spec (drachm-architect)
-and an owner round: pointers, structs, enums, unions, macros, callbacks,
-strings, ownership of returned memory, linking (toml key or on the import),
-which calls are safe.
+Drachm types. Imported C calls are unsafe. Drachm code exposes safe wrappers,
+and projects specify native libraries in `drachm.toml`. The implementation spec
+still needs decisions on pointers, structs, enums, unions, macros, callbacks,
+strings, and ownership of returned memory.
 
 ---
 
@@ -995,7 +991,7 @@ Decided (2026-11-10): **Cranelift for plain builds and scripts, generated C for
   appear (or stay hidden). Async: `async` functions become state machines,
   `::await` is postfix, and the runtime is built into the stdlib.
 - **C header import:** `in * from c."SDL2/SDL.h" as sdl;` via libclang
-  (`clang-sys`), mapping C types to Drachm types, all calls unsafe.
+  (`clang-sys`), mapping C types to Drachm types. See step 7.1.
 - **Maths:** `math` basics; `Vector2/3/4`, `Matrix3/4`, quaternions; big
   integers, fractions, decimal/fixed-point; user-definable units of measure
   (`unit m; unit N = kg * m / s^2;`, `float64<m/s>`, literals `9.6<s>`),

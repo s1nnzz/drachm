@@ -484,6 +484,10 @@ impl Globals {
 /// Checks the whole program. The result is only fit for codegen when no
 /// errors were reported.
 pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir::Program {
+    check_with_entry(prog, src, diags, true)
+}
+
+pub(crate) fn check_with_entry(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>, requires_main: bool) -> hir::Program {
     let mut g = Globals { unsafe_allowed: prog.unsafe_allowed, ..Globals::default() };
     let mut si = false;
     for import in &prog.imports {
@@ -610,8 +614,8 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
     maps::check_pending_keys(&g, diags);
     fill::declare_defs(&mut g, src, prog, diags);
 
-    match g.funcs_by_name.get("main").map(|&id| &g.sigs[id]) {
-        None => diags.push(
+    match g.funcs_by_name.get("main").filter(|_| requires_main).map(|&id| &g.sigs[id]) {
+        None if requires_main => diags.push(
             Diagnostic::new(&codes::E0204, "this program has no `main` function")
                 .help("add `none main() { }`; it is where the program starts"),
         ),
@@ -723,7 +727,7 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
         emit(&mut funcs, wrapper, f);
     }
     let mut main = g.funcs_by_name.get("main").copied().unwrap_or(0);
-    if let Some((id, f)) = failures::main_wrapper(&mut g, main) {
+    if requires_main && let Some((id, f)) = failures::main_wrapper(&mut g, main) {
         emit(&mut funcs, id, f);
         main = id;
     }

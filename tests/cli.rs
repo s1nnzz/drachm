@@ -79,6 +79,8 @@ fn a_library_is_checked_but_not_run_or_built() {
     let geo = s.dir.join("geo");
     fs::write(geo.join("drachm.toml"), "[project]\nname = \"geo\"\nkind = \"library\"\n").unwrap();
     fs::write(geo.join("src/main.drh"), "uint32 area(uint32 w, uint32 h) { return w * h; }\n").unwrap();
+    let check = drachm(&s.dir, &["check", "geo"]);
+    assert!(check.status.success(), "{}", text(&check.stderr));
     let run = drachm(&s.dir, &["run", "geo"]);
     assert!(!run.status.success());
     assert!(text(&run.stderr).contains("error[E0811]: `geo` is a library, so there is no program to run"), "{}", text(&run.stderr));

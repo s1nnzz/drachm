@@ -90,7 +90,7 @@ pub fn front_project(entry: &std::path::Path, info: &modules::ProjectInfo) -> (O
             return (None, graph, diags);
         }
         let src = (0..graph.map.len()).map(|f| graph.map.source(f).text.as_str()).collect::<Vec<_>>().join("\n");
-        let checked = typeck::check(&program, &src, &mut diags);
+        let checked = typeck::check_with_entry(&program, &src, &mut diags, info.requires_main);
         if diag::has_errors(&diags) {
             return (None, graph, diags);
         }
@@ -98,7 +98,7 @@ pub fn front_project(entry: &std::path::Path, info: &modules::ProjectInfo) -> (O
     }
     let program = &graph.modules[0].program;
     let src = &graph.map.source(0).text;
-    let checked = typeck::check(program, src, &mut diags);
+    let checked = typeck::check_with_entry(program, src, &mut diags, info.requires_main);
     if diag::has_errors(&diags) {
         return (None, graph, diags);
     }

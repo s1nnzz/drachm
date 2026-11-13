@@ -29,7 +29,7 @@ entry = "src/main.drh"       # the file that starts the program (the default)
 `name` is required. It must be a plain name (letters, digits and `_`). The
 source root is the folder of the entry file, so a path that starts with the name
 begins there. A library has no program to run: `drachm run` and `drachm build`
-say so (E0811), while `check` checks it.
+say so (E0811), while `drachm check` checks the library without requiring `main()`.
 
 ## Dependencies
 

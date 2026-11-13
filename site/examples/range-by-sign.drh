@@ -5,6 +5,10 @@ none main() {
     for (sint32 i of 10..0 by -2) {
         io::outln(i::text());
     }
+    // An unsigned counter can count down too. The literal step emits W0102.
+    for (uint32 i of 5..0 by -2) {
+        io::outln(i::text());
+    }
     // A step that points away from the end gives an empty loop.
     for (sint32 i of 0..10 by -2) {
         io::outln("never");

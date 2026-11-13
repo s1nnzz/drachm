@@ -26,9 +26,6 @@ For a new session with no memory of earlier conversations. Read this, then
   constant value, usable in types; optional `fixed`, E0637/E0638) and constant
   arithmetic on value parameters in types (`T[N + 1]`, `Buffer<T, N * 2>`).
   Top-level values of the run (non-constant, `mut`) are E0901 until scripts.
-- **To build (small)**: an unsigned loop with a literal negative `by` counts
-  down with a warning (today W0102 and wraps). Answers in owner-answers
-  "Follow-ups, 2026-11-13 (late)".
 - **Design doc not synced yet** with the 2026-11-13 answers (tesla, unit-named
   parameters, `by` signs, float `by`, Q12 details, named constants, step 7
   batches A-D): the Docs connector was timing out. Do it next session.

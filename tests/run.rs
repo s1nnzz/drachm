@@ -262,9 +262,8 @@ fn site_example(src: &Path) -> Result<(), String> {
         args.extend(flags);
         let build = drachm(&args, src);
         let compiler_output = text(&build.stderr);
-        if !build.status.success() || !compiler_output.is_empty() {
-            return Err(format!("did not compile cleanly with {flags:?}:\n{compiler_output}"));
-        }
+        let warnings = read(&src.with_extension("warn"));
+        check_build_output(build.status.success(), &compiler_output, warnings.as_deref(), flags)?;
         let input = src.with_extension("in");
         let run = run_program(&exe, input.exists().then_some(input.as_path()))?;
         let _ = fs::remove_file(&exe);
@@ -434,6 +433,19 @@ fn projects() {
     run_all(dirs, project_case);
 }
 
+fn check_build_output(success: bool, output: &str, warnings: Option<&str>, flags: &[&str]) -> Result<(), String> {
+    if !success || (warnings.is_none() && !output.is_empty()) {
+        return Err(format!("did not compile cleanly with {flags:?}:\n{output}"));
+    }
+    if let Some(warnings) = warnings {
+        let missing = missing_lines(warnings, output);
+        if !missing.is_empty() {
+            return Err(format!("compiler output lacks:\n  {}\nactual output:\n{output}", missing.join("\n  ")));
+        }
+    }
+    Ok(())
+}
+
 fn project_case(dir: &Path) -> Result<(), String> {
     let name = dir.file_name().unwrap().to_str().unwrap();
     let expect = |ext: &str| dir.join(format!("expect.{ext}"));
@@ -450,18 +462,8 @@ fn project_case(dir: &Path) -> Result<(), String> {
             args.extend(flags);
             let build = drachm(&args, dir);
             let compiler_output = text(&build.stderr);
-            match read(&expect("warn")) {
-                Some(want) => {
-                    let missing = missing_lines(&want, &compiler_output);
-                    if !build.status.success() || !missing.is_empty() {
-                        return Err(format!("compiler output lacks:\n  {}\nactual output:\n{compiler_output}", missing.join("\n  ")));
-                    }
-                }
-                None if !build.status.success() || !build.stderr.is_empty() => {
-                    return Err(format!("did not compile cleanly with {flags:?}:\n{compiler_output}"));
-                }
-                None => {}
-            }
+            let warnings = read(&expect("warn"));
+            check_build_output(build.status.success(), &compiler_output, warnings.as_deref(), flags)?;
             let run = run_program(&exe, stdin.exists().then_some(stdin.as_path()))?;
             let _ = fs::remove_file(&exe);
             let stderr = text(&run.stderr);

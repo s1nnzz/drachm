@@ -130,11 +130,9 @@ match (x) {
   Built for integer and float ranges (the step is a value of the loop's type; integer
   steps wrap on overflow).
   - Sign: a negative step counts down (`10..0 by -2`); a step pointing away from the
-    end gives an empty loop. Unsigned loops have no negative step, so the direction
-    comes from the step alone. Built (owner, 2026-11-13); open: a literal `by -2`
-    on an unsigned loop is only W0102 (wraps), not an error. Open: the owner's note
-    gives `10..0 by -2` as 10, 8, 6, 4, 2, but the inclusive end and "the last value
-    not past the end" give 10, 8, 6, 4, 2, 0; the build follows the rule (0 included).
+    end gives an empty loop. A negative literal step also counts down over an
+    unsigned loop variable and emits W0102. Both directions include the end
+    when the step lands on it.
   - A literal zero step is E0115 (compile error). A step that is zero at run time
     stops the program with `range step is zero` (exit 101), like an out-of-range
     index. Built.
@@ -931,10 +929,13 @@ phys::Vector3 v = 1, 2, 3;
   other is `MODULE::name` (`game.physics::Vector3`), mangled for symbols.
   Not built: re-exporting an imported name, `out` on a `with` block or a `def`
   (defs follow their struct), a qualified unit (`lib::fathom` has no unit syntax: import units by name or bare).
-- C headers: `in * from c."SDL2/SDL.h" as sdl;`
+- C headers (step 7.1): `in * from c."SDL2/SDL.h" as sdl;`. Imported C calls
+  are unsafe. Drachm code can expose safe wrappers. Declare native libraries
+  in `drachm.toml`.
 
 ## 10. Projects, config, scripts, tooling
 
+- `drachm check` checks a library without requiring `main()`.
 - `drachm new mygame` creates `drachm.toml`, `src/main.drh`, `tests/`.
 - Tests: `test "name" { assert(...); }` blocks in any file; `drachm test`.
 - `drachm fmt`: one official style with few knobs (indent width, line length,

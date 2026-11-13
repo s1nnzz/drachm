@@ -44,7 +44,7 @@ out none run() {
     io::outln(f"beats 0 to 20 by 5 sum to ${pulses}");
     // A negative step counts down: the countdown lands on 10, 8, 6, 4, 2 and 0.
     mut string countdown = "";
-    for (sint32 t of 10..0 by -2) { countdown = countdown + t::text() + " "; }
+    for (uint32 t of 10..0 by -2) { countdown = countdown + t::text() + " "; }
     io::outln(f"countdown: ${countdown}");
     // A float range: value k is 0.0 + k * 0.25, stopping at the last value not past 1.0.
     mut float64 gauge = 0.0;

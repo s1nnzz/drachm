@@ -37,13 +37,14 @@ pub struct ProjectInfo {
     /// File names in diagnostics are shown relative to this (the folder with
     /// `drachm.toml`); `None` shows them as they were given.
     pub display_base: Option<PathBuf>,
+    pub requires_main: bool,
 }
 
 impl ProjectInfo {
     /// A script or a single file: its root is its own folder.
     pub fn script(file: &Path) -> ProjectInfo {
         let dir = file.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
-        ProjectInfo { name: None, root: dir.to_path_buf(), display_base: None }
+        ProjectInfo { name: None, root: dir.to_path_buf(), display_base: None, requires_main: true }
     }
 
 }

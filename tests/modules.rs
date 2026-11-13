@@ -23,7 +23,7 @@ impl Tree {
             fs::create_dir_all(full.parent().unwrap()).unwrap();
             fs::write(full, text).unwrap();
         }
-        let info = ProjectInfo { name: name.map(String::from), root: dir.join("src"), display_base: Some(dir.clone()) };
+        let info = ProjectInfo { name: name.map(String::from), root: dir.join("src"), display_base: Some(dir.clone()), requires_main: true };
         Tree { dir, info }
     }
 

@@ -226,3 +226,8 @@ Q5 interfaces as types: any interface can be used as `&I` (its `static` methods 
 - An explicit item import that clashes with a local declaration or another import is an error (E0232), confirmed. Only `in *` clashes warn.
 - A local declaration beating an `in *` name stays a warning (W0240), and the message should ask "did you mean to use the module's `X`?" (help pointing at `m::X`).
 - All modules are per file, `si` too: a file that uses SI units needs its own `in si;`.
+
+# C bindings and library checks, 2026-11-13
+- Safe wrappers around unsafe C calls.
+- Native libraries are specified in `drachm.toml`.
+- `drachm check` checks a library without requiring `main()`.

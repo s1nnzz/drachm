@@ -685,7 +685,7 @@ pub fn open(path: &Path) -> Result<Opened, Failure> {
                 path.to_path_buf()
             };
             let root = dir.join(entry_rel.parent().unwrap_or(Path::new("")));
-            let info = ProjectInfo { name: config.project.name.clone(), root, display_base: Some(dir.clone()) };
+            let info = ProjectInfo { name: config.project.name.clone(), root, display_base: Some(dir.clone()), requires_main: config.project.kind != Kind::Library };
             let deps = dependencies_of(&dir, &config, &mut map)?;
             Ok(Opened { entry, info, config, deps })
         }
@@ -694,7 +694,7 @@ pub fn open(path: &Path) -> Result<Opened, Failure> {
                 Ok(c) => c,
                 Err(diags) => return Err(Failure { map, diags }),
             };
-            let info = ProjectInfo { name: config.project.name.clone(), root: dir.clone(), display_base: None };
+            let info = ProjectInfo { name: config.project.name.clone(), root: dir.clone(), display_base: None, requires_main: true };
             let deps = dependencies_of(&dir, &config, &mut map)?;
             Ok(Opened { entry: path.to_path_buf(), info, config, deps })
         }

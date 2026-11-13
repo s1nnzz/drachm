@@ -508,6 +508,8 @@ impl Checker<'_> {
         let sign = step.as_ref().and_then(|st| literal_sign(st));
         // `by n`: the step, of the loop's type. A literal zero is an error; any other
         // step is checked like a value.
+        let unsigned_down = sign == Some(Ordering::Less)
+            && bounds.as_ref().is_some_and(|(a, _)| matches!(a.ty.bare(), Type::Int { signed: false, .. }));
         let by = match (step, &bounds) {
             (None, Some((a, _))) if a.ty.is_float() => {
                 self.diags.push(
@@ -529,7 +531,16 @@ impl Checker<'_> {
             }
             (Some(st), Some((a, _))) => {
                 let t = a.ty;
-                self.coerce(st, t)
+                if unsigned_down && let ExprKind::Unary(ast::UnOp::Neg, magnitude) = &st.kind {
+                    self.diags.push(Diagnostic::at(
+                        &codes::W0102,
+                        st.span,
+                        format!("a negative step counts down over `{t}`"),
+                    ));
+                    self.coerce(magnitude, t)
+                } else {
+                    self.coerce(st, t)
+                }
             }
             (Some(st), None) => {
                 self.expr(st);
@@ -548,7 +559,7 @@ impl Checker<'_> {
             },
         };
         // A step only known at run time is checked before the loop starts.
-        let check_zero = step.is_some() && sign.is_none() && by.is_some();
+        let check_zero = by.is_some() && (sign.is_none() || unsigned_down);
 
         self.scopes.push(HashMap::new());
         // The variable belongs to the loop: it gets a new value each time round.
@@ -632,9 +643,14 @@ impl Checker<'_> {
             Some((id, _)) => local(*id, t),
             None => int_lit(1, t),
         };
-        let next = binary(hir::BinOp::Add, local(counter, t), by_now.clone());
+        let advance_op = if unsigned_down { hir::BinOp::Sub } else { hir::BinOp::Add };
+        let next = binary(advance_op, local(counter, t), by_now.clone());
         let past_up = logic(false, binary(hir::BinOp::Gt, next.clone(), local(end, t)), binary(hir::BinOp::Lt, next.clone(), local(counter, t)));
-        let past_down = logic(false, binary(hir::BinOp::Lt, next.clone(), local(end, t)), binary(hir::BinOp::Gt, next.clone(), local(counter, t)));
+        let past_down = if unsigned_down {
+            binary(hir::BinOp::Gt, by_now.clone(), binary(hir::BinOp::Sub, local(counter, t), local(end, t)))
+        } else {
+            logic(false, binary(hir::BinOp::Lt, next.clone(), local(end, t)), binary(hir::BinOp::Gt, next.clone(), local(counter, t)))
+        };
         let past_end = match dir {
             Dir::Up => past_up,
             Dir::Down => past_down,
