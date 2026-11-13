@@ -220,3 +220,9 @@ Q5 interfaces as types: any interface can be used as `&I` (its `static` methods 
 # C header import, 2026-11-13
 - Scheduled straight after step 7 (PLAN step 7.1), before the package manager (7.6) and the optimiser (7.5).
 - Owner on `unsafe`: "idk about making them always unsafe since that might be a pain in the ass to use unless there is no other way around it". SPEC said all C calls are unsafe; this is now open: offer designs where calls are safe when possible.
+
+# WP2 follow-ups, 2026-11-13
+- A call through a module may be chained with either `::` or `->`: `physics::gravity(2.0)::text()` and `physics::gravity(2.0)->text()` both work, but only in this situation (the module call does not count as the first call).
+- An explicit item import that clashes with a local declaration or another import is an error (E0232), confirmed. Only `in *` clashes warn.
+- A local declaration beating an `in *` name stays a warning (W0240), and the message should ask "did you mean to use the module's `X`?" (help pointing at `m::X`).
+- All modules are per file, `si` too: a file that uses SI units needs its own `in si;`.
