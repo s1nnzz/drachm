@@ -16,11 +16,14 @@ use crate::diag::{codes, Diagnostic, Span};
 use crate::hir::{self, ExprKind as K};
 use crate::types::Type;
 
-/// The synthesised functions of this module, keyed by type.
+/// The synthesised functions of this module, keyed by kind and type.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) enum AddrFunc {
     /// `(&T a, &T b) -> bool`: `T` is a list, an array or an optional of borrows.
     Same,
+    /// `(&L a, E item) -> bool`: some item of the list `L` is at the address
+    /// `item`, where `E` is the item type (a borrow, or an optional of one).
+    ContainsRef,
 }
 
 /// Why a value cannot be compared by address.
@@ -71,8 +74,11 @@ fn addr_func(g: &mut Globals, kind: AddrFunc, ty: Type) -> FuncId {
         return f;
     }
     let borrowed = Type::borrow(false, ty);
-    let AddrFunc::Same = kind;
-    let sig = Sig { name: format!("{ty} same as"), params: vec![Some(borrowed), Some(borrowed)], ret: Some(Type::Bool), span: Span::new(0, 0), fails: Vec::new(), outcome: None };
+    let (name, second) = match kind {
+        AddrFunc::Same => (format!("{ty} same as"), borrowed),
+        AddrFunc::ContainsRef => (format!("{ty} containsRef"), ty.elem().unwrap_or(ty)),
+    };
+    let sig = Sig { name, params: vec![Some(borrowed), Some(second)], ret: Some(Type::Bool), span: Span::new(0, 0), fails: Vec::new(), outcome: None };
     let f = g.add_sig(sig);
     g.addr_funcs.insert((kind, ty), f);
     g.addr_pending.push((kind, ty, f));
@@ -140,9 +146,28 @@ pub(super) fn addr_func_body(g: &mut Globals, kind: AddrFunc, ty: Type, f: FuncI
                 hir::Stmt::Return(Some(same_payload)),
             ]
         }
+        (AddrFunc::ContainsRef, Some(elem), _) => {
+            // Some item is at the address of the item argument.
+            let i = 2;
+            let index = |e: hir::Expr| hir::Expr::new(K::Index(Box::new(e), Box::new(hir::Expr::new(K::Local(i), Type::U64))), elem);
+            let len = |e: hir::Expr| hir::Expr::new(K::Len(Box::new(e)), Type::U64);
+            let bin = |op, a, b, ty| hir::Expr::new(K::Binary(op, Box::new(a), Box::new(b)), ty);
+            let found = same_address(g, index(whole(0)), hir::Expr::new(K::Local(1), elem), elem);
+            let cond = bin(hir::BinOp::Lt, hir::Expr::new(K::Local(i), Type::U64), len(whole(0)), Type::Bool);
+            let step = vec![hir::Stmt::Assign(hir::Place::local(i), bin(hir::BinOp::Add, hir::Expr::new(K::Local(i), Type::U64), hir::Expr::new(K::Int(1), Type::U64), Type::U64))];
+            vec![
+                hir::Stmt::Decl(i),
+                hir::Stmt::Assign(hir::Place::local(i), hir::Expr::new(K::Int(0), Type::U64)),
+                hir::Stmt::Loop { label: 0, cond: Some(cond), body: vec![hir::Stmt::If { label: 1, branches: vec![hir::Branch { test: Some(found), body: vec![ret(true)], end: none }] }], step, end: none },
+                ret(false),
+            ]
+        }
         _ => unreachable!("an address function is made for a list, an array or an optional"),
     };
-    let mut locals = vec![param("a", borrowed), param("b", borrowed)];
+    let mut locals = vec![param("a", borrowed), match kind {
+        AddrFunc::Same => param("b", borrowed),
+        AddrFunc::ContainsRef => param("item", ty.elem().unwrap_or(ty)),
+    }];
     locals.push(hir::Local { name: "i".into(), ty: Type::U64, span: none, mutability: hir::Mutability::Mut, is_param: false, written: None });
     hir::Func {
         symbol: format!("drachm_addr_{f}"),
@@ -161,6 +186,33 @@ pub(super) fn addr_func_body(g: &mut Globals, kind: AddrFunc, ty: Type, f: FuncI
 }
 
 impl Checker<'_> {
+    /// `xs::containsRef(&p)`: some item of the list `xs` is at the address `&p`.
+    /// The items must be borrows (or optionals of them); the argument is one.
+    pub(super) fn list_contains_ref(&mut self, v: hir::Expr, name_span: Span, args: &[ast::Expr]) -> Option<Val> {
+        let ty = v.ty;
+        let elem = ty.elem()?;
+        let [arg] = args else {
+            self.diags.push(
+                Diagnostic::at(&codes::E0103, name_span, format!("`containsRef` takes 1 argument, but {} given", args.len()))
+                    .note("takes 1 argument"),
+            );
+            for a in args {
+                self.expr(a);
+            }
+            return None;
+        };
+        if let Some(bad) = self.addr_refusal(elem, name_span, "`containsRef`") {
+            for a in args {
+                self.expr(a);
+            }
+            return bad;
+        }
+        let item = self.coerce(arg, elem)?;
+        let f = addr_func(self.g, AddrFunc::ContainsRef, ty);
+        let borrow = hir::Expr::new(K::Borrow { mutable: false, place: Box::new(v) }, Type::borrow(false, ty));
+        Some(Val::Expr(hir::Expr::new(K::Call(f, vec![borrow, item]), Type::Bool)))
+    }
+
     /// `a same as b`: the two sides must be borrows, or hold borrows, and of one type.
     pub(super) fn same_as(&mut self, l: &ast::Expr, r: &ast::Expr, span: Span) -> Option<Val> {
         // The borrows themselves, not what they point at (`expr` reads through them).
@@ -169,11 +221,11 @@ impl Checker<'_> {
         let lo = Origin { span: l.span, compound: false };
         let ro = Origin { span: r.span, compound: false };
         let lhs = self.materialise(lv, l.span)?;
-        if let Some(bad) = self.addr_refusal(lhs.ty, lo.span.to(span)) {
+        if let Some(bad) = self.addr_refusal(lhs.ty, lo.span.to(span), "`same as`") {
             return bad;
         }
         if let Val::Expr(x) = &rv
-            && let Some(bad) = self.addr_refusal(x.ty, ro.span)
+            && let Some(bad) = self.addr_refusal(x.ty, ro.span, "`same as`")
         {
             return bad;
         }
@@ -183,15 +235,22 @@ impl Checker<'_> {
     }
 
     /// The error when `ty` cannot be compared by address: E0633 for an owned
-    /// value, E0901 for a form not built yet. `None` when it can be compared.
-    fn addr_refusal(&mut self, ty: Type, span: Span) -> Option<Option<Val>> {
+    /// value, E0901 for a form not built yet. `None` when it can be compared;
+    /// `Some(None)` after an error (the check ends there). `shown` names the
+    /// operation in the message.
+    fn addr_refusal(&mut self, ty: Type, span: Span, shown: &str) -> Option<Option<Val>> {
         let why = refusal(self.g, ty)?;
         match why {
             Refusal::Owned => {
+                let help = if shown == "`same as`" {
+                    "borrow both sides with `&` to compare where they are: `&a same as &b`; `==` compares the values".to_string()
+                } else {
+                    "`contains` looks for the value itself".to_string()
+                };
                 self.diags.push(
-                    Diagnostic::at(&codes::E0633, span, format!("`same as` compares addresses, and `{ty}` is not a borrow"))
+                    Diagnostic::at(&codes::E0633, span, format!("{shown} compares addresses, and `{ty}` is not a borrow"))
                         .note(format!("`{ty}` is an owned value, so it has no address to compare"))
-                        .help("borrow both sides with `&` to compare where they are: `&a same as &b`; `==` compares the values"),
+                        .help(help),
                 );
             }
             Refusal::Later(what) => {

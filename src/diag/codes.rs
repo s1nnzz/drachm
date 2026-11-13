@@ -809,10 +809,11 @@ codes! {
          walked once for each: the variable's type picks which. `&T` looks at\n\
          each item; `&mut T` is not available, because `at` hands out values.";
     E0633: "address compare of an owned value",
-        "`same as` compares where two values are, so both sides must be borrows\n\
-         (or lists, optionals or maps that hold borrows). An owned value such as\n\
-         `string` or a number has no address to compare: borrow both sides with `&`\n\
-         to compare where they are, or use `==` to compare the values.\n\n\
+        "`same as` and `containsRef` compare where values are, so their items must\n\
+         be borrows (or lists, optionals or maps that hold borrows). An owned value\n\
+         such as `string` or a number has no address to compare: borrow both sides\n\
+         with `&` to compare where they are, or use `==` or `contains` to compare the\n\
+         values.\n\n\
          \x20   &a same as &b            // the same place\n\
          \x20   a == b                  // the same text or number";
     E0632: "same method name, several results",

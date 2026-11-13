@@ -535,6 +535,9 @@ none part5() {
     // `same as` asks whether two borrows are the same place, not the same text.
     string twin_slogan = "per aspera ad astra";
     io::outln(f"the longer one is the slogan itself: ${longer(&captain, &slogan) same as &slogan}; a copy of it is not: ${&slogan same as &twin_slogan}");
+    // `containsRef` asks the same of a list of borrows: is this exact place in it?
+    List<&string> banner = [&captain, &slogan];
+    io::outln(f"the banner holds the slogan: ${banner::containsRef(&slogan)}, its twin: ${banner::containsRef(&twin_slogan)}");
 
     mut string note = "mayday";
     shout_twice(&mut note);

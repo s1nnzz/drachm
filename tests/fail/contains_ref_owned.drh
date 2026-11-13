@@ -1,0 +1,7 @@
+in io;
+
+none main() {
+    string ann = "ann";
+    mut string[?] names = ["ann"];
+    io::outln(f"${names::containsRef(&ann)}");
+}

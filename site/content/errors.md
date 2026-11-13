@@ -1166,10 +1166,11 @@ each item; `&mut T` is not available, because `at` hands out values.
 
 ## E0633: address compare of an owned value
 
-`same as` compares where two values are, so both sides must be borrows
-(or lists, optionals or maps that hold borrows). An owned value such as
-`string` or a number has no address to compare: borrow both sides with `&`
-to compare where they are, or use `==` to compare the values.
+`same as` and `containsRef` compare where values are, so their items must
+be borrows (or lists, optionals or maps that hold borrows). An owned value
+such as `string` or a number has no address to compare: borrow both sides
+with `&` to compare where they are, or use `==` or `contains` to compare the
+values.
 
     &a same as &b            // the same place
     a == b                  // the same text or number

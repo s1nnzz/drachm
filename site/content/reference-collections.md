@@ -126,6 +126,13 @@ it; without the `&` it is E0101.
 
 <!-- example: list-compare -->
 
+`xs::containsRef(&p)` is the address version of `contains`: true when some item
+is a borrow of exactly the place `p`, even if another place holds equal text.
+It works on lists of borrows (and optionals of them), and on owned items it is
+E0633, which says to use `contains`.
+
+<!-- example: list-contains-ref -->
+
 ## Walking a list
 
 `for (T x of xs)` goes over the items in order, with `&T x` for a view and
