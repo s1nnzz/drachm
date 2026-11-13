@@ -25,10 +25,11 @@ Items marked **OPEN** are undecided. Do not invent answers for them: ask the own
 - Keywords so far: `otherwise any failure because exit extends Self none mut if else while for of match case return skip to
   struct interface with static public private new in out from as fails fail maybe
   copy lives open break continue unsafe async await move test true false lend take destroy leaving address
-  stays changes by asm`. Always reserved: `lend`, `take`, `destroy`. Context-only (ordinary names elsewhere):
+  stays changes by asm fixed`. Always reserved: `lend`, `take`, `destroy`. Context-only (ordinary names elsewhere):
   `to` directly after `skip`; `by` directly after a range in `for (... of a..b by n)`;
   `unit` at the start of a top-level item, followed by a name and `;` or `=` (a unit
   declaration; elsewhere an ordinary name, so `static Circle unit()` is fine);
+  `fixed` at the start of a top-level value (`fixed uint32 MAX = ...;`, and `*fixed T` pointers);
   `leaving` directly after `take <place>`; `address` directly before `of`; `stays` directly after a
   struct's name (and `lives` list); `changes` directly before `self` after an interface method's
   parameters; `asm` directly after an `unsafe` function's signature; `globbed` directly after `case`;
@@ -393,10 +394,26 @@ Type parameters always use `<>`. `with` constrains them.
   length (`struct Mod<uint64 P>`). Errors: E0634 (not a constant), E0635 (does not
   fit the parameter's type), E0636 (length 0), E0602 (a type for a value or the
   reverse), E0603 (two arguments disagree), E0609 (used as a type). E0901: a
-  calculation on a value parameter in a type (`T[N + 1]`, `Buffer<T, N * 2>`), a
   constraint on a value parameter, a value parameter on an interface, a value above
-  the largest `sint128`. There are no named constants yet, so a name that is not a
-  value parameter is E0634.
+  the largest `sint128`. A name that is neither a value parameter nor a named
+  constant is E0634.
+- Built (Q12 follow-ups, 2026-11-13): named constants and constant arithmetic in
+  types. A top-level non-`mut` number whose initializer is a compile-time constant
+  (numbers, other constants, arithmetic; any order) is a named constant: usable as a
+  value and in types (`uint32 SIZE = 8; uint8[SIZE] raw; Buffer<sint32, SIZE * 2> b;`).
+  `fixed` in front (`fixed uint32 MAX = SIZE * 2;`) is optional and makes the
+  compiler check the value is constant (E0637 otherwise). `fixed` is context-only: a
+  word at the start of a top-level value (and still `*fixed T`). A local with the same
+  name shadows the constant. Duplicate names are E0638. A top-level value that is not
+  constant (a call, `io::inln()`), a top-level `mut`, and a top-level value that is not
+  a number are E0901 until scripts (step 7, Q10); using such a name in a type is E0634
+  with a note that it gets its value while the program runs. Any constant arithmetic
+  on value parameters is allowed inside types and is checked per instance:
+  `T[N + 1]`, `Buffer<T, N * 2>`; a result that is out of range (E0635) or a zero
+  length (E0636) is reported with the instantiation. A function infers a value
+  parameter only from a plain `T[N]`, or from `[N + k]`, `[N - k]`, `[k - N]`, `[N * k]`
+  and `[k * N]` with a number `k` (my reading of "trivially solvable"); anything
+  else is E0601 asking the call to write the argument.
 - Not built: a constraint on a unit parameter (`unit U with Shape`, E0901); methods with type parameters of
   their own, allowed only through interface methods (Q15: `interface Mappable<T>
   { U[?] map<U>((T) => U f); }`, E0901 today).

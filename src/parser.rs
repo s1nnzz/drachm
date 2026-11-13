@@ -20,6 +20,7 @@ pub fn parse(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>) -> Program {
         impls: Vec::new(),
         failures: Vec::new(),
         defs: Vec::new(),
+        consts: Vec::new(),
         unsafe_allowed: false,
         optionals: Vec::new(),
         generics: Vec::new(),
@@ -42,6 +43,8 @@ pub fn parse(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>) -> Program {
             p.unit_decl().map(|u| program.units.push(u))
         } else if p.at_def_item() {
             p.def_decl().map(|d| program.defs.push(d))
+        } else if p.at_const_item() {
+            p.const_decl().map(|c| program.consts.push(c))
         } else {
             p.func().map(|f| program.funcs.push(f))
         };
@@ -390,11 +393,8 @@ impl Parser<'_> {
                     Dim::Param(types::intern(&name), at)
                 }
                 Tok::Ident(_) | Tok::Num(..) if self.peek_at(1) != &Tok::Sym("]") => {
-                    let start = self.span();
-                    while !matches!(self.peek(), Tok::Sym("]") | Tok::Eof) {
-                        self.bump();
-                    }
-                    Dim::Complex(start.to(self.prev_span()))
+                    let e = self.const_sum()?;
+                    Dim::Calc(Box::leak(Box::new(e.clone())), e.span())
                 }
                 Tok::Num(NumLit { value: Const::Int(v), .. }, None) => {
                     let at = self.span();
@@ -428,8 +428,8 @@ impl Parser<'_> {
         }
         let close = match self.peek_at(n + 1) {
             Tok::Sym("?") => n + 2,
-            Tok::Num(NumLit { value: Const::Int(_), suffix: None, .. }, None) => n + 2,
-            Tok::Ident(_) => self.dim_param_end(n + 1)?,
+            Tok::Num(NumLit { value: Const::Int(_), suffix: None, .. }, None) if self.peek_at(n + 2) == &Tok::Sym("]") => n + 2,
+            Tok::Ident(_) | Tok::Num(NumLit { value: Const::Int(_), suffix: None, .. }, None) => self.dim_param_end(n + 1)?,
             _ => return None,
         };
         (self.peek_at(close) == &Tok::Sym("]")).then_some(close + 1)
@@ -771,6 +771,41 @@ impl Parser<'_> {
         matches!(self.peek(), Tok::Ident(w) if w == "unit")
             && matches!(self.peek_at(1), Tok::Ident(_))
             && matches!(self.peek_at(2), Tok::Sym(";" | "="))
+    }
+
+    /// The offset after the optional `fixed` and `mut` of a top-level value.
+    fn const_prefix(&self) -> usize {
+        let mut n = 0;
+        if matches!(self.peek(), Tok::Ident(w) if w == "fixed") && !matches!(self.peek_at(1), Tok::Sym("=" | ";" | "(" | "<")) {
+            n += 1;
+        }
+        if self.peek_at(n) == &Tok::Kw("mut") {
+            n += 1;
+        }
+        n
+    }
+
+    /// Does a top-level value (`Type NAME = ...;`) start here?
+    fn at_const_item(&self) -> bool {
+        let from = self.const_prefix();
+        match self.type_end(from) {
+            Some(n) => matches!(self.peek_at(n), Tok::Ident(_)) && matches!(self.peek_at(n + 1), Tok::Sym("=" | ";")),
+            None => false,
+        }
+    }
+
+    /// `[fixed] [mut] Type NAME = value;`
+    fn const_decl(&mut self) -> Parsed<ConstDecl> {
+        let start = self.span();
+        let fixed = matches!(self.peek(), Tok::Ident(w) if w == "fixed") && self.const_prefix() > 0;
+        if fixed {
+            self.bump();
+        }
+        let mutable = self.eat_kw("mut");
+        match self.binding(start, mutable, false)? {
+            Stmt::Let { ty, name, name_span, value, span, .. } => Ok(ConstDecl { fixed, mutable, ty, name, name_span, value, span }),
+            _ => unreachable!(),
+        }
     }
 
     /// Does a top-level item (a function, struct or import) start here?
@@ -2761,7 +2796,7 @@ mod tests {
                 Dim::List(_) => s.push_str("[?]"),
                 Dim::Array(n, _) => s.push_str(&format!("[{n}]")),
                 Dim::Param(n, _) => s.push_str(&format!("[{n}]")),
-                Dim::Complex(_) => s.push_str("[..]"),
+                Dim::Calc(..) => s.push_str("[..]"),
             }
         }
         if t.optional.is_some() {

@@ -1,0 +1,36 @@
+in io;
+
+// A top-level value with a constant initializer is a named constant. It can
+// be used in types, and `fixed` makes the compiler check that it is constant.
+uint32 SIZE = 4;
+fixed uint32 MAX = SIZE * 2;
+
+struct Buffer<T, uint32 N> {
+    public:
+    T[N] items;
+    static uint32 capacity() { return N; }
+}
+
+// Calculations on a value parameter are worked out for each instance.
+struct Padded<T, uint32 N> {
+    public:
+    T[N + 1] items;
+    Buffer<T, N * 2> twice;
+}
+
+// `N + 1` is simple enough to be worked out from the argument.
+uint32 spare<uint32 N>(&sint32[N + 1] a) {
+    return N;
+}
+
+none main() {
+    uint8[SIZE] raw = [0, 1, 2, 3];
+    io::outln(f"${raw::len()} bytes, MAX is ${MAX}");
+    io::outln(f"${Buffer<sint32, MAX>::capacity()} slots");
+
+    Padded<sint32, 2> p = new Padded<sint32, 2> of ([1, 2, 3], new Buffer<sint32, 4> of ([4, 5, 6, 7]));
+    io::outln(f"${p.items::len()} items and ${p.twice.items::len()} more");
+
+    sint32[SIZE * 2 - 5] odd = [7, 8, 9];
+    io::outln(f"spare: ${spare(&odd)}");
+}

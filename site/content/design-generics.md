@@ -90,14 +90,10 @@ used through a constraint, but not yet through a borrow.
 
 ### Calculations on value parameters
 
-<!-- status: not-implemented -->
-
 A value parameter (see [Value parameters](reference-generics.md#value-parameters))
-can be passed on whole or used in the body, but a calculation on one inside a
-type is E0901 today: `T[N + 1]` as a field, or `Buffer<T, N * 2>` as a type
-argument. Whether and how such lengths are worked out at compile time is still
-to decide. Named constants (`SIZE`) do not exist yet, so a value argument is a
-number, a calculation on numbers, or a value parameter.
+can be used in a calculation inside a type: `T[N + 1]` as a field, or
+`Buffer<T, N * 2>` as a type argument. The calculation is worked out for each
+instance. See [Named constants and calculations](reference-generics.md#named-constants-and-calculations).
 
 ### Exclusive parameters
 

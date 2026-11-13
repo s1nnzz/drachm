@@ -296,6 +296,11 @@ public:
 
 X draw_from<X, Src with Source<X>>(&mut Src s) { return s::next(); }
 
+// A top-level value with a constant initializer is a named constant, and it
+// can size a type. `fixed` makes the compiler check that it is constant.
+uint32 BAYS = 3;
+fixed uint32 RACK_SLOTS = BAYS;
+
 // A value parameter puts a number into the type: a rack has a fixed number of
 // slots, and `Rack<uint32, 3>` is not `Rack<uint32, 4>`.
 struct Rack<X, uint32 Slots> {
@@ -313,6 +318,14 @@ float64 total_draw<uint32 Len>(&float64[Len] draws) {
 }
 
 uint32 count_of<X, uint32 Len>(&X[Len] items) { return Len; }
+
+// A calculation on a value parameter is worked out for each instance, so a
+// `Locker<uint32, 3>` has four shelves: one more than the rack has slots.
+struct Locker<X, uint32 Slots> {
+public:
+    X[Slots + 1] shelves;
+    static uint32 shelf_count() { return Slots + 1; }
+}
 
 none part3() {
     io::outln("== Part 3: ship systems ==");
@@ -338,9 +351,11 @@ none part3() {
     mut float64 convoy_power = 0.0;
     for (Drive d of convoy) { convoy_power += d::power(); }
     io::outln(f"convoy of ${convoy.size} draws ${convoy_power} kW");
-    Rack<uint32, 3> rack = new Rack<uint32, 3> of ([4, 8, 15]);
-    float64[3] draws = [core::power(), engine::power(), convoy_power];
-    io::outln(f"a rack of ${Rack<uint32, 3>::slots()} holds ${rack::mounted(2)} in its last slot; ${count_of(&draws)} draws total ${total_draw(&draws)} kW");
+    Rack<uint32, RACK_SLOTS> rack = new Rack<uint32, RACK_SLOTS> of ([4, 8, 15]);
+    Locker<uint32, RACK_SLOTS> locker = new Locker<uint32, RACK_SLOTS> of ([1, 2, 3, 4]);
+    float64[RACK_SLOTS] draws = [core::power(), engine::power(), convoy_power];
+    io::outln(f"a rack of ${Rack<uint32, RACK_SLOTS>::slots()} holds ${rack::mounted(2)} in its last slot; ${count_of(&draws)} draws total ${total_draw(&draws)} kW");
+    io::outln(f"the locker beside it has ${Locker<uint32, RACK_SLOTS>::shelf_count()} shelves, ${locker.shelves::len()} of them in use");
     io::outln("");
 }
 

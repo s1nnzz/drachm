@@ -3,6 +3,7 @@
 //! Loops, jumps and `match` are in `control`; strings are in `strings`.
 
 mod addresses;
+mod constants;
 mod construct;
 mod control;
 mod dynamic;
@@ -152,6 +153,10 @@ struct Globals {
     /// The type parameters of the instance being resolved or checked, and what
     /// they stand for here.
     tenv: HashMap<String, Type>,
+    /// Named constants: top-level values with a constant initializer (`constants.rs`).
+    consts: HashMap<String, constants::ConstInfo>,
+    /// Top-level values that are only known while the program runs (already E0901).
+    run_values: std::collections::HashSet<String>,
 }
 
 impl Globals {
@@ -505,6 +510,7 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
         debug_assert!(prelude_diags.is_empty(), "the SI prelude must check");
     }
     units::declare_units(&mut g, &prog.units, diags);
+    constants::declare(&mut g, &prog.consts, diags);
 
     // Struct names first, so that any type can name any struct, wherever it is defined.
     generics::split_written(&mut g, prog);
@@ -2786,6 +2792,7 @@ impl<'a> Checker<'a> {
                     let c = Const::Int(num_bigint::BigInt::from(v));
                     Some(Val::Expr(self.fit_const(&c, ty, e.span, true)))
                 }
+                None if let Some(info) = self.g.consts.get(name).cloned() => Some(Val::Expr(self.fit_const(&info.value, info.ty, e.span, true))),
                 None if self.ambiguous_bare(name, e.span) => None,
                 None if self.g.mono.templates.contains_key(name) && !self.g.funcs_by_name.contains_key(name) => {
                     self.generic_by_name(name, e.span);

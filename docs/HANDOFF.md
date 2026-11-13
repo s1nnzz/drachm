@@ -21,21 +21,24 @@ For a new session with no memory of earlier conversations. Read this, then
   (counts down), a run-time zero step stops with `range step is zero` (exit
   101), a literal zero is E0115; float ranges with `by` (value k is
   `start + k * step`).
-- **To build next (decided 2026-11-13, owner-answers "Step 7 batch D ... Q12
-  follow-ups")**: named constants (non-`mut` top-level with a constant value
-  usable in types; optional `fixed`), constant arithmetic on value parameters
-  in types (`T[N + 1]`, E0901 today).
+- **Built** (owner-answers "Step 7 batch D ... Q12 follow-ups"): named
+  constants (`src/typeck/constants.rs`: non-`mut` top-level number with a
+  constant value, usable in types; optional `fixed`, E0637/E0638) and constant
+  arithmetic on value parameters in types (`T[N + 1]`, `Buffer<T, N * 2>`).
+  Top-level values of the run (non-constant, `mut`) are E0901 until scripts.
 - **To build (small)**: an unsigned loop with a literal negative `by` counts
   down with a warning (today W0102 and wraps). Answers in owner-answers
   "Follow-ups, 2026-11-13 (late)".
 - **Design doc not synced yet** with the 2026-11-13 answers (tesla, unit-named
   parameters, `by` signs, float `by`, Q12 details, named constants, step 7
   batches A-D): the Docs connector was timing out. Do it next session.
-- **In flight (2026-11-13)**: an architect agent on named constants + value
-  parameter arithmetic; an architect agent on step 7 WP1 (multi-file front
-  end). Step 7 spec: `docs/impl/step7-modules.md`; batches A-D answered
+- **In flight (2026-11-13)**: an architect agent on step 7 WP1 (multi-file
+  front end). Step 7 spec: `docs/impl/step7-modules.md`; batches A-D answered
   (owner-answers), batch E and some sub-questions (9b, 13b, 13c, 15c, re-export,
   climbing a folder up) still open.
+- **Owner questions pending (constants)**: `uint8 BIG = 300;` wraps with W0102,
+  hard error instead?; a local named like a constant hides it silently, warn
+  like Q4?; inference solves `[N]`, `[N +- k]`, `[k - N]`, `[N * k]` only.
 - Still undesigned: `exclusive &Shape`, `unit U with X`. Not built: map-walk
   views, interface methods with their own type parameters, borrowing a generic
   interface.

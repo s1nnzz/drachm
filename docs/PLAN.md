@@ -655,8 +655,9 @@ Interims still open (each is E0901 unless noted; the question says what the owne
 - Interface methods with type parameters of their own, and struct methods with
   their own type parameters (Q15).
 - A constraint on a unit parameter, `unit U with Shape` (Q2 family; E0901).
-- Value parameters (Q12) are built; a calculation on one inside a type
-  (`T[N + 1]`), a constraint on one, and one on an interface are E0901.
+- Value parameters (Q12) are built, with named constants and constant arithmetic
+  in types; a constraint on one and one on an interface are E0901. Top-level
+  values of the run (non-constant, `mut`) wait for scripts (step 7).
 - `take xs[i] leaving v` (Q11; keeps length and order; E0901).
 - Views of map entries, `for (&K k, V v of m)` (Q16 follow-up; E0901).
 - A `&mut T x` loop variable over `Iterable<T>` (E0901: `at` hands out values).

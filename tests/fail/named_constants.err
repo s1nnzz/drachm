@@ -1,0 +1,9 @@
+error[E0637]: `BAD` is `fixed`, but this call is not a constant
+error[E0901]: this call is only known while the program runs
+warning[W0102]: this constant does not fit `uint8`
+error[E0638]: `SIZE` is defined twice
+error[E0634]: `A` is defined in terms of itself
+error[E0636]: this length is 0, and an array needs at least one item
+error[E0635]: 400 does not fit `uint8`, the type of `P`
+error[E0634]: `RUN` is not a constant
+error[E0601]: cannot tell what `N` is in this call of `halved`
