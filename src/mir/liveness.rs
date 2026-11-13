@@ -20,6 +20,7 @@ pub fn holds_user_drop(hir: &hir::Program, ty: Type) -> bool {
         }
         Type::Enum { id, .. } => hir.enums[id].variants.iter().flat_map(|v| &v.fields).any(|f| holds_user_drop(hir, f.ty)),
         Type::List { elem } | Type::Array { elem, .. } => holds_user_drop(hir, *elem),
+        Type::Map { key, val, .. } => holds_user_drop(hir, *key) || holds_user_drop(hir, *val),
         _ => false,
     }
 }
@@ -42,6 +43,9 @@ fn operand_local(op: &Operand, f: &mut impl FnMut(Local)) {
 
 pub fn rvalue_locals(rv: &Rvalue, f: &mut impl FnMut(Local)) {
     match rv {
+        Rvalue::MakeFn(_, _, Some(p)) => place_local(p, f),
+        Rvalue::MakeFn(_, _, None) => {}
+
         Rvalue::Use(o) | Rvalue::Neg(o) | Rvalue::Not(o) | Rvalue::BitNot(o) | Rvalue::Convert(o, _) | Rvalue::Unsize(o, _) => operand_local(o, f),
         Rvalue::Binary(_, a, b) | Rvalue::IntPow(a, b) => {
             operand_local(a, f);
@@ -52,7 +56,7 @@ pub fn rvalue_locals(rv: &Rvalue, f: &mut impl FnMut(Local)) {
             operand_local(amount, f);
         }
         Rvalue::Aggregate(_, ops) | Rvalue::Variant(_, _, ops) | Rvalue::Array(_, ops) => ops.iter().for_each(|o| operand_local(o, f)),
-        Rvalue::ListNew(..) => {}
+        Rvalue::ListNew(..) | Rvalue::MapNew(_) => {}
         Rvalue::Ref(_, p) | Rvalue::RawRef(p) | Rvalue::DeepCopy(p) | Rvalue::Discriminant(p) | Rvalue::Len(p) => place_local(p, f),
     }
 }

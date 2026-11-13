@@ -6,7 +6,7 @@ status: not-implemented
 
 # Lesson 16: Collections and for-each
 
-The compiler can't run this lesson yet; the code shows the planned design.
+The array, list and map lookup examples run today. Map iteration is planned.
 
 **Goal:** keep many values together, look them up, and visit each one.
 
@@ -65,8 +65,8 @@ xs::push("a");
 ## Walking a collection
 
 `for` with `of` visits each item in turn. The name before `of` holds the current
-item. A map visits its entries in no promised order, and an `OrderedMap` keeps
-the order they were added in.
+item. Planned map loops will use two bindings. An `OrderedMap` will visit its
+entries in insertion order, while an ordinary map has no promised order.
 
 <!-- focus: 2 -->
 `total` is declared `mut` so the loop can add to it.

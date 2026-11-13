@@ -39,17 +39,17 @@ pub(crate) fn cl_type(t: Type) -> Option<ClType> {
         Type::Float(_) => Some(types::F64),
         Type::Bool => Some(types::I8),
         // A fat borrow is two words in memory.
-        Type::Ref { to: Type::Dyn { .. }, .. } => None,
+        Type::Ref { to: Type::Dyn { .. }, .. } | Type::Func(_) => None,
         Type::Ref { .. } | Type::Ptr { .. } | Type::FixedPtr { .. } => Some(types::I64),
         Type::Dyn { .. } => unreachable!("an interface is only the target of a borrow"),
-        Type::None | Type::Str | Type::List { .. } | Type::Array { .. } | Type::Struct { .. } | Type::Enum { .. } => None,
+        Type::None | Type::Str | Type::List { .. } | Type::Map { .. } | Type::Array { .. } | Type::Struct { .. } | Type::Enum { .. } => None,
         Type::Unit { .. } => unreachable!("units are erased before the backends"),
     }
 }
 
 /// Strings and structs live in memory and are handled by address.
 pub(crate) fn in_memory(t: Type) -> bool {
-    t == Type::Str || t.is_list() || t.is_array() || t.struct_id().is_some() || t.enum_id().is_some() || t.is_fat()
+    t == Type::Str || t.is_list() || t.is_map() || t.is_array() || t.struct_id().is_some() || t.enum_id().is_some() || t.is_fat() || t.is_func()
 }
 
 pub(crate) fn signature(module: &ObjectModule, f: &Func) -> Signature {
@@ -101,4 +101,27 @@ pub(crate) fn emit_c_main(
     module.define_function(id, ctx).map_err(err)?;
     module.clear_context(ctx);
     Ok(())
+}
+
+/// The key function tag of a map key type (S6D). Keys hash and compare by
+/// their bits, so a tag is the key's width; a `string` has its own.
+pub fn key_tag(k: crate::types::Type) -> &'static str {
+    use crate::types::Type;
+    match k.bare() {
+        Type::Str => "str",
+        t => match crate::hir::scalar_size(t) {
+            Some(1) => "u8",
+            Some(2) => "u16",
+            Some(4) => "u32",
+            Some(8) => "u64",
+            Some(16) => "u128",
+            _ => unreachable!("a map key is a number, bool or string"),
+        },
+    }
+}
+
+/// Ordered and unordered maps with the same key and value share runtime operations.
+pub fn map_ops_type(map: crate::types::Type) -> crate::types::Type {
+    let (key, value) = map.map_parts().expect("a map");
+    crate::types::Type::map(key, value, false)
 }

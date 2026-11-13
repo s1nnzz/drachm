@@ -222,6 +222,8 @@ pub struct Arg {
 pub enum Callee {
     /// User function or method (`self` is `args[0]`).
     Func(FuncId),
+    /// A call through a function value, which is the first argument.
+    Fn(Type),
     /// A method through a `&Iface`: slot `method` of the vtable of `args[0]`,
     /// which is the borrow itself (`&Iface`, `&mut Iface` if the method changes `self`).
     Dyn { iface: usize, method: usize },
@@ -260,6 +262,8 @@ pub enum Callee {
     ListOp(hir::ListOp, Type),
     /// `(&list, index)`: whether `get(index)` finds an item of this type.
     ListHas(Type),
+    /// A map call on a map type (S6D, see `MapFn`).
+    MapOp(MapFn, Type),
     /// `(index, length)` of a failed bounds check: stops the program. `unsigned`
     /// when the index was an unsigned number (a signed one prints as it is).
     IndexPanic { unsigned: bool },
@@ -327,6 +331,7 @@ pub enum Rvalue {
     Convert(Operand, Type),
     /// A `&S` made a `&Iface` of the given type: the borrow and the vtable
     /// of `S` for the interface, two words.
+    MakeFn(FuncId, Type, Option<Place>),
     Unsize(Operand, Type),
     Ref(BorrowKind, Place),
     /// `address of place`: makes a `*T`.
@@ -343,8 +348,24 @@ pub enum Rvalue {
     Len(Place),
     /// An empty list of this type with room for this many items.
     ListNew(Type, u64),
+    /// An empty map of this type.
+    MapNew(Type),
     /// An array of this type from its items, in order.
     Array(Type, Vec<Operand>),
+}
+
+/// The runtime calls behind a map (`runtime/lists.h`, `drachm_map_*`). The map
+/// is `&Map`/`&mut Map`, a key `&K` (or `K` moved in for `Set`), a value `V`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MapFn {
+    /// `(&map, &key) -> V?`: copies out the value if present.
+    Get(Type),
+    /// `(&mut map, key, value)`: adds the entry or replaces the value.
+    Set,
+    /// `(&mut map, &key)`: removes the entry, dropping its key and value.
+    Remove,
+    /// `(&map) -> uint64`: the number of entries.
+    Len,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -409,7 +430,7 @@ pub fn validate(p: &Program, hir: &hir::Program) -> Result<(), Vec<String>> {
 /// `StructDef.copy` says so.
 pub fn is_copy(hir: &hir::Program, ty: Type) -> bool {
     match ty {
-        Type::Str | Type::List { .. } => false,
+        Type::Str | Type::List { .. } | Type::Map { .. } => false,
         Type::Array { elem, .. } => is_copy(hir, *elem) && hir.size_align(ty).0 <= 32,
         Type::Struct { id, .. } => hir.structs[id].copy,
         Type::Enum { id, .. } => hir.enums[id].copy,
@@ -423,7 +444,7 @@ pub fn is_copy(hir: &hir::Program, ty: Type) -> bool {
 /// `drop()`, or a struct holding either. Borrows and raw pointers never.
 pub fn needs_drop(hir: &hir::Program, ty: Type) -> bool {
     match ty {
-        Type::Str | Type::List { .. } => true,
+        Type::Str | Type::List { .. } | Type::Map { .. } => true,
         Type::Array { elem, .. } => needs_drop(hir, *elem),
         Type::Struct { id, .. } => {
             let s = &hir.structs[id];

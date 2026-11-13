@@ -41,7 +41,8 @@ variants. See [Enums](reference-enums.md).
 A type name followed by `<` is read as a unit only after a number type
 (`float64<m/s>`); after any other name it opens type arguments
 (`Map<string, uint32>`), and a name that takes none is E0602. `[?]` and `[N]`
-after a type write a list and an array. Type arguments work for generic
+after a type write a list and an array. `Map<K, V>` and `OrderedMap<K, V>` are
+built too; see [Maps](reference-collections.md#maps). Type arguments work for generic
 functions, structs and enums today, and `Optional<T>` is `T?` spelled out; see
 [Generics](reference-generics.md).
 
@@ -49,6 +50,12 @@ functions, structs and enums today, and `Optional<T>` is `T?` spelled out; see
 
 `T?` is a `T` that may be missing: a value of type `T`, or `none`. See
 [Optionals](reference-enums.md#optionals).
+
+## Function types
+
+`(uint32) => uint32` takes one `uint32` and returns another.
+`() => none` takes no arguments and gives no result. See
+[Function types and lambdas](reference-generics.md#function-types-and-lambdas).
 
 ## Borrow types
 

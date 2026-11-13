@@ -406,3 +406,74 @@ implement `Equal` without writing `==`, because every struct has one.
 
 `float64<U> twice<unit U>(float64<U> x)` would work with any unit and keep it.
 Today `unit U` is E0901. The spelling is still open.
+
+## Function types and lambdas
+
+A function type lists its parameter types in parentheses, then `=>` and
+its result type. A local or parameter of function type is called with
+ordinary parentheses. A named function can be passed by name wherever its
+function type is expected.
+
+<!-- example: lambda-basic -->
+
+The parameter and result types must match (E0650 and E0651). Function
+values can be held in locals and passed down as arguments. Returning one
+or storing one inside another value is E0652.
+
+### Lambda expressions
+
+Write the parameter types and names, followed by `=>`. An expression body
+takes its result type from the expression. A block body takes its result type
+from its `return` statements, which must agree. A block with no return
+statements gives `none`.
+
+<!-- example: lambda-expression -->
+
+### Captures
+
+A lambda borrows the enclosing locals it uses. Reads give it a shared borrow.
+If its body changes a capture, the compiler infers a mutable borrow. The
+borrow lasts until the last use of the function value.
+
+<!-- example: lambda-capture -->
+
+Changing a borrowed capture before the last call gives E0302. For example,
+changing `extra` between creating `add` and calling it would produce
+`` error[E0302]: cannot change `extra` while it is borrowed `` if `extra` were declared `mut`.
+
+A `move` lambda takes ownership of its captures. Using an owning value again
+after it has been moved into a lambda gives E0301.
+
+<!-- example: lambda-move -->
+
+#### Other capture and result forms
+
+<!-- status: not-implemented -->
+
+Borrowing an existing borrow or holder into a closure, capturing a function
+value, and returning a borrow from a lambda are pending.
+
+#### Changing fixed move captures
+
+<!-- status: tentative -->
+
+The mutability rule for fixed bindings captured by `move` is open. Changing
+one currently gives E0901.
+
+### Collection callbacks
+
+Lists and arrays call an `each` callback once per item, in order.
+For a collection of `T`, the callback takes `T` or `&T` and gives
+`none`. A by-value parameter gets its own copy of an owning item, while
+`&T` reads the original item.
+
+<!-- example: lambda-each -->
+
+#### Mutable item callbacks
+
+<!-- status: tentative -->
+
+The callback and borrow rules for mutable item access through `each` are
+open. An `&mut T` callback gives E0901. Use a
+[`for` loop with `&mut T`](reference-control-flow.md#looping-over-a-list)
+to change items.

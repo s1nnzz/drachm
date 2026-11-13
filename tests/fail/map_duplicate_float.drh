@@ -1,0 +1,3 @@
+none main() {
+    Map<float32, uint32> entries = { 1.5: 1, 1.50: 2 };
+}

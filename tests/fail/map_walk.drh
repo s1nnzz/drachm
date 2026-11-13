@@ -1,0 +1,11 @@
+in io;
+
+none main() {
+    mut Map<string, uint32> ages = { "a": 1 };
+    for (string k, uint32 v of ages) {
+        io::outln(k);
+    }
+    mut OrderedMap<string, uint32> o = {};
+    o["x"] = 3;
+    io::outln((o["x"] maybe 0)::text());
+}

@@ -1,0 +1,3 @@
+loan L0: &_1 at P4 in {P5,P6,P7}
+loan L1: &_3 at P6 in {P7}
+$env.capture0

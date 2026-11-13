@@ -24,13 +24,13 @@ answers into `docs/SPEC.md` and the design doc, and note leftovers under that st
 | 4.5 | Units of measure | done (`in si;`, points and deltas, scaled integers wrap; decisions in `docs/impl/step4.5-units.md`) |
 | 4.6 | Input: `io::inln()`, `io::ended()`, text `::to<T>()` | done (interim: bad text stops the program with exit 101; forgiving number text (spaces, `+`, `.5`); `\r\n` lines; invalid UTF-8 becomes U+FFFD) |
 | 5 | Constructors, enums, `fails` / `maybe` | done (the `crash` setting of `unhandled_fail` waits for step 7): S5A.1 done (enums with data, `match` with bindings/`take`/`copy`/guards/nesting/alternatives/values, exhaustiveness, `Switch`; `==` for payload-free enums) and S5B done (constructors, overloads, `new ... of`, named values, `Person(auto);`, `fill`, `fill partial`, `def`, `defaults`, `now`); optionals done (S5A.2, below); failures done (S5C and S5D, below: `failure`, `fails`, `fail`, `maybe`/`fails` on calls, handlers, `because`, `ConvertError`, exit codes, failing constructors and `drop()`) |
-| 6 | Generics, interfaces, collections | in progress: S6A.1 and S6A.2 done (generic structs and enums by monomorphisation, `Optional<T>`, `new Stack<T> of`, `Stack<T>::f()`; type syntax `Name<A,B>`, `T[?]`, `T[N]`; on-demand layout; generic functions, explicit and inferred type arguments; E0601-E0605, E0608, W0600). S6B done: interfaces (`interface`, `with`, `extends`, `Self`, `static`, required fields, `changes self`), `<T with I>` checked at the definition and at each instance, `T::zero()`, `TYPE with I { }` declarations for structs and number/bool/string types, built-in `Zero` `Equal` `Ordered` `Text` (tentative set); E0606, E0607, E0610-E0617. Interims: borrow type arguments, partial explicit type arguments and `unit` parameters are E0901; generic interfaces, interface methods with their own type parameters are E0901; S6E done: `&Shape` / `&mut Shape` (fat borrows, vtables, dynamic calls, required-field reads, automatic upcasts; E0619, E0640), with E0901 for `exclusive`, field writes through `&mut Iface`, methods returning borrows, holders and lists of borrows; lists and arrays in types are E0901 until S6C |
+| 6 | Generics, interfaces, collections | in progress: S6A.1 and S6A.2 done (generic structs and enums by monomorphisation, `Optional<T>`, `new Stack<T> of`, `Stack<T>::f()`; type syntax `Name<A,B>`, `T[?]`, `T[N]`; on-demand layout; generic functions, explicit and inferred type arguments; E0601-E0605, E0608, W0600). S6B done: interfaces (`interface`, `with`, `extends`, `Self`, `static`, required fields, `changes self`), `<T with I>` checked at the definition and at each instance, `T::zero()`, `TYPE with I { }` declarations for structs and number/bool/string types, built-in `Zero` `Equal` `Ordered` `Text` (tentative set); E0606, E0607, E0610-E0617. Interims: borrow type arguments, partial explicit type arguments and `unit` parameters are E0901; generic interfaces, interface methods with their own type parameters are E0901; S6E done: `&Shape` / `&mut Shape` (fat borrows, vtables, dynamic calls, required-field reads, automatic upcasts; E0619, E0640), with E0901 for `exclusive`, field writes through `&mut Iface`, methods returning borrows, holders and lists of borrows. S6C supports lists and arrays. S6F built: function types, lambdas, shared and inferred mutable captures, `move`, and value or shared-view `each`. S6D partial: scalar-key maps, ordered maps, literals, lookup, basic mutation and owning glue on both backends; pending: composite keys and `key()`, compound updates, iteration and borrowed values |
 | 7 | Modules, config, scripts, stdlib | not started |
 | 7.5 | MIR optimiser: SSA, inlining, scalar replacement, constant folding, loop opts, check elimination, alias info from borrows | not started |
 | 8 | Language server | not started |
 | D | Documentation site (cross-cutting) | live locally: lessons 1-9, reference, design pages with status badges |
 
-Later, unscheduled: concurrency (threads, async, lambdas beyond step 6),
+Later, unscheduled: concurrency (threads and async),
 C header import, `drachm fmt`, the Agora registry.
 
 ---
@@ -645,8 +645,12 @@ Work:
    `T[N]`, `List<T>` / `T[?]` (push, len, get, indexing, iteration), and
    `Map<K, V>` with `{ k: v }` literals, `[]` returning `V?` and `::get`.
    Bounds checks panic by default.
-4. Lambdas `(T x) => expr` and `{ block }`, captures by borrow, `move`. Needed
-   for `names::each`.
+4. S6F built: arrow function types, named functions as values, expression
+   and block lambdas, shared and inferred mutable captures, `move`, and
+   `each` over lists and arrays with value or shared-view callbacks.
+   Function values can be locals and parameters. Returning or storing them
+   in other values is E0652. Mutable item callbacks for `each` are open
+   and give E0901 in the interim.
 5. The `chars`/`split`/`lines` return types become real `string[?]`.
 
 **Done when:** generic `max` and `Stack<T>`, an interface with two structs, and

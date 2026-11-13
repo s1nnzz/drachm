@@ -1,0 +1,43 @@
+in io;
+
+struct Registry<V> {
+    public:
+    Map<string, V> items;
+}
+
+enum Entry {
+    Empty,
+    Stored(Map<string, string> items),
+}
+
+Map<string, string> move_map(Map<string, string> m) {
+    return m;
+}
+
+none main() {
+    mut Map<string, string> names = { "a": "before" };
+    Map<string, string> saved = copy names;
+    names["a"] = "after";
+    string key = "a";
+    io::outln(saved[key] maybe "missing");
+    io::outln(names[key] maybe "missing");
+
+    Registry<Map<string, string>> r = new Registry<Map<string, string>> of ({ "map": move_map(saved) });
+    Map<string, string> inner = r.items["map"] maybe {};
+    io::outln(inner[key] maybe "missing");
+
+    Map<string, uint32[?]> scores = { "team": [4, 7] };
+    uint32[?] team = scores["team"] maybe [];
+    io::outln(team[1]::text());
+
+    Map<string, string>[?] rows = [copy inner, { "a": "second" }];
+    io::outln(rows[1][key] maybe "missing");
+
+    Entry entry = Stored(inner);
+    match (entry) {
+        case Stored(take Map<string, string> items) {
+            io::outln(items[key] maybe "missing");
+        }
+        case Empty {}
+    }
+}

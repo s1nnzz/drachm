@@ -25,7 +25,7 @@
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-use super::{check_signature_extras, declare_method_list, failures, similar, Checker, FieldInfo, Globals, MethodInfo, Sig, StructInfo, Val};
+use super::{check_signature_extras, declare_method_list, failures, generics, similar, Checker, FieldInfo, Globals, MethodInfo, Sig, StructInfo, Val};
 use crate::ast;
 use crate::diag::{codes, Diagnostic, Span};
 use crate::hir::{self, StructId};
@@ -167,6 +167,13 @@ fn tkey(t: &ast::TypeName, env: &HashMap<String, Type>) -> String {
             ast::TypeMod::Ptr => "*",
             ast::TypeMod::FixedPtr => "*fixed ",
         });
+    }
+    if let Some(f) = &t.func {
+        s.push('(');
+        s.push_str(&f.params.iter().map(|p| tkey(p, env)).collect::<Vec<_>>().join(","));
+        s.push_str(")=>");
+        s.push_str(&tkey(&f.ret, env));
+        return s;
     }
     if let Some(ty) = env.get(&t.name).filter(|_| t.args.is_empty()) {
         s.push_str(&ty.to_string());
@@ -479,7 +486,7 @@ fn prepare_members(g: &mut Globals, id: usize, self_ty: Type, diags: &mut Vec<Di
     }
     for f in &decl.fields {
         generics::prepare_type(g, &f.ty, diags);
-        g.resolve_binding_type(&f.ty, diags);
+        g.resolve_storable(&f.ty, diags);
     }
     g.tenv = saved;
 }
@@ -1061,7 +1068,7 @@ fn declare_ext_method(g: &mut Globals, ty: Type, m: &ast::Method, diags: &mut Ve
         return None;
     }
     let params = f.params.iter().map(|p| g.resolve_binding_type(&p.ty, diags)).collect();
-    let ret = g.resolve(&f.ret, diags);
+    let ret = g.resolve_return(&f.ret, diags);
     let (fails, outcome) = failures::signature(g, f, ret, true, diags);
     let sig = Sig { name: format!("{ty}::{}", f.name), params, ret, span: f.span, fails, outcome };
     check_signature_extras(g, f, &sig.params, m.is_static.is_none(), diags);

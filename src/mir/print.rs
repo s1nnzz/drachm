@@ -87,6 +87,7 @@ fn terminator(p: &Program, hir: &hir::Program, k: &TerminatorKind) -> String {
                 Callee::Str(f) => format!("Str{f:?}"),
                 Callee::Out { newline: false } => "Out".to_string(),
                 Callee::Out { newline: true } => "Outln".to_string(),
+                Callee::Fn(ty) => format!("Fn({ty})"),
                 Callee::Dyn { iface, method } => format!("Dyn({}.{})", hir.dyn_ifaces[*iface].name, hir.dyn_ifaces[*iface].methods[*method].name),
                 Callee::Text => "Text".to_string(),
                 Callee::InLine => "InLine".to_string(),
@@ -101,6 +102,7 @@ fn terminator(p: &Program, hir: &hir::Program, k: &TerminatorKind) -> String {
                 Callee::ListPush(ty) => format!("ListPush<{ty}>"),
                 Callee::ListOp(op, ty) => format!("List{op:?}<{ty}>"),
                 Callee::ListHas(ty) => format!("ListHas<{ty}>"),
+                Callee::MapOp(f, ty) => format!("Map{f:?}<{ty}>"),
                 Callee::IndexPanic { unsigned: true } => "IndexPanicU".to_string(),
                 Callee::IndexPanic { unsigned: false } => "IndexPanic".to_string(),
             };
@@ -174,6 +176,10 @@ fn rvalue(p: &Program, hir: &hir::Program, rv: &Rvalue) -> String {
         }
         Rvalue::IntPow(a, b) => format!("IntPow({}, {})", o(a), o(b)),
         Rvalue::Convert(x, t) => format!("Convert({}, {t})", o(x)),
+        Rvalue::MakeFn(id, _, env) => match env {
+            Some(env) => format!("MakeFn({}, &{})", hir.funcs[*id].symbol, place(env)),
+            None => format!("MakeFn({})", hir.funcs[*id].symbol),
+        },
         Rvalue::Unsize(x, t) => format!("Unsize({}, {t})", o(x)),
         Rvalue::Ref(BorrowKind::Shared, pl) => format!("&{}", place(pl)),
         Rvalue::Ref(BorrowKind::Mut { two_phase: false }, pl) => format!("&mut {}", place(pl)),
@@ -191,6 +197,7 @@ fn rvalue(p: &Program, hir: &hir::Program, rv: &Rvalue) -> String {
         Rvalue::DeepCopy(pl) => format!("DeepCopy({})", place(pl)),
         Rvalue::Len(pl) => format!("Len({})", place(pl)),
         Rvalue::ListNew(t, cap) => format!("ListNew<{t}>({cap})"),
+        Rvalue::MapNew(t) => format!("MapNew<{t}>"),
         Rvalue::Array(t, ops) => {
             let ops: Vec<String> = ops.iter().map(o).collect();
             format!("Array<{t}>({})", ops.join(", "))

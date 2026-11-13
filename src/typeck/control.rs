@@ -167,7 +167,7 @@ fn describe(k: u128, ty: Type) -> String {
             let b = if signed { k ^ (1u128 << (bits - 1)) } else { k };
             match Const::from_int_bits(b, ty) {
                 Const::Int(v) => v.to_string(),
-                Const::Dec(_) => unreachable!(),
+                Const::Dec(_) | Const::NegZero => unreachable!(),
             }
         }
         _ => unreachable!("floats are never listed"),

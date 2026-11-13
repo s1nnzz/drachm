@@ -1,6 +1,6 @@
 ---
 title: Arrays and lists
-description: Array and list types, literals, indexing with bounds checks, changing a list, its methods, comparing, for loops, and splitting strings into lists. Maps are marked as not built yet.
+description: Array and list types, literals, indexing with bounds checks, changing a list, its methods, comparing, for loops, splitting strings into lists, and maps. Walking maps and struct keys are marked as not built yet.
 ---
 
 # Arrays and lists
@@ -118,6 +118,10 @@ enum with values is E0527). `contains` needs items that copy: on a list of
 `&mut T x` for a changeable view; the [loops page](reference-control-flow.md#looping-over-a-list)
 has the rules and the example.
 
+`xs::each(f)` calls a function value for every item of a list or array in
+order. See [Collection callbacks](reference-generics.md#collection-callbacks)
+for parameter types and an example.
+
 ## Taking an item out
 
 `take xs[i] reorders` moves the item at `i` out and gives it. The last item
@@ -142,12 +146,92 @@ after the text is gone. An empty separator gives the same grapheme clusters as `
 
 `join` goes back: `parts::join(sep)` puts the items of a `string[?]` together.
 
-## Not built yet
+## Maps
+
+`Map<K, V>` holds values under keys, and `OrderedMap<K, V>` does the same and
+keeps the entries in the order they were added. A literal lists the entries
+in braces, `{ key: value, ... }`, and its type says what the keys and values
+are. A map declared without a value starts empty and can be used at once.
+
+<!-- example: map-basic -->
+
+`m[k]` gives the value as an optional: `none` when the key is missing, so
+`m[k] maybe 0` is the value or a fallback. `m::get(k)` is the same lookup as a
+method. `m[k] = v;` adds the entry or replaces its value, `m::set(k, v)` does
+the same as a method, `m::remove(k)` takes the entry out, and `m::len()`
+counts the entries. Changes require a `mut` or `open` binding, or an
+`&mut` borrow.
+
+Keys can be whole numbers up to 128 bits, `bool`, `string` or floats. A float key is compared
+by its bits, so `NaN` finds itself and `-0.0` and `0.0` are different keys.
+A map owns its keys and values, which move in when they are added. Reading a
+value with `m[k]` or `m::get(k)` returns an independent copy. This allocates
+for owned text and can allocate for nested collections.
+
+<!-- example: map-key -->
+
+A type that cannot be hashed cannot be a key: lists, maps, borrows and
+pointers give E0626.
+
+```text
+error[E0626]: `uint32[?]` cannot be a map key
+  --> main.drh:2:9
+   |
+ 2 |     Map<uint32[?], string> names;
+   |         ^^^^^^ `uint32[?]` is not hashed
+   |
+   help: use a whole number, a float, `bool` or `string` as the key
+```
+
+A literal gives a key twice only by mistake, so a constant key written twice
+is E0629:
+
+```text
+error[E0629]: this map literal has the key "Illy" twice
+  --> main.drh:4:46
+   |
+ 4 |     Map<string, uint32> ages = { "Illy": 18, "Illy": 20 };
+   |                                  ------ the first one is here
+   |                                              ^^^^^^
+   |
+   help: remove one of them, or the later value would replace the first
+```
+
+An empty `{}` needs a type to take, as an empty list does (E0624).
+
+### Updating an entry with an operator
 
 <!-- status: not-implemented -->
 
-Maps (`Map<K, V>`, see [Collections](design-collections.md)) are designed and
-not accepted yet.
+`m[k] += v;` will update the existing value and stop the program if the key is
+missing. Compound assignments through a map index currently give E0901.
+
+### Walking a map
+
+<!-- status: not-implemented -->
+
+`for (string k, uint32 v of ages)` will visit each entry. Until it is built the
+loop is E0901. The `each` method form waits for lambdas.
+
+### Composite keys and `key()`
+
+<!-- status: not-implemented -->
+
+Structs, enums, optionals and arrays with hashable contents will be hashable.
+A struct's `key()` method will define how a map hashes and compares its keys,
+including when the struct has a custom `==` for ordinary comparisons. These
+key types currently give E0901.
+
+### Borrowed values
+
+<!-- status: not-implemented -->
+
+Maps that store borrowed values or structs that hold a borrow currently give
+E0901.
+
+## Not built yet
+
+<!-- status: not-implemented -->
 
 Generic functions over lists already work:
 

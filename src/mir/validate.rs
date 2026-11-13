@@ -124,11 +124,12 @@ impl Validator<'_> {
                 let dt = self.place(&at, dest);
                 let mut operands: Vec<&Operand> = Vec::new();
                 match rv {
+                    Rvalue::MakeFn(..) => {}
                     Rvalue::Use(o) | Rvalue::Neg(o) | Rvalue::Not(o) | Rvalue::BitNot(o) | Rvalue::Convert(o, _) | Rvalue::Unsize(o, _) => operands.push(o),
                     Rvalue::Binary(_, a, b) | Rvalue::IntPow(a, b) => operands.extend([a, b]),
                     Rvalue::Shift { value, amount, .. } => operands.extend([value, amount]),
                     Rvalue::Aggregate(_, ops) | Rvalue::Variant(_, _, ops) | Rvalue::Array(_, ops) => operands.extend(ops),
-                    Rvalue::ListNew(..) => {}
+                    Rvalue::ListNew(..) | Rvalue::MapNew(_) => {}
                     Rvalue::Ref(_, pl) | Rvalue::RawRef(pl) | Rvalue::DeepCopy(pl) | Rvalue::Discriminant(pl) | Rvalue::Len(pl) => {
                         let t = self.place(&at, pl);
                         if matches!(rv, Rvalue::Len(_)) && !t.is_some_and(|t| t.is_list() || t.is_array()) {
@@ -138,6 +139,17 @@ impl Validator<'_> {
                 }
                 let tys: Vec<Option<Type>> = operands.iter().map(|o| self.operand(&at, o)).collect();
                 match rv {
+                    Rvalue::MakeFn(id, Type::Func(sig), env) => {
+                        let f = &self.hir.funcs[*id];
+                        let params = f.locals.iter().take(f.params).map(|p| p.ty);
+                        let env_ty = env.as_ref().and_then(|p| self.place(&at, p));
+                        let env_param = env_ty.map_or(Type::borrow(false, Type::U8), |ty| Type::borrow(true, ty));
+                        let want = std::iter::once(env_param).chain(sig.params.iter().copied());
+                        if f.has_self || f.ret != sig.ret || !params.eq(want) {
+                            self.err(&at, "MakeFn target does not have the callable signature");
+                        }
+                    }
+                    Rvalue::MakeFn(..) => self.err(&at, "MakeFn result is not a callable type"),
                     Rvalue::Binary(_, ..) => {
                         // A comparison may mix `*T` and `*fixed T` of one pointee type.
                         let same_ptr = matches!((tys[0], tys[1]), (Some(a), Some(b)) if a.is_ptr() && b.is_ptr() && a.target() == b.target());
@@ -182,6 +194,11 @@ impl Validator<'_> {
                             }
                         } else {
                             self.err(&at, "Array of a type that is not an array");
+                        }
+                    }
+                    Rvalue::MapNew(t) => {
+                        if !t.is_map() {
+                            self.err(&at, "MapNew of a type that is not a map");
                         }
                     }
                     Rvalue::ListNew(t, _) => {
@@ -301,6 +318,11 @@ impl Validator<'_> {
                     .collect();
                 (Some(args), func.ret)
             }
+            Callee::Fn(ty) => {
+                let Type::Func(sig) = ty else { unreachable!("a callable value") };
+                let args = std::iter::once(ty).chain(sig.params.iter().copied()).map(Want::Exact);
+                (Some(args.collect()), sig.ret)
+            }
             Callee::Dyn { iface, method } => {
                 let m = &self.hir.dyn_ifaces[iface].methods[method];
                 let dynty = self.hir.dyn_type(iface);
@@ -330,6 +352,17 @@ impl Validator<'_> {
             Callee::Join => (Some(Vec::new()), Type::Str),
             Callee::ListPush(elem) => (Some(vec![Want::Exact(Type::borrow(true, Type::list(elem))), Want::Exact(elem)]), Type::None),
             Callee::ListHas(elem) => (Some(vec![Want::Exact(Type::borrow(false, Type::list(elem))), Want::Any]), Type::Bool),
+            Callee::MapOp(f, map) => {
+                let (k, v) = map.map_parts().expect("a map call is on a map");
+                let (mut_map, shared_map) = (Want::Exact(Type::borrow(true, map)), Want::Exact(Type::borrow(false, map)));
+                let shared_key = Want::Exact(Type::borrow(false, k));
+                match f {
+                    MapFn::Get(result) => (Some(vec![shared_map, shared_key]), result),
+                    MapFn::Set => (Some(vec![mut_map, Want::Exact(k), Want::Exact(v)]), Type::None),
+                    MapFn::Remove => (Some(vec![mut_map, shared_key]), Type::None),
+                    MapFn::Len => (Some(vec![shared_map]), Type::U64),
+                }
+            }
             Callee::ListOp(op, elem) => {
                 let list = Type::list(elem);
                 let (mut_list, shared_list) = (Want::Exact(Type::borrow(true, list)), Want::Exact(Type::borrow(false, list)));
@@ -473,6 +506,8 @@ fn flow_statement(assigned: &mut [bool], k: &StatementKind, used: &mut dyn FnMut
     match k {
         StatementKind::Assign(dest, rv) => {
             match rv {
+                Rvalue::MakeFn(_, _, Some(p)) => place_use(p, used),
+                Rvalue::MakeFn(_, _, None) => {}
                 Rvalue::Use(o) | Rvalue::Neg(o) | Rvalue::Not(o) | Rvalue::BitNot(o) | Rvalue::Convert(o, _) | Rvalue::Unsize(o, _) => operand_use(o, used),
                 Rvalue::Binary(_, a, b) | Rvalue::IntPow(a, b) => {
                     operand_use(a, used);
@@ -483,7 +518,7 @@ fn flow_statement(assigned: &mut [bool], k: &StatementKind, used: &mut dyn FnMut
                     operand_use(amount, used);
                 }
                 Rvalue::Aggregate(_, ops) | Rvalue::Variant(_, _, ops) | Rvalue::Array(_, ops) => ops.iter().for_each(|o| operand_use(o, used)),
-                Rvalue::ListNew(..) => {}
+                Rvalue::ListNew(..) | Rvalue::MapNew(_) => {}
                 Rvalue::Ref(_, pl) | Rvalue::RawRef(pl) | Rvalue::DeepCopy(pl) | Rvalue::Discriminant(pl) | Rvalue::Len(pl) => place_use(pl, used),
             }
             if dest.proj.is_empty() {

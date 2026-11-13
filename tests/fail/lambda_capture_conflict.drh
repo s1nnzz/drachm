@@ -1,0 +1,8 @@
+in io;
+
+none main() {
+    mut uint32 n = 0;
+    () => none f = () => io::outln(n::text());
+    n = 1;
+    f();
+}

@@ -1,0 +1,3 @@
+none main() {
+    Map<string, uint32> ages = { "Illy": 18, "Illy": 20 };
+}

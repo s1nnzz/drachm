@@ -47,7 +47,9 @@ pub(super) fn dyn_of(g: &Globals, k: usize) -> Type {
 
 /// Does the written type mention `Self` anywhere?
 fn mentions_self(t: &ast::TypeName) -> bool {
-    t.name == "Self" || t.args.iter().any(mentions_self)
+    t.name == "Self"
+        || t.args.iter().any(mentions_self)
+        || t.func.as_ref().is_some_and(|f| f.params.iter().any(mentions_self) || mentions_self(&f.ret))
 }
 
 /// The non-`static` methods of interface `k`, parents first: the methods a vtable has slots for.

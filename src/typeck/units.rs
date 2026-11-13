@@ -253,6 +253,7 @@ fn rational(c: &Const) -> BigRational {
     match c {
         Const::Int(i) => BigRational::from_integer(i.clone()),
         Const::Dec(r) => r.clone(),
+        Const::NegZero => BigRational::zero(),
     }
 }
 
@@ -360,6 +361,7 @@ fn is_zero_const(c: &Const) -> bool {
     match c {
         Const::Int(i) => i.is_zero(),
         Const::Dec(r) => r.is_zero(),
+        Const::NegZero => true,
     }
 }
 
@@ -1302,7 +1304,7 @@ fn visit_expr(e: &mut hir::Expr, f: &mut dyn FnMut(&mut Type)) {
 fn children_mut(e: &mut hir::Expr) -> Vec<&mut hir::Expr> {
     use hir::ExprKind as K;
     match &mut e.kind {
-        K::Int(_) | K::Float(_) | K::Bool(_) | K::Str(_) | K::Local(_) | K::NullPtr | K::InLine | K::InEnded => Vec::new(),
+        K::Int(_) | K::Float(_) | K::Bool(_) | K::Str(_) | K::Local(_) | K::FuncRef(_) | K::NullPtr | K::InLine | K::InEnded => Vec::new(),
         K::IncDec { .. } => Vec::new(),
         K::Field(x, _)
         | K::Neg(x)
@@ -1323,6 +1325,8 @@ fn children_mut(e: &mut hir::Expr) -> Vec<&mut hir::Expr> {
         K::Index(a, b) | K::ListPush { list: a, value: b } => vec![&mut **a, &mut **b],
         K::ListCall { args, .. } => args.iter_mut().collect(),
         K::List(items) | K::Array(items) => items.iter_mut().collect(),
+        K::Map(pairs) => pairs.iter_mut().flat_map(|(k, v)| [k, v]).collect(),
+        K::MapCall { args, .. } => args.iter_mut().collect(),
         K::Radix { value, .. } => vec![&mut **value],
         K::Out { arg, .. } => vec![&mut **arg],
         K::TryParse { text, .. } => vec![&mut **text],
@@ -1335,7 +1339,7 @@ fn children_mut(e: &mut hir::Expr) -> Vec<&mut hir::Expr> {
         K::Logic { lhs, rhs, .. } | K::Maybe { value: lhs, fallback: rhs } => vec![&mut **lhs, &mut **rhs],
         K::Shift { value, amount, .. } => vec![&mut **value, &mut **amount],
         K::Struct(fields) => fields.iter_mut().map(|(_, v)| v).collect(),
-        K::Call(_, args) | K::StrCall(_, args) | K::DynCall(_, _, args) => args.iter_mut().collect(),
+        K::Call(_, args) | K::StrCall(_, args) | K::DynCall(_, _, args) | K::FnCall(args) | K::Closure(_, args) => args.iter_mut().collect(),
         K::Join(parts) => parts.iter_mut().collect(),
         K::Take { leaving, .. } => leaving.as_deref_mut().into_iter().collect(),
     }

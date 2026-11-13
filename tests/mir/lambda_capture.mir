@@ -1,0 +1,4 @@
+_3 = Aggregate #env3(copy _4)
+_2 = MakeFn(drachm_l_f_main_3, &_3)
+_5 = call Fn(() => uint32)(copy _2)
+_0 = copy (*(*_1).0)

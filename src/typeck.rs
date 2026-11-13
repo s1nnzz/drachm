@@ -11,7 +11,9 @@ mod fill;
 mod generics;
 mod interfaces;
 mod layout;
+mod lambdas;
 mod lists;
+mod maps;
 mod optionals;
 mod overload;
 mod strings;
@@ -134,6 +136,7 @@ struct Globals {
     ifaces: interfaces::State,
     /// The tables of the borrows of interfaces (`dynamic.rs`).
     dynamic: dynamic::State,
+    lambdas: lambdas::State,
     /// The type parameters of the instance being resolved or checked, and what
     /// they stand for here.
     tenv: HashMap<String, Type>,
@@ -173,6 +176,12 @@ impl Globals {
     fn instance_of(&self, t: &ast::TypeName) -> Option<Type> {
         let args: Option<Vec<Type>> = t.args.iter().map(|a| if a.is_number { None } else { self.resolve_quiet(a) }).collect();
         let args = args?;
+        if maps::is_map_name(&t.name) && t.args.len() == 2 {
+            let [key, val] = args[..] else { return None };
+            maps::check_key(key, t.args[0].span).ok()?;
+            self.check_map_value(val, t.args[1].span, &t.name).ok()?;
+            return Some(self.make_map(key, val, t.name == "OrderedMap"));
+        }
         if t.name == "Optional" {
             let [inner] = args[..] else { return None };
             return self.optional_ids.get(&inner).map(|&id| self.enums[id].ty);
@@ -182,6 +191,9 @@ impl Globals {
 
     /// `t` with its `&`, `&mut` and `*` marks applied to the named type.
     fn resolve_quiet(&self, t: &ast::TypeName) -> Option<Type> {
+        if t.func.is_some() {
+            return self.resolve_func(t, &mut Vec::new());
+        }
         if let Some(fat) = dynamic::dyn_borrow(self, t) {
             return Some(fat);
         }
@@ -200,6 +212,9 @@ impl Globals {
     }
 
     fn resolve(&self, t: &ast::TypeName, diags: &mut Vec<Diagnostic>) -> Option<Type> {
+        if t.func.is_some() {
+            return self.resolve_func(t, diags);
+        }
         if let Some((_, span)) = t.mods.first() {
             if !self.unsafe_allowed && let Some((_, at)) = t.mods.iter().find(|(m, _)| matches!(m, ast::TypeMod::Ptr | ast::TypeMod::FixedPtr)) {
                 diags.push(unsafe_disabled(*at, "raw pointer type here"));
@@ -214,6 +229,22 @@ impl Globals {
         }
         if !t.dims.is_empty() {
             return self.resolve_dims(t, diags);
+        }
+        if maps::is_map_name(&t.name) {
+            if t.args.len() != 2 {
+                diags.push(
+                    Diagnostic::at(&codes::E0602, t.span, format!("`{}` takes 2 type arguments, but {} given", t.name, t.args.len()))
+                        .help(format!("write `{}<string, uint32>`", t.name)),
+                );
+                return None;
+            }
+            let base = self.resolve_map(t, diags)?;
+            let base = optionals::wrap(self, t, base)?;
+            return Some(t.mods.iter().rev().fold(base, |ty, (m, _)| match m {
+                ast::TypeMod::Ref { mutable } => Type::borrow(*mutable, ty),
+                ast::TypeMod::Ptr => Type::ptr(ty),
+                ast::TypeMod::FixedPtr => Type::fixed_ptr(ty),
+            }));
         }
         if !t.args.is_empty() {
             match generics::check_type_args(self, t, diags) {
@@ -285,7 +316,7 @@ impl Globals {
                     .note("units go only on number types")
                     .help("for example `float64<m>`"),
             );
-        } else if matches!(t.name.as_str(), "List" | "Array" | "Map" | "OrderedMap" | "Iterable") {
+        } else if matches!(t.name.as_str(), "List" | "Array" | "Iterable") {
             diags.push(Diagnostic::at(&codes::E0901, t.span, format!("`{}` is not supported yet", t.name)));
         } else if self.tenv.contains_key(&t.name) {
             diags.push(
@@ -454,7 +485,7 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
             continue;
         }
         let params = f.params.iter().map(|p| g.resolve_binding_type(&p.ty, diags)).collect();
-        let ret = g.resolve(&f.ret, diags);
+        let ret = g.resolve_return(&f.ret, diags);
         let (fails, outcome) = failures::signature(&mut g, f, ret, true, diags);
         let sig = Sig { name: f.name.clone(), params, ret, span: f.span, fails, outcome };
         check_signature_extras(&g, f, &sig.params, false, diags);
@@ -469,6 +500,9 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
         }
         let id = g.add_sig(sig);
         g.funcs_by_name.insert(f.name.clone(), id);
+        if f.is_unsafe.is_some() {
+            g.lambdas.unsafe_named.insert(id);
+        }
         func_ids.push(Some(id));
     }
     let method_ids: Vec<Vec<Option<FuncId>>> = prog
@@ -577,6 +611,9 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
         }
     }
 
+    for (id, f) in std::mem::take(&mut g.lambdas.bodies) {
+        emit(&mut funcs, id, f);
+    }
     for (id, f) in failures::finish(&mut g) {
         emit(&mut funcs, id, f);
     }
@@ -600,7 +637,10 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
     }
     let conformances = std::mem::take(&mut g.ifaces.records);
     let (dyn_ifaces, vtables) = dynamic::finish(&mut g, &structs);
-    let mut program = hir::Program { funcs: funcs.into_iter().map(|f| f.unwrap_or_else(placeholder)).collect(), structs, enums: enum_defs, main, collections, conformances, dyn_ifaces, vtables };
+    let mut program = hir::Program { funcs: funcs.into_iter().map(|f| f.unwrap_or_else(placeholder)).collect(), structs, enums: enum_defs, main, collections, conformances, dyn_ifaces, vtables, closures: std::mem::take(&mut g.lambdas.closures) };
+    if !diags.iter().any(Diagnostic::is_error) {
+        lambdas::infer_captures(&mut program, diags);
+    }
     units::erase(&mut program);
     if cfg!(debug_assertions) {
         units::assert_erased(&mut program);
@@ -800,7 +840,7 @@ fn check_one_struct_lives(g: &mut Globals, id: StructId, s: &ast::Struct, diags:
 }
 
 fn declare_struct(g: &mut Globals, s: &ast::Struct, diags: &mut Vec<Diagnostic>) -> Option<StructId> {
-    if s.name == "none" || !matches!(Type::from_name(&s.name), Err(TypeError::Unknown)) {
+    if s.name == "none" || maps::is_map_name(&s.name) || !matches!(Type::from_name(&s.name), Err(TypeError::Unknown)) {
         diags.push(
             Diagnostic::at(&codes::E0202, s.name_span, format!("`{}` is the name of a built-in type", s.name))
                 .note("already a type")
@@ -856,7 +896,7 @@ fn new_struct_info(g: &mut Globals, name: &str, s: &ast::Struct) -> StructId {
 
 fn declare_fields(g: &mut Globals, id: StructId, s: &ast::Struct, diags: &mut Vec<Diagnostic>) {
     for f in &s.fields {
-        let ty = g.resolve_binding_type(&f.ty, diags);
+        let ty = g.resolve_storable(&f.ty, diags);
         if let Some(first) = g.structs[id].fields.iter().find(|o| o.name == f.name) {
             diags.push(
                 Diagnostic::at(&codes::E0202, f.name_span, format!("`{}` has two fields named `{}`", g.structs[id].name, f.name))
@@ -887,7 +927,7 @@ fn declare_method_list(g: &mut Globals, id: StructId, methods: &[ast::Method], d
         }
         let f = &m.func;
         let params = f.params.iter().map(|p| g.resolve_binding_type(&p.ty, diags)).collect();
-        let ret = g.resolve(&f.ret, diags);
+        let ret = g.resolve_return(&f.ret, diags);
         let (fails, outcome) = failures::signature(g, f, ret, true, diags);
         let sig = Sig { name: format!("{sname}::{}", f.name), params, ret, span: f.span, fails, outcome };
         check_signature_extras(g, f, &sig.params, m.is_static.is_none(), diags);
@@ -1130,26 +1170,11 @@ struct MethodCtx {
 }
 
 fn check_body(g: &mut Globals, src: &str, diags: &mut Vec<Diagnostic>, f: &ast::Func, method: Option<MethodCtx>, symbol: String) -> hir::Func {
-    let ret = g.resolve_quiet(&f.ret);
+    let ret = g.resolve_return(&f.ret, &mut Vec::new());
     let (fails, outcome) = failures::signature(g, f, ret, !method.is_some_and(|m| m.no_fails), &mut Vec::new());
-    let mut cx = Checker {
-        src,
-        g,
-        diags,
-        ret,
-        fails,
-        outcome,
-        suffix_ok: None,
-        handlers: Vec::new(),
-        method,
-        scopes: vec![HashMap::new()],
-        locals: Vec::new(),
-        targets: Vec::new(),
-        labels: 0,
-        filling: Vec::new(),
-        now_depth: 0,
-        ctor_self: None,
-    };
+    let mut cx = Checker::new(g, src, diags, &symbol, ret, method);
+    cx.fails = fails;
+    cx.outcome = outcome;
     let has_self = method.is_some_and(|m| m.static_span.is_none() && !m.ctor);
     if let Some(m) = method.filter(|_| has_self) {
         let ty = m.ext.unwrap_or_else(|| cx.g.structs[m.struct_id].ty);
@@ -1195,24 +1220,7 @@ fn check_body(g: &mut Globals, src: &str, diags: &mut Vec<Diagnostic>, f: &ast::
         body.push(hir::Stmt::Check { local: id, kind: hir::CheckKind::CtorEnd, span: f.body.end });
         body.push(hir::Stmt::Return(cx.wrap_ok(Some(hir::Expr::new(hir::ExprKind::Local(id), ty)))));
     }
-    let locals = cx
-        .locals
-        .into_iter()
-        .map(|l| hir::Local {
-            name: l.name,
-            ty: l.ty.unwrap_or(Type::None),
-            span: l.span,
-            mutability: if l.open {
-                hir::Mutability::Open
-            } else if l.mutable {
-                hir::Mutability::Mut
-            } else {
-                hir::Mutability::Fixed
-            },
-            is_param: l.is_param,
-            written: l.written,
-        })
-        .collect();
+    let locals = cx.lower_locals();
     hir::Func {
         name_span: f.name_span,
         span: f.span,
@@ -1338,6 +1346,7 @@ fn origin(e: &ast::Expr) -> Origin {
     Origin { span: e.span, compound }
 }
 
+#[derive(Clone)]
 struct LocalInfo {
     name: String,
     ty: Option<Type>,
@@ -1378,6 +1387,9 @@ struct Checker<'a> {
     src: &'a str,
     g: &'a mut Globals,
     diags: &'a mut Vec<Diagnostic>,
+    symbol: &'a str,
+    /// Present when checking a lambda whose result comes from its body.
+    lambda: Option<lambdas::Frame>,
     /// `None` if the return type did not resolve.
     ret: Option<Type>,
     method: Option<MethodCtx>,
@@ -1443,9 +1455,54 @@ fn plain_place(e: &hir::Expr) -> bool {
     }
 }
 
-impl Checker<'_> {
+impl<'a> Checker<'a> {
+    fn new(g: &'a mut Globals, src: &'a str, diags: &'a mut Vec<Diagnostic>, symbol: &'a str, ret: Option<Type>, method: Option<MethodCtx>) -> Self {
+        Self {
+            src,
+            g,
+            diags,
+            symbol,
+            lambda: None,
+            ret,
+            fails: Vec::new(),
+            outcome: None,
+            suffix_ok: None,
+            handlers: Vec::new(),
+            method,
+            scopes: vec![HashMap::new()],
+            locals: Vec::new(),
+            targets: Vec::new(),
+            labels: 0,
+            filling: Vec::new(),
+            now_depth: 0,
+            ctor_self: None,
+        }
+    }
+
+    fn lower_locals(&mut self) -> Vec<hir::Local> {
+        std::mem::take(&mut self.locals)
+            .into_iter()
+            .map(|l| hir::Local {
+                name: l.name,
+                ty: l.ty.unwrap_or(Type::None),
+                span: l.span,
+                mutability: if l.open {
+                    hir::Mutability::Open
+                } else if l.mutable {
+                    hir::Mutability::Mut
+                } else {
+                    hir::Mutability::Fixed
+                },
+                is_param: l.is_param,
+                written: l.written,
+            })
+            .collect()
+    }
+
     fn lookup(&self, name: &str) -> Option<LocalId> {
-        self.scopes.iter().rev().find_map(|s| s.get(name).copied())
+        let id = self.scopes.iter().rev().find_map(|s| s.get(name).copied())?;
+        self.use_capture(id);
+        Some(id)
     }
 
     fn declare(&mut self, name: &str, ty: Option<Type>, mutable: bool, span: Span, is_param: bool) -> LocalId {
@@ -1530,6 +1587,10 @@ impl Checker<'_> {
                 // A list declared without a value starts empty and is usable at once (Q20).
                 if value.is_none() && let Some(t) = ty && t.is_list() {
                     out.push(hir::Stmt::Assign(hir::Place::local(id), hir::Expr::new(hir::ExprKind::List(Vec::new()), t).at(*span)));
+                }
+                // A map declared without a value starts empty too (Q20).
+                if value.is_none() && let Some(t) = ty && t.is_map() {
+                    out.push(hir::Stmt::Assign(hir::Place::local(id), hir::Expr::new(hir::ExprKind::Map(Vec::new()), t).at(*span)));
                 }
                 // `uint32? x;` starts as `none`.
                 if value.is_none() && let Some(t) = ty && optionals::is_optional(self.g, t) {
@@ -1621,6 +1682,11 @@ impl Checker<'_> {
                 out.push(hir::Stmt::Return(self.wrap_ok(Some(hir::Expr::new(hir::ExprKind::Local(id), ty)))));
             }
             Stmt::Fill { partial, target, with, body, span } => self.fill(*partial, target, with.as_ref(), body, *span, out),
+            Stmt::Return { value, span } if self.lambda.is_some() => {
+                if let Some(v) = self.lambda_return(value.as_ref(), *span) {
+                    out.push(hir::Stmt::Return(v));
+                }
+            }
             Stmt::Return { value, span } => {
                 let v = match (value, self.ret) {
                     (Some(v), Some(Type::None)) => {
@@ -1779,6 +1845,9 @@ impl Checker<'_> {
 
     /// `p.x = v;` or `p.x op= v;`.
     fn assign_field(&mut self, target: &ast::Expr, op: Option<BinOp>, value: &ast::Expr, span: Span, out: &mut hir::Block) {
+        if let ExprKind::Index { recv, index } = &target.kind && self.map_assign(recv, index, op, value, span, out) {
+            return;
+        }
         let Some(place) = self.lvalue(target) else {
             self.expr(value);
             return;
@@ -2029,6 +2098,9 @@ impl Checker<'_> {
 
     /// Check `e` and convert it to `to`, reporting a mismatch or a lossy conversion.
     fn coerce(&mut self, e: &ast::Expr, to: Type) -> Option<hir::Expr> {
+        if let Type::Func(sig) = to {
+            return self.coerce_func(e, to, sig);
+        }
         if let Some(made) = self.bare_variant(e, to) {
             return made;
         }
@@ -2040,6 +2112,9 @@ impl Checker<'_> {
         }
         if to.is_borrow() {
             return self.coerce_borrow(e, to, None);
+        }
+        if let ExprKind::MapLit(pairs) = &e.kind {
+            return self.map_literal(pairs, Some(to), e.span);
         }
         if let ExprKind::ListLit(items) = &e.kind {
             return self.list_literal(items, Some(to), e.span);
@@ -2501,14 +2576,14 @@ impl Checker<'_> {
                 (hir::ExprKind::Int(bits), Const::Dec(r)) if !r.is_integer() => (
                     match Const::from_int_bits(*bits, to) {
                         Const::Int(v) => v.to_string(),
-                        Const::Dec(_) => unreachable!(),
+                        Const::Dec(_) | Const::NegZero => unreachable!(),
                     },
                     format!("`{to}` holds only whole numbers, from {}; the fraction is dropped", to.describe_range()),
                 ),
                 (hir::ExprKind::Int(bits), _) => (
                     match Const::from_int_bits(*bits, to) {
                         Const::Int(v) => v.to_string(),
-                        Const::Dec(_) => unreachable!(),
+                        Const::Dec(_) | Const::NegZero => unreachable!(),
                     },
                     format!("`{to}` holds {}; a constant outside that wraps around", to.describe_range()),
                 ),
@@ -2570,6 +2645,7 @@ impl Checker<'_> {
             },
             ExprKind::Bool(b) => typed(hir::ExprKind::Bool(*b), Type::Bool),
             ExprKind::Str(parts) => self.string_literal(parts),
+            ExprKind::Lambda { moves, params, body } => self.lambda_expr(*moves, params, body, e.span).map(Val::Expr),
             ExprKind::Var(name) => match self.lookup(name) {
                 Some(id) => self.read_local(id, e.span).map(Val::Expr),
                 None if self.ambiguous_bare(name, e.span) => None,
@@ -2613,6 +2689,7 @@ impl Checker<'_> {
                 typed(hir::ExprKind::Field(Box::new(v), i), ty)
             }
             ExprKind::ListLit(items) => self.list_literal(items, None, e.span).map(Val::Expr),
+            ExprKind::MapLit(pairs) => self.map_literal(pairs, None, e.span).map(Val::Expr),
             ExprKind::Index { recv, index } => self.index_expr(recv, index),
             ExprKind::Unary(op, inner) => self.unary(*op, inner, e.span),
             ExprKind::Binary(op @ (BinOp::And | BinOp::Or), l, r) => {
@@ -2657,6 +2734,9 @@ impl Checker<'_> {
                 typed(hir::ExprKind::IncDec { place: p.hir_place(e.span), inc: *inc, prefix: *prefix }, ty)
             }
             ExprKind::Call { name, targs, args } => {
+                if let Some(id) = self.lookup(name) {
+                    return self.call_value(id, name, targs, args, e.span);
+                }
                 if !self.g.funcs_by_name.contains_key(name) && self.g.mono.templates.contains_key(name) {
                     return self.generic_call(name, targs, args, e.span);
                 }
@@ -2779,6 +2859,10 @@ impl Checker<'_> {
         let x = self.materialise(v, operand.span)?;
         let name = self.text(operand.span).to_string();
         match x.ty {
+            Type::Func(_) => {
+                self.diags.push(Diagnostic::at(&codes::E0652, operand.span, "a function value cannot be stored behind a borrow"));
+                None
+            }
             Type::None => {
                 self.diags.push(
                     Diagnostic::at(&codes::E0104, operand.span, "cannot borrow a value of type `none`").note("`none` holds no value"),
@@ -2848,7 +2932,7 @@ impl Checker<'_> {
     fn copies_anyway(&self, t: Type) -> bool {
         match t {
             // A number with a unit is a number (`of` is always Int or Float).
-            Type::Int { .. } | Type::Float(_) | Type::Bool | Type::Unit { .. } | Type::Ref { mutable: false, .. } => true,
+            Type::Int { .. } | Type::Float(_) | Type::Bool | Type::Func(_) | Type::Unit { .. } | Type::Ref { mutable: false, .. } => true,
             Type::Struct { .. } | Type::Enum { .. } | Type::Array { .. } => self.g.copy_of(t),
             _ => false,
         }
@@ -2939,6 +3023,10 @@ impl Checker<'_> {
             return None;
         }
         let p = self.lvalue(inner)?;
+        if p.ty.is_func() {
+            self.diags.push(Diagnostic::at(&codes::E0652, inner.span, "a function value cannot be stored behind a pointer"));
+            return None;
+        }
         let l = &self.locals[p.local];
         // A place that can be changed gives `*T`; anything else (an immutable
         // binding, a place behind `&` or `*fixed`) gives the read-only `*fixed T` (#9).
@@ -3181,6 +3269,7 @@ impl Checker<'_> {
                 self.pointer_convert(v, recv.span, name, name_span, args)
             }
             Some(Val::Expr(v)) if v.ty == Type::Str => self.string_method(v, name, name_span, targs, args),
+            Some(Val::Expr(v)) if v.ty.is_map() => self.map_method(v, recv, name, name_span, args),
             Some(Val::Expr(v)) if v.ty.is_list() || v.ty.is_array() => self.list_method(v, recv, name, name_span, targs, args),
             Some(Val::Expr(v)) if self.is_failure_type(v.ty) => self.failure_method(v, recv.span, name, name_span, args),
             value => self.value_method(value, recv, name, name_span, targs, args),

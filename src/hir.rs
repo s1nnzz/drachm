@@ -44,7 +44,23 @@ pub struct Program {
     pub dyn_ifaces: Vec<DynIface>,
     /// Every pair (implementing type, interface) a borrow is converted at: one
     /// read-only table each (S6E). The backends emit them all.
+    /// Environments of lifted functions which capture outer locals.
+    pub closures: std::collections::BTreeMap<FuncId, Closure>,
     pub vtables: Vec<VTable>,
+}
+
+pub struct Closure {
+    pub env: Type,
+    /// Indexed by field in the environment struct, in lexical declaration order.
+    pub captures: Vec<Capture>,
+}
+
+pub struct Capture {
+    /// The lifted body's local id for this captured binding.
+    pub local: LocalId,
+    /// Borrowing captures are shared until mutation inference proves otherwise.
+    /// `None` is an owned field in a `move` closure.
+    pub borrow: Option<bool>,
 }
 
 /// An interface as the backends see it: the slots of a vtable.
@@ -244,11 +260,14 @@ pub fn enum_layout(tag_size: u32, variants: &[Vec<(u32, u32)>]) -> (Vec<Vec<u32>
 impl Program {
     /// Size and alignment of a value of type `t` in memory, in bytes.
     pub fn size_align(&self, t: Type) -> (u32, u32) {
-        if t.is_fat() {
+        if t.is_fat() || t.is_func() {
             return (16, 8);
         }
         if t == Type::Str || t.is_list() {
             return (STR_SIZE, 8);
+        }
+        if t.is_map() {
+            return (MAP_SIZE, 8);
         }
         if let Type::Array { elem, len } = t {
             let (size, align) = self.size_align(*elem);
@@ -278,7 +297,7 @@ impl Program {
     /// Is `t` an owning type (see the module comment)?
     pub fn owns(&self, t: Type) -> bool {
         match t {
-            Type::Str | Type::List { .. } => true,
+            Type::Str | Type::List { .. } | Type::Map { .. } => true,
             Type::Array { elem, .. } => self.owns(*elem),
             Type::Struct { id, .. } => self.structs[id].owns,
             Type::Enum { id, .. } => self.enums[id].owns,
@@ -293,6 +312,8 @@ impl Program {
 
 /// Size of a `string` value (`drachm_str`: pointer, length, capacity).
 pub const STR_SIZE: u32 = 24;
+/// Size of a map in memory: the runtime's `drachm_map` (48 bytes, `runtime/lists.h`).
+pub const MAP_SIZE: u32 = 48;
 
 /// Size (which is also the alignment) of a number or bool; `None` for the rest.
 pub fn scalar_size(t: Type) -> Option<u32> {
@@ -649,6 +670,12 @@ pub enum ExprKind {
     /// `p::freeze()` / `p::thaw()`: the same pointer bits under the other
     /// pointer kind (`*T` to `*fixed T` or back). Needs `unsafe`.
     PtrConv(Box<Expr>),
+    /// A named function adapted to the function-value ABI.
+    FuncRef(FuncId),
+    /// A lifted function with its captures as places in the enclosing function.
+    Closure(FuncId, Vec<Expr>),
+    /// Indirect call with the callable value at index zero.
+    FnCall(Vec<Expr>),
     /// A `&S` / `&mut S` made a `&Iface` / `&mut Iface` (the expression's type):
     /// the borrow and the vtable of `S` for the interface.
     Unsize(Box<Expr>),
@@ -668,6 +695,10 @@ pub enum ExprKind {
     Array(Vec<Expr>),
     /// `list::push(value)`: `list` is a changeable list place; `value` is moved in.
     ListPush { list: Box<Expr>, value: Box<Expr> },
+    /// `{ k: v, ... }` of map type: a fresh map, the pairs inserted in order.
+    Map(Vec<(Expr, Expr)>),
+    /// A map method (`MapOp`): `args[0]` is the map, the rest its arguments.
+    MapCall { op: MapOp, args: Vec<Expr> },
     /// A list method with a runtime call (`ListOp`): `args[0]` is the list
     /// place, the rest are the method's arguments.
     ListCall { op: ListOp, args: Vec<Expr> },
@@ -685,7 +716,7 @@ impl Expr {
     pub fn children(&self) -> Vec<&Expr> {
         use ExprKind as K;
         match &self.kind {
-            K::Int(_) | K::Float(_) | K::Bool(_) | K::Str(_) | K::Local(_) | K::NullPtr | K::InLine | K::InEnded | K::IncDec { .. } => Vec::new(),
+            K::Int(_) | K::Float(_) | K::Bool(_) | K::Str(_) | K::Local(_) | K::FuncRef(_) | K::NullPtr | K::InLine | K::InEnded | K::IncDec { .. } => Vec::new(),
             K::Field(x, _)
             | K::Neg(x)
             | K::Not(x)
@@ -703,6 +734,8 @@ impl Expr {
             K::Variant { args, .. } => args.iter().collect(),
             K::Len(x) => vec![&**x],
             K::Index(a, b) | K::ListPush { list: a, value: b } => vec![&**a, &**b],
+            K::Map(pairs) => pairs.iter().flat_map(|(k, v)| [k, v]).collect(),
+            K::MapCall { args, .. } => args.iter().collect(),
             K::ListCall { args, .. } => args.iter().collect(),
             K::List(items) | K::Array(items) => items.iter().collect(),
             K::Radix { value, .. } => vec![&**value],
@@ -717,10 +750,30 @@ impl Expr {
             K::Logic { lhs, rhs, .. } | K::Maybe { value: lhs, fallback: rhs } => vec![&**lhs, &**rhs],
             K::Shift { value, amount, .. } => vec![&**value, &**amount],
             K::Struct(fields) => fields.iter().map(|(_, v)| v).collect(),
-            K::Call(_, args) | K::StrCall(_, args) | K::DynCall(_, _, args) => args.iter().collect(),
+            K::Call(_, args) | K::StrCall(_, args) | K::DynCall(_, _, args) | K::FnCall(args) | K::Closure(_, args) => args.iter().collect(),
             K::Join(parts) => parts.iter().collect(),
             K::Take { leaving, .. } => leaving.as_deref().into_iter().collect(),
         }
+    }
+}
+
+/// The map methods (S6D). `Get` is `m[k]` and `m::get(k)`: a `V?`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MapOp {
+    /// `map[key]`: the value under `key`, or none (`V?`).
+    Get,
+    /// `map::len()`: the number of entries, a `uint64`.
+    Len,
+    /// `map::set(key, value)` and `map[key] = value`: adds or replaces.
+    Set,
+    /// `map::remove(key)`: the entry goes; its value is dropped.
+    Remove,
+}
+
+impl MapOp {
+    /// Does the call change the map (it needs a changeable map place)?
+    pub fn changes(self) -> bool {
+        matches!(self, MapOp::Set | MapOp::Remove)
     }
 }
 

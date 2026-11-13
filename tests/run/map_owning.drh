@@ -1,0 +1,53 @@
+in io;
+
+struct Registry {
+    public:
+    Map<string, string> items;
+    uint32 count;
+
+    Registry(Map<string, string> items, uint32 count) {
+        self.items = items;
+        self.count = count;
+    }
+}
+
+none fill(&mut Map<string, uint32> m, string k) {
+    m[copy k] = 1;
+    m[k] = 2;
+}
+
+uint32 total(&Map<string, uint32> m) {
+    return m["x"] maybe 0;
+}
+
+none main() {
+    mut Map<string, string> names = { "a": "alpha", "b": "beta" };
+    names["c"] = "gamma";
+    names["a"] = "again";
+    io::outln(names::len()->text());
+    io::outln(names["a"] maybe "none");
+    io::outln(names["zz"] maybe "none");
+
+    mut Map<string, uint32> ages;
+    fill(&mut ages, "x");
+    io::outln((ages["x"] maybe 0)::text());
+    io::outln((total(&ages))::text());
+
+    mut Map<float64, string> floats = { 1.5: "one and a half" };
+    io::outln(floats[1.5] maybe "none");
+    io::outln(floats[-0.0] maybe "none");
+
+    mut Map<bool, uint32> flags;
+    flags[true] = 7;
+    io::outln((flags[true] maybe 0)::text());
+    io::outln((flags[false] maybe 0)::text());
+
+    mut Registry r = new Registry of ({ "k": "v" }, 1);
+    r.items["k2"] = "v2";
+    io::outln(r.items["k2"] maybe "none");
+
+    mut Map<string, Map<string, uint32>> nested;
+    mut Map<string, uint32> inner = { "inner": 5 };
+    nested["outer"] = inner;
+    io::outln("nested");
+}

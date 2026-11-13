@@ -14,6 +14,8 @@ use std::fmt::Write;
 use crate::cgen_common::{bits, c_str_value, c_type, halves, main_fn, prelude, signed, struct_defs, work_type};
 use crate::hir::{self, BinOp};
 use crate::mir::drops::{copy_glue_types, drop_glue_types, glue_name, holds_string};
+use crate::mir::MapFn;
+use crate::codegen_common::{key_tag, map_ops_type};
 use crate::mir::traversal::reverse_postorder;
 use crate::mir::ty::{operand_ty, place_ty};
 use crate::mir::*;
@@ -74,12 +76,12 @@ fn vtables(hir: &hir::Program) -> String {
 /// of the definitions does not matter. Structs by id, then enums.
 fn glue(hir: &hir::Program) -> String {
     let mut protos = String::new();
-    let mut defs = String::new();
+    let mut defs = key_fns_c(hir);
     // The drop statement for the field at C path `access` (a value, not a pointer).
     let drop_of = |access: &str, ty: Type| -> Option<String> {
         match ty {
             Type::Str => Some(format!("if ({access}.cap != 0) drachm_str_drop(&{access});")),
-            Type::Struct { .. } | Type::Enum { .. } | Type::List { .. } | Type::Array { .. } if crate::mir::needs_drop(hir, ty) => {
+            Type::Struct { .. } | Type::Enum { .. } | Type::List { .. } | Type::Array { .. } | Type::Map { .. } if crate::mir::needs_drop(hir, ty) => {
                 Some(format!("drachm_drop_{}(&{access});", glue_name(ty)))
             }
             _ => None,
@@ -88,7 +90,7 @@ fn glue(hir: &hir::Program) -> String {
     let copy_of = |dst: &str, src: &str, ty: Type| -> Option<String> {
         match ty {
             Type::Str => Some(format!("drachm_str_copy(&{dst}, &{src});")),
-            Type::Struct { .. } | Type::Enum { .. } | Type::List { .. } | Type::Array { .. } if holds_string(hir, ty) => {
+            Type::Struct { .. } | Type::Enum { .. } | Type::List { .. } | Type::Array { .. } | Type::Map { .. } if holds_string(hir, ty) => {
                 Some(format!("drachm_copy_{}(&{dst}, &{src});", glue_name(ty)))
             }
             _ => None,
@@ -137,6 +139,9 @@ fn glue(hir: &hir::Program) -> String {
                     let _ = writeln!(defs, "    drachm_cause_drop(p->u.v0.f_{});", hir::CAUSE_FIELD);
                 }
             }
+            Type::Map { .. } => {
+                let _ = writeln!(defs, "    drachm_map_drop(p, {});", map_ops_c(t));
+            }
             _ => unreachable!(),
         }
         defs += "}\n";
@@ -181,9 +186,20 @@ fn glue(hir: &hir::Program) -> String {
                 }
                 let _ = writeln!(defs, "    default: break;\n    }}");
             }
+            Type::Map { .. } => {
+                let _ = writeln!(defs, "    drachm_map_copy(dst, src, {});", map_ops_c(t));
+            }
             _ => unreachable!(),
         }
         defs += "}\n";
+    }
+    let mut seen = std::collections::HashSet::new();
+    for mt in hir.collections.iter().copied().filter(|t| t.is_map()).map(map_ops_type) {
+        if seen.insert(mt) {
+            let name = glue_name(mt);
+            let _ = writeln!(protos, "static const drachm_map_ops drachm_ops_{name};");
+            let _ = writeln!(defs, "static const drachm_map_ops drachm_ops_{name} = {};", map_ops_init(hir, mt));
+        }
     }
     protos + &defs
 }
@@ -191,7 +207,13 @@ fn glue(hir: &hir::Program) -> String {
 /// `static T symbol(T l1, T l2)`. A method's `self` is an ordinary `&T`
 /// parameter, so a pointer.
 fn signature(hir: &hir::Program, body: &Body) -> String {
-    let params: Vec<String> = (1..=body.arg_count).map(|i| format!("{} l{i}", c_type(body.locals[Local(i as u32)].ty))).collect();
+    let params: Vec<String> = (1..=body.arg_count).map(|i| {
+        if i == 1 && hir.closures.contains_key(&body.func) {
+            "uint8_t *env".into()
+        } else {
+            format!("{} l{i}", c_type(body.locals[Local(i as u32)].ty))
+        }
+    }).collect();
     let params = if params.is_empty() { "void".to_string() } else { params.join(", ") };
     format!("static {} {}({params})", c_type(hir.funcs[body.func].ret), hir.funcs[body.func].symbol)
 }
@@ -330,6 +352,10 @@ impl Gen<'_> {
         // on small recursive functions change with such declarations.
         let named = named_locals(&body_text);
         let mut text = String::new();
+        if self.hir.closures.contains_key(&body.func) {
+            let ty = c_type(body.locals[Local(1)].ty);
+            let _ = writeln!(text, "    {ty} l1 = ({ty})env;");
+        }
         for (l, d) in body.locals.iter_enumerated() {
             if !named.contains(&l.index()) || (l.index() <= body.arg_count && l.index() != 0) || d.ty == Type::None || self.consts[l.index()] {
                 continue;
@@ -498,7 +524,7 @@ impl Gen<'_> {
                 let call = match ty {
                     // `drachm_str_drop` starts with this test; doing it here skips the call.
                     Type::Str => format!("if ({lv}.cap != 0) drachm_str_drop(&{lv});"),
-                    Type::Struct { .. } | Type::Enum { .. } | Type::List { .. } | Type::Array { .. } if crate::mir::needs_drop(self.hir, ty) => {
+                    Type::Struct { .. } | Type::Enum { .. } | Type::List { .. } | Type::Array { .. } | Type::Map { .. } if crate::mir::needs_drop(self.hir, ty) => {
                         format!("drachm_drop_{}(&{lv});", glue_name(ty))
                     }
                     _ => return,
@@ -576,6 +602,10 @@ impl Gen<'_> {
             // A reborrow of the interface behind a fat borrow is the fat borrow.
             Rvalue::Ref(_, p) if matches!(place_ty(self.body, self.hir, p), Ok(Type::Dyn { .. })) => self.lvalue(p),
             Rvalue::Ref(_, p) | Rvalue::RawRef(p) => format!("&{}", self.lvalue(p)),
+            Rvalue::MakeFn(id, _, env) => {
+                let env = env.as_ref().map_or_else(|| "NULL".into(), |p| format!("(uint8_t *)&{}", self.lvalue(p)));
+                format!("(drachm_fn){{ (void (*)(void)){}, {env} }}", self.hir.funcs[*id].symbol)
+            }
             Rvalue::Unsize(op, to) => {
                 let from = self.op_ty(op);
                 let x = self.operand(op);
@@ -615,6 +645,11 @@ impl Gen<'_> {
                     _ => format!("{}.len", self.lvalue(p)),
                 }
             }
+            Rvalue::MapNew(t) => {
+                let _ = t;
+                self.line(format!("drachm_map_new(&{lv});"));
+                return;
+            }
             Rvalue::ListNew(t, cap) => {
                 if *cap == 0 {
                     format!("(drachm_list){{0}}")
@@ -632,7 +667,7 @@ impl Gen<'_> {
                 let src = self.lvalue(p);
                 match ty {
                     Type::Str => self.line(format!("drachm_str_copy(&{lv}, &{src});")),
-                    Type::Struct { .. } | Type::Enum { .. } | Type::List { .. } | Type::Array { .. } if holds_string(self.hir, ty) => {
+                    Type::Struct { .. } | Type::Enum { .. } | Type::List { .. } | Type::Array { .. } | Type::Map { .. } if holds_string(self.hir, ty) => {
                         self.line(format!("drachm_copy_{}(&{lv}, &{src});", glue_name(ty)))
                     }
                     _ => self.line(format!("{lv} = {src};")),
@@ -762,18 +797,25 @@ impl Gen<'_> {
                     _ => self.line(format!("{call};")),
                 }
             }
-            Callee::Dyn { iface, method } => {
-                let m = &self.hir.dyn_ifaces[iface].methods[method];
-                let slot = self.hir.dyn_ifaces[iface].method_slot(method);
+            Callee::Dyn { .. } | Callee::Fn(_) => {
                 let fat = self.operand(&args[0].op);
-                let rest: Vec<String> = args[1..].iter().map(|a| self.operand(&a.op)).collect();
-                let mut params = vec!["void *".to_string()];
-                params.extend(m.params.iter().map(|&p| c_type(p)));
-                let fn_ty = format!("{} (*)({})", c_type(m.ret), params.join(", "));
-                let mut all = vec![format!("{fat}.data")];
-                all.extend(rest);
-                let call = format!("(({fn_ty}){fat}.vt[{slot}])({})", all.join(", "));
-                match (&dest_lv, m.ret) {
+                let (ret, args_ty, env_ty, env, code) = match callee {
+                    Callee::Dyn { iface, method } => {
+                        let iface = &self.hir.dyn_ifaces[iface];
+                        let m = &iface.methods[method];
+                        let slot = iface.method_slot(method);
+                        (m.ret, m.params.as_slice(), "void *", format!("{fat}.data"), format!("{fat}.vt[{slot}]"))
+                    }
+                    Callee::Fn(Type::Func(sig)) => (sig.ret, sig.params.as_slice(), "uint8_t *", format!("{fat}.env"), format!("{fat}.code")),
+                    _ => unreachable!("an indirect callee"),
+                };
+                let mut params = vec![env_ty.to_string()];
+                params.extend(args_ty.iter().map(|&p| c_type(p)));
+                let fn_ty = format!("{} (*)({})", c_type(ret), params.join(", "));
+                let mut all = vec![env];
+                all.extend(args[1..].iter().map(|a| self.operand(&a.op)));
+                let call = format!("(({fn_ty}){code})({})", all.join(", "));
+                match (&dest_lv, ret) {
                     (Some(_), t) if t != Type::None => {
                         let d = self.decl(dest.unwrap(), t);
                         self.line(format!("{d} = {call};"))
@@ -878,6 +920,7 @@ impl Gen<'_> {
                 self.line(format!("drachm_str_radix(&{dest}, {}, {}, {base}, {});", halves(&v, ty), signed(ty) as u8, upper as u8));
             }
             Callee::ListOp(op, elem) => self.list_op(op, elem, args, dest_lv.as_deref()),
+            Callee::MapOp(f, mt) => self.map_call(f, mt, args, dest, dest_lv.as_deref()),
             Callee::ListHas(elem) => {
                 let (list, idx) = (self.operand(&args[0].op), self.operand(&args[1].op));
                 let d = self.decl(dest.unwrap(), Type::Bool);
@@ -1011,4 +1054,115 @@ fn named_locals(text: &str) -> std::collections::BTreeSet<usize> {
         }
     }
     found
+}
+
+// ---- maps (S6D) ----
+
+/// The C functions that hash and compare keys of each tag used by a map type.
+fn key_fns_c(hir: &hir::Program) -> String {
+    let mut tags: Vec<&'static str> = Vec::new();
+    for t in &hir.collections {
+        if let Some((k, _)) = t.map_parts() {
+            let tag = key_tag(k);
+            if !tags.contains(&tag) {
+                tags.push(tag);
+            }
+        }
+    }
+    let mut out = String::new();
+    for tag in tags {
+        let (hash, eq) = match tag {
+            "str" => (
+                "return drachm_str_hash((const drachm_str *)p);".to_string(),
+                "return drachm_str_eq((const drachm_str *)a, (const drachm_str *)b);".to_string(),
+            ),
+            "u128" => (
+                "drachm_u128 n; memcpy(&n, p, sizeof n); return drachm_hash_combine(drachm_hash_u64((uint64_t)n), (uint64_t)(n >> 64));".to_string(),
+                "return memcmp(a, b, sizeof(drachm_u128)) == 0;".to_string(),
+            ),
+            _ => {
+                let c = match tag {
+                    "u8" => "uint8_t",
+                    "u16" => "uint16_t",
+                    "u32" => "uint32_t",
+                    _ => "uint64_t",
+                };
+                (format!("{c} n; memcpy(&n, p, sizeof n); return drachm_hash_u64(n);"), format!("return memcmp(a, b, sizeof({c})) == 0;"))
+            }
+        };
+        let _ = writeln!(out, "\nstatic uint64_t drachm_keyhash_{tag}(const void *p) {{ {hash} }}");
+        let _ = writeln!(out, "static uint8_t drachm_keyeq_{tag}(const void *a, const void *b) {{ {eq} }}");
+    }
+    out
+}
+
+/// The address of the static runtime operations table for this map.
+fn map_ops_c(mt: Type) -> String {
+    format!("&drachm_ops_{}", glue_name(map_ops_type(mt)))
+}
+
+fn map_ops_init(hir: &hir::Program, mt: Type) -> String {
+    let (k, v) = mt.map_parts().expect("a map has key and value types");
+    let (ks, ka) = hir.size_align(k);
+    let (vs, va) = hir.size_align(v);
+    let drop_k = if k == Type::Str { "(drachm_drop_fn)drachm_str_drop".to_string() } else { "NULL".to_string() };
+    let copy_k = if k == Type::Str { "(drachm_copy_fn)drachm_str_copy".to_string() } else { "NULL".to_string() };
+    let drop_v = match v {
+        _ if !crate::mir::needs_drop(hir, v) => "NULL".to_string(),
+        Type::Str => "(drachm_drop_fn)drachm_str_drop".to_string(),
+        _ => format!("(drachm_drop_fn)drachm_drop_{}", glue_name(v)),
+    };
+    let copy_v = match v {
+        _ if !holds_string(hir, v) => "NULL".to_string(),
+        Type::Str => "(drachm_copy_fn)drachm_str_copy".to_string(),
+        _ => format!("(drachm_copy_fn)drachm_copy_{}", glue_name(v)),
+    };
+    let tag = key_tag(k);
+    format!(
+        "{{ .ksize = {ks}, .kalign = {ka}, .vsize = {vs}, .valign = {va}, .hash = drachm_keyhash_{tag}, .eq = drachm_keyeq_{tag}, .drop_key = {drop_k}, .drop_val = {drop_v}, .copy_key = {copy_k}, .copy_val = {copy_v} }}"
+    )
+}
+
+impl Gen<'_> {
+    /// A map call (`mir::MapFn`), as C. `args[0]` is the map's address.
+    fn map_call(&mut self, f: MapFn, mt: Type, args: &[Arg], dest: Option<&Place>, dest_lv: Option<&str>) {
+        let (k, v) = mt.map_parts().expect("a map call is on a map");
+        let map = self.operand(&args[0].op);
+        let ops = map_ops_c(mt);
+        match f {
+            MapFn::Len => {
+                let d = self.decl(dest.expect("a length has a destination"), Type::U64);
+                self.line(format!("{d} = drachm_map_len({map});"));
+            }
+            MapFn::Get(result) => {
+                let key = self.operand(&args[1].op);
+                let dst = dest_lv.expect("a lookup has a destination");
+                let field = &self.hir.enum_def(result).variants[1].fields[0].name;
+                let out = format!("{dst}.u.v1.f_{field}");
+                let copy = if self.hir_holds_string(v) {
+                    match v {
+                        Type::Str => format!("drachm_str_copy(&{out}, (const drachm_str *)at);"),
+                        _ => format!("drachm_copy_{}(&{out}, (const {} *)at);", glue_name(v), c_type(v)),
+                    }
+                } else {
+                    format!("memcpy(&{out}, at, sizeof {out});")
+                };
+                self.line(format!(
+                    "{{ const void *at = drachm_map_find({map}, {key}, {ops}); if (at) {{ {copy} {dst}.tag = 1; }} else {{ {dst}.tag = 0; }} }}"
+                ));
+            }
+            MapFn::Set => {
+                let (key, val) = (self.operand(&args[1].op), self.operand(&args[2].op));
+                self.line(format!("{{ {} drachm_k = {key}; {} drachm_v = {val}; drachm_map_insert({map}, &drachm_k, &drachm_v, {ops}); }}", c_type(k), c_type(v)));
+            }
+            MapFn::Remove => {
+                let key = self.operand(&args[1].op);
+                self.line(format!("drachm_map_remove({map}, {key}, NULL, {ops});"));
+            }
+        }
+    }
+
+    fn hir_holds_string(&self, t: Type) -> bool {
+        crate::mir::drops::holds_string(self.hir, t)
+    }
 }

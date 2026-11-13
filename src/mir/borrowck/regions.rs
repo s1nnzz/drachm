@@ -19,6 +19,7 @@ use crate::types::Type;
 /// The number of region slots in a value of type `ty`.
 pub fn region_slots(hir: &hir::Program, ty: Type) -> usize {
     match ty {
+        Type::Func(_) => 1,
         Type::Ref { to, .. } => 1 + region_slots(hir, *to),
         Type::Struct { id, .. } => hir.structs[id].lives.len(),
         _ => 0,

@@ -1,0 +1,13 @@
+in io;
+
+uint32 apply((uint32) => uint32 f, uint32 n) {
+    return f(n);
+}
+
+none main() {
+    (uint32) => uint32 square = (uint32 n) => n * n;
+    io::outln(square(4)::text());
+    io::outln(apply((uint32 n) => {
+        return n + 1;
+    }, 4)::text());
+}

@@ -512,6 +512,10 @@ impl Checker<'_> {
             }
         }
         let types: Vec<Type> = bound.iter().map(|b| b.unwrap().0).collect();
+        if types.iter().any(|t| t.is_func()) {
+            self.diags.push(Diagnostic::at(&codes::E0901, span, "a function type as a type argument is not supported yet"));
+            return fail(self);
+        }
         // A borrow as a type argument is allowed by the design but not built yet.
         if let Some(bad) = types.iter().position(|t| t.is_borrow() || self.g.holds_borrow(*t)) {
             self.diags.push(
@@ -625,7 +629,7 @@ pub(super) fn make_fn_instance(g: &mut Globals, diags: &mut Vec<Diagnostic>, nam
     let mut local = Vec::new();
     ensure_written(g, &mut local);
     let params: Vec<Option<Type>> = t.head.params.iter().map(|p| g.resolve_binding_type(&p.ty, &mut local)).collect();
-    let ret = g.resolve(&t.head.ret, &mut local);
+    let ret = g.resolve_return(&t.head.ret, &mut local);
     let (fails, outcome) = failures::signature(g, &t.head, ret, true, &mut local);
     let sig = Sig { name: display.clone(), params, ret, span: t.head.span, fails, outcome };
     check_signature_extras(g, &t.head, &sig.params, false, &mut local);
@@ -705,7 +709,7 @@ pub(super) fn type_name_taken(g: &Globals, name: &str, span: Span, _what: &str, 
 }
 
 fn declare_type_template(g: &mut Globals, kind: Kind, index: usize, name: &str, name_span: Span, tparams: &[ast::TypeParam], head: Head, diags: &mut Vec<Diagnostic>) {
-    if name == "none" || !matches!(Type::from_name(name), Err(types::TypeError::Unknown)) {
+    if name == "none" || super::maps::is_map_name(name) || !matches!(Type::from_name(name), Err(types::TypeError::Unknown)) {
         diags.push(
             Diagnostic::at(&codes::E0202, name_span, format!("`{name}` is the name of a built-in type"))
                 .note("already a type")

@@ -97,7 +97,7 @@ impl Globals {
 }
 
 /// The list methods that are decided (Q10) but not built yet.
-const LATER: &[&str] = &["each", "swap"];
+const LATER: &[&str] = &["swap"];
 
 impl Checker<'_> {
     /// `[a, b, c]`. With a type wanted (`to`, a list or an array) the items
@@ -131,6 +131,10 @@ impl Checker<'_> {
             };
             let v = self.expr(first)?;
             let x = self.materialise(v, first.span)?;
+            if x.ty.is_func() {
+                self.diags.push(Diagnostic::at(&codes::E0652, first.span, "a function value cannot be stored in a list"));
+                return None;
+            }
             if x.ty == Type::None || x.ty.is_borrow() {
                 self.diags.push(Diagnostic::at(&codes::E0901, first.span, "a list of borrows is not supported yet"));
                 return None;
@@ -269,6 +273,9 @@ impl Checker<'_> {
                 return None;
             }
         };
+        if base.ty.is_map() {
+            return self.map_index(base, index);
+        }
         if !(base.ty.is_list() || base.ty.is_array()) {
             self.not_indexable(recv, base.ty);
             self.expr(index);
@@ -291,6 +298,15 @@ impl Checker<'_> {
     pub(super) fn index_place(&mut self, recv: &ast::Expr, index: &ast::Expr) -> Option<PlaceInfo> {
         let mut p = self.lvalue(recv)?;
         Self::auto_deref(&mut p);
+        if p.ty.is_map() {
+            self.expr(index);
+            self.diags.push(
+                Diagnostic::at(&codes::E0901, recv.span, "a map item cannot be borrowed or moved yet")
+                    .note("only reading it (`map[key]`) and writing it (`map[key] = value;`) are supported")
+                    .help("copy the value out with `m[key]` and work with that"),
+            );
+            return None;
+        }
         if !(p.ty.is_list() || p.ty.is_array()) {
             self.not_indexable(recv, p.ty);
             self.expr(index);
@@ -313,6 +329,16 @@ impl Checker<'_> {
                     self.diags.push(Diagnostic::at(&codes::E0103, a.span, "`len` takes no arguments"));
                 }
                 Some(Val::Expr(hir::Expr::new(K::Len(Box::new(v)), Type::U64)))
+            }
+            "each" => {
+                let [arg] = args else {
+                    self.diags.push(Diagnostic::at(&codes::E0103, name_span, format!("`each` takes 1 argument, but {} given", args.len())));
+                    return None;
+                };
+                let callback = self.each_callback(arg, elem)?;
+                let function = self.g.list_func(ListFunc::Each(callback.ty), ty);
+                let list = hir::Expr::new(K::Borrow { mutable: false, place: Box::new(v) }, Type::borrow(false, ty)).at(recv.span);
+                Some(Val::Expr(hir::Expr::new(K::Call(function, vec![list, callback]), Type::None).at(name_span)))
             }
             "push" if ty.is_list() => {
                 let [arg] = args else {
@@ -471,6 +497,8 @@ pub(super) enum ListFunc {
     Eq,
     /// `(&L a, E item) -> bool`: some item is equal to `item`.
     Contains,
+    /// `(&L a, (E) => none callback)`: visit the items in index order.
+    Each(Type),
 }
 
 impl Globals {
@@ -482,11 +510,12 @@ impl Globals {
         }
         let elem = list.elem().expect("a list function is made for a list");
         let borrowed = Type::borrow(false, list);
-        let (name, params) = match kind {
-            ListFunc::Eq => (format!("{list} =="), vec![Some(borrowed), Some(borrowed)]),
-            ListFunc::Contains => (format!("{list} contains"), vec![Some(borrowed), Some(elem)]),
+        let (name, other, ret) = match kind {
+            ListFunc::Eq => (format!("{list} =="), borrowed, Type::Bool),
+            ListFunc::Contains => (format!("{list} contains"), elem, Type::Bool),
+            ListFunc::Each(callback) => (format!("{list} each"), callback, Type::None),
         };
-        let sig = Sig { name, params, ret: Some(Type::Bool), span: Span::new(0, 0), fails: Vec::new(), outcome: None };
+        let sig = Sig { name, params: vec![Some(borrowed), Some(other)], ret: Some(ret), span: Span::new(0, 0), fails: Vec::new(), outcome: None };
         let f = self.add_sig(sig);
         self.list_funcs.insert((kind, list), f);
         self.list_pending.push((kind, list, f));
@@ -521,6 +550,7 @@ pub(super) fn list_func_body(g: &mut Globals, kind: ListFunc, list: Type, f: Fun
     let mut locals = vec![param("a", borrowed), match kind {
         ListFunc::Eq => param("b", borrowed),
         ListFunc::Contains => param("item", elem),
+        ListFunc::Each(callback) => param("callback", callback),
     }];
     let i = locals.len();
     locals.push(hir::Local { name: "i".into(), ty: Type::U64, span: none, mutability: hir::Mutability::Mut, is_param: false, written: None });
@@ -577,13 +607,30 @@ pub(super) fn list_func_body(g: &mut Globals, kind: ListFunc, list: Type, f: Fun
                 hir::Stmt::Return(Some(hir::Expr::new(K::Bool(false), Type::Bool))),
             ]
         }
+        ListFunc::Each(callback) => {
+            let Type::Func(sig) = callback else { unreachable!("an each callback") };
+            let element = item(whole(0));
+            let arg = if sig.params[0].is_borrow() {
+                hir::Expr::new(K::Borrow { mutable: false, place: Box::new(element) }, sig.params[0])
+            } else if g.plain_copy(Some(elem)) {
+                element
+            } else {
+                hir::Expr::new(K::DeepCopy(Box::new(element)), elem)
+            };
+            let call = hir::Expr::new(K::FnCall(vec![hir::Expr::new(K::Local(1), callback), arg]), Type::None);
+            vec![
+                hir::Stmt::Decl(i),
+                hir::Stmt::Assign(hir::Place::local(i), int(0)),
+                hir::Stmt::Loop { label: label_loop, cond: Some(cond), body: vec![hir::Stmt::Expr(call)], step, end: none },
+            ]
+        }
     };
     hir::Func {
         symbol: format!("drachm_list_{}", f),
         params: 2,
         has_self: false,
         locals,
-        ret: Type::Bool,
+        ret: g.sigs[f].ret.unwrap(),
         body,
         name_span: none,
         span: none,
