@@ -328,10 +328,8 @@ uint32? age = ages["Bob"];                 // missing key -> none
   `OrderedMap` keeps insertion order. Replacing a value keeps the entry's place;
   removing a key and adding it again puts it last.
 - Not built: views of map entries (`for (&K k, V v of m)`, E0901).
-- Decided, in progress (owner, Q3 follow-ups, 2026-11-13): `maybe &string` for an
-  optional that holds a borrow (today `Optional<&string>`); `a same as b` for
-  comparing two borrows by address (and `not (a same as b)`); `xs::containsRef(&p)`
-  for the address version of `contains`. Not built yet; another package adds them.
+- Built (owner, Q3 follow-ups, 2026-11-13): `maybe &string`, `a same as b` and
+  `xs::containsRef(&p)`; see Optionals and Equality below.
 
 ### Optionals
 
