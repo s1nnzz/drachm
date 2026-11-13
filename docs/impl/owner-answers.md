@@ -141,3 +141,8 @@ Q5 interfaces as types: any interface can be used as `&I` (its `static` methods 
 - Any struct may have two methods with the same name and parameters that differ only in result (as built for two `Iterable<T>`s); calling one by name is E0632.
 - A map key type with its own `==` and no `key()` stays an error (E0627): add `key()`.
 - OrderedMap: replacing a value keeps the entry's place; remove then re-add puts it last. Walking a map gives copies of keys and values (views later, with optionals that hold borrows).
+
+# S6A.3 follow-ups, 2026-11-13
+- A call may write a unit argument: `twice<unit m>(3.0<m>)`.
+- When no argument carries a unit, `U` cannot be told (E0601); write `twice<unit m>(3.0)`.
+- `U` inside a bigger unit in a parameter (`float64<U/s> v`) should be solved from the argument (`dist(3.0<m/s>, 2.0<s>)` gives `U = m`). Not built yet (E0901 today): to do.
