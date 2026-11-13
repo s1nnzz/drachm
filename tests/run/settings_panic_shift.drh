@@ -1,0 +1,12 @@
+//--!$overflow: panic
+in io;
+
+none main() {
+    uint32 one = 1;
+    mut uint32 amount = 31;
+    io::outln(f"${one << amount}");
+    amount += 1;
+    io::outln(f"${one >> 3}");
+    io::outln(f"${one << amount}");
+    io::outln("not reached");
+}

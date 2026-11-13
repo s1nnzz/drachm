@@ -1,0 +1,11 @@
+in io;
+
+uint8 total(uint8 a, uint8 b) {
+    return a + b;
+}
+
+none main() {
+    io::outln(f"${total(100, 100)}");
+    io::outln(f"${total(200, 100)}");
+    io::outln("not reached");
+}

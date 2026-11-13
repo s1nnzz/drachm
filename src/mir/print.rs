@@ -180,6 +180,11 @@ fn rvalue(p: &Program, hir: &hir::Program, rv: &Rvalue) -> String {
         }
         Rvalue::IntPow(a, b) => format!("IntPow({}, {})", o(a), o(b)),
         Rvalue::Convert(x, t) => format!("Convert({}, {t})", o(x)),
+        Rvalue::Checked(op, mode, a, b) => match op {
+            OvfOp::Neg => format!("Checked{mode:?}Neg({})", o(a)),
+            OvfOp::Convert(t) => format!("Checked{mode:?}Convert({}, {t})", o(a)),
+            _ => format!("Checked{mode:?}{op:?}({}, {})", o(a), o(b)),
+        },
         Rvalue::MakeFn(id, _, env) => match env {
             Some(env) => format!("MakeFn({}, &{})", hir.funcs[*id].symbol, place(env)),
             None => format!("MakeFn({})", hir.funcs[*id].symbol),

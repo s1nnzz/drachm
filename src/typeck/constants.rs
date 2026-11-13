@@ -113,15 +113,26 @@ impl Ctx<'_> {
                 let c = if c.fits(ty) {
                     c
                 } else {
+                    use crate::config::Overflow;
+                    let mode = self.g.settings_at(d.name_span).overflow;
                     let wrapped = match ty {
+                        Type::Int { .. } if mode == Overflow::Saturate => Const::from_int_bits(c.saturate_to_int(ty), ty),
                         Type::Int { .. } => Const::from_int_bits(c.wrap_to_int(ty), ty),
                         _ => c.clone(),
                     };
-                    let mut diag = Diagnostic::at(&codes::W0102, value.span, format!("this constant does not fit `{ty}`"))
-                        .note_line(format!("`{ty}` holds {}; a constant outside that wraps around", ty.describe_range()));
-                    if let Const::Int(v) = &wrapped {
-                        diag = diag.note(format!("becomes {v}"));
-                    }
+                    let mut diag = if mode == Overflow::Panic && matches!(ty, Type::Int { .. }) {
+                        Diagnostic::at(&codes::E0116, value.span, format!("this constant does not fit `{ty}`"))
+                            .note_line(format!("`{ty}` holds {}, and this file has `overflow = panic`", ty.describe_range()))
+                            .help("use a value that fits or a bigger type")
+                    } else {
+                        let how = if mode == Overflow::Saturate { "stops at the nearest end" } else { "wraps around" };
+                        let mut diag = Diagnostic::at(&codes::W0102, value.span, format!("this constant does not fit `{ty}`"))
+                            .note_line(format!("`{ty}` holds {}; a constant outside that {how}", ty.describe_range()));
+                        if let Const::Int(v) = &wrapped {
+                            diag = diag.note(format!("becomes {v}"));
+                        }
+                        diag
+                    };
                     self.diags.push(diag);
                     wrapped
                 };

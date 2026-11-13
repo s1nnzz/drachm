@@ -419,7 +419,7 @@ impl Gen<'_> {
                     let wide = |t: Type| matches!(t, Type::Int { bits: 128, .. });
                     let simple = match rv {
                         // These two can need a helper block with its own scope.
-                        Rvalue::IntPow(..) => false,
+                        Rvalue::IntPow(..) | Rvalue::Checked(..) => false,
                         Rvalue::Convert(op, to) => !wide(*to) && !wide(self.op_ty(op)),
                         _ => true,
                     };
@@ -610,6 +610,10 @@ impl Gen<'_> {
                     _ => format!("({t}){v}"),
                 }
             }
+            Rvalue::Checked(op, mode, a, b) => {
+                self.checked(lv, ty, *op, *mode, a, b);
+                return;
+            }
             // A reborrow of the interface behind a fat borrow is the fat borrow.
             Rvalue::Ref(_, p) if matches!(place_ty(self.body, self.hir, p), Ok(Type::Dyn { .. })) => self.lvalue(p),
             Rvalue::Ref(_, p) | Rvalue::RawRef(p) => format!("&{}", self.lvalue(p)),
@@ -687,6 +691,71 @@ impl Gen<'_> {
             }
         };
         self.line(format!("{lv} = {value};"));
+    }
+
+    /// `lv = a op b` under `overflow = saturate | panic`. Addition,
+    /// subtraction and multiplication use the compiler's overflow builtins;
+    /// the rest call the runtime, which Cranelift's code calls for everything,
+    /// so both agree on every value.
+    fn checked(&mut self, lv: &str, ty: Type, op: OvfOp, mode: crate::config::Overflow, a: &Operand, b: &Operand) {
+        let m = if mode == crate::config::Overflow::Saturate { 1 } else { 2 };
+        let aty = self.op_ty(a);
+        let x = self.operand(a);
+        let t = c_type(ty);
+        let (wbits, wsigned) = match op {
+            OvfOp::Convert(to) => (bits(to), signed(to)),
+            _ => (bits(aty), signed(aty)),
+        };
+        let call = match op {
+            OvfOp::Add | OvfOp::Sub | OvfOp::Mul => {
+                let y = self.operand(b);
+                let direction = match (op, wsigned) {
+                    (OvfOp::Add, false) | (OvfOp::Mul, false) => "1",
+                    (OvfOp::Sub, false) => "0",
+                    (OvfOp::Add, true) => "y_ > 0",
+                    (OvfOp::Sub, true) => "y_ < 0",
+                    _ => "(x_ < 0) == (y_ < 0)",
+                };
+                let f = match op {
+                    OvfOp::Add => "add",
+                    OvfOp::Sub => "sub",
+                    _ => "mul",
+                };
+                let fail = if m == 1 {
+                    format!("r_ = ({t})({direction} ? drachm_ovf_max({wbits}, {}) : drachm_ovf_min({wbits}, {}));", wsigned as u8, wsigned as u8)
+                } else {
+                    "drachm_panic(\"arithmetic overflow\");".to_string()
+                };
+                self.line(format!("{{ {t} r_; const {t} x_ = {x}, y_ = {y}; if (__builtin_{f}_overflow(x_, y_, &r_)) {{ {fail} }} {lv} = r_; }}"));
+                return;
+            }
+            OvfOp::Div => {
+                let y = self.operand(b);
+                format!("drachm_ovf_arith(3, {m}, {wbits}, {}, {}, {})", wsigned as u8, halves(&x, aty), halves(&y, aty))
+            }
+            OvfOp::Neg => format!("drachm_ovf_arith(4, {m}, {wbits}, {}, {}, 0, 0)", wsigned as u8, halves(&x, aty)),
+            OvfOp::Shl | OvfOp::Shr => {
+                let bty = self.op_ty(b);
+                let y = self.operand(b);
+                format!(
+                    "drachm_ovf_shift({}, {m}, {wbits}, {}, {}, {}, {})",
+                    (op == OvfOp::Shl) as u8,
+                    wsigned as u8,
+                    halves(&x, aty),
+                    halves(&y, bty),
+                    signed(bty) as u8
+                )
+            }
+            OvfOp::Pow => {
+                let xty = self.op_ty(b);
+                let y = self.operand(b);
+                let negative = if signed(xty) { format!("({y} < 0)") } else { "0".into() };
+                format!("drachm_ovf_pow({m}, {wbits}, {}, {}, {}, {negative})", wsigned as u8, halves(&x, aty), halves(&y, xty))
+            }
+            OvfOp::Convert(_) if aty.is_float() => format!("drachm_ovf_f2i({m}, {wbits}, {}, (double){x})", wsigned as u8),
+            OvfOp::Convert(_) => format!("drachm_ovf_conv({m}, {wbits}, {}, {}, {})", wsigned as u8, signed(aty) as u8, halves(&x, aty)),
+        };
+        self.line(format!("{{ const drachm_pair p = {call}; {lv} = ({t})drachm_join(p.lo, p.hi); }}"));
     }
 
     /// `a op b` where both have type `operand`. A division first checks for zero.

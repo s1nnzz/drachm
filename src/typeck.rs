@@ -2832,7 +2832,7 @@ impl<'a> Checker<'a> {
                 if !e.ty.converts_losslessly_to(to) {
                     self.warn_lossy(e.ty, to, from);
                 }
-                Some(hir::Expr::new(hir::ExprKind::Convert(Box::new(e)), to))
+                Some(self.ovf(hir::Expr::new(hir::ExprKind::Convert(Box::new(e)), to), from.span))
             }
             Val::Expr(e) => {
                 let mut d = Diagnostic::at(&codes::E0101, from.span, format!("expected `{to}`, found `{}`", e.ty))
@@ -2874,14 +2874,19 @@ impl<'a> Checker<'a> {
 
 
     fn warn_lossy(&mut self, from: Type, to: Type, at: Origin) {
+        let beyond = match self.g.settings_at(at.span).overflow {
+            crate::config::Overflow::Wrap => "wrap around",
+            crate::config::Overflow::Saturate => "stop at the nearest end",
+            crate::config::Overflow::Panic => "stop the program",
+        };
         let note = match (from, to) {
             (Type::Int { .. }, Type::Int { .. }) => format!(
-                "`{from}` holds {}; `{to}` holds {}; values outside that wrap around",
+                "`{from}` holds {}; `{to}` holds {}; values outside that {beyond}",
                 from.describe_range(),
                 to.describe_range()
             ),
             (Type::Float(_), Type::Int { .. }) => format!(
-                "`{to}` holds only whole numbers from {}; the fraction is dropped and values outside that wrap around",
+                "`{to}` holds only whole numbers from {}; the fraction is dropped and values outside that {beyond}",
                 to.describe_range()
             ),
             (Type::Int { .. }, Type::Float(_)) => {
@@ -2905,17 +2910,53 @@ impl<'a> Checker<'a> {
         );
     }
 
+    /// Under `overflow = saturate | panic`, mark a user-written whole-number
+    /// operation (or a conversion that can lose a value) so the code made for
+    /// it follows the setting. Anything else is returned as it is.
+    fn ovf(&self, e: hir::Expr, span: Span) -> hir::Expr {
+        use hir::{BinOp as B, ExprKind as K};
+        let mode = self.g.settings_at(span).overflow;
+        if mode == crate::config::Overflow::Wrap {
+            return e;
+        }
+        let applies = match &e.kind {
+            K::Neg(_) | K::Shift { .. } | K::IntPow(..) => e.ty.bare().is_int(),
+            K::Binary(op, ..) => matches!(op, B::Add | B::Sub | B::Mul | B::Div) && e.ty.bare().is_int(),
+            K::Convert(a) => match (a.ty.bare(), e.ty.bare()) {
+                (Type::Float(_), Type::Int { .. }) => true,
+                (from @ Type::Int { .. }, to @ Type::Int { .. }) => from.int_range().zip(to.int_range()).is_some_and(|((fl, fh), (tl, th))| fl < tl || fh > th),
+                _ => false,
+            },
+            _ => false,
+        };
+        if !applies {
+            return e;
+        }
+        let ty = e.ty;
+        hir::Expr::new(K::Overflow(Box::new(e), mode), ty).at(span)
+    }
+
     /// Give constant `c` the type `to`. Unless `explicit`, a value that does
     /// not fit is reported (W0102); either way it wraps.
     fn fit_const(&mut self, c: &Const, written: Type, span: Span, explicit: bool) -> hir::Expr {
         // A C number type holds what its representation holds; the value is built
         // in the representation and given the C type afterwards.
         let to = written.bare();
+        let mode = self.g.settings_at(span).overflow;
+        let misfit_int = matches!(to, Type::Int { .. }) && !c.fits(to);
         let mut e = match to {
+            Type::Int { .. } if misfit_int && mode == crate::config::Overflow::Saturate => int_lit(c.saturate_to_int(to), to),
             Type::Int { .. } => int_lit(c.wrap_to_int(to), to),
             _ => hir::Expr::new(hir::ExprKind::Float(c.to_float(to)), to),
         };
-        if !explicit && !c.fits(to) {
+        if misfit_int && mode == crate::config::Overflow::Panic {
+            let what = self.quote(span, "this constant");
+            self.diags.push(
+                Diagnostic::at(&codes::E0116, span, format!("{what} does not fit `{to}`"))
+                    .note_line(format!("`{to}` holds {}, and this function has `overflow = panic`", to.describe_range()))
+                    .help("use a value that fits or a bigger type"),
+            );
+        } else if !explicit && !c.fits(to) {
             let what = self.quote(span, "this constant");
             let (becomes, note) = match (&e.kind, c) {
                 (hir::ExprKind::Int(bits), Const::Dec(r)) if !r.is_integer() => (
@@ -2930,7 +2971,11 @@ impl<'a> Checker<'a> {
                         Const::Int(v) => v.to_string(),
                         Const::Dec(_) | Const::NegZero => unreachable!(),
                     },
-                    format!("`{to}` holds {}; a constant outside that wraps around", to.describe_range()),
+                    if mode == crate::config::Overflow::Saturate {
+                        format!("`{to}` holds {}; a constant outside that stops at the nearest end (`overflow = saturate`)", to.describe_range())
+                    } else {
+                        format!("`{to}` holds {}; a constant outside that wraps around", to.describe_range())
+                    },
                 ),
                 (hir::ExprKind::Float(f), _) if f.is_infinite() => ("infinity".to_string(), format!("it is beyond the largest `{to}`")),
                 (hir::ExprKind::Float(f), _) => (format!("{f:?}"), format!("`{to}` holds {}; this one is rounded", to.describe_range())),
@@ -2972,7 +3017,7 @@ impl<'a> Checker<'a> {
                 if x.span == Span::new(0, 0) {
                     x.span = e.span;
                 }
-                self.check_unhandled(e, &x);
+                let x = self.check_unhandled(e, x);
                 index::with(|ix| ix.types.push((e.span, index::demangle(&x.ty.to_string()))));
                 Some(Val::Expr(x))
             }
@@ -3953,7 +3998,7 @@ impl<'a> Checker<'a> {
                     Val::NoneLit(_) => unreachable!("`none` is not a number"),
                     Val::Expr(v) if v.ty == to => Some(Val::Expr(v)),
                     Val::Expr(v) if v.ty.is_numeric() => {
-                        Some(Val::Expr(hir::Expr::new(hir::ExprKind::Convert(Box::new(v)), to)))
+                        Some(Val::Expr(self.ovf(hir::Expr::new(hir::ExprKind::Convert(Box::new(v)), to), recv.span)))
                     }
                     Val::Expr(v) => {
                         self.diags.push(
@@ -4171,7 +4216,7 @@ impl<'a> Checker<'a> {
                 }
                 let ty = v.ty;
                 let kind = if op == UnOp::Neg { hir::ExprKind::Neg(Box::new(v)) } else { hir::ExprKind::BitNot(Box::new(v)) };
-                Some(Val::Expr(hir::Expr::new(kind, ty)))
+                Some(Val::Expr(self.ovf(hir::Expr::new(kind, ty), span)))
             }
             Val::Expr(v) => {
                 let mut d = Diagnostic::at(&codes::E0101, inner.span, format!("`{sym}` needs {wants}, found `{}`", v.ty)).note(format!("this is `{}`", v.ty));
@@ -4331,7 +4376,7 @@ impl<'a> Checker<'a> {
             } else {
                 hir::ExprKind::IntPow(Box::new(lhs), Box::new(count))
             };
-            return Some(Val::Expr(hir::Expr::new(kind, lead)));
+            return Some(Val::Expr(self.ovf(hir::Expr::new(kind, lead), span)));
         }
 
         // Everything else: the left side leads and the right side converts to it.
@@ -4393,7 +4438,7 @@ impl<'a> Checker<'a> {
             BinOp::Shl | BinOp::Shr | BinOp::And | BinOp::Or | BinOp::Same | BinOp::NotSame => unreachable!(),
         };
         let ty = if hop.is_comparison() { Type::Bool } else { lead };
-        Some(Val::Expr(hir::Expr::new(hir::ExprKind::Binary(hop, Box::new(lhs), Box::new(rhs)), ty)))
+        Some(Val::Expr(self.ovf(hir::Expr::new(hir::ExprKind::Binary(hop, Box::new(lhs), Box::new(rhs)), ty), span)))
     }
 
     /// A constant shift amount outside `0..width` wraps around the width (W0106).
@@ -4405,6 +4450,21 @@ impl<'a> Checker<'a> {
             return;
         }
         let what = self.quote(at.span, "this amount");
+        // Under `saturate` the bits just fall off, which is not a surprise;
+        // under `panic` the program could never run this shift.
+        match self.g.settings_at(at.span).overflow {
+            crate::config::Overflow::Wrap => {}
+            crate::config::Overflow::Saturate => return,
+            crate::config::Overflow::Panic => {
+                self.diags.push(
+                    Diagnostic::at(&codes::E0116, at.span, format!("shifting a `{value_ty}` by {what} is out of range"))
+                        .note(format!("`{value_ty}` is {bits} bits wide"))
+                        .note_line(format!("a shift amount must be from 0 to {} (`overflow = panic`)", bits - 1))
+                        .help("use an amount inside the width, or a wider type"),
+                );
+                return;
+            }
+        }
         self.diags.push(
             Diagnostic::at(&codes::W0106, at.span, format!("shifting a `{value_ty}` by {what} wraps around to a shift by {wrapped}"))
                 .note(format!("`{value_ty}` is {bits} bits wide"))

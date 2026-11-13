@@ -1,0 +1,90 @@
+//--!$overflow: saturate
+in io;
+
+// Every width and both signs; each line is one operation that overflows,
+// and a few that do not.
+none main() {
+    uint8 a = 200;
+    uint8 b = 100;
+    io::outln(f"u8 add ${a + b} sub ${b - a} mul ${a * b} div ${a / b}");
+    sint8 c = 100;
+    sint8 d = -100;
+    io::outln(f"s8 add ${c + c} sub ${d - c} mul ${c * d} neg ${-d} ${-(d - 28)}");
+    sint8 low = -128;
+    sint8 one = -1;
+    io::outln(f"s8 min/-1 ${low / one} min%-1 ${low % one} neg ${-low}");
+    uint16 e = 60000;
+    uint16 one16 = 1;
+    io::outln(f"u16 add ${e + e} mul ${e * e} sub ${one16 - e}");
+    sint32 f = 2000000000;
+    io::outln(f"s32 add ${f + f} sub ${-f - f} mul ${f * f}");
+    uint64 g = 18446744073709551615;
+    uint64 zero64 = 0;
+    io::outln(f"u64 add ${g + 1} mul ${g * 2} sub ${zero64 - 1}");
+    sint64 h = 9223372036854775807;
+    io::outln(f"s64 add ${h + 1} neg ${-(-h - 1)} mul ${h * -2}");
+    uint128 i = 340282366920938463463374607431768211455;
+    uint128 zero128 = 0;
+    io::outln(f"u128 add ${i + 1} mul ${i * i} sub ${zero128 - 1}");
+    sint128 j = 170141183460469231731687303715884105727;
+    io::outln(f"s128 add ${j + 1} mul ${j * -3} sub ${-j - 5}");
+
+    // Compound assignment, ++ and --.
+    mut uint8 k = 250;
+    for (mut uint32 n = 0; n < 10; n++) { k++; }
+    io::outln(f"inc ${k}");
+    mut sint8 m = -125;
+    for (mut uint32 n = 0; n < 10; n++) { m--; }
+    io::outln(f"dec ${m}");
+    mut uint8 p = 3;
+    p *= 100;
+    p += 100;
+    io::outln(f"compound ${p}");
+
+    // Powers.
+    uint8 q = 3;
+    sint8 r = -3;
+    uint8 two = 2;
+    io::outln(f"pow ${q ** 5} ${q ** 6} ${r ** 4} ${r ** 5} ${r ** 6} ${two ** 7} ${two ** 8}");
+    sint32 s = 10;
+    io::outln(f"pow s32 ${s ** 9} ${s ** 10} ${-s ** 11} ${s ** -2}");
+
+    // Shifts: the bits fall off instead of the amount wrapping.
+    uint32 t = 1;
+    uint8 amount = 40;
+    uint32 eight = 8;
+    sint32 neg = -8;
+    io::outln(f"shl ${t << 31} ${t << 32} ${t << amount} shr ${eight >> 40} ${neg >> 1} ${neg >> amount}");
+    sint32 minus = -1;
+    io::outln(f"shift by negative ${t << minus} ${neg >> minus}");
+    uint64 big = 1;
+    io::outln(f"u64 shl ${big << 63} ${big << 64} ${big << 200}");
+
+    // Conversions.
+    sint32 wide = 300;
+    sint32 under = -5;
+    uint16 fits = 65535;
+    io::outln(f"conv ${wide::to<uint8>()} ${under::to<uint8>()} ${fits::to<sint16>()} ${under::to<uint64>()}");
+    uint8 auto = wide;
+    sint8 narrow = fits;
+    io::outln(f"auto ${auto} ${narrow}");
+    uint64 huge = 18446744073709551615;
+    sint128 widened = huge::to<sint128>();
+    io::outln(f"to s64 ${huge::to<sint64>()} to s128 ${widened} to u128 ${(-widened)::to<uint128>()}");
+    float64 fl = 1e30;
+    float64 nf = -1e30;
+    float64 frac = 2.9;
+    float64 nfrac = -2.9;
+    io::outln(f"float ${fl::to<sint32>()} ${nf::to<sint32>()} ${nf::to<uint8>()} ${fl::to<uint64>()} ${fl::to<sint128>()} ${frac::to<uint8>()} ${nfrac::to<sint8>()}");
+    float64 zero = 0.0;
+    float64 nan = zero / zero;
+    float64 inf = 1.0 / zero;
+    io::outln(f"special ${nan::to<uint8>()} ${inf::to<sint32>()}");
+
+    // Constants clamp, with the warning.
+    uint8 big_const = 300;
+    uint8 neg_const = -1;
+    sint8 small_const = -200;
+    uint8 frac_const = 2.5;
+    io::outln(f"consts ${big_const} ${neg_const} ${small_const} ${frac_const}");
+}

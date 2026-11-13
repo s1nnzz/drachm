@@ -1,0 +1,15 @@
+in io;
+in lenient;
+in checks;
+
+// The project says saturate; lenient.drh says wrap for itself; checks.drh
+// says panic for itself. One build, three behaviours.
+uint8 here(uint8 a, uint8 b) { return a + b; }
+
+none main() {
+    io::outln(f"project ${here(200, 100)}");
+    io::outln(f"lenient ${lenient::add(200, 100)}");
+    io::outln(f"strict ${checks::add(100, 100)}");
+    io::outln(f"strict ${checks::add(200, 100)}");
+    io::outln("not reached");
+}

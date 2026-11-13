@@ -1,6 +1,7 @@
 // Part 1 of the voyage, in its own file: units of measure.
 in io;
 in si;
+in gauges;
 
 // ---------------------------------------------------------------------------
 // Part 1: units of measure, generics over units, numbers of every width
@@ -38,6 +39,8 @@ out none run() {
     mut uint8 hearts = 250;
     for (uint32 i of 0..9) { hearts++; }
     io::outln(f"overflow wraps: 250 + 10 = ${hearts}");
+    // gauges.drh asks for `overflow = saturate`: the same sum sticks at the end of the scale.
+    io::outln(f"gauges saturate: 250 + 10 = ${gauges::brighten(250, 10)}, -100 - 100 = ${gauges::trim(-100, 100)}, 700 narrows to ${gauges::narrow(700)}, 1 << 40 = ${gauges::lamp(1, 40)}");
     // `by` steps a range: the counter lands on 0, 5, 10, 15 and 20, and stops there.
     mut uint32 pulses = 0;
     for (uint32 beat of 0..20 by 5) { pulses = pulses + beat; }

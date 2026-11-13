@@ -191,7 +191,7 @@ fn reads_local(rv: &Rvalue, l: Local) -> bool {
     let ops: Vec<&Operand> = match rv {
         Rvalue::MakeFn(..) => Vec::new(),
         Rvalue::Use(o) | Rvalue::Neg(o) | Rvalue::Not(o) | Rvalue::BitNot(o) | Rvalue::Convert(o, _) | Rvalue::Unsize(o, _) => vec![o],
-        Rvalue::Binary(_, a, b) | Rvalue::IntPow(a, b) => vec![a, b],
+        Rvalue::Binary(_, a, b) | Rvalue::IntPow(a, b) | Rvalue::Checked(_, _, a, b) => vec![a, b],
         Rvalue::Shift { value, amount, .. } => vec![value, amount],
         Rvalue::Aggregate(_, ops) | Rvalue::Variant(_, _, ops) | Rvalue::Array(_, ops) => ops.iter().collect(),
         Rvalue::Ref(..) | Rvalue::RawRef(_) | Rvalue::DeepCopy(_) | Rvalue::Discriminant(_) | Rvalue::Len(_) | Rvalue::ListNew(..) | Rvalue::MapNew(_) => Vec::new(),

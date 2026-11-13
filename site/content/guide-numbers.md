@@ -199,12 +199,14 @@ If the zero is a constant written in the source, it is caught earlier. See
 [the constants section](#exact-constants) below.
 
 ### Choosing another overflow behaviour
-<!-- status: not-implemented -->
 
-The language design lets a project choose what happens on overflow in a config
-file: `overflow = "wrap"` (the default), `"saturate"` (clamp to the nearest
-end) or `"panic"` (stop with exit code 101). The compiler does not read that
-setting yet, so every build wraps. See [Configuration](design-config.md).
+A project, or one file, can choose what happens on overflow:
+`overflow = "wrap"` (the default), `"saturate"` (clamp to the nearest end) or
+`"panic"` (stop with exit code 101). It covers arithmetic, shifts, conversions
+and constants that do not fit. In a file, write `//--!$overflow: saturate` at
+the top. See [Overflow](design-config.md#overflow).
+
+<!-- example: settings-overflow -->
 
 ## Constants that do not fit
 

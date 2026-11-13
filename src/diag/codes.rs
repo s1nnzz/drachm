@@ -152,6 +152,14 @@ codes! {
         "A value was shifted by a constant amount that is negative or not\n\
          smaller than its width. The amount wraps around the width: a `uint32`\n\
          shifted by 40 is shifted by 8.";
+    E0116: "constant does not fit (overflow = panic)",
+        "A constant was written where its type cannot hold it, in a function or\n\
+         file whose `overflow` setting is `panic`. With `wrap` or `saturate` the\n\
+         constant is changed to a value that fits (and W0102 says so); with\n\
+         `panic` it is an error, since the program could never run it.\n\n\
+         \x20   //--!$overflow: panic\n\
+         \x20   uint8 a = 300;        // E0116\n\n\
+         Use a value that fits, or a bigger type.";
     E0115: "a range step of zero",
         "A range loop's `by` step is written as a constant zero, so the loop\n\
          would never move on. It is rejected at compile time. A step that is\n\
@@ -336,6 +344,13 @@ codes! {
          one wins. The warning is at the later import, and its help asks whether\n\
          you meant the module's name, `m::play`. Import the name on its own with\n\
          `as` to use both: `in play as playAudio from audio;`.";
+    E0242: "imported name is hidden (import_clash = error)",
+        "An `in * from m;` brings a name that this file already has, and the\n\
+         project says `import_clash = \"error\"` in `[behaviour]`. It is the same\n\
+         clash as W0240: a declaration of this file wins over any import, and\n\
+         between two imports the first one wins. With the default,\n\
+         `import_clash = \"warn\"`, it is the warning W0240 instead. Import the\n\
+         name on its own with `as` to use both: `in play as playAudio from audio;`.";
     W0241: "name hides an imported module",
         "A declaration in this file has the same name as a module this file\n\
          imports. The declaration wins inside the file, so the module cannot\n\
@@ -719,7 +734,10 @@ codes! {
          does. Fall back to a value with `maybe`, or pass the failure up with\n\
          `fails` (the caller must then list the failure type itself).\n\n\
          \x20   uint32 n = parse(line) maybe 0;\n\
-         \x20   uint32 m = parse(line) fails;";
+         \x20   uint32 m = parse(line) fails;\n\n\
+         With `unhandled_fail = \"crash\"` in `drachm.toml` the call is allowed:\n\
+         if it fails, the program prints the failure's message and ends with\n\
+         the failure's exit code.";
     E0545: "handler for a failure the call cannot raise",
         "A `fails with (Type e)` handler names a failure that the call cannot\n\
          fail with. Handle one of the failures the function lists after `fails`.";

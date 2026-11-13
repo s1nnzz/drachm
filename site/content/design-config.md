@@ -124,11 +124,60 @@ the program with exit status 101 if the key is missing. The default,
 
 <!-- example: settings-missing-key -->
 
-### Other behaviour settings
-<!-- status: not-implemented -->
+### Overflow
 
-`overflow` covers arithmetic, constants that do not fit, shifts and automatic
-conversions.
+`overflow` says what happens when a whole number does not fit its type. It
+covers `+ - *`, unary `-`, `/` (the smallest signed value divided by -1),
+`**`, `++` and `--`, shifts, constants that do not fit, and conversions
+(automatic ones and `::to<T>()`).
+
+| Setting | Arithmetic | Shift outside the width | Conversion |
+|---|---|---|---|
+| `wrap` (default) | wraps around | the amount wraps around the width | keeps the low bits |
+| `saturate` | stops at the nearest end of the type | the bits fall off | clamps to the nearest end |
+| `panic` | stops the program (exit 101) | stops the program | stops the program |
+
+A float turned into a whole number drops its fraction first; NaN and the
+infinities become 0 (a panic under `panic`). A constant that does not fit is
+W0102 and is changed (`wrap` wraps it, `saturate` clamps it); under `panic`
+it is an error (E0116), since the program could never run it.
+
+The setting applies per function: the project's `[behaviour]` merged with the
+`//--!$overflow:` flag of the file the function is written in. Generic
+functions and methods use the setting of the file that defines them.
+
+<!-- example: settings-overflow -->
+
+<!-- example: settings-overflow-panic -->
+
+### Unhandled failures
+
+`unhandled_fail = "error"` (the default) makes a call to a failing function
+without `maybe`, `fails` or `fails with` a compile error (E0544). With
+`crash`, the call stands: if it fails, the program prints the failure's
+message, as a failure that leaves `main` would, and ends with the failure's
+exit code (the `exit` of its variant, or 1). A call that has handlers for only
+some of the failures it can raise crashes on the others. Nothing in the
+program is cleaned up on the way out, as with a failure that escapes `main`.
+
+<!-- example: settings-unhandled-crash -->
+
+### Import clashes
+
+`import_clash = "warn"` (the default) makes an `in *` import that brings a
+name the file already has a warning (W0240): a declaration of the file wins
+over any import, and between two imports the first one wins. With `error`
+the same clash is an error (E0242), so a project can forbid hiding names
+this way. A dependency follows its own `drachm.toml`. A name that hides a
+module (W0241) and two modules of one name (E0232) are not affected.
+
+<!-- example: settings-import-clash -->
+
+The compiler says:
+
+```text
+error[E0242]: `tighten` from `spares` is hidden by the import on line 2
+```
 
 ## Warnings
 <!-- status: not-implemented -->
@@ -152,8 +201,8 @@ file (or `unsafe = true` under `[native]` for the whole project).
 //--!$overflow: saturate
 ```
 
-`bounds` and `unsigned_negate` take effect per file. The `overflow` flag
-is validated and awaits code generation. `missing_key`, `unhandled_fail` and `import_clash` are project-wide: a
+`overflow`, `bounds` and `unsigned_negate` take effect per file.
+`missing_key`, `unhandled_fail` and `import_clash` are project-wide: a
 file flag that sets one is an error (E0806).
 
 ## Tests

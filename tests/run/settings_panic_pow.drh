@@ -1,0 +1,10 @@
+//--!$overflow: panic
+in io;
+
+none main() {
+    sint16 base = -2;
+    io::outln(f"${base ** 15}");
+    io::outln(f"${base ** 14}");
+    io::outln(f"${base ** 16}");
+    io::outln("not reached");
+}

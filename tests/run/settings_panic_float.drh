@@ -1,0 +1,10 @@
+//--!$overflow: panic
+in io;
+
+none main() {
+    float64 ok = 200.9;
+    io::outln(f"${ok::to<uint8>()}");
+    float64 big = 256.0;
+    io::outln(f"${big::to<uint8>()}");
+    io::outln("not reached");
+}

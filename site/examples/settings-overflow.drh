@@ -1,0 +1,16 @@
+//--!$overflow: saturate
+in io;
+
+uint8 brighten(uint8 level, uint8 amount) {
+    return level + amount;
+}
+
+none main() {
+    io::outln(f"${brighten(100, 50)}");
+    io::outln(f"${brighten(200, 100)}");
+    sint32 reading = 700;
+    io::outln(f"${reading::to<uint8>()}");
+    uint32 one = 1;
+    uint32 shift = 40;
+    io::outln(f"${one << shift}");
+}

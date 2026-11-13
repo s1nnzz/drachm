@@ -128,18 +128,22 @@ import_clash = "warn"      # warn | error
 unsigned_negate = "wrap"   # wrap | error | signed
 ```
 
-`bounds` controls runtime index checks. See [Bounds](design-config.md#bounds) and
-[Unsigned negation](design-config.md#unsigned-negation).
+`bounds` controls runtime index checks. See [Bounds](design-config.md#bounds),
+[Unsigned negation](design-config.md#unsigned-negation) and
+[Overflow](design-config.md#overflow).
 
 ### Other behaviour settings
-<!-- status: not-implemented -->
 
 `overflow` covers arithmetic, constants that do not fit, shifts and conversions.
+`import_clash = "error"` turns the warning for a name hidden by an `in *` import
+into an error ([Import clashes](design-config.md#import-clashes)).
 A project that values catching mistakes picks `panic`; one that wants the
 arithmetic of a hash function keeps `wrap`. `unhandled_fail = "crash"` lets a
 call to a failing function stand without saying what to do, and stops the
-program with a message if it fails; it is the default in scripts and a bad idea
-in a long-lived program (see [Error handling](guide-errors-handling.md)).
+program with the failure's message and exit code if it fails; it is the
+default in scripts and a bad idea in a long-lived program (see
+[Error handling](guide-errors-handling.md) and
+[Unhandled failures](design-config.md#unhandled-failures)).
 
 ## Warnings
 <!-- status: not-implemented -->
@@ -185,8 +189,7 @@ pointer by accident. See [Unsafe](reference-unsafe.md).
 Use a flag for a file with one odd need, such as the file that wraps a C
 library. If most files need the same, change the project setting instead. The
 flag `//--!$bounds: unchecked` disables runtime index checks for the file.
-The `unsigned_negate` flag also takes effect per file. The `overflow` flag
-is validated and awaits code generation. `missing_key`, `unhandled_fail` and `import_clash` are
+The `unsigned_negate` and `overflow` flags also take effect per file. `missing_key`, `unhandled_fail` and `import_clash` are
 for the whole project, so a file flag that sets one is E0806.
 
 ## Scripts

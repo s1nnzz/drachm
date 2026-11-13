@@ -1,0 +1,1 @@
+error[E0242]: `tighten` from `spares` is hidden by the import on line 2

@@ -1,0 +1,5 @@
+[project]
+name = "garage"
+
+[behaviour]
+import_clash = "error"

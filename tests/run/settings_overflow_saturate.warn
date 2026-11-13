@@ -1,0 +1,4 @@
+warning[W0102]: converting `sint32` to `uint8` can lose information
+warning[W0102]: `300` does not fit `uint8`
+a constant outside that stops at the nearest end (`overflow = saturate`)
+values outside that stop at the nearest end

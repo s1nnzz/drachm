@@ -180,6 +180,18 @@ A value was shifted by a constant amount that is negative or not
 smaller than its width. The amount wraps around the width: a `uint32`
 shifted by 40 is shifted by 8.
 
+## E0116: constant does not fit (overflow = panic)
+
+A constant was written where its type cannot hold it, in a function or
+file whose `overflow` setting is `panic`. With `wrap` or `saturate` the
+constant is changed to a value that fits (and W0102 says so); with
+`panic` it is an error, since the program could never run it.
+
+    //--!$overflow: panic
+    uint8 a = 300;        // E0116
+
+Use a value that fits, or a bigger type.
+
 ## E0115: a range step of zero
 
 A range loop's `by` step is written as a constant zero, so the loop
@@ -449,6 +461,15 @@ declaration wins over any import, and between two imports the first
 one wins. The warning is at the later import, and its help asks whether
 you meant the module's name, `m::play`. Import the name on its own with
 `as` to use both: `in play as playAudio from audio;`.
+
+## E0242: imported name is hidden (import_clash = error)
+
+An `in * from m;` brings a name that this file already has, and the
+project says `import_clash = "error"` in `[behaviour]`. It is the same
+clash as W0240: a declaration of this file wins over any import, and
+between two imports the first one wins. With the default,
+`import_clash = "warn"`, it is the warning W0240 instead. Import the
+name on its own with `as` to use both: `in play as playAudio from audio;`.
 
 ## W0241: name hides an imported module
 
@@ -1021,6 +1042,10 @@ does. Fall back to a value with `maybe`, or pass the failure up with
 
     uint32 n = parse(line) maybe 0;
     uint32 m = parse(line) fails;
+
+With `unhandled_fail = "crash"` in `drachm.toml` the call is allowed:
+if it fails, the program prints the failure's message and ends with
+the failure's exit code.
 
 ## E0545: handler for a failure the call cannot raise
 

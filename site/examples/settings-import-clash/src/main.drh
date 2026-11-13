@@ -1,0 +1,7 @@
+in io;
+in * from tools;
+in * from spares;
+
+none main() {
+    io::outln(tighten());
+}

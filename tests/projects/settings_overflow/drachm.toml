@@ -1,0 +1,5 @@
+[project]
+name = "settings_overflow"
+
+[behaviour]
+overflow = "saturate"

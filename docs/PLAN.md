@@ -784,7 +784,34 @@ file decides for all files. Each file using SI units needs its own `in si;`.
 A local declaration or item clashing with an explicit item import is E0232
 (only `*` clashes warn). Applying `import_clash = error` waits for WP4.
 
-**Step 7 progress (WP4):** `bounds` is applied in shared MIR lowering. File
+**Step 7 progress (WP4, finished 2026-11-13):** `overflow = saturate | panic`,
+`unhandled_fail = crash` and `import_clash = error` are built.
+Overflow: typeck wraps a user-written `Neg`, `Binary` (`+ - * /`), `Shift`,
+`IntPow` or lossy `Convert` of whole numbers in `hir::ExprKind::Overflow(expr,
+mode)` when the function's setting is not `wrap` (`Checker::ovf`), so
+compiler-made arithmetic never carries a mode. MIR lowering turns it into
+`Rvalue::Checked(OvfOp, mode, a, b)` (a dummy second operand for `Neg` and
+`Convert`); `++`/`--` read the function's setting in `mir/build.rs`. Cranelift
+calls the `drachm_ovf_*` helpers in `runtime/runtime.c` for every checked op;
+the C backend does `+ - *` with `__builtin_*_overflow` and calls the same
+helpers for the rest, so both agree bit for bit (tests: `tests/run/settings_*`,
+`tests/projects/settings_overflow` with three modes in one build). Constants:
+`fit_const` clamps under saturate and is E0116 under panic (also top-level
+named constants and a constant shift amount). `unhandled_fail = crash`:
+`Checker::check_unhandled` wraps the failing call in a `Handled` with a
+synthetic catch-all arm (`crash_arm`: message, exit code, `Report` with an
+exit); `Report` with an exit now ends its MIR block as unreachable. `import_clash`:
+`resolve::resolve` takes each module's setting (from the project or its
+dependency); E0242 replaces W0240. Interims (narrowest readings, owner to
+decide): the unit scaling inside `::in<U>()` and mixed-unit arithmetic still
+wraps; `unsigned_negate = wrap` on an unsigned value follows `overflow` (0 under
+saturate, panic for a non-zero value); a negative shift amount counts as
+outside the width; infinities become 0 under saturate (as SPEC says) instead of
+clamping; saturate silences W0106 and panic makes a constant out-of-range shift
+E0116; the lossy-conversion warning W0102 stays in every mode (the wording
+changes); `unhandled_fail = crash` applies in scripts too where the script's
+default config says crash (script statements still say E0901 elsewhere).
+Earlier in WP4: `bounds` is applied in shared MIR lowering. File
 flags override the project default, negative indexes still count from the
 end, and constant array indexes are checked by the type checker.
 `unsigned_negate` is applied during type checking. Signed negation of

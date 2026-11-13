@@ -1,0 +1,5 @@
+[project]
+name = "import_clash"
+
+[behaviour]
+import_clash = "error"

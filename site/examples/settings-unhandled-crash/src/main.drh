@@ -1,0 +1,17 @@
+in io;
+
+failure DoorError {
+    Jammed(string door) f"the ${door} door is jammed" exit 3,
+}
+
+none cycle(string door) fails DoorError {
+    if (door == "outer") { fail Jammed(door); }
+    io::outln(f"the ${door} door cycled");
+}
+
+// Nothing here says what to do when `cycle` fails.
+none main() {
+    cycle("inner");
+    cycle("outer");
+    io::outln("never printed");
+}

@@ -1,0 +1,3 @@
+error[E0242]: `play` from `game.video` is hidden by the import on line 3
+error[E0242]: `volume` from `game.audio` is hidden by your own declaration
+warning[W0241]: `audio` hides the module `game.audio` imported in this file

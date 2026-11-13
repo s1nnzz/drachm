@@ -198,7 +198,7 @@ fn rvalue_op(hir: &hir::Program, body: &Body, dst: &Place, rv: &Rvalue) -> Optio
     let ops: Vec<&Operand> = match rv {
         Rvalue::MakeFn(..) => Vec::new(),
         Rvalue::Use(o) | Rvalue::Neg(o) | Rvalue::Not(o) | Rvalue::BitNot(o) | Rvalue::Convert(o, _) | Rvalue::Unsize(o, _) => vec![o],
-        Rvalue::Binary(_, a, b) | Rvalue::IntPow(a, b) | Rvalue::Shift { value: a, amount: b, .. } => vec![a, b],
+        Rvalue::Binary(_, a, b) | Rvalue::IntPow(a, b) | Rvalue::Checked(_, _, a, b) | Rvalue::Shift { value: a, amount: b, .. } => vec![a, b],
         Rvalue::Aggregate(_, os) | Rvalue::Variant(_, _, os) | Rvalue::Array(_, os) => os.iter().collect(),
         Rvalue::Ref(..) | Rvalue::RawRef(_) | Rvalue::DeepCopy(_) | Rvalue::Discriminant(_) | Rvalue::Len(_) | Rvalue::ListNew(..) | Rvalue::MapNew(_) => Vec::new(),
     };

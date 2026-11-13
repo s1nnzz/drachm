@@ -290,7 +290,7 @@ mod tests {
                 Rvalue::Use(o) | Rvalue::Neg(o) | Rvalue::Not(o) | Rvalue::BitNot(o) | Rvalue::Convert(o, _) => {
                     operand_locals(o, &mut out)
                 }
-                Rvalue::Binary(_, a, b) => {
+                Rvalue::Binary(_, a, b) | Rvalue::Checked(_, _, a, b) => {
                     operand_locals(a, &mut out);
                     operand_locals(b, &mut out);
                 }

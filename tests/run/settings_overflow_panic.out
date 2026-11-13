@@ -1,0 +1,6 @@
+fits 255
+mul 6000000
+conversion 5000000000 1000000000
+shift 32 1
+pow 128
+count 255

@@ -38,7 +38,7 @@ fn recover_index(graph: &mut ModuleGraph) -> Index {
         index::collect(|| {
             let mut scratch = Vec::new();
             if graph.modules.len() > 1 {
-                let program = crate::resolve::resolve(graph, &mut scratch);
+                let program = crate::resolve::resolve(graph, &mut scratch, &[]);
                 let src = (0..graph.map.len()).map(|f| graph.map.source(f).text.as_str()).collect::<Vec<_>>().join("\n");
                 crate::typeck::check(&program, &src, &mut scratch);
             } else if let Some(m) = graph.modules.first() {

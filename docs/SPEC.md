@@ -234,6 +234,27 @@ if (a) {                       // outermost
   `"0.30000000000000004"`, `1e21` → `"1000000000000000000000.0"`.
   The special values print as `inf`, `-inf` and `nan` (draft, not confirmed).
 - Overflow: set by config, default **wrap** for signed and unsigned.
+  Built (step 7 WP4) as a per-function setting (the project's `[behaviour]`
+  merged with the file's `//--!$overflow:` flag). It covers `+ - *`, unary `-`,
+  `/` (smallest signed value by -1), `**`, `++`, `--`, `+=` and the other
+  compound forms, shifts, constants and conversions (automatic and `::to<T>()`).
+  **saturate** clamps to the nearest end of the type (unsigned `-x` of a
+  non-zero value and `0 - 1` give 0); **panic** stops with exit 101 and the
+  message `arithmetic overflow`, `shift amount out of range` or `conversion
+  overflow`. Shifts under saturate: an amount outside `0..width` (or negative)
+  makes every bit fall off: 0, or -1 for a negative value shifted right. A
+  float to a whole number drops the fraction, then clamps; NaN and the
+  infinities are 0 under wrap and saturate. A constant that does not fit is
+  W0102 and is changed (wrap: wraps, saturate: clamps) or, under panic, E0116
+  (a constant shift amount outside the width too, which under saturate is
+  silent and under wrap is W0106). Arithmetic the compiler writes for itself
+  (range loop counters, list walks, unit scaling) always wraps.
+- `[behaviour] unhandled_fail = crash` (built): a call that can fail and has no
+  `maybe`, `fails` or `fails with` compiles; if it fails the program prints
+  `error: MESSAGE` (the failure's own report, causes included) and exits at once
+  with the failure's exit code, like a failure leaving `main` (nothing is
+  dropped). A call whose handlers cover only some of its failures gets a
+  catch-all that crashes. `import_clash = error` turns W0240 into E0242.
 
 ### Strings
 
@@ -516,9 +537,10 @@ float64<m/s> speed = dist / time;     // dist + time is a compile error
     the number type and keeps the unit (`T` is a bare number, E0407).
     `x::text()` is the number only and `x::unitText()` the display name as a
     `string`; `::to<string>()` is an error that points at `::text()`.
-  - Integer scaling wraps on overflow exactly as `::to<T>()` does. The
-    `[behaviour] overflow` setting is not read by the compiler yet, so no
-    conversion path follows it.
+  - Integer scaling wraps on overflow exactly as `::to<T>()` does under
+    `overflow = wrap`. The scaling inside `::in<U>()` and mixed-unit arithmetic
+    always wraps, whatever `[behaviour] overflow` says (interim, step 7 WP4);
+    `::to<T>()` on a number with a unit follows the setting.
   - Points and deltas: point `-` point is a delta (`delta degC`), point `+`
     delta is a point. Point `+` point, a point times anything and unary `-` on a
     point are E0409. `delta degC` is the same type as `K` (same size, converts

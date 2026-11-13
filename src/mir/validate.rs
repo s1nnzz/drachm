@@ -126,7 +126,7 @@ impl Validator<'_> {
                 match rv {
                     Rvalue::MakeFn(..) => {}
                     Rvalue::Use(o) | Rvalue::Neg(o) | Rvalue::Not(o) | Rvalue::BitNot(o) | Rvalue::Convert(o, _) | Rvalue::Unsize(o, _) => operands.push(o),
-                    Rvalue::Binary(_, a, b) | Rvalue::IntPow(a, b) => operands.extend([a, b]),
+                    Rvalue::Binary(_, a, b) | Rvalue::IntPow(a, b) | Rvalue::Checked(_, _, a, b) => operands.extend([a, b]),
                     Rvalue::Shift { value, amount, .. } => operands.extend([value, amount]),
                     Rvalue::Aggregate(_, ops) | Rvalue::Variant(_, _, ops) | Rvalue::Array(_, ops) => operands.extend(ops),
                     Rvalue::ListNew(..) | Rvalue::MapNew(_) => {}
@@ -181,7 +181,7 @@ impl Validator<'_> {
                             }
                         }
                     }
-                    Rvalue::Neg(_) | Rvalue::Not(_) | Rvalue::BitNot(_) | Rvalue::Convert(..) | Rvalue::Unsize(..) | Rvalue::Use(_) | Rvalue::Shift { .. } | Rvalue::IntPow(..) => {}
+                    Rvalue::Neg(_) | Rvalue::Not(_) | Rvalue::BitNot(_) | Rvalue::Convert(..) | Rvalue::Unsize(..) | Rvalue::Use(_) | Rvalue::Shift { .. } | Rvalue::IntPow(..) | Rvalue::Checked(..) => {}
                     Rvalue::Array(t, ops) => {
                         if let Type::Array { elem, len } = t {
                             if *len as usize != ops.len() {
@@ -526,7 +526,7 @@ fn flow_statement(assigned: &mut [bool], k: &StatementKind, used: &mut dyn FnMut
                 Rvalue::MakeFn(_, _, Some(p)) => place_use(p, used),
                 Rvalue::MakeFn(_, _, None) => {}
                 Rvalue::Use(o) | Rvalue::Neg(o) | Rvalue::Not(o) | Rvalue::BitNot(o) | Rvalue::Convert(o, _) | Rvalue::Unsize(o, _) => operand_use(o, used),
-                Rvalue::Binary(_, a, b) | Rvalue::IntPow(a, b) => {
+                Rvalue::Binary(_, a, b) | Rvalue::IntPow(a, b) | Rvalue::Checked(_, _, a, b) => {
                     operand_use(a, used);
                     operand_use(b, used);
                 }

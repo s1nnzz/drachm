@@ -1,0 +1,27 @@
+//--!$overflow: panic
+in io;
+
+// Operations that stay in range work as usual; the first one that does not
+// stops the program (exit 101). Each step prints before it runs, so the
+// output shows how far it got.
+uint8 add(uint8 a, uint8 b) { return a + b; }
+
+none main() {
+    uint8 a = 200;
+    uint8 b = 55;
+    io::outln(f"fits ${add(a, b)}");
+    sint32 big = 2000000000;
+    sint32 small = 1000;
+    io::outln(f"mul ${big / small * 3}");
+    sint64 wide = 5000000000;
+    io::outln(f"conversion ${wide::to<sint64>()} ${(wide / 5)::to<uint32>()}");
+    uint32 eight = 8;
+    uint8 two = 2;
+    io::outln(f"shift ${eight << two} ${eight >> 3}");
+    io::outln(f"pow ${two ** 7}");
+    mut uint8 count = 253;
+    for (mut uint32 n = 0; n < 2; n++) { count++; }
+    io::outln(f"count ${count}");
+    io::outln(f"overflow ${add(a, b + 1)}");
+    io::outln("not reached");
+}
