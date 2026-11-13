@@ -285,3 +285,8 @@ Q5 interfaces as types: any interface can be used as `&I` (its `static` methods 
 - A lone `.drh` file with no drachm.toml acts like a script: `unhandled_fail` defaults to crash, so an unhandled failure compiles and stops at run time (replaces the interim that kept E0544 for lone files).
 - `overflow = saturate`: a negative shift amount shifts the other way (`8 << -1` is 4); converting +inf gives the type's maximum, -inf its minimum, NaN gives 0.
 - Unit scaling (`d::in<km>()`, mixed-unit arithmetic) follows the `overflow` setting like any arithmetic.
+
+# WP4 settings follow-ups, 2026-11-13
+- A lone `.drh` file with no drachm.toml follows the script default: `unhandled_fail = crash` (an unhandled failure compiles and stops at run time), replacing the interim that kept E0544.
+- `overflow = saturate`: a negative shift amount shifts the other way (`8 << -1` is 4); float to integer: +inf clamps to the max, -inf to the min, NaN gives 0.
+- Unit scaling (`d::in<km>()`, mixed-unit arithmetic) follows the `overflow` setting like any arithmetic.
