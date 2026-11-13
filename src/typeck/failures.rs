@@ -61,6 +61,14 @@ failure ConvertError {
 }
 "#;
 
+pub(super) const FS_PRELUDE: &str = r#"
+failure FileMissing { Missing "file or directory is missing" }
+failure AccessDenied { Denied "filesystem access denied" }
+failure InvalidPath { Invalid "invalid filesystem path" }
+failure InvalidFileText { Invalid "file is not UTF-8 text" }
+failure FileIoError { Other "filesystem operation failed" }
+"#;
+
 const NOWHERE: Span = Span { start: 0, end: 0 };
 
 fn expr(kind: hir::ExprKind, ty: Type) -> hir::Expr {
@@ -742,6 +750,12 @@ impl Checker<'_> {
                 x.ty = outcome;
                 Ok(Failing { call: x, ok, fails, name, negated: false })
             }
+            hir::ExprKind::System(op, _, ref fails) if !fails.is_empty() => {
+                let fails = fails.clone();
+                let ok = x.ty;
+                x.ty = self.g.fail.outcomes[&(ok, fails.clone())];
+                Ok(Failing { call: x, ok, fails, name: op.name().into(), negated: false })
+            }
             hir::ExprKind::TryParse { to, fail, .. } => {
                 let fails = vec![fail.enum_id().unwrap()];
                 Ok(Failing { ok: to, call: x, fails, name: "to".into(), negated: false })
@@ -1052,12 +1066,13 @@ impl Checker<'_> {
     pub(super) fn report_unhandled(&mut self, span: Span, x: &hir::Expr) {
         let (name, fails): (String, Vec<EnumId>) = match &x.kind {
             hir::ExprKind::Call(fid, _) if !self.g.sigs[*fid].fails.is_empty() => (self.g.sigs[*fid].name.clone(), self.g.sigs[*fid].fails.clone()),
+            hir::ExprKind::System(op, _, fails) if !fails.is_empty() => (op.name().into(), fails.clone()),
             hir::ExprKind::TryParse { fail, .. } => ("to".to_string(), vec![fail.enum_id().unwrap()]),
             _ => return,
         };
         let first = self.g.enums[fails[0]].name.clone();
         let text = short_call(self.src, span);
-        let nothing = matches!(&x.kind, hir::ExprKind::Call(fid, _) if self.g.sigs[*fid].ret == Some(Type::None));
+        let nothing = x.ty == Type::None;
         let pass = format!("pass the failure up with `{text} fails` (and add `fails {first}` to the function)");
         let help = if self.script_entry {
             "handle the failure explicitly in the script".into()

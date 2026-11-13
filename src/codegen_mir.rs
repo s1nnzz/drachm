@@ -1375,6 +1375,19 @@ impl Cg<'_, '_> {
                 let out = self.dest_addr(dest);
                 self.rt("drachm_in_line", &[ptr], &[], &[out]);
             }
+            Callee::System(op) => {
+                if op == hir::SystemOp::Platform {
+                    let out = self.dest_addr(dest);
+                    self.rt(op.symbol(), &[ptr], &[], &[out]);
+                } else {
+                    let params: Vec<_> = args.iter().map(|arg| self.operand(&arg.op)).collect();
+                    let result = self.rt(op.symbol(), &vec![ptr; params.len()], &[types::I8], &params);
+                    if let Some(dest) = dest {
+                        let (loc, _) = self.locate(dest);
+                        self.store(loc, result[0]);
+                    }
+                }
+            }
             Callee::Sleep => {
                 let seconds = self.operand(&args[0].op);
                 self.rt("drachm_sleep", &[types::F64], &[], &[seconds]);

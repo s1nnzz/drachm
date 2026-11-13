@@ -1024,6 +1024,13 @@ warning[W0102]: converting `sint64` to `uint8` can lose information
 Standard library ("middle" size): core `io string collections math convert`;
 system `fs time env process`; concurrency/network `thread async net http`.
 
+- `in fs;` gives `fs::read(path)` and `fs::write(path, text)` for UTF-8 text.
+  Writes replace an existing file. Failures are typed by cause. Exclusive
+  `fs::create` with optional initial text and a shared `File` result is pending.
+- `in os;` gives `os::platform()` and `os::getEnv(name)`. Environment lookup
+  returns `string?` and gives `none` for a missing variable. Current directory
+  lookup is pending. Process execution is a separate module.
+
 - `in time;` gives `time::sleep(duration)`. It blocks the calling thread.
   Bare numbers are seconds. Durations with compatible units, such as
   `500<ms>` with `in si;`, convert to seconds. Zero returns immediately.

@@ -1,0 +1,16 @@
+in fs;
+in io;
+in os;
+
+none main() {
+    string source = fs::read("Cargo.toml") maybe "";
+    if (source != "") {
+        io::outln("read project text");
+    }
+    string platform = os::platform();
+    if (platform != "") {
+        io::outln("platform available");
+    }
+    string value = os::getEnv("DRACHM_CHECK_LEAKS") maybe "unset";
+    io::outln(value);
+}

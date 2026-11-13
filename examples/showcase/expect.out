@@ -110,4 +110,6 @@ lambda total 48 after 3 calls; loads sum to 15
   fuel 5: critical
   leaving part 5; c drops now
   [crate (empty) unloaded]
+voyage platform available
+read voyage manifest
 -- end of voyage --

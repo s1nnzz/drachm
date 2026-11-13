@@ -935,7 +935,7 @@ impl Walker<'_> {
             }
             ExprKind::Method { recv, targs, args, unit, name, .. } => {
                 if let ExprKind::Var(module) = &recv.kind
-                    && matches!(module.as_str(), "io" | "time")
+                    && matches!(module.as_str(), "io" | "time" | "fs" | "os")
                     && !self.locals.contains(module)
                 {
                     if self.cx.std_imports[self.m].contains(module.as_str()) {

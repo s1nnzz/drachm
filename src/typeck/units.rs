@@ -1382,6 +1382,7 @@ fn children_mut(e: &mut hir::Expr) -> Vec<&mut hir::Expr> {
         K::Len(x) => vec![&mut **x],
         K::Index(a, b) | K::ListPush { list: a, value: b } => vec![&mut **a, &mut **b],
         K::ListCall { args, .. } => args.iter_mut().collect(),
+        K::System(_, args, _) => args.iter_mut().collect(),
         K::List(items) | K::Array(items) => items.iter_mut().collect(),
         K::Map(pairs) => pairs.iter_mut().flat_map(|(k, v)| [k, v]).collect(),
         K::MapCall { args, .. } => args.iter_mut().collect(),

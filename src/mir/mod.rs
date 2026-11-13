@@ -236,6 +236,7 @@ pub enum Callee {
     /// `io::ended()`.
     InEnded,
     Sleep,
+    System(hir::SystemOp),
     /// A `&string` read as a number of this type (the text is known to be fine).
     Parse(Type),
     /// How a `&string` reads as a number of this type: `uint8` 0 for fine,

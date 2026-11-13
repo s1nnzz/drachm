@@ -293,6 +293,11 @@ impl Cx<'_> {
                     self.expr(i, out);
                 }
             }
+            ExprKind::System(_, args, _) => {
+                for arg in args {
+                    self.expr(arg, out);
+                }
+            }
             ExprKind::ListCall { op, args } => {
                 // A method that changes the list writes to it when it is part of `self`.
                 if op.changes()

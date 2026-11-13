@@ -847,6 +847,15 @@ impl Gen<'_> {
                 let dest = dest_lv.expect("a string result has a destination");
                 self.line(format!("drachm_in_line(&{dest});"));
             }
+            Callee::System(op) => {
+                let dest = dest_lv.expect("a system call has a destination");
+                let params = args.iter().map(|arg| self.operand(&arg.op)).collect::<Vec<_>>().join(", ");
+                if op == hir::SystemOp::Platform {
+                    self.line(format!("{}(&{dest});", op.symbol()));
+                } else {
+                    self.line(format!("{dest} = {}({params});", op.symbol()));
+                }
+            }
             Callee::Sleep => {
                 let seconds = self.operand(&args[0].op);
                 self.line(format!("drachm_sleep({seconds});"));

@@ -29,6 +29,13 @@ typedef struct {
     uint64_t cap; // 0 = not owned
 } drachm_str;
 
+// FS returns zero on success, otherwise a cause code. Read and getEnv
+// write the output only on success.
+uint8_t drachm_fs_read(const drachm_str *path, drachm_str *out);
+uint8_t drachm_fs_write(const drachm_str *path, const drachm_str *value);
+void drachm_os_platform(drachm_str *out);
+uint8_t drachm_os_get_env(const drachm_str *key, drachm_str *out);
+
 // ---- lifetime ----
 void drachm_str_drop(drachm_str *s);                            // frees if owned; leaves *s empty
 void drachm_str_copy(drachm_str *out, const drachm_str *s);     // deep copy (a not-owned input may be shared)

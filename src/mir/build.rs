@@ -1350,6 +1350,7 @@ impl<'a> Builder<'a> {
                 self.call(Callee::Text, ops, e.ty)
             }
             ExprKind::InLine => self.call(Callee::InLine, Vec::new(), Type::Str),
+            ExprKind::System(op, args, fails) => self.system_call(e.ty, *op, args, fails),
             ExprKind::Sleep(duration) => {
                 let args = self.operands(&[&**duration], &|_| None);
                 self.call(Callee::Sleep, args, Type::None)
@@ -1814,6 +1815,59 @@ impl<'a> Builder<'a> {
 
     /// `if test { some } else { none }` into a new temp of the optional type
     /// `opt`: `some` makes the payload, which goes in `Some`. Returns the temp.
+    fn system_call(&mut self, ty: Type, op: hir::SystemOp, args: &[Expr], fails: &[hir::EnumId]) -> Operand {
+        use hir::SystemOp::*;
+        let inputs: Vec<_> = args.iter().collect();
+        let mut args = self.operands(&inputs, &|_| Some((false, false)));
+        if op == Platform {
+            return self.call(Callee::System(op), args, Type::Str);
+        }
+        let slot = op.has_slot().then(|| {
+            let local = self.decl(Type::Str, LocalKind::User {
+                name: "<system output>".into(),
+                mutability: Mutability::Mut,
+                written: None,
+            });
+            self.register(local, false);
+            let place = Place::local(local);
+            let empty = self.intern("");
+            self.assign_stmt(place.clone(), Rvalue::Use(Operand::Const(Constant::Str(empty))));
+            let reference = Place::local(self.new_ref_temp(Type::Str, true));
+            self.assign_stmt(reference.clone(), Rvalue::Ref(BorrowKind::Mut { two_phase: false }, place.clone()));
+            args.push(Arg { op: Operand::Move(reference), span: self.span });
+            place
+        });
+        let status = self.call(Callee::System(op), args, Type::U8);
+        if op == GetEnv {
+            let present = Place::local(self.decl(Type::Bool, LocalKind::Temp));
+            self.assign_stmt(present.clone(), Rvalue::Binary(hir::BinOp::Ne, status, Operand::Const(Constant::Int(0, Type::U8))));
+            return self.optional_if(ty, Operand::Copy(present), |_| Operand::Move(slot.unwrap()));
+        }
+
+        let out = Place::local(self.new_temp(ty));
+        let outcome = ty.enum_id().expect("a filesystem call has an outcome");
+        let fail_set = self.hir.enum_def(ty).variants[1].fields[0].ty;
+        let join = self.new_block();
+        let ok = self.new_block();
+        let arms: Vec<_> = fails.iter().map(|_| self.new_block()).collect();
+        let cases = std::iter::once((0, ok)).chain(arms.iter().take(arms.len() - 1).enumerate().map(|(i, &block)| (i as u128 + 1, block))).collect();
+        self.end(TerminatorKind::Switch { discr: status, cases, otherwise: *arms.last().unwrap() });
+        self.cur = ok;
+        self.assign_stmt(out.clone(), Rvalue::Variant(outcome, 0, slot.into_iter().map(Operand::Move).collect()));
+        self.goto(join);
+        for (index, (&failure, arm)) in fails.iter().zip(arms).enumerate() {
+            self.cur = arm;
+            let value = Place::local(self.decl(self.hir.enum_type(failure), LocalKind::Temp));
+            self.assign_stmt(value.clone(), Rvalue::Variant(failure, 0, vec![Operand::Const(Constant::Int(0, Type::U64))]));
+            let set = Place::local(self.decl(fail_set, LocalKind::Temp));
+            self.assign_stmt(set.clone(), Rvalue::Variant(fail_set.enum_id().unwrap(), index, vec![Operand::Move(value)]));
+            self.assign_stmt(out.clone(), Rvalue::Variant(outcome, 1, vec![Operand::Move(set)]));
+            self.goto(join);
+        }
+        self.cur = join;
+        Operand::Move(out)
+    }
+
     fn optional_if(&mut self, opt: Type, test: Operand, some: impl FnOnce(&mut Self) -> Operand) -> Operand {
         let enum_id = opt.enum_id().expect("an optional is an enum");
         let res = self.new_temp(opt);
@@ -1997,6 +2051,7 @@ fn kind_name(k: &ExprKind) -> &'static str {
         ExprKind::Join(_) => "Join",
         ExprKind::Out { .. } => "Out",
         ExprKind::InLine => "InLine",
+        ExprKind::System(..) => "System",
         ExprKind::Sleep(_) => "Sleep",
         ExprKind::InEnded => "InEnded",
         ExprKind::TryParse { .. } => "TryParse",

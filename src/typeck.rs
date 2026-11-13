@@ -134,6 +134,8 @@ struct Globals {
     tie_jobs: Vec<ties::Job>,
     io_imported: bool,
     time_imported: bool,
+    fs_imported: bool,
+    os_imported: bool,
     /// The file flag `//--!$unsafe: true`.
     unsafe_allowed: bool,
     /// Memoised layout, ownership and copy answers (`layout`).
@@ -512,6 +514,8 @@ pub(crate) fn check_with_settings(
     for import in &prog.imports {
         match import.plain_name() {
             Some("io") => g.io_imported = true,
+            Some("fs") => g.fs_imported = true,
+            Some("os") => g.os_imported = true,
             Some("time") => g.time_imported = true,
             Some("si") => si = true,
             // Project files are loaded by `modules`; checking names across
@@ -562,7 +566,8 @@ pub(crate) fn check_with_settings(
     // The failures every program has come first, so a program that declares
     // one of the same names is the one reported.
     let mut core_diags = Vec::new();
-    let core = parser::parse(lexer::lex(failures::PRELUDE, &mut core_diags), &mut core_diags);
+    let core_text = if g.fs_imported { [failures::PRELUDE, failures::FS_PRELUDE].concat() } else { failures::PRELUDE.into() };
+    let core = parser::parse(lexer::lex(&core_text, &mut core_diags), &mut core_diags);
     debug_assert!(core_diags.is_empty(), "the failure prelude must parse");
     let all_failures: Vec<&ast::Failure> = core.failures.iter().chain(&prog.failures).collect();
     let failure_ids: Vec<Option<hir::EnumId>> = all_failures.iter().map(|f| failures::declare_failure(&mut g, f, diags)).collect();
@@ -3039,6 +3044,9 @@ impl<'a> Checker<'a> {
                 if let ExprKind::Var(n) = &recv.kind
                     && self.lookup(n).is_none()
                 {
+                    if matches!(n.as_str(), "fs" | "os") {
+                        return self.system_call(n, name, *name_span, recv.span, targs, args, e.span);
+                    }
                     if n == "time" {
                         return self.time_call(name, *name_span, recv.span, targs, args, e.span);
                     }
@@ -3447,6 +3455,47 @@ impl<'a> Checker<'a> {
             d.help(format!("its methods are {}", list(&methods)))
         };
         self.diags.push(d);
+    }
+
+    fn system_call(&mut self, module: &str, name: &str, name_span: Span, module_span: Span, targs: &[ast::TypeName], args: &[ast::Expr], span: Span) -> Option<Val> {
+        use hir::SystemOp::*;
+        let imported = if module == "fs" { self.g.fs_imported } else { self.g.os_imported };
+        if !imported {
+            self.diags.push(Diagnostic::at(&codes::E0206, module_span, format!("module `{module}` is used but not imported")));
+            return None;
+        }
+        let op = match (module, name) {
+            ("fs", "read") => Read,
+            ("fs", "write") => Write,
+            ("os", "platform") => Platform,
+            ("os", "getEnv") => GetEnv,
+            ("fs", "create") | ("os", "cwd") => {
+                self.diags.push(Diagnostic::at(&codes::E0901, name_span, format!("`{module}::{name}` is not implemented yet")));
+                return None;
+            }
+            _ => {
+                self.diags.push(Diagnostic::at(&codes::E0201, name_span, format!("module `{module}` has no function `{name}`")));
+                return None;
+            }
+        };
+        if args.len() != op.inputs() || !targs.is_empty() {
+            self.diags.push(Diagnostic::at(&codes::E0103, span, format!("`{}` takes {} string arguments and no type arguments", op.name(), op.inputs())));
+            return None;
+        }
+        let args = args.iter().map(|arg| self.coerce(arg, Type::Str)).collect::<Option<Vec<_>>>()?;
+        let mut fails = Vec::new();
+        let ty = match op {
+            Read | Write => {
+                let names = if op == Read { &["FileMissing", "AccessDenied", "InvalidPath", "InvalidFileText", "FileIoError"][..] }
+                    else { &["FileMissing", "AccessDenied", "InvalidPath", "FileIoError"][..] };
+                fails.extend(names.iter().map(|name| self.g.enums_by_name[*name]));
+                failures::outcome_type(self.g, op.fs_result(), &fails);
+                op.fs_result()
+            }
+            Platform => Type::Str,
+            GetEnv => optionals::optional_of(self.g, Type::Str)?,
+        };
+        Some(Val::Expr(hir::Expr::new(hir::ExprKind::System(op, args, fails), ty).at(span)))
     }
 
     fn time_call(&mut self, name: &str, name_span: Span, module_span: Span, targs: &[ast::TypeName], args: &[ast::Expr], span: Span) -> Option<Val> {

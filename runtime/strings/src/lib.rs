@@ -19,11 +19,11 @@ use std::sync::{Mutex, Once};
 
 use unicode_segmentation::UnicodeSegmentation;
 
-#[allow(dead_code)] // Awaiting the filesystem failure design and ABI.
 mod fs;
 mod hash;
 mod lists;
 mod maps;
+mod os;
 mod strings_split;
 
 #[repr(C)]

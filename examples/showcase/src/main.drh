@@ -16,6 +16,8 @@
 //      drachm run examples/showcase -O     (via C; must print the same)
 // ============================================================================
 in io;
+in fs;
+in os;
 in chart_depth from charts.survey.readings;
 in voyage.units;
 in voyage.crew as crew;
@@ -34,5 +36,9 @@ none main() {
     systems::run();
     mission::run();
     cargo::run();
+    string platform = os::platform();
+    if (platform != "") { io::outln("voyage platform available"); }
+    string manifest = fs::read("examples/showcase/drachm.toml") maybe "";
+    if (manifest != "") { io::outln("read voyage manifest"); }
     io::outln("-- end of voyage --");
 }

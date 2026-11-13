@@ -27,7 +27,9 @@ The native helper belongs in `runtime/strings/src/fs.rs`, linked from the same
 Rust static library on both backends via `build.rs` and `src/link.rs`. Have the
 main agent coordinate ownership of this file and agree the ABI before parallel
 edits. Helpers borrow length-delimited Drachm strings and return an explicit
-status. A read writes one owned Drachm string to an output slot on success.
+status. A read writes one owned Drachm string to an output slot on success. The
+compiler initializes that slot to the empty string so ordinary MIR cleanup
+can run on every branch.
 Write needs no output slot. Create needs a separate owned-handle ABI. Keep the status mapping synchronized
 between the runtime, MIR and `runtime/strings.h`. Map host errors centrally by
 cause, including missing paths, permission denial and existing destinations.
@@ -55,8 +57,7 @@ when a handler resumes or the result is ignored.
 Lower a system operation to one shared MIR call and branch on its status.
 Construct `Ok` or a typed `Fail` using the existing enum layout, including the
 hidden cause word and the correct failure-set tag. Have `outcome_of` feed that
-value into existing `maybe`, propagation and handler lowering. Keep the ABI
-out-slot unowned until the success branch transfers it into the outcome. Reuse
+value into existing `maybe`, propagation and handler lowering. Move the output string into the outcome on success. Reuse
 ordinary MIR cleanup for all owned strings and failure payloads. Add matching
 validation and printing in `src/mir/`. The C and Cranelift implementations in
 `src/cgen_mir.rs` and `src/codegen_mir.rs` should only marshal arguments and

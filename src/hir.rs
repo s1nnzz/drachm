@@ -642,6 +642,7 @@ pub enum ExprKind {
     /// `io::ended()`: true when standard input has nothing left.
     InEnded,
     Sleep(Box<Expr>),
+    System(SystemOp, Vec<Expr>, Vec<EnumId>),
     /// `&place` / `&mut place` (the place may also be a temporary value).
     Borrow { mutable: bool, place: Box<Expr> },
     /// Reads through a borrow or pointer; also a place.
@@ -757,6 +758,7 @@ impl Expr {
             K::Map(pairs) => pairs.iter().flat_map(|(k, v)| [k, v]).collect(),
             K::MapCall { args, .. } => args.iter().collect(),
             K::ListCall { args, .. } => args.iter().collect(),
+            K::System(_, args, _) => args.iter().collect(),
             K::List(items) | K::Array(items) => items.iter().collect(),
             K::Radix { value, .. } => vec![&**value],
             K::Out { arg, .. } => vec![&**arg],
@@ -965,5 +967,50 @@ impl StrFn {
             Split | Lines | Chars => Type::list(S),
             _ => S,
         }
+    }
+}
+
+/// Native system library operations shared by both backends.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SystemOp {
+    Read,
+    Write,
+    Platform,
+    GetEnv,
+}
+
+impl SystemOp {
+    pub fn symbol(self) -> &'static str {
+        match self {
+            Self::Read => "drachm_fs_read",
+            Self::Write => "drachm_fs_write",
+            Self::Platform => "drachm_os_platform",
+            Self::GetEnv => "drachm_os_get_env",
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Read => "fs::read",
+            Self::Write => "fs::write",
+            Self::Platform => "os::platform",
+            Self::GetEnv => "os::getEnv",
+        }
+    }
+
+    pub fn inputs(self) -> usize {
+        match self {
+            Self::Platform => 0,
+            Self::Read | Self::GetEnv => 1,
+            Self::Write => 2,
+        }
+    }
+
+    pub fn has_slot(self) -> bool {
+        matches!(self, Self::Read | Self::GetEnv)
+    }
+
+    pub fn fs_result(self) -> Type {
+        if self == Self::Read { Type::Str } else { Type::None }
     }
 }

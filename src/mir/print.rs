@@ -91,6 +91,7 @@ fn terminator(p: &Program, hir: &hir::Program, k: &TerminatorKind) -> String {
                 Callee::Dyn { iface, method } => format!("Dyn({}.{})", hir.dyn_ifaces[*iface].name, hir.dyn_ifaces[*iface].methods[*method].name),
                 Callee::Text => "Text".to_string(),
                 Callee::InLine => "InLine".to_string(),
+                Callee::System(op) => op.name().into(),
                 Callee::Sleep => "Sleep".to_string(),
                 Callee::InEnded => "InEnded".to_string(),
                 Callee::Parse(ty) => format!("Parse<{ty}>"),

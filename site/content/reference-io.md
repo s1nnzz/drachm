@@ -88,3 +88,40 @@ standard error and exits with code 1. For the input `abc`:
 ```text title="output"
 error: the text is not a number
 ```
+
+## Files and the running environment
+
+Import `fs` to read or replace whole UTF-8 text files. Paths are relative
+to the running program's working directory unless they are absolute.
+
+- `fs::read(path)` returns a `string`. It can fail with `FileMissing`,
+  `AccessDenied`, `InvalidPath`, `InvalidFileText` or `FileIoError`.
+- `fs::write(path, text)` replaces the contents of an existing file. It can
+  fail with `FileMissing`, `AccessDenied`, `InvalidPath` or `FileIoError`.
+
+Import `os` to inspect the running environment. `os::platform()` returns the
+target OS name, such as `linux`, `windows` or `macos`.
+`os::getEnv(name)` returns `string?`. A missing variable gives `none`, and a
+present empty value gives an empty string.
+
+```drachm
+in fs;
+in io;
+in os;
+
+none main() {
+    string source = fs::read("Cargo.toml") maybe "";
+    if (source != "") {
+        io::outln("read project text");
+    }
+    string platform = os::platform();
+    if (platform != "") {
+        io::outln("platform available");
+    }
+    string value = os::getEnv("DRACHM_CHECK_LEAKS") maybe "unset";
+    io::outln(value);
+}
+```
+
+**Not implemented yet** — Exclusive `fs::create` with a shared `File` result,
+line I/O and `os::cwd`.

@@ -533,3 +533,54 @@ fn project_case(dir: &Path) -> Result<(), String> {
     let missing = missing_lines(&want, &stderr);
     if missing.is_empty() { Ok(()) } else { Err(format!("stderr lacks:\n  {}\nactual stderr:\n{stderr}", missing.join("\n  "))) }
 }
+
+#[test]
+fn system_modules() {
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("system-modules-{}", std::process::id()));
+    fs::create_dir_all(&dir).unwrap();
+    let source = dir.join("system.drh");
+    fs::write(&source, r#"
+in fs;
+in io;
+in os;
+
+string load(string path) fails FileMissing, AccessDenied, InvalidPath, InvalidFileText, FileIoError {
+    return fs::read(path) fails;
+}
+
+none main() fails FileMissing, AccessDenied, InvalidPath, FileIoError {
+    fs::write("茶.txt", "short") fails;
+    io::outln(load("茶.txt") maybe "unexpected error");
+    string missing = fs::read("missing.txt")
+        fails with (FileMissing e) => { maybe "missing"; }
+        otherwise (any e) => { maybe "wrong cause"; };
+    io::outln(missing);
+    string invalid = fs::read("binary.txt")
+        fails with (InvalidFileText e) => { maybe "invalid text"; }
+        otherwise (any e) => { maybe "wrong cause"; };
+    io::outln(invalid);
+    io::outln(os::platform());
+    io::outln(os::getEnv("DRACHM_SYSTEM_EMPTY") maybe "not empty");
+    io::outln(os::getEnv("DRACHM_SYSTEM_MISSING") maybe "unset");
+}
+"#).unwrap();
+    for flags in [&[][..], &["-O"][..]] {
+        fs::write(dir.join("茶.txt"), "original long text").unwrap();
+        fs::write(dir.join("binary.txt"), [0xff]).unwrap();
+        let run = Command::new(env!("CARGO_BIN_EXE_drachm"))
+            .current_dir(&dir)
+            .env("DRACHM_CHECK_LEAKS", "1")
+            .env("DRACHM_SYSTEM_EMPTY", "")
+            .env_remove("DRACHM_SYSTEM_MISSING")
+            .arg("run")
+            .args(flags)
+            .arg(&source)
+            .output()
+            .unwrap();
+        assert!(run.status.success(), "{flags:?}: {}", text(&run.stderr));
+        assert_eq!(text(&run.stderr), "");
+        assert_eq!(text(&run.stdout), format!("short\nmissing\ninvalid text\n{}\n\nunset\n", std::env::consts::OS));
+        assert_eq!(fs::read(dir.join("茶.txt")).unwrap(), b"short");
+    }
+    fs::remove_dir_all(dir).unwrap();
+}
