@@ -19,7 +19,10 @@ A file that uses `unsafe` or pointers starts with this line:
 //--!$unsafe: true
 ```
 
-Without it, `unsafe`, `*T` and `address of` give error E0317.
+Without it, `unsafe`, `*T` and `address of` give error E0317. The flag is read
+for each file. A project can allow `unsafe` for all its files instead, with
+`unsafe = true` under `[native]` in `drachm.toml`; the dependencies' files
+follow their own project's table.
 
 ## Pointer types
 

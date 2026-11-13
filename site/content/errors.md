@@ -505,8 +505,10 @@ from, and `lives` must name exactly the borrow fields:
 
 ## E0317: `unsafe` without the file flag
 
-`unsafe { }`, `unsafe` functions, `*T` types and `address of` need the
-file flag `//--!$unsafe: true` at the very top of the file.
+`unsafe { }`, `unsafe` functions, `*T` types, C calls and `address of` need
+the file flag `//--!$unsafe: true` at the very top of the file, or
+`unsafe = true` under `[native]` in `drachm.toml`, which allows every
+file of the project (and of a dependency that sets it).
 
 ## E0321: missing `&` or `&mut` at the call
 

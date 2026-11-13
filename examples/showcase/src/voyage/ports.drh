@@ -1,7 +1,7 @@
-//--!$unsafe: true
 // Part 6 of the voyage, in its own file: the harbours, which are a C library.
 // `c/harbour.h` is imported like a module; `[native]` in drachm.toml says where
-// the header is and which C file to compile and link.
+// the header is, which C file to compile and link, and that this project's
+// files may use `unsafe` (no file flag needed here).
 in io;
 in * from c."harbour.h" as harbour;
 

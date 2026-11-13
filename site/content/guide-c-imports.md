@@ -34,6 +34,7 @@ defines = ["SDL_MAIN_HANDLED"]   # preprocessor definitions (-D)
 libraries = ["SDL2"]             # libraries to link (-l)
 library_dirs = ["vendor/lib"]    # where the libraries are (-L)
 sources = ["c/helpers.c"]        # C files of your own, compiled with the program
+unsafe = true                    # every file of the project may use unsafe (no file flag)
 ```
 
 Relative paths are relative to the `drachm.toml`. The system's own header
@@ -50,7 +51,8 @@ Three things to notice:
 
 - **C calls are `unsafe`.** A C declaration tells the compiler the types, not
   what the function needs from its caller. Calling one needs an `unsafe { }`
-  block, and `unsafe` needs the file flag `//--!$unsafe: true` (see
+  block, and `unsafe` needs the file flag `//--!$unsafe: true` or the
+  project's `unsafe = true` in the table above (see
   [Unsafe and pointers](reference-unsafe.md)).
 - **C numbers are types of their own.** `c::int`, `c::long`, `c::uchar`,
   `c::size_t`, `c::double` and the rest are not synonyms of `sint32` or

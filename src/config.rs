@@ -56,6 +56,10 @@ pub struct Native {
     pub library_dirs: Vec<String>,
     /// C source files of the project, compiled and linked with it.
     pub sources: Vec<String>,
+    /// `unsafe = true`: every file of the project (and of a dependency whose
+    /// table says so) may use `unsafe`, C calls and raw pointers, without the
+    /// file flag `//--!$unsafe: true`.
+    pub unsafe_allowed: bool,
 }
 
 impl Native {
@@ -397,8 +401,15 @@ impl Reader {
     }
 
     fn native(&mut self, t: &Table) -> Native {
-        self.check_keys(t, &["include", "defines", "libraries", "library_dirs", "sources"], "[native]");
+        self.check_keys(t, &["include", "defines", "libraries", "library_dirs", "sources", "unsafe"], "[native]");
         let mut n = Native::default();
+        if let Some(item) = t.get("unsafe") {
+            match item.as_bool() {
+                Some(v) => n.unsafe_allowed = v,
+                None => self.diags.push(Diagnostic::at(&codes::E0802, self.item_span(item), "`unsafe` must be `true` or `false`")
+                    .help("`unsafe = true` lets every file of the project use `unsafe`")),
+            }
+        }
         for (key, out) in [
             ("include", &mut n.include),
             ("defines", &mut n.defines),
@@ -786,6 +797,7 @@ pub fn open(path: &Path) -> Result<Opened, Failure> {
                 requires_main: config.project.kind != Kind::Library,
                 dependency_names: config.dependencies.iter().map(|dep| dep.name.clone()).collect(),
                 native: config.native.settings(&dir),
+                unsafe_allowed: config.native.unsafe_allowed,
             };
             Ok(Opened { entry, info, config, deps })
         }
@@ -803,6 +815,7 @@ pub fn open(path: &Path) -> Result<Opened, Failure> {
                 requires_main: true,
                 dependency_names: config.dependencies.iter().map(|dep| dep.name.clone()).collect(),
                 native: config.native.settings(&dir),
+                unsafe_allowed: config.native.unsafe_allowed,
             };
             Ok(Opened { entry: path.to_path_buf(), info, config, deps })
         }

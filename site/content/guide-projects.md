@@ -106,6 +106,7 @@ A project that calls C says where the headers are and what to link in a
 include = ["vendor/include"]
 libraries = ["SDL2"]
 sources = ["c/helpers.c"]
+unsafe = true               # every file may use unsafe, without a file flag
 ```
 
 See [Calling C libraries](guide-c-imports.md).
@@ -172,7 +173,8 @@ test "adds" {
 
 A line `//--!$key: value` at the very top of a file overrides the project
 setting for that file, and only for that file. The one flag the compiler reads
-today is `//--!$unsafe: true`. Raw pointers need it, and also an `unsafe { }`
+today is `//--!$unsafe: true`, which lets that file use `unsafe`. A project can
+allow it for all its files with `unsafe = true` under `[native]`. Raw pointers need it, and also an `unsafe { }`
 block at the point of use, so a file that never asks for it cannot touch a
 pointer by accident. See [Unsafe](reference-unsafe.md).
 

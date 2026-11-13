@@ -373,8 +373,10 @@ codes! {
          from, and `lives` must name exactly the borrow fields:\n\n\
          \x20   struct Parser lives src { &string src; uint32 pos; }";
     E0317: "`unsafe` without the file flag",
-        "`unsafe { }`, `unsafe` functions, `*T` types and `address of` need the\n\
-         file flag `//--!$unsafe: true` at the very top of the file.";
+        "`unsafe { }`, `unsafe` functions, `*T` types, C calls and `address of` need\n\
+         the file flag `//--!$unsafe: true` at the very top of the file, or\n\
+         `unsafe = true` under `[native]` in `drachm.toml`, which allows every\n\
+         file of the project (and of a dependency that sets it).";
     E0321: "missing `&` or `&mut` at the call",
         "A parameter of type `&T` or `&mut T` is passed by writing the borrow at\n\
          the call, so the call says what the callee may do:\n\n\

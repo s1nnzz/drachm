@@ -46,6 +46,7 @@ One table in `drachm.toml` (or `srachm.toml`):
 | `libraries` | libraries to link, like `-l` |
 | `library_dirs` | where to look for them, like `-L` |
 | `sources` | C files of the project, compiled and linked with it |
+| `unsafe` | `true` lets every file of the project use `unsafe` without the file flag |
 
 Relative paths are relative to the file that names them. Headers are read with
 the same `include` and `defines` that the program is built with. A project that
@@ -61,7 +62,10 @@ that does not have the C library installed, as long as the headers are there.
 ## Calls need `unsafe`
 
 A C function is declared `unsafe`: calling it needs an `unsafe { }` block
-(E0316), and `unsafe` needs the file flag (E0317). A wrapper function that
+(E0316), and `unsafe` needs the file flag `//--!$unsafe: true` or `unsafe = true`
+in the project's `[native]` table (E0317). The flag is read per file, and a
+dependency's files follow the dependency's own table, so an app sets nothing for
+its dependencies. A wrapper function that
 contains the block has an ordinary safe signature. Everything a wrapper's
 author must establish (valid pointers, lifetimes, who frees what) is theirs;
 a C declaration proves none of it.

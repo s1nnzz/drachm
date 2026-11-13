@@ -108,7 +108,8 @@ Sometimes you need an address and nothing checks it for you: talking to
 hardware, building a data structure the borrow checker cannot see, or porting C.
 Raw pointers exist for that, and every use is fenced.
 
-- A file that uses them starts with `//--!$unsafe: true`. Without it the
+- A file that uses them starts with `//--!$unsafe: true`, or the project says
+  `unsafe = true` under `[native]` in `drachm.toml`. Without either, the
   compiler refuses (E0317).
 - `*T` is a pointer you can write through, `*fixed T` one you can only read. Both
   are 8 bytes. `address of n` makes one.

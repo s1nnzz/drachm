@@ -142,8 +142,8 @@ struct Globals {
     time_imported: bool,
     fs_imported: bool,
     os_imported: bool,
-    /// The file flag `//--!$unsafe: true`.
-    unsafe_allowed: bool,
+    /// Where `unsafe` is allowed, by file (`ast::Program::unsafe_files`).
+    unsafe_files: Vec<(usize, bool)>,
     /// Memoised layout, ownership and copy answers (`layout`).
     layouts: std::cell::RefCell<layout::Cache>,
     /// Map key checks that wait for the methods (`maps.rs`).
@@ -174,6 +174,12 @@ impl Globals {
     fn settings_at(&self, span: Span) -> crate::config::Behaviour {
         let end = self.settings.partition_point(|(base, _)| *base <= span.start);
         self.settings[..end].last().map_or_else(Default::default, |(_, settings)| *settings)
+    }
+
+    /// Whether the file of `span` allows `unsafe` (see `unsafe_files`).
+    fn unsafe_at(&self, span: Span) -> bool {
+        let end = self.unsafe_files.partition_point(|(base, _)| *base <= span.start);
+        self.unsafe_files[..end].last().is_some_and(|(_, allowed)| *allowed)
     }
 
     fn add_sig(&mut self, sig: Sig) -> FuncId {
@@ -290,7 +296,7 @@ impl Globals {
             return None;
         }
         if let Some((_, span)) = t.mods.first() {
-            if !self.unsafe_allowed && let Some((_, at)) = t.mods.iter().find(|(m, _)| matches!(m, ast::TypeMod::Ptr | ast::TypeMod::FixedPtr) || (matches!(m, ast::TypeMod::ForeignPtr) && !is_synthetic(t.span))) {
+            if !self.unsafe_at(t.span) && let Some((_, at)) = t.mods.iter().find(|(m, _)| matches!(m, ast::TypeMod::Ptr | ast::TypeMod::FixedPtr) || (matches!(m, ast::TypeMod::ForeignPtr) && !is_synthetic(t.span))) {
                 diags.push(unsafe_disabled(*at, "raw pointer type here"));
             }
             if self.resolve_base_quiet(t) == Some(Type::None) && !matches!(t.mods.first(), Some((ast::TypeMod::ForeignPtr, _))) {
@@ -519,7 +525,7 @@ pub(crate) fn check_with_settings(
     settings: Vec<(usize, crate::config::Behaviour)>,
     requires_main: bool,
 ) -> hir::Program {
-    let mut g = Globals { settings, unsafe_allowed: prog.unsafe_allowed, ..Globals::default() };
+    let mut g = Globals { settings, unsafe_files: prog.unsafe_files.clone(), ..Globals::default() };
     let mut si = false;
     for import in &prog.imports {
         match import.plain_name() {
@@ -902,14 +908,14 @@ fn is_synthetic(span: Span) -> bool {
 fn unsafe_disabled(span: Span, what: &str) -> Diagnostic {
     Diagnostic::at(&codes::E0317, span, "`unsafe` is not enabled in this file")
         .note(what)
-        .help("add `//--!$unsafe: true` as the first line of the file")
+        .help("add `//--!$unsafe: true` as the first line of the file, or set `unsafe = true` under `[native]` in drachm.toml for the whole project")
 }
 
 /// An `unsafe` function needs the file flag; `lives` names parameters that
 /// hold a borrow.
 fn check_signature_extras(g: &Globals, f: &ast::Func, params: &[Option<Type>], is_method: bool, diags: &mut Vec<Diagnostic>) {
     if let Some(at) = f.is_unsafe
-        && !g.unsafe_allowed
+        && !g.unsafe_at(at)
         && f.foreign.is_none()
     {
         diags.push(unsafe_disabled(at, "needs the file flag"));
@@ -2007,7 +2013,7 @@ impl<'a> Checker<'a> {
             }
             Stmt::ExpectFailure { failure, call, span } => self.expect_failure(failure, call, *span, out),
             Stmt::Unsafe { body, span } => {
-                if !self.g.unsafe_allowed {
+                if !self.g.unsafe_at(*span) {
                     self.diags.push(unsafe_disabled(Span::new(span.start, span.start + 6), "needs the file flag"));
                 }
                 let block = self.block(body);
@@ -3398,7 +3404,7 @@ impl<'a> Checker<'a> {
 
     /// `address of e`.
     fn address_expr(&mut self, e: &ast::Expr, inner: &ast::Expr) -> Option<Val> {
-        if !self.g.unsafe_allowed {
+        if !self.g.unsafe_at(e.span) {
             self.diags.push(unsafe_disabled(Span::new(e.span.start, e.span.start + 7), "needs the file flag"));
         }
         if !ast_place(inner) {

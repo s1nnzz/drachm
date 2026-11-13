@@ -30,8 +30,11 @@ pub struct Program {
     pub defs: Vec<DefDecl>,
     /// Top-level values: `uint32 SIZE = 8;`, `fixed uint32 MAX = SIZE * 2;`.
     pub consts: Vec<ConstDecl>,
-    /// The file flag `//--!$unsafe: true` is present (set by `lib::check`).
-    pub unsafe_allowed: bool,
+    /// Where `unsafe` is allowed, by file: each file's start offset (its base in
+    /// the source map) and whether its flag `//--!$unsafe: true` or its project's
+    /// `[native] unsafe = true` allows it. Sorted by offset. A span is in the
+    /// file whose base is the last one at or before its start.
+    pub unsafe_files: Vec<(usize, bool)>,
     /// Every `T?` written in the file, with `T` as written (no marks, no `?`).
     /// The checker makes one optional type for each distinct `T` (S5A.2).
     pub optionals: Vec<TypeName>,
