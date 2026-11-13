@@ -247,3 +247,8 @@ Q5 interfaces as types: any interface can be used as `&I` (its `static` methods 
 - Report filesystem failures by cause using separate failure types, such as `FileMissing` and `AccessDenied`.
 - Start `os` with platform, current directory and environment lookup. Process commands remain separate.
 - `fs::write` replaces an existing file. `fs::create` fails if the file already exists.
+- `fs::create` takes a path with optional initial text and returns a file object for reading and writing lines. The same object type should serve the filesystem reader and writer APIs.
+- `os::getEnv` returns `string?` and gives `none` for a missing variable.
+- After `fs::create(path, text)` writes initial text, the returned file's cursor starts at the beginning.
+- `fs::open(path, Read or Write or ReadWrite)` opens an existing file and returns the same `File` type in all three modes.
+- `fs::open(path, Write)` preserves existing contents and appends writes at the end.

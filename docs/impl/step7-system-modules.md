@@ -11,6 +11,7 @@ selected this split:
   for line reads and writes. Create resets the cursor to the beginning after
   writing initial text. Open an existing path with `fs::open(path, mode)`
   using `Read`, `Write` or `ReadWrite` and receive the same `File` type.
+  Opening in `Write` mode preserves existing contents and appends writes.
 - Failures are typed by cause, such as `FileMissing` and `AccessDenied`.
 - `os` exposes platform, current working directory and environment lookup.
   `os::getEnv` returns `string?` with `none` for a missing variable.
