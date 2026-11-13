@@ -19,7 +19,7 @@ For a new session with no memory of earlier conversations. Read this, then
   follow-ups"): the SI unit is `tesla`; a type parameter named like a unit is
   W0601, and `X as unit` names the unit anywhere; `by` takes a negative step
   (counts down), a run-time zero step stops with `range step is zero` (exit
-  101), a literal zero is E0106; float ranges with `by` (value k is
+  101), a literal zero is E0115; float ranges with `by` (value k is
   `start + k * step`).
 - **Owner questions pending** (ask in the next batch): `10..0 by -2`: the owner's
   note says 10, 8, 6, 4, 2, but the inclusive end gives 0 too (built: 0 is

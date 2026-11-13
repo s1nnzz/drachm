@@ -520,7 +520,7 @@ impl Checker<'_> {
             (None, _) => None,
             (Some(st), _) if sign == Some(Ordering::Equal) => {
                 self.diags.push(
-                    Diagnostic::at(&codes::E0106, st.span, "a range step of zero never moves on")
+                    Diagnostic::at(&codes::E0115, st.span, "a range step of zero never moves on")
                         .note("the loop would never end")
                         .help("write a step that is not zero, or leave out `by` for a step of 1"),
                 );

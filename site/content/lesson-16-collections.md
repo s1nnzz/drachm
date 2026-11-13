@@ -108,7 +108,7 @@ so the 10 is never reached.
 The step can be a value (`by gap`), and it must be a number of the loop's type.
 A negative step counts down, so `10..0 by -2` runs down from 10. A step that
 points away from the end gives an empty loop. A step of zero written in the
-program is E0106; one that is zero only when the program runs stops it with a
+program is E0115; one that is zero only when the program runs stops it with a
 run-time error. A float range needs its step: `0.0..1.0 by 0.25`.
 
 ### Walking a map

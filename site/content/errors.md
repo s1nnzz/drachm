@@ -168,14 +168,14 @@ A value was shifted by a constant amount that is negative or not
 smaller than its width. The amount wraps around the width: a `uint32`
 shifted by 40 is shifted by 8.
 
-## E0106: a range step of zero
+## E0115: a range step of zero
 
 A range loop's `by` step is written as a constant zero, so the loop
 would never move on. It is rejected at compile time. A step that is
 zero only when the program runs stops the program at that point with
 the run-time error `range step is zero` (exit 101).
 
-    for (uint32 i of 0..10 by 0) { }    // E0106
+    for (uint32 i of 0..10 by 0) { }    // E0115
     for (uint32 i of 0..10 by n) { }    // a zero n stops the program
 
 ## E0107: constant division by zero

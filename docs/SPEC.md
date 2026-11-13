@@ -134,7 +134,7 @@ match (x) {
     on an unsigned loop is only W0102 (wraps), not an error. Open: the owner's note
     gives `10..0 by -2` as 10, 8, 6, 4, 2, but the inclusive end and "the last value
     not past the end" give 10, 8, 6, 4, 2, 0; the build follows the rule (0 included).
-  - A literal zero step is E0106 (compile error). A step that is zero at run time
+  - A literal zero step is E0115 (compile error). A step that is zero at run time
     stops the program with `range step is zero` (exit 101), like an out-of-range
     index. Built.
   - Floats: value k is `start + k * step` (whole-number k, no drift); the loop stops

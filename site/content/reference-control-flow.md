@@ -41,7 +41,7 @@ A negative step counts down: `for (sint32 i of 10..0 by -2)` runs for 10, 8, 6,
 4, 2 and 0. A step that points away from the end gives an empty loop, so
 `0..10 by -2` and `10..0 by 2` run zero times. An unsigned loop has no negative
 step, so its direction comes from the step alone. A step written as a literal
-zero is E0106. A step that is zero only when the program runs stops it at that
+zero is E0115. A step that is zero only when the program runs stops it at that
 point with the run-time error `range step is zero` (exit code 101).
 
 A float range needs its `by`. Value `k` is `start + k * step`, computed from a

@@ -1,1 +1,1 @@
-error[E0106]: a range step of zero never moves on
+error[E0115]: a range step of zero never moves on
