@@ -931,7 +931,10 @@ phys::Vector3 v = 1, 2, 3;
   (defs follow their struct), a qualified unit (`lib::fathom` has no unit syntax: import units by name or bare).
 - C headers (step 7.1): `in * from c."SDL2/SDL.h" as sdl;`. Imported C calls
   are unsafe. Drachm code can expose safe wrappers. Declare native libraries
-  in `drachm.toml`.
+  in the `[native]` table in `drachm.toml`, alongside include directories and
+  definitions. The import exposes declarations from the named header and its
+  transitive includes. Scripts can check headers with the default search path.
+  Linking requires a project manifest.
 
 ## 10. Projects, config, scripts, tooling
 

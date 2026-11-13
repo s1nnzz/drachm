@@ -231,3 +231,8 @@ Q5 interfaces as types: any interface can be used as `&I` (its `static` methods 
 - Safe wrappers around unsafe C calls.
 - Native libraries are specified in `drachm.toml`.
 - `drachm check` checks a library without requiring `main()`.
+
+# C header imports batch A, 2026-11-13
+- The owner delegated import scope. Expose declarations from the named header and its transitive includes under the import alias. This lets umbrella headers expose the API they collect. Repeated declarations of the same C symbol within one import resolve to one declaration.
+- Use one `[native]` table in `drachm.toml` for include directories, definitions and libraries.
+- Scripts can check C headers with the default search path. Linking requires a project manifest.

@@ -80,21 +80,14 @@ shapes too. Report each interim in the implementation handoff.
 
 ### Batch A — Imports and build inputs
 
-1. **Import scope.** Should the namespace expose declarations from the named
-   header only, include declarations from transitive headers, or use a
-   header-specific manifest list of additional headers whose declarations
-   belong to that namespace? How should duplicate C declarations be surfaced
-   when two aliases refer to them?
-2. **Manifest schema.** Use a flat native table of include directories,
-   definitions and libraries, named native entries with their own settings,
-   or header contracts that bind a header spelling to an ordered set of named
-   native entries? Decide which entries can refer to a local archive and how
-   projects express platform differences.
-3. **Project boundaries.** Require a project manifest for C imports, allow
-   scripts to check headers with the default search path but require a
-   project to link, or let a script opt into a project's named native entry
-   with an explicit manifest reference? Decide whether library consumers
-   inherit the native entries required by a wrapper.
+The import exposes declarations from the named header and its transitive
+includes. Repeated declarations of the same C symbol resolve to one
+declaration in the import. A flat `[native]` table holds include directories,
+definitions and libraries. Scripts can check headers using default search
+paths. Linking requires a project manifest.
+
+Still open: platform-specific settings, local archives, and whether library
+consumers inherit native link settings from a dependency.
 
 ### Batch B — Types and layout
 
