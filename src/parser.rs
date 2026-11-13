@@ -736,7 +736,9 @@ impl Parser<'_> {
 
     fn func(&mut self) -> Parsed<Func> {
         let is_unsafe = if self.peek() == &Tok::Kw("unsafe") { Some(self.bump().span) } else { None };
-        if !matches!(self.peek(), Tok::Ident(_) | Tok::Kw("none") | Tok::Sym("&" | "&&" | "*" | "**" | "(")) {
+        let starts_type = matches!(self.peek(), Tok::Ident(_) | Tok::Kw("none") | Tok::Sym("&" | "&&" | "*" | "**" | "("))
+            || (self.peek() == &Tok::Kw("maybe") && self.peek_at(1) == &Tok::Sym("&"));
+        if !starts_type {
             return Err(self
                 .unexpected("a function, `struct` or `in`")
                 .help("a function starts with its return type: `none main() { }`"));
@@ -2622,6 +2624,11 @@ mod tests {
         assert!(d.is_empty(), "{:?}", errors(&d));
         assert!(matches!(s[0], Stmt::Let { mutable: false, .. }));
         assert!(matches!(s[1], Stmt::Let { mutable: true, .. }));
+        // A function may return one, and take one as a parameter.
+        let (p, d) = parse_src("maybe &string first(maybe &string fallback) { }");
+        assert!(d.is_empty(), "{:?}", errors(&d));
+        assert_eq!(show_ty(&p.funcs[0].ret), "Optional<&string>");
+        assert_eq!(show_ty(&p.funcs[0].params[0].ty), "Optional<&string>");
     }
 
     #[test]
