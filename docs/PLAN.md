@@ -24,7 +24,7 @@ answers into `docs/SPEC.md` and the design doc, and note leftovers under that st
 | 4.5 | Units of measure | done (`in si;`, points and deltas, scaled integers wrap; decisions in `docs/impl/step4.5-units.md`) |
 | 4.6 | Input: `io::inln()`, `io::ended()`, text `::to<T>()` | done (interim: bad text stops the program with exit 101; forgiving number text (spaces, `+`, `.5`); `\r\n` lines; invalid UTF-8 becomes U+FFFD) |
 | 5 | Constructors, enums, `fails` / `maybe` | done (the `crash` setting of `unhandled_fail` waits for step 7): S5A.1 done (enums with data, `match` with bindings/`take`/`copy`/guards/nesting/alternatives/values, exhaustiveness, `Switch`; `==` for payload-free enums) and S5B done (constructors, overloads, `new ... of`, named values, `Person(auto);`, `fill`, `fill partial`, `def`, `defaults`, `now`); optionals done (S5A.2, below); failures done (S5C and S5D, below: `failure`, `fails`, `fail`, `maybe`/`fails` on calls, handlers, `because`, `ConvertError`, exit codes, failing constructors and `drop()`) |
-| 6 | Generics, interfaces, collections | in progress: S6A.1 and S6A.2 done (generic structs and enums by monomorphisation, `Optional<T>`, `new Stack<T> of`, `Stack<T>::f()`; type syntax `Name<A,B>`, `T[?]`, `T[N]`; on-demand layout; generic functions, explicit and inferred type arguments; E0601-E0605, E0608, W0600). S6B done: interfaces (`interface`, `with`, `extends`, `Self`, `static`, required fields, `changes self`), `<T with I>` checked at the definition and at each instance, `T::zero()`, `TYPE with I { }` declarations for structs and number/bool/string types, built-in `Zero` `Equal` `Ordered` `Text` (tentative set); E0606, E0607, E0610-E0617. S6A.3 done: unit parameters (`unit U`) on functions, structs and enums (`twice<unit U>`, `Track<float64, unit m>`, units in instance keys, E0609); interim: a constraint on a unit parameter is E0901; a parameter with `U` inside a bigger unit (`float64<U/s>`) has `U` worked out from its argument (S6A.3 follow-up). Interims: borrow type arguments and partial explicit type arguments are E0901; `TYPE with I { }` sees only public members, `with trusted I` sees private ones too; borrowing a generic interface and interface methods with their own type parameters are E0901; generic interfaces work with static dispatch (`Read<T>`, `extends`, `R with Read<T>`); S6E done: `&Shape` / `&mut Shape` (fat borrows, vtables, dynamic calls, required-field reads, automatic upcasts; E0619, E0640), with E0901 for `exclusive`, field writes through `&mut Iface`, methods returning borrows, holders and lists of borrows. S6C supports lists and arrays. S6F built: function types, lambdas, shared and inferred mutable captures, `move`, and value or shared-view `each`. S6D: maps and ordered maps with scalar and composite keys (structs, enums, optionals, arrays hashed structurally; `key()` wins over `==`, E0627, E0628), literals, lookup, mutation, `m[k] += x` (a missing key stops the program), two-variable `for` and `each`, owning glue on both backends; pending: borrowed values (Q3, E0901) and views of entries. S6C.2 follow-ups: `copy xs::first()`/`last()`/`get(i)` give an owned `T?`; `contains` on owning items takes `&item`; the view result `&T?` of the plain calls is E0901 (needs enums holding borrows). S6G: built-in `Iterable<T>` with `T? at(uint64 i)`; `for` over it, several item types picked by the binding |
+| 6 | Generics, interfaces, collections | done (S6Z sweep, 2026-11-13): generic functions, structs and enums (inferred and written type arguments, borrows as type arguments, units); interfaces (`with`, `and`, `extends`, `Self`, `changes self`, built-in `Zero`/`Equal`/`Ordered`/`Text`, `with trusted`, generic interfaces, `&Shape` with vtables, `Iterable<T>` with `at(i)`); arrays, lists and maps (indexing, the methods, `take xs[i] reorders`, views of owning items, scalar and composite keys with `key()`, two-variable walks, `each`); function types, lambdas with inferred captures. The interims still open are listed in the step 6 section, each with its question number |
 | 7 | Modules, config, scripts, stdlib | not started |
 | 7.5 | MIR optimiser: SSA, inlining, scalar replacement, constant folding, loop opts, check elimination, alias info from borrows | not started |
 | 8 | Language server | not started |
@@ -66,6 +66,8 @@ struct dies (step 3, WP6).
 | `src/diag/` | `Diagnostic`, `Span`, `Source`; `render.rs` (SPEC section 10 layout, colour); `codes.rs` (code table) |
 | `src/main.rs` | thin CLI: `build`/`run`/`check`/`explain`, `-O` |
 | `runtime/runtime.c` | printing, panics, values as text (numbers, floats, `%.N`, zero padding), float→int wrapping, 128-bit division, integer power. Linked for plain builds, pasted inline for `-O` (with `runtime/strings.h`) |
+| `src/typeck/generics.rs`, `interfaces.rs`, `dynamic.rs`, `lambdas.rs`, `lists.rs`, `maps.rs`, `iterable.rs`, `units.rs` | step 6: generic instances and their checks, interface conformance and constraints, `&Shape` borrows and their dispatch, function values and captures, lists and arrays, maps, `Iterable<T>`, units of measure |
+| `runtime/lists.h` | the list and map C interface (both backends); the Rust side is in `runtime/strings/` (`src/lists.rs`, `src/maps.rs`, `src/hash.rs`) |
 | `runtime/strings.h`, `runtime/strings/` | the string runtime: a Rust staticlib (grapheme-aware methods, live-buffer counter) behind a C interface; built by `build.rs`, linked into every program |
 | `tests/run.rs` | golden test harness (how to add a case is at the top of the file); programs run with `DRACHM_CHECK_LEAKS=1` and a leak or a double free fails the case |
 | `bench/` | benchmarks with C and Rust twins; `bench/run.sh` prints a comparison |
@@ -634,38 +636,53 @@ for parameters, fields, `self` and derefs); `def` values must not read fields.
 
 ## Step 6: Generics, interfaces, collections
 
-Work:
-1. Generic functions and structs by monomorphisation; type-argument inference
-   from arguments (unification). `<T with Shape>` checks the constraint at the
-   definition (only Shape's methods are usable) and at instantiation.
-2. Interfaces: `interface X { sigs }`, `struct S with X`, conformance checks
-   (missing or mismatched methods get clear errors). Static dispatch for
-   generics. Dynamic dispatch via vtables once its syntax is decided.
-3. Collections in the stdlib, written in Drachm where possible: `Array<T, N>` /
-   `T[N]`, `List<T>` / `T[?]` (push, len, get, indexing, iteration), and
-   `Map<K, V>` with `{ k: v }` literals, `[]` returning `V?` and `::get`.
-   Bounds checks panic by default.
-4. S6F built: arrow function types, named functions as values, expression
-   and block lambdas, shared and inferred mutable captures, `move`, and
-   `each` over lists and arrays with value or shared-view callbacks.
-   Function values can be locals and parameters. Returning or storing them
-   in other values is E0652. Mutable item callbacks for `each` are open
-   and give E0901 in the interim.
-5. The `chars`/`split`/`lines` return types become real `string[?]`.
+**Status: done (2026-11-13, the S6Z sweep).** Built by the packages S6A (generics),
+S6B (interfaces), S6E (`&Shape`, vtables), S6F (lambdas), S6R and S6C (lists),
+S6D (maps) and S6G (`Iterable`), with owner answers in `docs/impl/owner-answers.md`
+("Step 6 questions" and the follow-ups). The overview is `docs/impl/step6-overview.md`.
+Reference pages: [Generics](../site/content/reference-generics.md) and
+[Arrays and lists](../site/content/reference-collections.md) (in the site
+sources); lessons 15 and 16 run as tests.
 
-**Done when:** generic `max` and `Stack<T>`, an interface with two structs, and
-list/map programs from the SPEC all run; constraint violations give clear errors.
+Compiler files: `src/typeck/{generics,interfaces,dynamic,lambdas,lists,maps,iterable,units}.rs`,
+vtables in `src/mir/mod.rs` and `src/typeck/dynamic.rs`, the list and map runtime in
+`runtime/lists.h` with the Rust side in `runtime/strings/` (`src/lists.rs`, `src/maps.rs`, `src/hash.rs`).
 
-Decided (2026-11-10): `&Shape` dynamic dispatch (vtables), `with A and B`,
-interface static methods / required fields / `extends` / `Self` (no default
-bodies), arrow function types, unspecified map order plus `OrderedMap`,
-`Iterable<T>` with `T? at(uint64 i)` (built in; no walker, owner 2026-11-13), automatic `==`/hashing with `==` override
-(SPEC sections 4-5, 8). Interfaces with required fields need the field at a
-known offset or an accessor in the vtable: pick one and note it.
+Interims still open (each is E0901 unless noted; the question says what the owner decides):
+- `exclusive &Shape` (Q5): the owner's word; details still to design.
+- Borrowing a generic interface, `&Read<uint32>` (Q3 family; E0901).
+- Interface methods with type parameters of their own, and struct methods with
+  their own type parameters (Q15).
+- A constraint on a unit parameter, `unit U with Shape` (Q2 family; E0901).
+- An array length as a value parameter, `struct Buffer<T, uint32 N>` (Q12; a parse
+  error, E0003, not the E0901 the design asked for: a diagnostic gap to fix when the
+  owner answers).
+- `take xs[i] leaving v` (Q11; keeps length and order; E0901).
+- Views of map entries, `for (&K k, V v of m)` (Q16 follow-up; E0901).
+- A `&mut T x` loop variable over `Iterable<T>` (E0901: `at` hands out values).
+- Writing a required field through `&mut Shape`, methods returning borrows through
+  `&Shape`, holders and lists of borrows as `&Shape` items (`==` and `contains` on
+  them): E0901 (S6E).
+- Borrowed captures in lambdas and a borrow returned from a lambda; mutable item
+  callbacks for `each`; changing a fixed `move` capture (E0901; tentative in the site).
+- A generic function called with a borrow type argument, `same<&string>(&s)`, and a
+  generic struct used as a field of a non-generic struct (E0901).
+- Enums and generic instances promising an interface from outside (E0901).
+- Config settings `bounds` and `missing_key` (step 7).
 
-Map keys: a `key()` method defines what keys compare and hash by.
+Decided, in progress in another package (not built, and not described as built
+anywhere in this sweep): `maybe &T` (an optional that holds a borrow), `a same as b`
+and `xs::containsRef(&p)`. They are in `docs/impl/owner-answers.md` (Q3 follow-ups).
 
-**Open (ask owner):** a type with both `key()` and a custom `==`: allowed? which wins?
+Decided and built (see `docs/SPEC.md` sections 4, 5 and 8): `&Shape` dynamic
+dispatch (vtables); `with A and B`; interface static methods, required fields,
+`extends` with `and`, `Self`, no default bodies; arrow function types; `Map` order
+unspecified with `OrderedMap` in insertion order; `Iterable<T>` with `T? at(uint64 i)`
+(no walker); `==`/hashing automatic, with `key()` deciding map keys even when
+`==` is custom (Q13).
+
+The answered questions are in `docs/impl/owner-answers.md`. Q1 to Q20 are all answered;
+the interim behaviour that differs from an answer is listed above.
 
 ---
 

@@ -299,6 +299,39 @@ uint32? age = ages["Bob"];                 // missing key -> none
   several item types (`with Iterable<Node> and Iterable<Edge>`); the binding's
   type picks the `at` (methods may differ only in their result for this; calling
   one by name is an error). `T x` takes the item, `&T x` views it.
+- Built (S6C, S6D; owner answers Q9-Q11, Q20, 2026-11-12): arrays and lists
+  share one set of rules. `xs[-1]` is the last item, and an index outside the
+  list stops the program (exit 101). Methods: `push(item)`, `pop()` (`T?`),
+  `get(i)`, `first()`, `last()` (`T?`), `insert(i, item)`, `remove(i)` (stops when
+  outside), `clear()`, `len()`, `contains(item)`, `join(sep)`, `each(f)`. A list
+  or map declared without a value starts empty and is usable at once:
+  `mut string[?] xs;`.
+- Taking an item out by index (Q11): `take xs[i] reorders` is built: the item
+  moves out, the last item fills its place, and the order of the others is not
+  kept. `take xs[i] leaving v`, which keeps length and order, is decided and not
+  built (E0901).
+- Items that own memory (S6C.2): `get(i)`, `first()` and `last()` give a view,
+  an optional that borrows the list (`&T?`); `copy xs::first()` gives an owned
+  `T?`. `contains` takes the value written with `&`: `names::contains(&name)`.
+- A list of borrows is `List<&T>` (Q3, built): the list becomes a borrower.
+- Split edges (S6C.2): `""::split(",")` is `[""]`; `lines()` drops one trailing
+  line end and `""::lines()` is empty; `split("")` gives the characters, as
+  `chars()` does.
+- Built (S6D; Q9, Q13, Q14, Q16): `m[k] = v` adds or replaces an entry;
+  `m::set(k, v)`, `m::remove(k)`, `m::get(k)` (an optional) and `m::len()`
+  work too; `m[k] += v` on a missing key stops the program. `m::each(f)` and
+  `for (K k, V v of m)` walk the entries as copies. Keys: whole numbers, `bool`,
+  `string`, floats (compared by bits: a `NaN` key finds itself, `-0.0` and `0.0`
+  differ), and structs, enums, optionals and arrays of those. Lists, maps,
+  borrows and pointers are not keys (E0626).
+- Map order (owner, 2026-11-13): an ordinary `Map` has no promised order; an
+  `OrderedMap` keeps insertion order. Replacing a value keeps the entry's place;
+  removing a key and adding it again puts it last.
+- Not built: views of map entries (`for (&K k, V v of m)`, E0901).
+- Decided, in progress (owner, Q3 follow-ups, 2026-11-13): `maybe &string` for an
+  optional that holds a borrow (today `Optional<&string>`); `a same as b` for
+  comparing two borrows by address (and `not (a same as b)`); `xs::containsRef(&p)`
+  for the address version of `contains`. Not built yet; another package adds them.
 
 ### Optionals
 
@@ -322,6 +355,24 @@ uint32 n = max<uint32>(5, 9);    // written when they can't be
 ```
 
 Type parameters always use `<>`. `with` constrains them.
+
+- Built (S6A; Q1, Q7): the first argument that has a type decides `T`, and a
+  later argument must match it. Constants adapt to it, and a call made only of
+  constants uses the default type of a constant. An unconstrained parameter is
+  checked at each use, as if written out; a constrained one (`with`) is checked
+  at its definition as well.
+- Built (Q3): a type argument may be a borrow, or a type that holds one:
+  `Stack<&string>`. The container becomes a borrower, and its lifetime is worked
+  out from what is put in.
+- Built (S6A.3; Q2): unit arguments are written with `unit`: `Vec3<float64, unit m/s>`
+  and `twice<unit m>(3.0<m>)`. A parameter may put `U` inside a bigger unit
+  (`float64<U/s>`), and `U` is worked out from the argument (`dist(3.0<m/s>, 2.0<s>)`
+  gives `U = m`). When no argument carries a unit, the call writes one (E0601).
+- Not built: a constraint on a unit parameter (`unit U with Shape`, E0901); an
+  array length as a value parameter, decided as `struct Buffer<T, uint32 N> { T[N]
+  items; }` (Q12, not built: a parse error today); methods with type parameters of
+  their own, allowed only through interface methods (Q15: `interface Mappable<T>
+  { U[?] map<U>((T) => U f); }`, E0901 today).
 
 ### Enums
 
@@ -467,6 +518,14 @@ private:
   Several parents are joined with `and`, as in `with` (implementer's reading, S6B):
   `interface Placed extends Shape and Positioned { ... }`. Equal-named members from two
   parents need equal signatures.
+- Built (S6B, S6E): generic interfaces with static dispatch: `interface Read<T> { T get(); }`,
+  `struct Cell<T> with Read<T>`, `interface ReadChild<T> extends Read<T>`, and a bound
+  that names its instance, `R with Read<T>`. Borrowing one (`&Read<uint32>`) is not built
+  (E0901).
+- Built (S6B, owner 2026-11-12): `TYPE with I { }` sees only the type's public members;
+  `TYPE with trusted I { }` sees private ones as well (`trusted` was the owner's pick).
+- Built (S6G, owner 2026-11-13): a struct may have two methods with one name that differ
+  only in their result (for two `Iterable<T>`s); calling one by name is E0632.
 - A type can promise an interface from outside its declaration (owner, step 6 Q6):
   `uint32 with Zero { static uint32 zero() { return 0; } }`, anywhere in the project. Built in
   for numbers and `string`, without a declaration (owner's reading, tentative set chosen in
@@ -480,15 +539,17 @@ private:
   words (address, vtable). `&Circle` converts to `&Shape` where one is wanted (argument, declaration,
   return) and `&Shape3D` converts to `&Shape` (upcast); a `static` method, a method with `Self` in its
   signature or an operator is not callable through it (E0619); no conversion is E0640. Required fields
-  are read through the borrow. Interim (E0901): `exclusive &Shape` (owner's word, not designed),
+  are read through the borrow. Owner Q5: upcasts are automatic, except that a parameter
+  written `exclusive &Shape` accepts only a value whose interface is exactly `Shape`; `exclusive`
+  is not built (E0901) and its details are still to design. Interim (E0901):
   writing a required field through `&mut Shape` (does the interface need to say `mut`?), a method that
   returns a borrow, a struct that holds borrows, `&Text` over a built-in number, lists of `&Shape` (Q3).
 - `==` is automatic for structs (field by field), and structs with hashable
   fields can be map keys. A `bool ==(T o)` operator method overrides ordinary `==`.
 - A `key()` method (e.g. `string key() { return self.text::lower(); }`) defines
   what map keys compare and hash by, including on types with a custom `==`.
-  (Conservative reading, not yet confirmed by the owner: a struct with a custom
-  `==` and no `key()`, or holding one, cannot be a key: E0627.)
+  Owner (S6G/S6D follow-up, 2026-11-13): a key type with its own `==` and no `key()` is
+  E0627, so add `key()`; a struct holding such a type is the same error.
 - Float map keys hash and compare by bits. A NaN key finds itself and
   `-0.0` and `0.0` are distinct keys.
 - Construction from the declared type: `Vector3 p = 1, 2, 3;`,
@@ -746,7 +807,10 @@ async none main() {
   ```
 - Function values can be called, kept in locals and passed as parameters.
   This includes `move` lambdas. Returning or storing a function value
-  inside another value is an error.
+  inside another value is an error (E0652; owner Q17: a function value only
+  goes down). Built (S6F; Q18): a lambda that changes a capture
+  (`names::each((string n) => { count++; })`) takes a `&mut` borrow of it,
+  inferred as for `self`; the captured variable is `mut`.
 - `each` on lists and arrays takes a callback returning `none`. A parameter
   of type `T` gets the item by value, with a copy for an owning item. A
   parameter of type `&T` gets a shared view. **OPEN:** mutable item callbacks
@@ -833,7 +897,7 @@ Diagnostics: detailed Rust/Elm style (labelled source lines, explanation,
 `help:` fix). `E` codes for errors, `W` for warnings, `drachm explain E0301`.
 Red errors, yellow warnings, colour auto-off when piped. Report all errors.
 `E` and `W` share one number space: `00xx` syntax, `01xx` types and
-conversions, `02xx` names and bindings, `03xx` ownership, `04xx` units, `05xx` constructors, enums, optionals and failures (enums built: E052x; optionals: E053x; failures: E054x, E0549, E0551, E0552, E0554), `09xx` not supported
+conversions, `02xx` names and bindings, `03xx` ownership, `04xx` units, `05xx` constructors, enums, optionals and failures (enums built: E052x; optionals: E053x; failures: E054x, E0549, E0551, E0552, E0554), `06xx` generics, interfaces, collections and lambdas (step 6), `09xx` not supported
 yet. The table is `src/diag/codes.rs`. W0102 looks like this:
 
 ```text
