@@ -561,6 +561,7 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
                 ctor: m.ctor,
                 no_fails: false,
                 ext: None,
+                trusted: true,
             };
             let checked = check_body(&mut g, src, diags, &m.func, Some(ctx), symbol);
             emit(&mut funcs, mid, checked);
@@ -583,6 +584,7 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
                 ctor: m.ctor,
                 no_fails: false,
                 ext: target.struct_id.is_none().then_some(target.ty),
+                trusted: decl.trusted,
             };
             let checked = check_body(&mut g, src, diags, &m.func, Some(ctx), symbol);
             emit(&mut funcs, mid, checked);
@@ -1167,6 +1169,8 @@ struct MethodCtx {
     no_fails: bool,
     /// A method added to a built-in type (`uint32 with Zero { }`): the type of `self`.
     ext: Option<Type>,
+    /// May use the type's private members (false in a plain `TYPE with I { }` block).
+    trusted: bool,
 }
 
 fn check_body(g: &mut Globals, src: &str, diags: &mut Vec<Diagnostic>, f: &ast::Func, method: Option<MethodCtx>, symbol: String) -> hir::Func {
@@ -2069,7 +2073,7 @@ impl<'a> Checker<'a> {
             let d = Diagnostic::at(&codes::E0212, name_span, format!("field `{name}` of `{ty}` is private"))
                 .note("used outside the struct's methods")
                 .label(f.span, "declared in a private section")
-                .help(format!("only `{ty}`'s own methods can use it; put it under `public:` to use it here"));
+                .help(self.trusted_help(ty, format!("only `{ty}`'s own methods can use it; put it under `public:` to use it here")));
             self.diags.push(d);
             return None;
         }
@@ -2078,7 +2082,16 @@ impl<'a> Checker<'a> {
 
     /// Are we inside a method of struct type `ty` (so its private members are usable)?
     fn inside(&self, ty: Type) -> bool {
-        self.method.is_some_and(|m| Some(m.struct_id) == ty.struct_id())
+        self.method.is_some_and(|m| m.trusted && Some(m.struct_id) == ty.struct_id())
+    }
+
+    /// The extra help for a private member used in a `TYPE with I { }` block.
+    fn trusted_help(&self, ty: Type, help: String) -> String {
+        if self.method.is_some_and(|m| !m.trusted && Some(m.struct_id) == ty.struct_id()) {
+            format!("{help}, or write `with trusted` before the interface name: a plain `with` block only sees public members")
+        } else {
+            help
+        }
     }
 
     fn check_method_visible(&mut self, s: StructId, m: &MethodInfo, at: Span) -> bool {
@@ -2091,7 +2104,7 @@ impl<'a> Checker<'a> {
             Diagnostic::at(&codes::E0212, at, format!("{what} of `{}` is private", info.name))
                 .note("used outside the struct's methods")
                 .label(self.g.sigs[m.func].span, "declared in a private section")
-                .help(format!("only `{}`'s own methods can use it; put it under `public:` to use it here", info.name)),
+                .help(self.trusted_help(self.g.structs[s].ty, format!("only `{}`'s own methods can use it; put it under `public:` to use it here", info.name))),
         );
         false
     }

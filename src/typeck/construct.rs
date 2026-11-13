@@ -152,7 +152,7 @@ impl Checker<'_> {
                 Diagnostic::at(&codes::E0212, span, format!("the {what} of `{name}` is private"))
                     .note("used outside the struct's methods")
                     .label(c.span, "declared in a private section")
-                    .help(format!("only `{name}`'s own methods can use it; put the constructor under `public:`")),
+                    .help(self.trusted_help(t, format!("only `{name}`'s own methods can use it; put the constructor under `public:`"))),
             );
             return None;
         }

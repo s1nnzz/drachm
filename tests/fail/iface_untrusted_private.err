@@ -1,0 +1,2 @@
+error[E0212]: field `hidden` of `Secret` is private
+error[E0212]: method `helper` of `Secret` is private

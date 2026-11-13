@@ -102,6 +102,8 @@ pub struct IField {
 pub struct ImplDecl {
     pub ty: TypeName,
     pub with: Vec<TypeName>,
+    /// `with trusted I`: the methods may use the type's private members.
+    pub trusted: bool,
     pub methods: Vec<Method>,
     pub span: Span,
 }

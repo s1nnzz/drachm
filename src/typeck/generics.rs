@@ -960,7 +960,7 @@ pub(super) fn instantiate_type(g: &mut Globals, name: &str, types: Vec<Type>, at
             for (j, mid) in ids.into_iter().enumerate() {
                 let Some(mid) = mid else { continue };
                 let m = &s.methods[j];
-                let ctx = MethodCtx { struct_id: id, func: mid, static_span: m.is_static, ctor: m.ctor, no_fails: false, ext: None };
+                let ctx = MethodCtx { struct_id: id, func: mid, static_span: m.is_static, ctor: m.ctor, no_fails: false, ext: None, trusted: true };
                 let symbol = method_symbol(&display, m, j);
                 g.mono.pending.push_back(Pending {
                     body: Body::Method { si: index, mi: j, ctx, symbol: symbol.clone(), id: mid },

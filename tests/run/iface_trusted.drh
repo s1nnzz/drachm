@@ -1,0 +1,24 @@
+in io;
+
+interface Show {
+    string show();
+}
+
+struct Secret {
+public:
+    uint32 shown;
+    static Secret make() { return new Secret of (1, 2); }
+private:
+    uint32 hidden;
+    uint32 helper() { return self.hidden * 10; }
+}
+
+// A trusted block sees the private members; a plain one sees only public ones.
+Secret with trusted Show {
+    string show() { return self.shown::text() + " " + self.hidden::text() + " " + self::helper()->text(); }
+}
+
+none main() {
+    Secret s = Secret::make();
+    io::outln(s::show());
+}

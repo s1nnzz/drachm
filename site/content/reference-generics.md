@@ -398,8 +398,8 @@ Any type can promise an interface from outside its own declaration, by
 writing its name, `with`, the interface and the methods:
 `uint8 with Describe { string describe() { ... } }`. The declaration can be
 anywhere in the project. For a number type, `bool` or `string` the methods
-get the value as `self`; for a struct they join the struct's own methods
-(including its private fields). Operators and constructors cannot be given
+get the value as `self`; for a struct they join the struct's own methods.
+Operators and constructors cannot be given
 to a built-in type yet, and enums and generic instances cannot promise
 interfaces this way yet (E0901).
 
@@ -420,6 +420,15 @@ The set and members above are the first attempt and may change. A struct can
 implement `Equal` without writing `==`, because every struct has one.
 
 <!-- example: iface-zero -->
+
+A block like this sees only the struct's public members. Writing
+`Secret with trusted Show { ... }` lets its methods use the private fields,
+methods and constructors too, as the struct's own methods do. `trusted` is
+not a reserved word: it counts as the modifier only when an interface name
+follows it. Using a private member in a plain block is E0212, and the help
+points at `trusted`.
+
+<!-- example: iface-trusted -->
 
 ## Generic over units
 <!-- status: tentative -->
