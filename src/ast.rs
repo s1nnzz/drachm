@@ -822,6 +822,8 @@ pub enum ExprKind {
     Take { place: Box<Expr>, leaving: Option<Box<Expr>>, reorders: bool },
     /// `lend e`
     Lend(Box<Expr>),
+    /// `&s as c string`: a NUL-terminated copy of the string for one C call (step 7.1).
+    CString(Box<Expr>),
     /// `address of e`
     AddressOf(Box<Expr>),
     /// `none` as a value.

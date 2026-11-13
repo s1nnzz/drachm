@@ -55,7 +55,7 @@ pub enum Type {
     /// the representation of the number it stands for. Erased by `bare`.
     C(CKind),
     /// `foreign *T`: a pointer the C side owns. Only `unsafe` code opens it.
-    /// Erased to `*T` by `bare`, so the backends never see it.
+    /// Unlike a `*T` it copies freely: C owns what it points at.
     Foreign { to: &'static Type },
 }
 
@@ -351,7 +351,7 @@ impl Type {
             Type::Func(sig) if self.mentions_unit() => Type::func(sig.params.iter().map(|t| t.bare()).collect(), sig.ret.bare()),
             Type::Map { key, val, ordered } => Type::map(key.bare(), val.bare(), ordered),
             Type::C(k) => k.underlying(),
-            Type::Foreign { to } => Type::ptr(to.bare()),
+            Type::Foreign { to } => Type::foreign(to.bare()),
             t => t,
         }
     }

@@ -1002,7 +1002,7 @@ impl Walker<'_> {
                 }
             }
             ExprKind::Field { recv, .. } => self.expr(recv),
-            ExprKind::Unary(_, a) | ExprKind::Deref(a) | ExprKind::CopyOf(a) | ExprKind::Lend(a) | ExprKind::AddressOf(a) | ExprKind::PassUp(a) | ExprKind::Now(a) => self.expr(a),
+            ExprKind::Unary(_, a) | ExprKind::Deref(a) | ExprKind::CopyOf(a) | ExprKind::Lend(a) | ExprKind::CString(a) | ExprKind::AddressOf(a) | ExprKind::PassUp(a) | ExprKind::Now(a) => self.expr(a),
             ExprKind::Binary(_, a, b) | ExprKind::Maybe { value: a, fallback: b } => {
                 self.expr(a);
                 self.expr(b);

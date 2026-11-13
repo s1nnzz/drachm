@@ -204,13 +204,13 @@ pub(crate) fn c_type(t: Type) -> String {
         Type::None => "void",
         Type::Unit { .. } => unreachable!("units are erased before the backends"),
         Type::Val { .. } => unreachable!("a value argument is no type of the program"),
-        Type::C(_) | Type::Foreign { .. } => unreachable!("C types are erased before the backends"),
+        Type::C(_) => unreachable!("C types are erased before the backends"),
         Type::Struct { name, .. } => return struct_name(name),
         Type::Enum { id, .. } => return enum_name(id),
         Type::Ref { to: Type::Dyn { .. }, .. } => "drachm_dyn",
         Type::Func(_) => "drachm_fn",
         Type::Dyn { .. } => unreachable!("an interface is only the target of a borrow"),
-        Type::Ref { to, .. } | Type::Ptr { to } | Type::FixedPtr { to } => return format!("{} *", c_type(*to)),
+        Type::Ref { to, .. } | Type::Ptr { to } | Type::FixedPtr { to } | Type::Foreign { to } => return format!("{} *", c_type(*to)),
     };
     name.to_string()
 }

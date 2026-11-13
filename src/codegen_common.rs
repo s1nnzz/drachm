@@ -40,12 +40,12 @@ pub(crate) fn cl_type(t: Type) -> Option<ClType> {
         Type::Bool => Some(types::I8),
         // A fat borrow is two words in memory.
         Type::Ref { to: Type::Dyn { .. }, .. } | Type::Func(_) => None,
-        Type::Ref { .. } | Type::Ptr { .. } | Type::FixedPtr { .. } => Some(types::I64),
+        Type::Ref { .. } | Type::Ptr { .. } | Type::FixedPtr { .. } | Type::Foreign { .. } => Some(types::I64),
         Type::Dyn { .. } => unreachable!("an interface is only the target of a borrow"),
         Type::None | Type::Str | Type::List { .. } | Type::Map { .. } | Type::Array { .. } | Type::Struct { .. } | Type::Enum { .. } => None,
         Type::Unit { .. } => unreachable!("units are erased before the backends"),
         Type::Val { .. } => unreachable!("a value argument is no type of the program"),
-        Type::C(_) | Type::Foreign { .. } => unreachable!("C types are erased before the backends"),
+        Type::C(_) => unreachable!("C types are erased before the backends"),
     }
 }
 

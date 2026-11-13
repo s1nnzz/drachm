@@ -343,7 +343,7 @@ impl Validator<'_> {
             Callee::Out { .. } => (Some(vec![shared(Type::Str)]), Type::None),
             Callee::InLine => (Some(Vec::new()), Type::Str),
             Callee::System(op) => {
-                let mut args: Vec<_> = (0..op.inputs()).map(|_| shared(Type::Str)).collect();
+                let mut args: Vec<_> = (0..op.inputs()).map(|_| if op == hir::SystemOp::CText { Want::Any } else { shared(Type::Str) }).collect();
                 if op.has_slot() {
                     args.push(Want::Exact(Type::borrow(true, Type::Str)));
                 }

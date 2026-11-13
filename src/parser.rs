@@ -1893,6 +1893,14 @@ impl Parser<'_> {
     fn at_binding(&self) -> bool {
         match self.peek() {
             Tok::Kw("mut" | "open") => true,
+            // `foreign *T p = ..`: a pointer of the C side (step 7.1).
+            Tok::Ident(w) if w == "foreign" && matches!(self.peek_at(1), Tok::Sym("*" | "**")) => {
+                let mut n = 1;
+                while matches!(self.peek_at(n), Tok::Sym("*" | "**")) || matches!(self.peek_at(n), Tok::Ident(w) if w == "foreign") {
+                    n += 1;
+                }
+                matches!(self.peek_at(n), Tok::Ident(_) | Tok::Kw("none")) && matches!(self.peek_at(self.name_end(n)), Tok::Ident(_))
+            }
             Tok::Ident(_) | Tok::Kw("none") => matches!(self.peek_at(self.name_end(0)), Tok::Ident(_) | Tok::Kw(_)),
             Tok::Sym("(") => self.type_end(0).is_some_and(|n| matches!(self.peek_at(n), Tok::Ident(_)) && matches!(self.peek_at(n + 1), Tok::Sym("=" | ";"))),
             Tok::Sym("&" | "&&") => true,
@@ -2531,6 +2539,18 @@ impl Parser<'_> {
                 self.bump();
                 let mutable = self.eat_kw("mut");
                 let operand = self.unary()?;
+                // `&s as c string`: the text for a C call (step 7.1).
+                if !mutable
+                    && self.peek() == &Tok::Kw("as")
+                    && matches!(self.peek_at(1), Tok::Ident(w) if w == "c")
+                    && matches!(self.peek_at(2), Tok::Ident(w) if w == "string")
+                {
+                    self.bump();
+                    self.bump();
+                    self.bump();
+                    let span = start.to(self.prev_span());
+                    return Ok(Expr { kind: ExprKind::CString(Box::new(operand)), span, paren: false });
+                }
                 let span = start.to(operand.span);
                 return Ok(Expr { kind: ExprKind::Borrow { mutable, operand: Box::new(operand) }, span, paren: false });
             }

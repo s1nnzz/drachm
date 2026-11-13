@@ -1,0 +1,6 @@
+hello from C
+length: 6
+dup: copy me
+live: 0
+null: failed
+divide: 42 -1

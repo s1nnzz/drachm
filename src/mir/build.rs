@@ -1818,7 +1818,7 @@ impl<'a> Builder<'a> {
     fn system_call(&mut self, ty: Type, op: hir::SystemOp, args: &[Expr], fails: &[hir::EnumId]) -> Operand {
         use hir::SystemOp::*;
         let inputs: Vec<_> = args.iter().collect();
-        let mut args = self.operands(&inputs, &|_| Some((false, false)));
+        let mut args = self.operands(&inputs, &|_| (op != CText).then_some((false, false)));
         if op == Platform {
             return self.call(Callee::System(op), args, Type::Str);
         }
@@ -1859,9 +1859,15 @@ impl<'a> Builder<'a> {
             self.cur = arm;
             let value = Place::local(self.decl(self.hir.enum_type(failure), LocalKind::Temp));
             self.assign_stmt(value.clone(), Rvalue::Variant(failure, 0, vec![Operand::Const(Constant::Int(0, Type::U64))]));
-            let set = Place::local(self.decl(fail_set, LocalKind::Temp));
-            self.assign_stmt(set.clone(), Rvalue::Variant(fail_set.enum_id().unwrap(), index, vec![Operand::Move(value)]));
-            self.assign_stmt(out.clone(), Rvalue::Variant(outcome, 1, vec![Operand::Move(set)]));
+            // One failure is its own set: no enum of failures around it.
+            let payload = if fail_set == self.hir.enum_type(failure) {
+                Operand::Move(value)
+            } else {
+                let set = Place::local(self.decl(fail_set, LocalKind::Temp));
+                self.assign_stmt(set.clone(), Rvalue::Variant(fail_set.enum_id().unwrap(), index, vec![Operand::Move(value)]));
+                Operand::Move(set)
+            };
+            self.assign_stmt(out.clone(), Rvalue::Variant(outcome, 1, vec![payload]));
             self.goto(join);
         }
         self.cur = join;

@@ -366,7 +366,7 @@ pub fn scalar_size(t: Type) -> Option<u32> {
         Type::Int { bits, .. } | Type::Float(bits) => Some(bits as u32 / 8),
         Type::Bool => Some(1),
         fat if fat.is_fat() => None,
-        Type::Ref { .. } | Type::Ptr { .. } | Type::FixedPtr { .. } => Some(8),
+        Type::Ref { .. } | Type::Ptr { .. } | Type::FixedPtr { .. } | Type::Foreign { .. } => Some(8),
         _ => None,
     }
 }
@@ -927,6 +927,9 @@ pub enum StrFn {
     Lines,
     /// The characters of a text, one owned string each: a `string[?]`.
     Chars,
+    /// The address of the bytes of a text that ends in a NUL (`&s as c string`
+    /// builds the text); a NUL inside is a runtime error.
+    CPtr,
 }
 
 const S: Type = Type::Str;
@@ -970,6 +973,7 @@ impl StrFn {
             Split => "drachm_str_split",
             Lines => "drachm_str_lines",
             Chars => "drachm_str_chars",
+            CPtr => "drachm_str_c_ptr",
         }
     }
 
@@ -978,7 +982,7 @@ impl StrFn {
         match self {
             Len | IsEmpty | Reverse | Upper | Lower | Trim => &[S],
             Concat | Append | Eq | Cmp | Find | Contains | StartsWith | EndsWith | Count | Glob | Split => &[S, S],
-            Lines | Chars => &[S],
+            Lines | Chars | CPtr => &[S],
             Sub | Remove => &[S, S64, S64],
             Insert => &[S, S64, S],
             Replace => &[S, S, S],
@@ -1000,6 +1004,7 @@ impl StrFn {
             Len | Count | ByteLen => U64,
             Find => S64,
             Split | Lines | Chars => Type::list(S),
+            CPtr => Type::Foreign { to: &Type::U8 },
             _ => S,
         }
     }
@@ -1012,6 +1017,9 @@ pub enum SystemOp {
     Write,
     Platform,
     GetEnv,
+    /// `p::text()` on a C text pointer (step 7.1): the bytes up to the NUL,
+    /// checked as UTF-8.
+    CText,
 }
 
 impl SystemOp {
@@ -1021,6 +1029,7 @@ impl SystemOp {
             Self::Write => "drachm_fs_write",
             Self::Platform => "drachm_os_platform",
             Self::GetEnv => "drachm_os_get_env",
+            Self::CText => "drachm_c_text",
         }
     }
 
@@ -1030,22 +1039,23 @@ impl SystemOp {
             Self::Write => "fs::write",
             Self::Platform => "os::platform",
             Self::GetEnv => "os::getEnv",
+            Self::CText => "text",
         }
     }
 
     pub fn inputs(self) -> usize {
         match self {
             Self::Platform => 0,
-            Self::Read | Self::GetEnv => 1,
+            Self::Read | Self::GetEnv | Self::CText => 1,
             Self::Write => 2,
         }
     }
 
     pub fn has_slot(self) -> bool {
-        matches!(self, Self::Read | Self::GetEnv)
+        matches!(self, Self::Read | Self::GetEnv | Self::CText)
     }
 
     pub fn fs_result(self) -> Type {
-        if self == Self::Read { Type::Str } else { Type::None }
+        if matches!(self, Self::Read | Self::CText) { Type::Str } else { Type::None }
     }
 }

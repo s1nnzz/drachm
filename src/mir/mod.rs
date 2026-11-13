@@ -450,6 +450,8 @@ pub fn is_copy(hir: &hir::Program, ty: Type) -> bool {
         Type::Enum { id, .. } => hir.enums[id].copy,
         Type::Ref { mutable, .. } => !mutable,
         Type::Ptr { .. } | Type::FixedPtr { .. } => false,
+        // C owns what a foreign pointer points at: copying the address is free.
+        Type::Foreign { .. } => true,
         _ => true,
     }
 }

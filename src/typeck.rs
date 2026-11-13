@@ -132,6 +132,8 @@ struct Globals {
     /// Region ties of instances whose type arguments hold borrows (`hir::Program::ties`).
     ties: std::collections::BTreeMap<FuncId, Vec<Vec<(Option<usize>, usize)>>>,
     tie_jobs: Vec<ties::Job>,
+    /// C functions from header imports.
+    foreign_funcs: std::collections::HashSet<FuncId>,
     io_imported: bool,
     time_imported: bool,
     fs_imported: bool,
@@ -569,7 +571,10 @@ pub(crate) fn check_with_settings(
     // The failures every program has come first, so a program that declares
     // one of the same names is the one reported.
     let mut core_diags = Vec::new();
-    let core_text = if g.fs_imported { [failures::PRELUDE, failures::FS_PRELUDE].concat() } else { failures::PRELUDE.into() };
+    let mut core_text = if g.fs_imported { [failures::PRELUDE, failures::FS_PRELUDE].concat() } else { failures::PRELUDE.into() };
+    if prog.funcs.iter().any(|f| f.foreign.is_some()) {
+        core_text += failures::C_PRELUDE;
+    }
     let core = parser::parse(lexer::lex(&core_text, &mut core_diags), &mut core_diags);
     debug_assert!(core_diags.is_empty(), "the failure prelude must parse");
     let all_failures: Vec<&ast::Failure> = core.failures.iter().chain(&prog.failures).collect();
@@ -626,6 +631,9 @@ pub(crate) fn check_with_settings(
         g.funcs_by_name.insert(f.name.clone(), id);
         if f.is_unsafe.is_some() {
             g.lambdas.unsafe_named.insert(id);
+        }
+        if f.foreign.is_some() {
+            g.foreign_funcs.insert(id);
         }
         func_ids.push(Some(id));
     }
@@ -2758,6 +2766,14 @@ impl<'a> Checker<'a> {
                 let v = self.read(Val::Expr(e));
                 self.into(v, to, from)
             }
+            // A pointer made on the Drachm side goes to the C side as it is, and any
+            // pointer goes where C wants a `void *` (`foreign *none`).
+            Val::Expr(e)
+                if e.ty != to
+                    && matches!(to, Type::Foreign { to: target } if matches!(e.ty, Type::Ptr { to: from } | Type::FixedPtr { to: from } | Type::Foreign { to: from } if from == target || *target == Type::None)) =>
+            {
+                Some(hir::Expr::new(hir::ExprKind::PtrConv(Box::new(e)), to))
+            }
             Val::Expr(e) if e.ty.is_ptr() && to.is_ptr() && e.ty != to => {
                 self.diags.push(
                     Diagnostic::at(&codes::E0334, from.span, format!("expected `{to}`, found `{}`", e.ty))
@@ -3130,6 +3146,14 @@ impl<'a> Checker<'a> {
             ExprKind::CopyOf(inner) => self.copy_expr(e, inner),
             ExprKind::Take { place, leaving, reorders } => self.take_expr(e, place, leaving.as_deref(), *reorders),
             ExprKind::Lend(inner) => self.lend_expr(e, inner),
+            ExprKind::CString(_) => {
+                self.diags.push(
+                    Diagnostic::at(&codes::E0901, e.span, "`as c string` is only allowed as an argument of a C function")
+                        .note("the text is valid for that one call")
+                        .help("write it in the call: `unsafe { sdl::SDL_SetWindowTitle(w, &title as c string); }`"),
+                );
+                None
+            }
             ExprKind::AddressOf(inner) => self.address_expr(e, inner),
             ExprKind::New { name, name_span, targs, values } => {
                 if !targs.is_empty() && self.g.mono.type_templates.contains_key(name) {
@@ -3398,6 +3422,23 @@ impl<'a> Checker<'a> {
         }
     }
 
+    /// `&s as c string` given to a C function: a NUL-terminated copy of `s`,
+    /// which lives to the end of the statement, as the pointer the parameter wants.
+    fn c_string_arg(&mut self, a: &ast::Expr, param: Type) -> Option<hir::Expr> {
+        let ExprKind::CString(inner) = &a.kind else { unreachable!() };
+        if param != Type::foreign(Type::U8) && param != Type::foreign(Type::Int { bits: 8, signed: true }) {
+            self.diags.push(
+                Diagnostic::at(&codes::E0101, a.span, format!("expected `{param}`, found text for C"))
+                    .note("`&s as c string` is a `foreign *uint8`")
+                    .help("only a parameter that takes C text (`const char *`) accepts it"),
+            );
+            return None;
+        }
+        let text = self.coerce(inner, Type::Str)?;
+        let terminated = hir::Expr::new(hir::ExprKind::StrCall(hir::StrFn::Concat, vec![text, str_lit("\0".into())]), Type::Str).at(a.span);
+        Some(hir::Expr::new(hir::ExprKind::StrCall(hir::StrFn::CPtr, vec![terminated]), param).at(a.span))
+    }
+
     /// Check a call's arguments against function `id`'s parameters.
     fn args(&mut self, id: FuncId, args: &[ast::Expr], span: Span) -> Option<Vec<hir::Expr>> {
         let params = self.g.sigs[id].params.clone();
@@ -3417,6 +3458,7 @@ impl<'a> Checker<'a> {
         let mut ok = true;
         for (a, p) in args.iter().zip(&params) {
             let v = match p {
+                Some(p) if matches!(a.kind, ExprKind::CString(_)) && self.g.foreign_funcs.contains(&id) => self.c_string_arg(a, *p),
                 // The callee owns its parameters.
                 Some(p) if p.is_borrow() => self.coerce_borrow(a, *p, Some(id)),
                 Some(p) => self.coerce(a, *p),
@@ -3527,7 +3569,7 @@ impl<'a> Checker<'a> {
                 failures::outcome_type(self.g, op.fs_result(), &fails);
                 op.fs_result()
             }
-            Platform => Type::Str,
+            Platform | CText => Type::Str,
             GetEnv => optionals::optional_of(self.g, Type::Str)?,
         };
         Some(Val::Expr(hir::Expr::new(hir::ExprKind::System(op, args, fails), ty).at(span)))
@@ -3662,12 +3704,31 @@ impl<'a> Checker<'a> {
             Some(Val::Expr(v)) if v.ty.is_ptr() && matches!(name, "freeze" | "thaw") => {
                 self.pointer_convert(v, recv.span, name, name_span, args)
             }
+            Some(Val::Expr(v)) if v.ty == Type::foreign(Type::U8) && name == "text" => self.foreign_text(v, recv.span, name_span, targs, args, span),
             Some(Val::Expr(v)) if v.ty == Type::Str => self.string_method(v, name, name_span, targs, args),
             Some(Val::Expr(v)) if v.ty.is_map() => self.map_method(v, recv, name, name_span, args),
             Some(Val::Expr(v)) if v.ty.is_list() || v.ty.is_array() => self.list_method(v, recv, name, name_span, targs, args),
             Some(Val::Expr(v)) if self.is_failure_type(v.ty) => self.failure_method(v, recv.span, name, name_span, args),
             value => self.value_method(value, recv, name, name_span, targs, args),
         }
+    }
+
+    /// `p::text()` on a `foreign *uint8`: the text up to the NUL, checked as
+    /// UTF-8. It fails (`InvalidText`) on bad text and on a null pointer.
+    fn foreign_text(&mut self, v: hir::Expr, recv: Span, name_span: Span, targs: &[ast::TypeName], args: &[ast::Expr], span: Span) -> Option<Val> {
+        let _ = recv;
+        for a in args {
+            self.expr(a);
+        }
+        if let Some(a) = args.first().map(|a| a.span).or(targs.first().map(|t| t.span)) {
+            self.diags.push(Diagnostic::at(&codes::E0103, a, "`text` takes no arguments"));
+            return None;
+        }
+        let _ = name_span;
+        let fail = *self.g.enums_by_name.get("InvalidText")?;
+        let fails = vec![fail];
+        failures::outcome_type(self.g, Type::Str, &fails);
+        Some(Val::Expr(hir::Expr::new(hir::ExprKind::System(hir::SystemOp::CText, vec![v], fails), Type::Str).at(span)))
     }
 
     /// `p::freeze()` (`*T` to `*fixed T`) and `p::thaw()` (the reverse).
