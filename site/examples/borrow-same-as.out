@@ -1,6 +1,7 @@
 first same as again: true
 first same as other: false
 not the same: true
+not same as: true, and false
 same text: true, same place: false
 rows match: true, turned: false
 heads match: true, two empty ones: true

@@ -86,6 +86,7 @@ reader left 15 of 19
 first port Vega, ninth port deep space
 the longer one is the slogan itself: true; a copy of it is not: false
 the banner holds the slogan: true, its twin: false
+a copy is not the slogan: true, the slogan is not a copy: false
 mayday!! / all clear
 took label 'relics', crate now '(empty)'
 took beta; queue is alpha, delta, gamma

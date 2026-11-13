@@ -1909,6 +1909,9 @@ impl Parser<'_> {
         match self.peek() {
             Tok::Sym(sym) => binop(sym).map(|(op, prec)| (op, prec, 1)),
             Tok::Ident(w) if w == "same" && self.peek_at(1) == &Tok::Kw("as") => Some((BinOp::Same, 3, 2)),
+            Tok::Ident(w) if w == "not" && matches!(self.peek_at(1), Tok::Ident(s) if s == "same") && self.peek_at(2) == &Tok::Kw("as") => {
+                Some((BinOp::NotSame, 3, 3))
+            }
             _ => None,
         }
     }
@@ -2869,7 +2872,11 @@ mod tests {
         assert!(d.is_empty(), "{:?}", errors(&d));
         let Stmt::Let { value: Some(Init::Expr(e)), .. } = &s[0] else { panic!() };
         assert!(matches!(e.kind, ExprKind::Binary(BinOp::Same, ..)));
-        assert_eq!(s.len(), 4);
+        let (s, d) = body("bool a = x not same as y; uint32 not = 1; uint32 same = not + 1;");
+        assert!(d.is_empty(), "{:?}", errors(&d));
+        let Stmt::Let { value: Some(Init::Expr(e)), .. } = &s[0] else { panic!() };
+        assert!(matches!(e.kind, ExprKind::Binary(BinOp::NotSame, ..)));
+        assert_eq!(s.len(), 3);
         let (_, d) = body("bool a = x same as;");
         assert!(!d.is_empty());
     }

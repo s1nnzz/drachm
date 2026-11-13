@@ -213,19 +213,20 @@ impl Checker<'_> {
         Some(Val::Expr(hir::Expr::new(K::Call(f, vec![borrow, item]), Type::Bool)))
     }
 
-    /// `a same as b`: the two sides must be borrows, or hold borrows, and of one type.
-    pub(super) fn same_as(&mut self, l: &ast::Expr, r: &ast::Expr, span: Span) -> Option<Val> {
+    /// `a same as b` (and `a not same as b`): the two sides must be borrows, or hold borrows, and of one type.
+    /// `shown` is the operator as written (`same as` or `not same as`), for the messages.
+    pub(super) fn same_as(&mut self, l: &ast::Expr, r: &ast::Expr, span: Span, shown: &str) -> Option<Val> {
         // The borrows themselves, not what they point at (`expr` reads through them).
         let lv = self.expr_raw(l)?;
         let rv = self.expr_raw(r)?;
         let lo = Origin { span: l.span, compound: false };
         let ro = Origin { span: r.span, compound: false };
         let lhs = self.materialise(lv, l.span)?;
-        if let Some(bad) = self.addr_refusal(lhs.ty, lo.span.to(span), "`same as`") {
+        if let Some(bad) = self.addr_refusal(lhs.ty, lo.span.to(span), &format!("`{shown}`")) {
             return bad;
         }
         if let Val::Expr(x) = &rv
-            && let Some(bad) = self.addr_refusal(x.ty, ro.span, "`same as`")
+            && let Some(bad) = self.addr_refusal(x.ty, ro.span, &format!("`{shown}`"))
         {
             return bad;
         }
@@ -242,7 +243,7 @@ impl Checker<'_> {
         let why = refusal(self.g, ty)?;
         match why {
             Refusal::Owned => {
-                let help = if shown == "`same as`" {
+                let help = if shown.ends_with("same as`") {
                     "borrow both sides with `&` to compare where they are: `&a same as &b`; `==` compares the values".to_string()
                 } else {
                     "`contains` looks for the value itself".to_string()

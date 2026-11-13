@@ -538,6 +538,7 @@ none part5() {
     // `containsRef` asks the same of a list of borrows: is this exact place in it?
     List<&string> banner = [&captain, &slogan];
     io::outln(f"the banner holds the slogan: ${banner::containsRef(&slogan)}, its twin: ${banner::containsRef(&twin_slogan)}");
+    io::outln(f"a copy is not the slogan: ${&twin_slogan not same as &slogan}, the slogan is not a copy: ${&slogan not same as &slogan}");
 
     mut string note = "mayday";
     shout_twice(&mut note);

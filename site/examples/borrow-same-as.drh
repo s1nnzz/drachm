@@ -11,6 +11,7 @@ none main() {
     io::outln(f"first same as again: ${first same as again}");
     io::outln(f"first same as other: ${first same as other}");
     io::outln(f"not the same: ${!(first same as other)}");
+    io::outln(f"not same as: ${first not same as other}, and ${first not same as again}");
 
     // Equal text in two places is two addresses: `==` compares the text instead.
     string twin = "ann";

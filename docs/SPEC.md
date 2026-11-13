@@ -616,7 +616,7 @@ private:
   "write `&m`".
 - `&T` copies. `&mut T` moves: `&mut string r2 = r;` uses `r` up.
 - Built (Q3 follow-ups): `a same as b` compares addresses of two borrows (and of lists,
-  optionals of borrows, item by item in order); `!(a same as b)` negates it. Owned
+  optionals of borrows, item by item in order); `!(a same as b)` negates it, and so does `a not same as b` (built). Owned
   values are E0633. `xs::containsRef(&p)` is true when a list of borrows holds a borrow
   of exactly that place. Maps of borrows and structs holding borrows are E0901 for now.
 - Two-phase receivers: `s::append(s::len()::text())` is fine. Only borrows still

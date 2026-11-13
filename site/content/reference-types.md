@@ -71,7 +71,7 @@ An optional that holds a borrow is `maybe &string` (see
 [Optional types](reference-generics.md#optional-types)).
 
 `a same as b` asks whether two borrows point at the same place (`same as` is
-two words; `!(a same as b)` is the opposite). Equal text in two places is two
+two words; `a not same as b` is the opposite, as is `!(a same as b)`). Equal text in two places is two
 places, so `==` and `same as` can disagree. Lists, arrays and optionals that
 hold borrows compare item by item, in order, and with the same length for
 lists. On owned values it is E0633: borrow both sides with `&` to compare where

@@ -802,7 +802,7 @@ fn op_word(op: BinOp) -> &'static str {
         BinOp::Le => "le",
         BinOp::Gt => "gt",
         BinOp::Ge => "ge",
-        BinOp::Shl | BinOp::Shr | BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor | BinOp::And | BinOp::Or | BinOp::Same => {
+        BinOp::Shl | BinOp::Shr | BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor | BinOp::And | BinOp::Or | BinOp::Same | BinOp::NotSame => {
             unreachable!("not an operator method")
         }
     }
@@ -2824,7 +2824,11 @@ impl<'a> Checker<'a> {
             {
                 self.none_compare(*op, l, r, e.span)
             }
-            ExprKind::Binary(BinOp::Same, l, r) => self.same_as(l, r, e.span),
+            ExprKind::Binary(BinOp::Same, l, r) => self.same_as(l, r, e.span, "same as"),
+            ExprKind::Binary(BinOp::NotSame, l, r) => match self.same_as(l, r, e.span, "not same as")? {
+                Val::Expr(x) => Some(Val::Expr(hir::Expr::new(hir::ExprKind::Not(Box::new(x)), Type::Bool))),
+                other => Some(other),
+            },
             ExprKind::Binary(op, l, r) => {
                 let lv = self.expr(l);
                 // `d == North`: a bare variant on the right takes its enum from the left.
@@ -3900,7 +3904,7 @@ impl<'a> Checker<'a> {
             BinOp::Le => hir::BinOp::Le,
             BinOp::Gt => hir::BinOp::Gt,
             BinOp::Ge => hir::BinOp::Ge,
-            BinOp::Shl | BinOp::Shr | BinOp::And | BinOp::Or | BinOp::Same => unreachable!(),
+            BinOp::Shl | BinOp::Shr | BinOp::And | BinOp::Or | BinOp::Same | BinOp::NotSame => unreachable!(),
         };
         let ty = if hop.is_comparison() { Type::Bool } else { lead };
         Some(Val::Expr(hir::Expr::new(hir::ExprKind::Binary(hop, Box::new(lhs), Box::new(rhs)), ty)))
