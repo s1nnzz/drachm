@@ -136,3 +136,8 @@ Q5 interfaces as types: any interface can be used as `&I` (its `static` methods 
 - No separate walker. `interface Iterable<T> { T? at(uint64 i); }`: `for (T x of thing)` calls `thing::at(0)`, `at(1)`, ... until `none`. The value itself is not spent and can be walked again.
 - Borrowing walkers: owner said "u pick"; moot without walkers (my note: `at` is an ordinary method taking `self` shared, so the value can't change during the loop, like lists).
 - A type may be `Iterable` over several item types (`Graph with Iterable<Node> and Iterable<Edge>`); the loop's binding type picks which: `for (Node n of g)` vs `for (Edge e of g)`.
+
+# S6G/S6D follow-ups, 2026-11-13
+- Any struct may have two methods with the same name and parameters that differ only in result (as built for two `Iterable<T>`s); calling one by name is E0632.
+- A map key type with its own `==` and no `key()` stays an error (E0627): add `key()`.
+- OrderedMap: replacing a value keeps the entry's place; remove then re-add puts it last. Walking a map gives copies of keys and values (views later, with optionals that hold borrows).
