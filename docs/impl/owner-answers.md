@@ -153,3 +153,6 @@ Q5 interfaces as types: any interface can be used as `&I` (its `static` methods 
 - `==` through borrows compares what they point at; owner adds `===` for a strict address compare, and asks whether value-vs-address compare needs its own design beyond strings (ideas to be offered).
 - Address compare is written in words, not `===`: `a same as b` (and `not (a same as b)`). Rules (my reading, from the option picked): allowed only when both sides are borrows or hold borrows (lists, optionals, maps of borrows compared item by item by address); on owned values it is an error.
 - `xs::containsRef(&p)` is the address version of `contains`. Method and function names are camelCase (owner confirmed).
+- `a not same as b` is the negative form (alongside `!(a same as b)`).
+- `same as` is not allowed on maps of borrows or on structs/enums that hold borrows (an error, not an interim). Owner's note on the meaning: two borrows are the same when they point at the same address; the binding names don't matter.
+- `in si` clash: keep the error when a type parameter is named like a unit (`<T>` with tesla in scope). Owner adds: write `T as unit` to mean the unit explicitly (tesla), same for `S as unit` (my reading: inside `<...>` of a number type, e.g. `float64<T as unit>`).
