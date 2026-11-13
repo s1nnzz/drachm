@@ -1,0 +1,34 @@
+Illy=18
+Sam=20
+Bob=31
+-- replace Sam
+Illy=18
+Sam=21
+Bob=31
+-- remove Illy, add Illy back, add Zed
+Sam=21
+Bob=31
+Illy=19
+Zed=1
+-- continue and break
+Bob
+Illy
+-- sum
+72
+-- each
+Sam is 21
+Bob is 31
+Illy is 19
+Zed is 1
+144
+-- composite keys and a map made on the spot
+0,0
+1,0
+Sam
+Bob
+Illy
+Zed
+-- empty and nested
+a has 2
+b has 0
+1 one

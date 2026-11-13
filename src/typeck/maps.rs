@@ -40,6 +40,59 @@ impl Globals {
 pub(super) struct KeyChecks {
     pending: std::cell::RefCell<Vec<(Type, Span)>>,
     ready: std::cell::Cell<bool>,
+    /// The function behind `each` for each (callback type, map type), and those still to build.
+    each_funcs: HashMap<(Type, Type), usize>,
+    pub(super) each_pending: Vec<(Type, Type, usize)>,
+}
+
+impl Globals {
+    /// The function behind `map::each(callback)` (made now, its body later).
+    fn map_each_func(&mut self, callback: Type, map: Type) -> usize {
+        if let Some(&f) = self.keys.each_funcs.get(&(callback, map)) {
+            return f;
+        }
+        let sig = super::Sig { name: format!("{map} each"), params: vec![Some(Type::borrow(false, map)), Some(callback)], ret: Some(Type::None), span: Span::new(0, 0), fails: Vec::new(), outcome: None };
+        let f = self.add_sig(sig);
+        self.keys.each_funcs.insert((callback, map), f);
+        self.keys.each_pending.push((callback, map, f));
+        f
+    }
+}
+
+/// The body of an `each` function: `(&M m, (K, V) => none callback)` calls the
+/// callback with a copy of each key and value, in the map's order.
+pub(super) fn map_each_body(g: &Globals, callback: Type, map: Type, f: usize) -> hir::Func {
+    use hir::ExprKind as K;
+    let (kt, vt) = map.map_parts().expect("a map");
+    let none = Span::new(0, 0);
+    let borrowed = Type::borrow(false, map);
+    let param = |name: &str, ty: Type| hir::Local { name: name.into(), ty, span: none, mutability: hir::Mutability::Fixed, is_param: true, written: None };
+    let cursor = hir::Local { name: "cursor".into(), ty: Type::U64, span: none, mutability: hir::Mutability::Mut, is_param: false, written: None };
+    let locals = vec![param("m", borrowed), param("callback", callback), cursor];
+    let call = |op, result| {
+        let whole = hir::Expr::new(K::Deref(Box::new(hir::Expr::new(K::Local(0), borrowed))), map);
+        hir::Expr::new(K::MapCall { op, args: vec![whole, hir::Expr::new(K::Local(2), Type::U64)] }, result)
+    };
+    let invoke = hir::Expr::new(K::FnCall(vec![hir::Expr::new(K::Local(1), callback), call(hir::MapOp::KeyAt, kt), call(hir::MapOp::ValAt, vt)]), Type::None);
+    let step = vec![hir::Stmt::Assign(hir::Place::local(2), call(hir::MapOp::After, Type::U64))];
+    hir::Func {
+        symbol: format!("drachm_map_{f}"),
+        params: 2,
+        has_self: false,
+        locals,
+        ret: g.sigs[f].ret.expect("each returns none"),
+        body: vec![
+            hir::Stmt::Decl(2),
+            hir::Stmt::Assign(hir::Place::local(2), hir::Expr::new(K::Int(0), Type::U64)),
+            hir::Stmt::Loop { label: 0, cond: Some(call(hir::MapOp::More, Type::Bool)), body: vec![hir::Stmt::Expr(invoke)], step, end: none },
+        ],
+        name_span: none,
+        span: none,
+        body_end: none,
+        is_unsafe: false,
+        lives: None,
+        lives_span: None,
+    }
 }
 
 /// The `key()` method of a struct, if it has one of the right shape: not
@@ -68,6 +121,13 @@ enum Why {
     EqNoKey,
     /// `key()` has the wrong shape.
     KeyShape(String),
+}
+
+/// Forgets what was made for functions and types dropped by a rollback of the generics check.
+pub(super) fn rollback(g: &mut Globals, funcs: usize, is_new: &dyn Fn(Type) -> bool) {
+    g.keys.each_funcs.retain(|&(cb, map), f| *f < funcs && !is_new(cb) && !is_new(map));
+    g.keys.each_pending.retain(|&(_, _, f)| f < funcs);
+    g.keys.pending.borrow_mut().retain(|&(t, _)| !is_new(t));
 }
 
 /// Run the key checks that were waiting for the methods, and stop waiting.
@@ -330,10 +390,7 @@ impl Checker<'_> {
             "get" => (MapOp::Get, 1, optionals::optional_of(self.g, vt)?),
             "set" => (MapOp::Set, 2, Type::None),
             "remove" => (MapOp::Remove, 1, Type::None),
-            "each" => {
-                self.diags.push(Diagnostic::at(&codes::E0901, name_span, "walking a map with `each` is not supported yet"));
-                return None;
-            }
+            "each" => return self.map_each(v, recv, name_span, args),
             _ => {
                 for a in args {
                     self.expr(a);
@@ -369,6 +426,127 @@ impl Checker<'_> {
             MapOp::Expect | MapOp::More | MapOp::KeyAt | MapOp::ValAt | MapOp::After => unreachable!("made by the compiler, not named"),
         }
         Some(Val::Expr(hir::Expr::new(hir::ExprKind::MapCall { op, args: all }, result).at(name_span)))
+    }
+
+    /// `for (K key, V value of map) { body }` (Q16): the entries in the order
+    /// the map keeps them (insertion order). `key` and `value` are copies of
+    /// the entry (owning ones are deep copies). The loop holds a shared borrow
+    /// of the map, so the body cannot change it. Lowered to
+    ///
+    /// ```text
+    /// hidden = &map;  cursor = 0;
+    /// loop while (More(*hidden, cursor)) {
+    ///     key = KeyAt(*hidden, cursor);  value = ValAt(*hidden, cursor);
+    ///     body
+    /// } step { cursor = After(*hidden, cursor); }
+    /// ```
+    pub(super) fn for_entries(&mut self, key: &ast::LoopVar, value: &ast::LoopVar, iter: &ast::Expr, body: &ast::Block, span: Span, out: &mut hir::Block) {
+        use hir::ExprKind as K;
+        let source = match self.expr(iter) {
+            Some(Val::Expr(e)) if e.ty.is_map() => Some(e),
+            Some(Val::Expr(e)) => {
+                self.diags.push(
+                    Diagnostic::at(&codes::E0101, iter.span, format!("two loop variables walk a map, but this is `{}`", e.ty))
+                        .note(format!("this is `{}`", e.ty))
+                        .help("walk a list with one variable: `for (T item of items) { }`"),
+                );
+                None
+            }
+            Some(_) | None => None,
+        };
+        let (kt, vt) = (self.g.resolve_binding_type(&key.ty, self.diags), self.g.resolve_binding_type(&value.ty, self.diags));
+        let mut ok = source.is_some();
+        if let Some(map) = &source {
+            let (map_key, map_val) = map.ty.map_parts().expect("a map");
+            for (var, got, want, what) in [(key, kt, map_key, "keys"), (value, vt, map_val, "values")] {
+                let Some(t) = got else { continue };
+                if t == want {
+                    continue;
+                }
+                ok = false;
+                if t == Type::borrow(false, want) || t == Type::borrow(true, want) {
+                    self.diags.push(
+                        Diagnostic::at(&codes::E0901, var.ty.span, "looking at a map's entries without copying them is not supported yet")
+                            .note(format!("the {what} are copied for now"))
+                            .help(format!("write `{want}` to get a copy of each one")),
+                    );
+                } else {
+                    self.diags.push(
+                        Diagnostic::at(&codes::E0630, var.ty.span, format!("the {what} are `{want}`, but the variable is `{t}`"))
+                            .label(iter.span, format!("this holds `{want}` {what}"))
+                            .note(format!("this is `{t}`"))
+                            .help(format!("write `{want}`")),
+                    );
+                }
+            }
+        }
+        self.scopes.push(HashMap::new());
+        let key_var = self.declare(&key.name, kt, key.mutable, key.name_span, false);
+        let value_var = self.declare(&value.name, vt, value.mutable, value.name_span, false);
+        let label = self.new_label();
+        let body_end = body.end;
+        let (body, _) = self.looped(label, span, body, None);
+        self.scopes.pop();
+
+        let (Some(mut map), true) = (source, ok) else { return };
+        let map_ty = map.ty;
+        if !map.is_place() {
+            let owned = self.hidden_named("for map", map_ty);
+            out.push(hir::Stmt::Decl(owned));
+            out.push(hir::Stmt::Assign(hir::Place::local(owned), map));
+            map = hir::Expr::new(K::Local(owned), map_ty);
+        }
+        let ref_ty = Type::borrow(false, map_ty);
+        let hidden = self.hidden_named("for map borrow", ref_ty);
+        let cursor = self.hidden_named("for map cursor", Type::U64);
+        out.push(hir::Stmt::Assign(hir::Place::local(hidden), hir::Expr::new(K::Borrow { mutable: false, place: Box::new(map) }, ref_ty)));
+        out.push(hir::Stmt::Assign(hir::Place::local(cursor), hir::Expr::new(K::Int(0), Type::U64)));
+        let (map_key, map_val) = map_ty.map_parts().expect("a map");
+        let call = |op, result| {
+            let whole = hir::Expr::new(K::Deref(Box::new(hir::Expr::new(K::Local(hidden), ref_ty))), map_ty);
+            hir::Expr::new(K::MapCall { op, args: vec![whole, hir::Expr::new(K::Local(cursor), Type::U64)] }, result)
+        };
+        let mut inner = vec![
+            hir::Stmt::Decl(key_var),
+            hir::Stmt::Assign(hir::Place::local(key_var), call(hir::MapOp::KeyAt, map_key)),
+            hir::Stmt::Decl(value_var),
+            hir::Stmt::Assign(hir::Place::local(value_var), call(hir::MapOp::ValAt, map_val)),
+        ];
+        inner.extend(body);
+        let step = vec![hir::Stmt::Assign(hir::Place::local(cursor), call(hir::MapOp::After, Type::U64))];
+        out.push(hir::Stmt::Loop { label, cond: Some(call(hir::MapOp::More, Type::Bool)), body: inner, step, end: body_end });
+    }
+
+    /// `map::each(callback)`: the callback gets each key and value, in order.
+    fn map_each(&mut self, v: hir::Expr, recv: &ast::Expr, name_span: Span, args: &[ast::Expr]) -> Option<Val> {
+        let ty = v.ty;
+        let (kt, vt) = ty.map_parts()?;
+        let [arg] = args else {
+            self.diags.push(Diagnostic::at(&codes::E0103, name_span, format!("`each` takes 1 argument, but {} given", args.len())));
+            return None;
+        };
+        let value = self.func_value(arg)?;
+        let callback = self.materialise(value, arg.span)?;
+        let wants = || format!("`each` wants a callback taking `({kt} key, {vt} value)`");
+        let Type::Func(sig) = callback.ty else {
+            self.diags.push(Diagnostic::at(&codes::E0650, arg.span, wants()).note(format!("this has type `{}`", callback.ty)));
+            return None;
+        };
+        if sig.params.len() == 2 && sig.params.iter().zip([kt, vt]).all(|(p, t)| *p == t || *p == Type::borrow(false, t) || *p == Type::borrow(true, t)) && sig.params != [kt, vt] {
+            self.diags.push(Diagnostic::at(&codes::E0901, arg.span, "looking at a map's entries without copying them is not supported yet").help(format!("take `({kt}, {vt})` to get copies")));
+            return None;
+        }
+        if sig.params != [kt, vt] {
+            self.diags.push(Diagnostic::at(&codes::E0650, arg.span, wants()).note(format!("this has type `{}`", callback.ty)));
+            return None;
+        }
+        if sig.ret != Type::None {
+            self.diags.push(Diagnostic::at(&codes::E0651, arg.span, format!("this function gives `{}`, but `each` wants `none`", sig.ret)));
+            return None;
+        }
+        let function = self.g.map_each_func(callback.ty, ty);
+        let map = hir::Expr::new(hir::ExprKind::Borrow { mutable: false, place: Box::new(v) }, Type::borrow(false, ty)).at(recv.span);
+        Some(Val::Expr(hir::Expr::new(hir::ExprKind::Call(function, vec![map, callback]), Type::None).at(name_span)))
     }
 
     /// `map[key] op= value;`: the value under `key` is read (the program stops

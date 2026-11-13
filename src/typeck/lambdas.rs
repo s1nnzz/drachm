@@ -107,7 +107,7 @@ impl Checker<'_> {
     }
 
     /// In a callback context a plain function name can be used as a value.
-    fn func_value(&mut self, e: &ast::Expr) -> Option<Val> {
+    pub(super) fn func_value(&mut self, e: &ast::Expr) -> Option<Val> {
         if let ast::ExprKind::Var(name) = &e.kind
             && self.lookup(name).is_none()
             && let Some(&id) = self.g.funcs_by_name.get(name)

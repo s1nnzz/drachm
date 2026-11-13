@@ -1,0 +1,10 @@
+none main() {
+    uint32[?] xs = [1];
+    for (uint32 k, uint32 v of xs) {
+    }
+    Map<string, uint32> ages = { "a": 1 };
+    for (string k of ages) {
+    }
+    ages::each((string k) => { });
+    ages::each((string k, uint32 v) => 1);
+}

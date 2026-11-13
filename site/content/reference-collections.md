@@ -215,10 +215,19 @@ drachm: panic: the key is not in the map, so there is no value to change
 
 ### Walking a map
 
-<!-- status: not-implemented -->
+`for (string k, uint32 v of ages)` visits each entry, with a copy of its key
+and value in the two variables. The `each` method does the same with a
+callback, `ages::each((string k, uint32 v) => { ... })`, or a named function
+that takes the key and the value. Entries come in the order the map keeps
+them, which is the order the keys were first added. Replacing a value keeps
+the entry where it is; removing an entry and adding the key again puts it
+last. The loop borrows the map, so its body cannot change it.
 
-`for (string k, uint32 v of ages)` will visit each entry. Until it is built the
-loop is E0901. The `each` method form waits for lambdas.
+<!-- example: map-walk -->
+
+Looking at the entries without copying them (`&string k`) is not supported
+yet and gives E0901. A single loop variable over a map is an error: a map is
+walked with two.
 
 ### Composite keys and `key()`
 

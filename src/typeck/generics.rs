@@ -1091,6 +1091,7 @@ fn rollback(g: &mut Globals, m: Mark) {
     g.optional_ids.retain(|k, &mut v| v < ne && !is_new(*k, ns, ne));
     g.eq_funcs.retain(|&s, &mut f| s < ns && f < nf);
     g.eq_pending.retain(|&s| s < ns);
+    super::maps::rollback(g, nf, &|t| is_new(t, ns, ne));
     g.fail.info.retain(|&k, _| k < ne);
     g.fail.fns.retain(|&k, _| k < ne);
     g.fail.pending.retain(|&k| k < ne);

@@ -1,0 +1,2 @@
+error[E0630]: the keys are `string`, but the variable is `uint32`
+error[E0630]: the values are `uint32`, but the variable is `string`

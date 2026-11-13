@@ -335,6 +335,15 @@ pub struct Func {
     pub span: Span,
 }
 
+/// One variable of a `for` over map entries: `mut string name`.
+#[derive(Debug)]
+pub struct LoopVar {
+    pub mutable: bool,
+    pub ty: TypeName,
+    pub name: String,
+    pub name_span: Span,
+}
+
 /// `{ statements }`. `end` is the closing `}`.
 #[derive(Debug)]
 pub struct Block {
@@ -372,6 +381,8 @@ pub enum Stmt {
     For { init: Option<Box<Stmt>>, cond: Option<Expr>, step: Option<Box<Stmt>>, body: Block, span: Span },
     /// `for (T name of iter) { }`.
     ForEach { mutable: bool, ty: TypeName, name: String, name_span: Span, iter: Expr, body: Block, span: Span },
+    /// `for (K key, V value of map) { }`: walking a map's entries (Q16).
+    ForEntries { key: LoopVar, value: LoopVar, iter: Expr, body: Block, span: Span },
     Match { value: Expr, cases: Vec<Case>, span: Span },
     /// `break;` / `break N;`, and `continue` when `cont` is set. `count`
     /// is the literal N with its span.

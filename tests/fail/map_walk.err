@@ -1,1 +1,1 @@
-E0901
+error[E0302]: cannot change `ages` while it is borrowed

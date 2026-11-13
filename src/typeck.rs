@@ -609,6 +609,9 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
         } else if let Some((kind, list, id)) = g.list_pending.pop() {
             let f = lists::list_func_body(&mut g, kind, list, id);
             emit(&mut funcs, id, f);
+        } else if let Some((callback, map, id)) = g.keys.each_pending.pop() {
+            let f = maps::map_each_body(&g, callback, map, id);
+            emit(&mut funcs, id, f);
         } else {
             break;
         }
@@ -1659,6 +1662,7 @@ impl<'a> Checker<'a> {
                 }
             }
             Stmt::ForEach { .. } => self.for_each(s, out),
+            Stmt::ForEntries { key, value, iter, body, span } => self.for_entries(key, value, iter, body, *span, out),
             Stmt::Match { value, cases, span } => self.match_stmt(value, cases, *span, out),
             Stmt::Break { cont, count, span } => {
                 if let Some(j) = self.break_target(*cont, *count, *span) {
