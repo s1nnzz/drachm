@@ -1,0 +1,6 @@
+E0703
+has no `fx_ad`
+did you mean `fx_add`?
+E0901
+`fx::fx_printf` cannot be used yet: it takes a variable number of arguments
+`fx::fx_twice` cannot be used yet: it is a `static inline` function

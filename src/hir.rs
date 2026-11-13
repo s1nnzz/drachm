@@ -54,6 +54,41 @@ pub struct Program {
     /// because they come from the same type parameter. A slot is
     /// (parameter, slot within it), the parameter `None` for the result.
     pub ties: std::collections::BTreeMap<FuncId, Vec<Vec<(Option<usize>, usize)>>>,
+    /// C functions from header imports: the symbol each is called by. They
+    /// have no body; the backends declare them as imports.
+    pub foreign: std::collections::BTreeMap<FuncId, String>,
+    /// What linking needs besides the runtime: the `[native]` tables of the
+    /// project and of the dependencies it uses (set after checking).
+    pub link: LinkPlan,
+}
+
+/// The native inputs of a link (step 7.1), with absolute paths.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LinkPlan {
+    /// C source files, compiled with `include_dirs` and `defines`.
+    pub sources: Vec<std::path::PathBuf>,
+    pub include_dirs: Vec<std::path::PathBuf>,
+    pub defines: Vec<String>,
+    pub libraries: Vec<String>,
+    pub library_dirs: Vec<std::path::PathBuf>,
+}
+
+impl LinkPlan {
+    /// Add `other`'s inputs after this plan's, each once.
+    pub fn merge(&mut self, other: LinkPlan) {
+        fn add<T: PartialEq>(into: &mut Vec<T>, from: Vec<T>) {
+            for x in from {
+                if !into.contains(&x) {
+                    into.push(x);
+                }
+            }
+        }
+        add(&mut self.sources, other.sources);
+        add(&mut self.include_dirs, other.include_dirs);
+        add(&mut self.defines, other.defines);
+        add(&mut self.libraries, other.libraries);
+        add(&mut self.library_dirs, other.library_dirs);
+    }
 }
 
 pub struct Closure {

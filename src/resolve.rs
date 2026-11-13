@@ -90,6 +90,8 @@ struct Ctx {
     si_imported: Vec<bool>,
     /// The names of the units `in si;` brings.
     si_names: HashSet<String>,
+    /// The C headers the files import (step 7.1).
+    c: crate::cbind::CCtx,
 }
 
 /// Resolve the names of every module and join them into one program.
@@ -100,7 +102,8 @@ pub fn resolve(graph: &mut ModuleGraph, diags: &mut Vec<Diagnostic>) -> Program 
         infos.push(info_of(i, &m.name, &m.program));
     }
     let si_names = crate::typeck::si_unit_names().into_iter().collect();
-    let mut cx = Ctx { infos, scopes: Vec::new(), std_imports: Vec::new(), si_imported: Vec::new(), si_names };
+    let c = c_context(graph);
+    let mut cx = Ctx { infos, scopes: Vec::new(), std_imports: Vec::new(), si_imported: Vec::new(), si_names, c };
     for i in 0..n {
         let (scope, std, si) = build_scope(&cx.infos, i, graph, diags);
         cx.scopes.push(scope);
@@ -132,7 +135,7 @@ pub fn resolve(graph: &mut ModuleGraph, diags: &mut Vec<Diagnostic>) -> Program 
         for (k, imp) in prog.imports.iter().enumerate() {
             let std = matches!(graph.modules[i].targets.get(k), Some(Some(Target::Std(_))));
             if std && imp.plain_name().is_some() && !merged.imports.iter().any(|x| x.path == imp.path) {
-                merged.imports.push(Import { path: imp.path.clone(), path_span: imp.path_span, word_form: false, items: Vec::new(), glob: false, alias: None, also_bare: false, file: None, span: imp.span });
+                merged.imports.push(Import { path: imp.path.clone(), path_span: imp.path_span, word_form: false, items: Vec::new(), glob: false, alias: None, also_bare: false, file: None, c_header: None, span: imp.span });
             }
         }
         merged.units.append(&mut prog.units);
@@ -150,7 +153,33 @@ pub fn resolve(graph: &mut ModuleGraph, diags: &mut Vec<Diagnostic>) -> Program 
     }
     let names: Vec<String> = cx.infos.iter().map(|i| i.name.clone()).collect();
     cross_file_recursion(&edges, &func_module, &names, diags);
+    cx.c.synthesize(&mut merged);
     merged
+}
+
+/// The C headers of the graph with their program-wide prefixes: the alias of
+/// the first import of each (a second header under a taken alias is numbered).
+fn c_context(graph: &mut ModuleGraph) -> crate::cbind::CCtx {
+    let units = std::mem::take(&mut graph.c_units);
+    let mut prefix: Vec<Option<String>> = vec![None; units.len()];
+    let mut spans = vec![Span::new(0, 0); units.len()];
+    for m in &graph.modules {
+        for (imp, target) in m.program.imports.iter().zip(&m.targets) {
+            if let Some(Target::C(k)) = target && prefix[*k].is_none() {
+                let mut name = imp.alias.as_ref().map_or_else(|| imp.path.last().cloned().unwrap_or_default(), |a| a.0.clone());
+                let base = name.clone();
+                let mut n = 2;
+                while prefix.iter().flatten().any(|p| *p == name) {
+                    name = format!("{base}{n}");
+                    n += 1;
+                }
+                prefix[*k] = Some(name);
+                spans[*k] = imp.span;
+            }
+        }
+    }
+    let prefix = prefix.into_iter().enumerate().map(|(k, p)| p.unwrap_or_else(|| format!("c{k}"))).collect();
+    crate::cbind::CCtx::new(units, prefix, spans)
 }
 
 fn info_of(index: usize, name: &str, p: &Program) -> Info {
@@ -213,6 +242,21 @@ fn build_scope(infos: &[Info], m: usize, graph: &ModuleGraph, diags: &mut Vec<Di
                 continue;
             }
             Target::File(j) => *j,
+            Target::C(_) => {
+                match (&imp.alias, imp.glob, imp.items.is_empty()) {
+                    (Some((alias, aspan)), true, true) => match scope.get(alias) {
+                        None | Some(Bind::Module(_)) => {
+                            scope.insert(alias.clone(), Bind::Module(*target));
+                        }
+                        Some(_) => diags.push(clash(alias, *aspan, &imp.path)),
+                    },
+                    _ => diags.push(
+                        Diagnostic::at(&codes::E0901, imp.span, "this form of `in` is not supported for a C header yet")
+                            .help("import the whole header under a name: `in * from c.\"stdio.h\" as stdio;`"),
+                    ),
+                }
+                continue;
+            }
         };
         let from = &infos[j];
         // The module's name in this file.
@@ -392,6 +436,14 @@ impl Walker<'_> {
         }
     }
 
+    /// The C header a name stands for in this file (`sdl` after `... as sdl`).
+    fn c_of(&self, name: &str) -> Option<usize> {
+        match self.scope().get(name) {
+            Some(Bind::Module(Target::C(k))) => Some(*k),
+            _ => None,
+        }
+    }
+
     /// Rewrite a type-position name (`Vector3`, `phys::Vector3`).
     fn type_name(&mut self, name: &mut String, span: Span) {
         if let Some((first, rest)) = name.split_once("::") {
@@ -404,6 +456,11 @@ impl Walker<'_> {
                 && let Some(item) = self.member(j, &rest, span)
             {
                 *name = item.global;
+            }
+            if let Some(k) = self.c_of(&first) && !rest.contains("::") {
+                if let Some(crate::cbind::Member::Item { global, .. }) = self.cx.c.member(k, &rest, span, self.diags) {
+                    *name = global;
+                }
             }
             return;
         }
@@ -423,6 +480,18 @@ impl Walker<'_> {
     }
 
     fn ty(&mut self, t: &mut TypeName) {
+        // A C typedef written as a type stands for what it names.
+        if let Some((first, rest)) = t.name.split_once("::")
+            && !self.locals.contains(&first.to_string())
+            && let Some(k) = self.c_of(first)
+            && let Some(alias) = self.cx.c.alias_type(k, rest, t.span)
+        {
+            let mods = std::mem::take(&mut t.mods);
+            let optional = t.optional;
+            *t = alias;
+            t.mods.splice(0..0, mods);
+            t.optional = optional;
+        }
         if !t.name.is_empty() {
             self.type_name(&mut t.name, t.span);
         }
@@ -847,6 +916,25 @@ impl Walker<'_> {
                     ExprKind::Var(v) if !self.locals.contains(v) => self.module_of(v),
                     _ => None,
                 };
+                let c_module = match &recv.kind {
+                    ExprKind::Var(v) if module.is_none() && !self.locals.contains(v) => self.c_of(v),
+                    _ => None,
+                };
+                if let Some(k) = c_module {
+                    self.module_spans.push(recv.span);
+                    let (name_span, targs_taken, args_taken) = (*name_span, std::mem::take(targs), std::mem::take(args));
+                    match self.cx.c.member(k, name, name_span, self.diags) {
+                        Some(crate::cbind::Member::Item { global, func: true }) => {
+                            e.kind = ExprKind::Call { name: global, targs: targs_taken, args: args_taken };
+                        }
+                        Some(_) => {
+                            self.diags.push(Diagnostic::at(&codes::E0901, name_span, format!("`{name}` is not a C function, so it cannot be called")));
+                            e.kind = ExprKind::NoneValue;
+                        }
+                        None => e.kind = ExprKind::NoneValue,
+                    }
+                    return;
+                }
                 if let Some(j) = module {
                     self.module_spans.push(recv.span);
                     let (name_span, targs_taken, args_taken) = (*name_span, std::mem::take(targs), std::mem::take(args));
@@ -865,6 +953,15 @@ impl Walker<'_> {
             }
             ExprKind::Path { owner, owner_span, name, name_span } => {
                 let (os, ns) = (*owner_span, *name_span);
+                if !owner.contains("::") && !self.locals.contains(owner) && let Some(k) = self.c_of(owner) {
+                    let name = name.clone();
+                    match self.cx.c.member(k, &name, ns, self.diags) {
+                        Some(crate::cbind::Member::Value(v)) => e.kind = crate::cbind::value_expr(&v, span).kind,
+                        Some(crate::cbind::Member::Item { global, .. }) => e.kind = ExprKind::Var(global),
+                        None => e.kind = ExprKind::NoneValue,
+                    }
+                    return;
+                }
                 if !owner.contains("::") && !self.locals.contains(owner) && let Some(j) = self.module_of(owner) {
                     // `module::NAME`: a constant (or a type used as a value).
                     let name = name.clone();

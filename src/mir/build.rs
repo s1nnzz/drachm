@@ -45,7 +45,7 @@ pub fn program(hir: &hir::Program, diags: &mut Vec<Diagnostic>) -> Program {
         .funcs
         .iter()
         .enumerate()
-        .map(|(id, f)| Some(Builder::new(hir, id, f, &self_modes, &mut strings, &mut str_ids, diags).build()))
+        .map(|(id, f)| (!hir.foreign.contains_key(&id)).then(|| Builder::new(hir, id, f, &self_modes, &mut strings, &mut str_ids, diags).build()))
         .collect();
     Program {
         bodies,

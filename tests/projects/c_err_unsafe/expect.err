@@ -1,0 +1,2 @@
+E0316
+calling `fx::fx_add`, an `unsafe` function, needs an `unsafe { }` block

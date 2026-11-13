@@ -2,6 +2,7 @@
 //! (later) the language server all drive it through here.
 
 pub mod ast;
+pub mod cbind;
 pub mod cimport;
 pub mod cgen_common;
 pub mod cgen_mir;
@@ -100,7 +101,7 @@ fn front_project_with_settings(entry: &std::path::Path, info: &modules::ProjectI
         let flags = flags::parse(&graph.map.source(module.file).text, &mut Vec::new());
         (graph.map.base(module.file), project.for_file(&flags.behaviour))
     }).collect();
-    if graph.modules.len() > 1 {
+    if graph.modules.len() > 1 || !graph.c_units.is_empty() {
         // Several files: give every name its program-wide meaning, join the
         // files into one program, and check that. The text is the files in
         // order with a newline between, which is how the source map numbers it.
@@ -141,8 +142,26 @@ pub fn front_opened(opened: &config::Opened, ownership: bool) -> (Option<hir::Pr
     let (checked, graph, diags) = front_project_with_settings(
         &opened.entry, &opened.info, opened.config.behaviour, &opened.deps,
     );
-    let (checked, diags) = if ownership { ownership_checks(checked, diags) } else { (checked, diags) };
+    let (mut checked, diags) = if ownership { ownership_checks(checked, diags) } else { (checked, diags) };
+    if let Some(program) = &mut checked {
+        program.link = link_plan(opened, &graph);
+    }
     (checked, graph, diags)
+}
+
+/// The native inputs of the link: the project's `[native]` table, then those
+/// of every dependency a file of the build comes from (a consumer inherits what
+/// its dependencies need).
+fn link_plan(opened: &config::Opened, graph: &modules::ModuleGraph) -> hir::LinkPlan {
+    let dir = opened.info.display_base.clone().unwrap_or_else(|| opened.info.root.clone());
+    let mut plan = opened.config.native.link_plan(&dir);
+    for dep in &opened.deps {
+        let used = graph.modules.iter().any(|m| m.path.canonicalize().unwrap_or_else(|_| m.path.clone()).starts_with(&dep.src));
+        if used {
+            plan.merge(dep.config.native.link_plan(&dep.dir));
+        }
+    }
+    plan
 }
 
 /// Build an executable at `out`. Plain builds go through Cranelift, which is
@@ -160,8 +179,8 @@ pub fn build(program: &hir::Program, out: &std::path::Path, optimise: bool) -> R
     mir::drops::elaborate_program(program, &mut mir);
     mir::cleanup::cleanup_program(program, &mut mir);
     if optimise {
-        link::compile_c(&cgen_mir::generate(program, &mir), out)
+        link::compile_c(&cgen_mir::generate(program, &mir), out, &program.link)
     } else {
-        link::link_object(&codegen_mir::compile(program, &mir)?, out)
+        link::link_object(&codegen_mir::compile(program, &mir)?, out, &program.link)
     }
 }

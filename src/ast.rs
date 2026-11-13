@@ -242,6 +242,9 @@ pub struct Import {
     /// importing file (`"../runtime/scheduler.drh"`). `path` then holds the
     /// file's stem alone, the module's default name.
     pub file: Option<String>,
+    /// `in * from c."SDL2/SDL.h" as sdl;`: the module is a C header, with the
+    /// header text as written (step 7.1). `path` holds the alias.
+    pub c_header: Option<(String, Span)>,
     pub span: Span,
 }
 
@@ -432,6 +435,8 @@ pub enum TypeMod {
     Ptr,
     /// `*fixed T`
     FixedPtr,
+    /// `foreign *T`: a pointer the C side owns (step 7.1).
+    ForeignPtr,
 }
 
 #[derive(Debug, Clone)]
@@ -479,6 +484,8 @@ pub struct Func {
     pub fails_span: Option<Span>,
     /// From the return type to the closing `)`.
     pub span: Span,
+    /// A C function from a header import: the symbol to call. It has no body.
+    pub foreign: Option<String>,
 }
 
 /// One variable of a `for` over map entries: `mut string name`.

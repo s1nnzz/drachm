@@ -169,6 +169,7 @@ fn tkey(t: &ast::TypeName, env: &HashMap<String, Type>) -> String {
             ast::TypeMod::Ref { mutable: false } => "&",
             ast::TypeMod::Ptr => "*",
             ast::TypeMod::FixedPtr => "*fixed ",
+            ast::TypeMod::ForeignPtr => "foreign *",
         });
     }
     if let Some(f) = &t.func {

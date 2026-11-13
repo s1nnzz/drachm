@@ -1,0 +1,14 @@
+add: 42
+big: 42
+byte: 0
+sbyte: 127
+neg16: -32768
+u16: 0
+u32: 0
+ll: 9000000000
+scale: 6.0
+count: 12
+name: fixture
+even: true
+char: 66
+touched: 2

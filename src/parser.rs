@@ -13,7 +13,7 @@ pub fn parse(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>) -> Program {
 }
 
 pub(crate) fn parse_file(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>, script_entry: bool) -> Program {
-    let mut p = Parser { tokens, pos: 0, diags, optionals: Vec::new(), generics: Vec::new(), chain_slips: Vec::new() };
+    let mut p = Parser { tokens, pos: 0, diags, optionals: Vec::new(), generics: Vec::new(), chain_slips: Vec::new(), c_header: None };
     let mut program = Program {
         imports: Vec::new(),
         exports: Vec::new(),
@@ -138,6 +138,7 @@ pub(crate) fn parse_file(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>, script
                 fails: Vec::new(),
                 fails_span: None,
                 span: first,
+                foreign: None,
             });
         }
     }
@@ -157,6 +158,8 @@ struct Parser<'a> {
     generics: Vec<TypeName>,
     /// `::` after a first call on a name (see `ast::ChainSlip`).
     chain_slips: Vec<ChainSlip>,
+    /// The C header of the import being read (see `ast::Import::c_header`).
+    c_header: Option<(String, Span)>,
 }
 
 type Parsed<T> = Result<T, Diagnostic>;
@@ -293,6 +296,14 @@ impl Parser<'_> {
                     self.bump();
                     mods.push((TypeMod::Ptr, span));
                     mods.push((TypeMod::Ptr, span));
+                }
+                // `foreign *T`, `foreign **T`: pointers of the C side (step 7.1).
+                Tok::Ident(w) if w == "foreign" && matches!(self.peek_at(1), Tok::Sym("*" | "**")) => {
+                    self.bump();
+                    let stars = if self.bump().tok == Tok::Sym("**") { 2 } else { 1 };
+                    for _ in 0..stars {
+                        mods.push((TypeMod::ForeignPtr, span.to(self.prev_span())));
+                    }
                 }
                 _ => break,
             }
@@ -1080,6 +1091,24 @@ impl Parser<'_> {
     /// Returns the path (a file path gives its stem), its span, whether it was
     /// written in words, and the file path.
     fn module_ref(&mut self) -> Parsed<(Vec<String>, Span, bool, Option<String>)> {
+        // `c."SDL2/SDL.h"`: a C header (step 7.1). The module is named by `as`;
+        // the stem of the header stands in until then.
+        if matches!(self.peek(), Tok::Ident(w) if w == "c") && self.peek_at(1) == &Tok::Sym(".") && matches!(self.peek_at(2), Tok::Str(_)) {
+            let start = self.bump().span;
+            self.bump();
+            let Tok::Str(pieces) = self.peek().clone() else { unreachable!() };
+            let span = self.bump().span;
+            let mut text = String::new();
+            for p in &pieces {
+                match p {
+                    StrPiece::Raw(t, _) => text.push_str(t),
+                    _ => return Err(Diagnostic::at(&codes::E0003, span, "a C header name is plain text").help("write the name without escapes or `${}`: `in * from c.\"stdio.h\" as stdio;`")),
+                }
+            }
+            let stem = text.rsplit('/').next().unwrap_or("").split('.').next().unwrap_or("").to_string();
+            self.c_header = Some((text, span));
+            return Ok((vec![stem], start.to(span), false, None));
+        }
         if let Tok::Str(pieces) = self.peek().clone() {
             let span = self.bump().span;
             let mut text = String::new();
@@ -1121,13 +1150,13 @@ impl Parser<'_> {
                 also_bare = true;
             }
             self.expect(";")?;
-            return Ok(Import { path, path_span, word_form, items: Vec::new(), glob: true, alias, also_bare, file, span: start.to(self.prev_span()) });
+            return Ok(Import { path, path_span, word_form, items: Vec::new(), glob: true, alias, also_bare, file, c_header: self.c_header.take(), span: start.to(self.prev_span()) });
         }
         if matches!(self.peek(), Tok::Str(_)) {
             let (path, path_span, word_form, file) = self.module_ref()?;
             let alias = self.alias()?;
             self.expect(";")?;
-            return Ok(Import { path, path_span, word_form, items: Vec::new(), glob: false, alias, also_bare: false, file, span: start.to(self.prev_span()) });
+            return Ok(Import { path, path_span, word_form, items: Vec::new(), glob: false, alias, also_bare: false, file, c_header: self.c_header.take(), span: start.to(self.prev_span()) });
         }
         // The first names, as dotted paths for now: `in a.b as c;` is a module,
         // `in a as b, c from m;` is a list of items. `from` tells them apart.
@@ -1157,7 +1186,7 @@ impl Parser<'_> {
                     .help("rename an item next to its name: `in Vector3 as V3 from physics;`, or import the module with its own name: `in physics as phys;`"));
             }
             self.expect(";")?;
-            return Ok(Import { path, path_span, word_form, items, glob: false, alias: None, also_bare: false, file, span: start.to(self.prev_span()) });
+            return Ok(Import { path, path_span, word_form, items, glob: false, alias: None, also_bare: false, file, c_header: self.c_header.take(), span: start.to(self.prev_span()) });
         }
         if entries.len() != 1 {
             return Err(self.unexpected("`from` after the imported names").help(help));
@@ -1177,7 +1206,7 @@ impl Parser<'_> {
         }
         let alias = if alias.is_none() { self.alias()? } else { alias };
         self.expect(";")?;
-        Ok(Import { path, path_span, word_form, items: Vec::new(), glob: false, alias, also_bare: false, file: None, span: start.to(self.prev_span()) })
+        Ok(Import { path, path_span, word_form, items: Vec::new(), glob: false, alias, also_bare: false, file: None, c_header: None, span: start.to(self.prev_span()) })
     }
 
     /// `as name`, if written.
@@ -1298,7 +1327,7 @@ impl Parser<'_> {
             }
         }
         let body = self.block()?;
-        Ok(Func { ret, name, name_span, tparams, params, body, is_unsafe, lives, lives_span, lives_from, fails, fails_span, span })
+        Ok(Func { ret, name, name_span, tparams, params, body, is_unsafe, lives, lives_span, lives_from, fails, fails_span, span, foreign: None })
     }
 
     /// `self or key or other`, after `lives from`.
@@ -2805,7 +2834,7 @@ impl Parser<'_> {
             tokens.push(Token { tok, span: Span::new(span.start + from, span.start + i) });
         }
         tokens.push(Token { tok: Tok::Eof, span: Span::new(span.end, span.end) });
-        let mut inner = Parser { tokens, pos: 0, diags: &mut *self.diags, optionals: Vec::new(), generics: Vec::new(), chain_slips: Vec::new() };
+        let mut inner = Parser { tokens, pos: 0, diags: &mut *self.diags, optionals: Vec::new(), generics: Vec::new(), chain_slips: Vec::new(), c_header: None };
         let spec = inner.unit_spec()?;
         if inner.peek() != &Tok::Eof {
             return Err(inner.unexpected("the end of the unit"));
@@ -3019,7 +3048,7 @@ impl Parser<'_> {
                 .note("empty")
                 .help("for example `${name}`; write `\\$` for a plain dollar sign"));
         }
-        let mut inner = Parser { tokens, pos: 0, diags: &mut *self.diags, optionals: Vec::new(), generics: Vec::new(), chain_slips: Vec::new() };
+        let mut inner = Parser { tokens, pos: 0, diags: &mut *self.diags, optionals: Vec::new(), generics: Vec::new(), chain_slips: Vec::new(), c_header: None };
         let e = inner.expr()?;
         let found = std::mem::take(&mut inner.optionals);
         self.optionals.extend(found);
@@ -3114,6 +3143,7 @@ mod tests {
                 TypeMod::Ref { mutable: true } => "&mut ",
                 TypeMod::Ptr => "*",
                 TypeMod::FixedPtr => "*fixed ",
+                TypeMod::ForeignPtr => "foreign *",
             });
         }
         if let Some(u) = &t.unit_arg {

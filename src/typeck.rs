@@ -34,7 +34,7 @@ use crate::{lexer, parser};
 use crate::consts::{Const, FoldError, Folded};
 use crate::diag::{codes, Diagnostic, Span};
 use crate::hir::{self, FuncId, LocalId, StructId};
-use crate::types::{self, Type, TypeError};
+use crate::types::{self, CKind, Type, TypeError};
 
 /// A function or method as callers see it.
 struct Sig {
@@ -255,6 +255,7 @@ impl Globals {
             ast::TypeMod::Ref { mutable } => Type::borrow(*mutable, ty),
             ast::TypeMod::Ptr => Type::ptr(ty),
             ast::TypeMod::FixedPtr => Type::fixed_ptr(ty),
+                ast::TypeMod::ForeignPtr => Type::foreign(ty),
         }))
     }
 
@@ -282,10 +283,10 @@ impl Globals {
             return None;
         }
         if let Some((_, span)) = t.mods.first() {
-            if !self.unsafe_allowed && let Some((_, at)) = t.mods.iter().find(|(m, _)| matches!(m, ast::TypeMod::Ptr | ast::TypeMod::FixedPtr)) {
+            if !self.unsafe_allowed && let Some((_, at)) = t.mods.iter().find(|(m, _)| matches!(m, ast::TypeMod::Ptr | ast::TypeMod::FixedPtr) || (matches!(m, ast::TypeMod::ForeignPtr) && !is_synthetic(t.span))) {
                 diags.push(unsafe_disabled(*at, "raw pointer type here"));
             }
-            if self.resolve_base_quiet(t) == Some(Type::None) {
+            if self.resolve_base_quiet(t) == Some(Type::None) && !matches!(t.mods.first(), Some((ast::TypeMod::ForeignPtr, _))) {
                 diags.push(Diagnostic::at(&codes::E0901, *span, "a borrow or pointer of `none` is not supported yet"));
                 return None;
             }
@@ -310,6 +311,7 @@ impl Globals {
                 ast::TypeMod::Ref { mutable } => Type::borrow(*mutable, ty),
                 ast::TypeMod::Ptr => Type::ptr(ty),
                 ast::TypeMod::FixedPtr => Type::fixed_ptr(ty),
+                ast::TypeMod::ForeignPtr => Type::foreign(ty),
             }));
         }
         if self.is_list_name(t) {
@@ -325,6 +327,7 @@ impl Globals {
                 ast::TypeMod::Ref { mutable } => Type::borrow(*mutable, ty),
                 ast::TypeMod::Ptr => Type::ptr(ty),
                 ast::TypeMod::FixedPtr => Type::fixed_ptr(ty),
+                ast::TypeMod::ForeignPtr => Type::foreign(ty),
             }));
         }
         if !t.args.is_empty() {
@@ -770,8 +773,14 @@ pub(crate) fn check_with_settings(
     }
     let conformances = std::mem::take(&mut g.ifaces.records);
     let (dyn_ifaces, vtables) = dynamic::finish(&mut g, &structs);
+    let foreign: std::collections::BTreeMap<FuncId, String> = prog
+        .funcs
+        .iter()
+        .zip(&func_ids)
+        .filter_map(|(f, id)| Some(((*id)?, f.foreign.clone()?)))
+        .collect();
     index::finish(&g, src);
-    let mut program = hir::Program { settings: Vec::new(), funcs: funcs.into_iter().map(|f| f.unwrap_or_else(placeholder)).collect(), structs, enums: enum_defs, main, collections, conformances, dyn_ifaces, vtables, closures: std::mem::take(&mut g.lambdas.closures), ties: std::mem::take(&mut g.ties) };
+    let mut program = hir::Program { settings: Vec::new(), funcs: funcs.into_iter().map(|f| f.unwrap_or_else(placeholder)).collect(), structs, enums: enum_defs, main, collections, conformances, dyn_ifaces, vtables, closures: std::mem::take(&mut g.lambdas.closures), ties: std::mem::take(&mut g.ties), foreign, link: Default::default() };
     program.settings = program.funcs.iter().map(|f| g.settings_at(f.name_span)).collect();
     if !diags.iter().any(Diagnostic::is_error) {
         lambdas::infer_captures(&mut program, diags);
@@ -867,6 +876,11 @@ fn op_word(op: BinOp) -> &'static str {
     }
 }
 
+/// Types the compiler writes itself for a C declaration carry an empty span.
+fn is_synthetic(span: Span) -> bool {
+    span.start == span.end
+}
+
 fn unsafe_disabled(span: Span, what: &str) -> Diagnostic {
     Diagnostic::at(&codes::E0317, span, "`unsafe` is not enabled in this file")
         .note(what)
@@ -878,6 +892,7 @@ fn unsafe_disabled(span: Span, what: &str) -> Diagnostic {
 fn check_signature_extras(g: &Globals, f: &ast::Func, params: &[Option<Type>], is_method: bool, diags: &mut Vec<Diagnostic>) {
     if let Some(at) = f.is_unsafe
         && !g.unsafe_allowed
+        && f.foreign.is_none()
     {
         diags.push(unsafe_disabled(at, "needs the file flag"));
     }
@@ -1375,7 +1390,8 @@ fn check_body(g: &mut Globals, src: &str, diags: &mut Vec<Diagnostic>, f: &ast::
         cx.filling.push(id);
         (id, ty)
     });
-    let mut body = cx.block(&f.body);
+    // A C function has no body: the symbol is all there is.
+    let mut body = if f.foreign.is_some() { Vec::new() } else { cx.block(&f.body) };
     index::close(mark, f.body.end.end);
     // A constructor that can fail leaves `self` half built on a `fail`: it owns what it has.
     if let Some((id, _)) = ctor_self
@@ -2758,6 +2774,10 @@ impl<'a> Checker<'a> {
                 );
                 None
             }
+            Val::Expr(e) if e.ty.is_numeric() && to.is_numeric() && e.ty != to && (e.ty.is_c() || to.is_c()) => {
+                self.c_types_apart(e.ty, to, from.span);
+                None
+            }
             Val::Expr(e) if e.ty.is_numeric() && to.is_numeric() => {
                 if !e.ty.converts_losslessly_to(to) {
                     self.warn_lossy(e.ty, to, from);
@@ -2776,6 +2796,17 @@ impl<'a> Checker<'a> {
                 None
             }
         }
+    }
+
+    /// E0704: two number types of which one is a C type.
+    fn c_types_apart(&mut self, from: Type, to: Type, at: Span) {
+        let (c, other) = if from.is_c() { (from, to) } else { (to, from) };
+        self.diags.push(
+            Diagnostic::at(&codes::E0704, at, format!("`{from}` does not become `{to}` by itself"))
+                .note(format!("this is `{from}`"))
+                .note_line(format!("`{c}` is a C type of its own, not a synonym of `{other}`"))
+                .help(format!("convert it: `x::to<{to}>()`")),
+        );
     }
 
     /// "turn it into text with `::text()`: `x::text()`", for a number or bool
@@ -2826,8 +2857,11 @@ impl<'a> Checker<'a> {
 
     /// Give constant `c` the type `to`. Unless `explicit`, a value that does
     /// not fit is reported (W0102); either way it wraps.
-    fn fit_const(&mut self, c: &Const, to: Type, span: Span, explicit: bool) -> hir::Expr {
-        let e = match to {
+    fn fit_const(&mut self, c: &Const, written: Type, span: Span, explicit: bool) -> hir::Expr {
+        // A C number type holds what its representation holds; the value is built
+        // in the representation and given the C type afterwards.
+        let to = written.bare();
+        let mut e = match to {
             Type::Int { .. } => int_lit(c.wrap_to_int(to), to),
             _ => hir::Expr::new(hir::ExprKind::Float(c.to_float(to)), to),
         };
@@ -2859,6 +2893,7 @@ impl<'a> Checker<'a> {
                     .help(format!("use a value that fits or a bigger type; `::to<{to}>()` converts without this warning")),
             );
         }
+        e.ty = written;
         e
     }
 
@@ -3707,6 +3742,14 @@ impl<'a> Checker<'a> {
                 if to.mentions_unit() || units::has_unit(&value) {
                     return self.unit_to(value, to, recv.span, targs[0].span);
                 }
+                // `c::bool` and `bool` are the same byte: `to` renames one as the other.
+                if let Val::Expr(v) = &value
+                    && (v.ty == Type::C(CKind::Bool) && to == Type::Bool || v.ty == Type::Bool && to == Type::C(CKind::Bool))
+                {
+                    let Val::Expr(mut v) = value else { unreachable!() };
+                    v.ty = to;
+                    return Some(Val::Expr(v));
+                }
                 if !to.is_numeric() {
                     let mut d = Diagnostic::at(&codes::E0101, targs[0].span, format!("`to` converts between number types, not to `{to}`"));
                     if to == Type::Str {
@@ -4103,6 +4146,16 @@ impl<'a> Checker<'a> {
         }
 
         // Everything else: the left side leads and the right side converts to it.
+        if let Val::Expr(r) = &rv
+            && r.ty != lead
+            && r.ty.is_numeric()
+            && lead.is_numeric()
+            && (r.ty.is_c() || lead.is_c())
+        {
+            let rt = r.ty;
+            self.c_types_apart(rt, lead, ro.span);
+            return None;
+        }
         if let Val::Expr(r) = &rv
             && r.ty != lead
             && !(r.ty.is_numeric() && lead.is_numeric())

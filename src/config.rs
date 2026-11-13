@@ -62,6 +62,24 @@ impl Native {
     pub fn is_empty(&self) -> bool {
         *self == Native::default()
     }
+
+    /// What linking needs, with paths made absolute against `dir`.
+    pub fn link_plan(&self, dir: &Path) -> crate::hir::LinkPlan {
+        let abs = |p: &String| dir.join(p);
+        crate::hir::LinkPlan {
+            sources: self.sources.iter().map(abs).collect(),
+            include_dirs: self.include.iter().map(abs).collect(),
+            defines: self.defines.clone(),
+            libraries: self.libraries.clone(),
+            library_dirs: self.library_dirs.iter().map(abs).collect(),
+        }
+    }
+
+    /// What C header discovery needs, with paths made absolute against `dir`
+    /// (the folder of the `drachm.toml`).
+    pub fn settings(&self, dir: &Path) -> crate::cimport::Settings {
+        crate::cimport::Settings { include_dirs: self.include.iter().map(|p| dir.join(p)).collect(), defines: self.defines.clone() }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -767,6 +785,7 @@ pub fn open(path: &Path) -> Result<Opened, Failure> {
                 script: false,
                 requires_main: config.project.kind != Kind::Library,
                 dependency_names: config.dependencies.iter().map(|dep| dep.name.clone()).collect(),
+                native: config.native.settings(&dir),
             };
             Ok(Opened { entry, info, config, deps })
         }
@@ -783,6 +802,7 @@ pub fn open(path: &Path) -> Result<Opened, Failure> {
                 script: true,
                 requires_main: true,
                 dependency_names: config.dependencies.iter().map(|dep| dep.name.clone()).collect(),
+                native: config.native.settings(&dir),
             };
             Ok(Opened { entry: path.to_path_buf(), info, config, deps })
         }

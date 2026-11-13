@@ -24,7 +24,16 @@ use crate::types::Type;
 pub fn generate(hir: &hir::Program, mir: &Program) -> String {
     let mut out = prelude();
     out += &struct_defs(hir, true);
-    let bodies: Vec<&Body> = (0..hir.funcs.len()).map(|f| mir.bodies[f].as_ref().expect("a MIR body for every function")).collect();
+    // C functions (step 7.1) are declared under a name of ours that the
+    // assembler label maps to the real symbol, so a header the runtime
+    // includes cannot disagree with the types written here.
+    for (&f, symbol) in &hir.foreign {
+        let func = &hir.funcs[f];
+        let params: Vec<String> = func.locals[..func.params].iter().map(|l| c_type(l.ty)).collect();
+        let params = if params.is_empty() { "void".to_string() } else { params.join(", ") };
+        let _ = writeln!(out, "extern {} {}({params}) __asm__(\"{symbol}\");", c_type(func.ret), func.symbol);
+    }
+    let bodies: Vec<&Body> = (0..hir.funcs.len()).filter(|f| !hir.foreign.contains_key(f)).map(|f| mir.bodies[f].as_ref().expect("a MIR body for every function")).collect();
     for &body in &bodies {
         let _ = writeln!(out, "{};", signature(hir, body));
     }

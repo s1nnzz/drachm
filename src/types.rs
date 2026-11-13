@@ -213,6 +213,9 @@ impl Type {
     pub const F64: Type = Type::Float(64);
 
     pub fn from_name(name: &str) -> Result<Type, TypeError> {
+        if let Some(word) = name.strip_prefix("c::") {
+            return CKind::from_word(word).map(Type::C).ok_or(TypeError::Unknown);
+        }
         let (kind, bits) = match name.find(|c: char| c.is_ascii_digit()) {
             Some(i) => (&name[..i], &name[i..]),
             None => (name, ""),

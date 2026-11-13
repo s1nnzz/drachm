@@ -352,6 +352,7 @@ impl Globals {
             ast::TypeMod::Ref { mutable } => Type::borrow(*mutable, ty),
             ast::TypeMod::Ptr => Type::ptr(ty),
             ast::TypeMod::FixedPtr => Type::fixed_ptr(ty),
+            ast::TypeMod::ForeignPtr => Type::foreign(ty),
         }))
     }
 }

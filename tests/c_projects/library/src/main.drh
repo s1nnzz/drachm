@@ -1,0 +1,9 @@
+//--!$unsafe: true
+in * from c."drachm_fixture.h" as fx;
+
+// A library: no `main()`, and no C source to link. Checking is enough.
+out c::int add(c::int a, c::int b) {
+    unsafe {
+        return fx::fx_add(a, b);
+    }
+}

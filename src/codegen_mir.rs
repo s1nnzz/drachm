@@ -23,7 +23,7 @@ use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Switch, Variab
 use cranelift_module::{DataDescription, DataId, FuncId, Linkage, Module};
 use cranelift_object::{ObjectBuilder, ObjectModule};
 
-use crate::codegen_common::{cl_type, emit_c_main, err, in_memory, is_signed, key_tag, map_ops_type, signature, MEM, STR_CAP, STR_LEN};
+use crate::codegen_common::{cl_type, emit_c_main, err, foreign_signature, in_memory, is_signed, key_tag, map_ops_type, signature, MEM, STR_CAP, STR_LEN};
 use crate::mir::MapFn;
 use crate::hir::{self, BinOp, STR_SIZE};
 use crate::mir::drops::{copy_glue_types, drop_glue_types, glue_name, holds_string};
@@ -48,7 +48,13 @@ pub fn compile(hir: &hir::Program, mir: &Program) -> Result<Vec<u8>, String> {
 
     let ptr = module.target_config().pointer_type();
     let mut ids = Vec::new();
-    for f in &hir.funcs {
+    for (i, f) in hir.funcs.iter().enumerate() {
+        if let Some(symbol) = hir.foreign.get(&i) {
+            // A C function: the real symbol, found by the linker.
+            let s = foreign_signature(&module, f);
+            ids.push(module.declare_function(symbol, Linkage::Import, &s).map_err(err)?);
+            continue;
+        }
         let s = signature(&module, f);
         ids.push(module.declare_function(&f.symbol, Linkage::Local, &s).map_err(err)?);
     }
@@ -93,6 +99,9 @@ pub fn compile(hir: &hir::Program, mir: &Program) -> Result<Vec<u8>, String> {
     let mut lits: Vec<Option<DataId>> = vec![None; mir.strings.len()];
 
     for (f, &id) in ids.iter().enumerate() {
+        if hir.foreign.contains_key(&f) {
+            continue;
+        }
         let hf = &hir.funcs[f];
         let body = mir.bodies[f].as_ref().ok_or_else(|| format!("`{}` has no MIR body", hf.symbol))?;
         ctx.func.signature = module.declarations().get_function_decl(id).signature.clone();
@@ -1882,7 +1891,7 @@ impl Cg<'_, '_> {
                 if signed { self.b.ins().fcvt_from_sint(to_cl, wide) } else { self.b.ins().fcvt_from_uint(to_cl, wide) }
             }
             (Type::Float(a), Type::Float(b)) => {
-                if a < b { self.b.ins().fpromote(to_cl, v) } else { self.b.ins().fdemote(to_cl, v) }
+                if a == b { v } else if a < b { self.b.ins().fpromote(to_cl, v) } else { self.b.ins().fdemote(to_cl, v) }
             }
             (Type::Float(fb), Type::Int { bits, .. }) => {
                 let d = if fb == 32 { self.b.ins().fpromote(types::F64, v) } else { v };

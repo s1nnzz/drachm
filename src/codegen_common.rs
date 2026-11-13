@@ -67,6 +67,24 @@ pub(crate) fn signature(module: &ObjectModule, f: &Func) -> Signature {
     s
 }
 
+/// The signature of a C function (step 7.1): the target's C calling
+/// convention, with the narrow integers extended the way the C ABI expects
+/// from a caller.
+pub(crate) fn foreign_signature(module: &ObjectModule, f: &Func) -> Signature {
+    let mut s = module.make_signature();
+    s.params.extend(f.locals[..f.params].iter().map(|l| {
+        let ty = cl_type(l.ty).expect("a C function takes numbers and pointers");
+        let p = AbiParam::new(ty);
+        match l.ty {
+            Type::Int { bits: 8 | 16, signed: true } => p.sext(),
+            Type::Int { bits: 8 | 16, signed: false } | Type::Bool => p.uext(),
+            _ => p,
+        }
+    }));
+    s.returns.extend(cl_type(f.ret).map(AbiParam::new));
+    s
+}
+
 pub(crate) fn is_signed(t: Type) -> bool {
     matches!(t, Type::Int { signed: true, .. })
 }

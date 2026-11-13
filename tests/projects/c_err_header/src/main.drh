@@ -1,0 +1,3 @@
+in * from c."no_such_header.h" as nope;
+
+none main() { }

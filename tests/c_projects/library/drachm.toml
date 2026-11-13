@@ -1,0 +1,6 @@
+[project]
+name = "c_library"
+kind = "library"
+
+[native]
+include = ["../../c"]

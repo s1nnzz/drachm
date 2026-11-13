@@ -147,6 +147,7 @@ fn func_head(f: &ast::Func) -> ast::Func {
         fails: f.fails.clone(),
         fails_span: f.fails_span,
         span: f.span,
+        foreign: f.foreign.clone(),
     }
 }
 
@@ -517,7 +518,7 @@ fn peel(g: &Globals, p: &ast::TypeName, ty: Type) -> Type {
     for (m, _) in &p.mods {
         t = match (m, t) {
             (ast::TypeMod::Ref { .. }, Type::Ref { to, .. }) => *to,
-            (ast::TypeMod::Ptr, Type::Ptr { to }) | (ast::TypeMod::FixedPtr, Type::FixedPtr { to }) => *to,
+            (ast::TypeMod::Ptr, Type::Ptr { to }) | (ast::TypeMod::FixedPtr, Type::FixedPtr { to }) | (ast::TypeMod::ForeignPtr, Type::Foreign { to }) => *to,
             _ => t,
         };
     }
@@ -588,7 +589,7 @@ fn bindings(g: &Globals, tparams: &[ast::TypeParam], p: &ast::TypeName, ty: Type
         for (m, _) in &p.mods {
             t = match (m, t) {
                 (ast::TypeMod::Ref { .. }, Type::Ref { to, .. }) => *to,
-                (ast::TypeMod::Ptr, Type::Ptr { to }) | (ast::TypeMod::FixedPtr, Type::FixedPtr { to }) => *to,
+                (ast::TypeMod::Ptr, Type::Ptr { to }) | (ast::TypeMod::FixedPtr, Type::FixedPtr { to }) | (ast::TypeMod::ForeignPtr, Type::Foreign { to }) => *to,
                 _ => t,
             };
         }
