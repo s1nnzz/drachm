@@ -81,8 +81,10 @@ its own that can also hold values the header does not list, because C can send
 any number. So a `match` on it always needs a `case _`, even when every named
 value has a case ([E0705](errors.md)).
 
-`address of p` gives a `*shape_point`; where C wants a pointer, it goes in
-without a conversion, and any pointer goes where C wants `void *`.
+`address of p` gives a `*shape_point`. C does not take it by itself: the
+hand-over is written with `as`, `(address of p) as foreign *shape::shape_point`,
+and any pointer goes to C's `void *` with `as foreign *none`. Without the `as`
+the compiler says so (E0335) and shows what to write.
 
 ## Pointers, text and returned memory
 

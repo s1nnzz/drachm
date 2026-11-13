@@ -22,7 +22,7 @@ struct Copy {
     foreign *uint8 data;
 
     none drop() {
-        unsafe { fx::fx_free(self.data); }
+        unsafe { fx::fx_free(self.data as foreign *none); }
     }
 }
 
@@ -30,7 +30,7 @@ string shout(string s) fails InvalidText {
     unsafe {
         foreign *uint8 p = fx::fx_dup(&s as c string);
         string text = p::text() fails;
-        fx::fx_free(p);
+        fx::fx_free(p as foreign *none);
         return text;
     }
 }
@@ -38,7 +38,7 @@ string shout(string s) fails InvalidText {
 sint32 divide(sint32 a, sint32 b) {
     unsafe {
         mut c::int result = 0;
-        c::int status = fx::fx_divide(a::to<c::int>(), b::to<c::int>(), address of result);
+        c::int status = fx::fx_divide(a::to<c::int>(), b::to<c::int>(), (address of result) as foreign *c::int);
         if (status < 0) {
             return -1;
         }

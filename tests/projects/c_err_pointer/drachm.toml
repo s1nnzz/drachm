@@ -1,0 +1,6 @@
+[project]
+name = "c_err_pointer"
+
+[native]
+include = ["../../c"]
+sources = ["../../c/drachm_fixture.c"]

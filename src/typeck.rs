@@ -1547,7 +1547,7 @@ struct Origin {
 }
 
 fn origin(e: &ast::Expr) -> Origin {
-    let compound = !e.paren && matches!(e.kind, ExprKind::Unary(..) | ExprKind::Binary(..) | ExprKind::IncDec { .. });
+    let compound = !e.paren && matches!(e.kind, ExprKind::Unary(..) | ExprKind::Binary(..) | ExprKind::IncDec { .. } | ExprKind::AddressOf(..));
     Origin { span: e.span, compound }
 }
 
@@ -2790,13 +2790,17 @@ impl<'a> Checker<'a> {
                 let v = self.read(Val::Expr(e));
                 self.into(v, to, from)
             }
-            // A pointer made on the Drachm side goes to the C side as it is, and any
-            // pointer goes where C wants a `void *` (`foreign *none`).
-            Val::Expr(e)
-                if e.ty != to
-                    && matches!(to, Type::Foreign { to: target } if matches!(e.ty, Type::Ptr { to: from } | Type::FixedPtr { to: from } | Type::Foreign { to: from } if from == target || *target == Type::None)) =>
-            {
-                Some(hir::Expr::new(hir::ExprKind::PtrConv(Box::new(e)), to))
+            // A pointer goes to C only by a written conversion (`p as foreign *T`).
+            Val::Expr(e) if e.ty.is_ptr() && matches!(to, Type::Foreign { .. }) && e.ty != to => {
+                let text = self.text(from.span).to_string();
+                let fix = if from.compound { format!("({text})") } else { text };
+                self.diags.push(
+                    Diagnostic::at(&codes::E0335, from.span, format!("expected `{to}`, found `{}`", e.ty))
+                        .note(format!("this is `{}`", e.ty))
+                        .note_line("a Drachm pointer does not become a C pointer by itself")
+                        .help(format!("write the hand-over: `{fix} as {to}`")),
+                );
+                None
             }
             Val::Expr(e) if e.ty.is_ptr() && to.is_ptr() && e.ty != to => {
                 self.diags.push(
@@ -3768,6 +3772,7 @@ impl<'a> Checker<'a> {
             Some(Val::Expr(v)) if v.ty.is_ptr() && matches!(name, "freeze" | "thaw") => {
                 self.pointer_convert(v, recv.span, name, name_span, args)
             }
+            Some(Val::Expr(v)) if v.ty.is_ptr() && name == "as" => self.pointer_as(v, name_span, targs, args),
             Some(Val::Expr(v)) if v.ty == Type::foreign(Type::U8) && name == "text" => self.foreign_text(v, recv.span, name_span, targs, args, span),
             Some(Val::Expr(v)) if v.ty == Type::Str => self.string_method(v, name, name_span, targs, args),
             Some(Val::Expr(v)) if v.ty.is_map() => self.map_method(v, recv, name, name_span, args),
@@ -3823,6 +3828,45 @@ impl<'a> Checker<'a> {
         };
         let ty = if want_fixed { Type::fixed_ptr(to) } else { Type::ptr(to) };
         Some(Val::Expr(hir::Expr::new(hir::ExprKind::PtrConv(Box::new(v)), ty)))
+    }
+
+    /// `p as foreign *T` and `p as foreign *none`: the hand-over of a pointer to
+    /// C. `*T`, `*fixed T` and `foreign *T` go to `foreign *T` for their own `T`;
+    /// any pointer goes to `foreign *none` (C's `void *`).
+    fn pointer_as(&mut self, v: hir::Expr, name_span: Span, targs: &[ast::TypeName], args: &[ast::Expr]) -> Option<Val> {
+        for a in args {
+            self.expr(a);
+        }
+        if let Some(a) = args.first() {
+            self.diags.push(Diagnostic::at(&codes::E0103, a.span, "`as` takes no arguments"));
+            return None;
+        }
+        let [t] = targs else {
+            self.diags.push(
+                Diagnostic::at(&codes::E0103, name_span, "`as` needs the C pointer type to convert to")
+                    .help("for example `buf as foreign *none`"),
+            );
+            return None;
+        };
+        let to = self.g.resolve(t, self.diags)?;
+        let Type::Foreign { to: target } = to else {
+            self.diags.push(
+                Diagnostic::at(&codes::E0335, t.span, format!("`as` turns a pointer into a C pointer, not into `{to}`"))
+                    .note(format!("this is `{}`", v.ty))
+                    .help("write the C pointer type: `foreign *T`, or `foreign *none` for `void *`"),
+            );
+            return None;
+        };
+        let from = v.ty.target().unwrap_or(Type::None);
+        if *target != Type::None && *target != from {
+            self.diags.push(
+                Diagnostic::at(&codes::E0335, t.span, format!("expected `{to}`, found `{}`", v.ty))
+                    .note(format!("this points to `{from}`, not to `{target}`"))
+                    .help(format!("a C pointer keeps its type: write `foreign *{from}`, or `foreign *none` for `void *`")),
+            );
+            return None;
+        }
+        Some(Val::Expr(hir::Expr::new(hir::ExprKind::PtrConv(Box::new(v)), to)))
     }
 
     /// `::text()` and `::to<T>()` on numbers and bools.

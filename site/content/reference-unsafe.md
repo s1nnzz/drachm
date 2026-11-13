@@ -81,8 +81,11 @@ Calling it needs a block:
 A pointer that comes from a C header is a `foreign *T` (`foreign *uint8` for a
 `char *`, `foreign *none` for `void *`). It is used like `*T` in `unsafe`
 code, with two differences: it copies freely, since C owns what it points at,
-and a `*T` made by `address of` goes where C wants the same pointer without a
-conversion. See [Calling C libraries](guide-c-imports.md).
+and nothing turns a Drachm pointer into one by itself. The hand-over is
+written with `as`: `(address of n) as foreign *c::int` for the same type, or
+`buf as foreign *none` for `void *` (any pointer). Without the `as`, the
+compiler says E0335 and shows the conversion to write. See
+[Calling C libraries](guide-c-imports.md).
 
 ## Pointers to fixed values
 

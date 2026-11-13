@@ -569,6 +569,12 @@ codes! {
          the kind, say so inside an `unsafe { }` block:\n\n\
          \x20   unsafe { *fixed uint32 r = w::freeze(); }   // `*T` to `*fixed T`\n\
          \x20   unsafe { *uint32 w2 = r::thaw(); }          // `*fixed T` to `*T`";
+    E0335: "a pointer goes to C only with `as foreign`",
+        "A Drachm pointer (`*T`, `*fixed T`) and a C pointer (`foreign *T`) are\n\
+         different types, and nothing changes one into the other by itself. The\n\
+         hand-over to C is written out with `as`, inside `unsafe { }`:\n\n\
+         \x20   unsafe { sdl::SDL_free(buf as foreign *none); }    // any pointer to `void *`\n\
+         \x20   unsafe { foreign *uint8 p = text as foreign *uint8; }   // `*uint8` to `foreign *uint8`";
 
     E0316: "an operation on a raw pointer needs `unsafe`",
         "Making, reading, writing, copying, comparing, converting, moving, passing\n\

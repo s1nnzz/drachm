@@ -32,6 +32,7 @@ clash. Only the names a program uses are brought into it.
 | the name is not in the header | E0703 |
 | a C and a Drachm number mixed | E0704 |
 | `match` on a C enum without `case _` | E0705 |
+| a pointer given to C without `as foreign` | E0335 |
 | a declaration the compiler cannot use yet | E0901, with the reason |
 
 ## The `[native]` table
@@ -102,10 +103,17 @@ not the natural one (packed or aligned fields), that has bit-fields, an
 anonymous member or a flexible array member cannot be used by value (E0901);
 pointers to it still work, as opaque handles.
 
-A `foreign` pointer copies freely, since C owns what it points at. A pointer
-made on the Drachm side (`address of p`) goes where C wants a pointer to the
-same type, and any pointer goes where C wants `void *`. The other direction,
-from a `foreign *none` to a typed pointer, is not implicit.
+A `foreign` pointer copies freely, since C owns what it points at. No pointer
+converts to a C pointer by itself (E0335). The hand-over is written with `as`,
+inside `unsafe`:
+
+- `p as foreign *T` for a `*T`, a `*fixed T` or a `foreign *T` of the same `T`
+  (`(address of n) as foreign *c::int`);
+- `p as foreign *none` for any pointer (`buf as foreign *none`, C's `void *`).
+
+The other direction, from a `foreign *none` to a typed pointer, is not
+converted at all. `as` takes no other pointer target: `p as uint64` is E0335
+too.
 
 A C enum has the type's name (`shape::shape_kind`), its named values are
 constants (`shape::SHAPE_WIDE`), and a number becomes one with `n as

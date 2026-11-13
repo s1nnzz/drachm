@@ -1,0 +1,6 @@
+E0335
+expected `foreign *none`, found `foreign *uint8`
+write the hand-over: `p as foreign *none`
+E0335
+expected `foreign *c::int`, found `*c::int`
+write the hand-over: `(address of n) as foreign *c::int`
