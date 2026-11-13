@@ -1,2 +1,2 @@
-E0901
-`contains` on a list of `string` is not supported yet
+E0101
+`contains` on a list of `string` takes the value with `&`

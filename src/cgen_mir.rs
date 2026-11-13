@@ -959,7 +959,8 @@ impl Gen<'_> {
             ListOp::Pop => unreachable!("`pop` is a test and a `Remove`, not a call"),
             ListOp::Get => {
                 let (idx, dest) = (self.operand(&args[1].op), dest_lv.expect("an item has a destination"));
-                self.line(format!("{{ void *g = drachm_list_get({list}, {idx}, sizeof({c})); if (g) memcpy(&{dest}, g, sizeof({c})); }}"));
+                let copy = self.copy_entry(elem, dest, "g");
+                self.line(format!("{{ void *g = drachm_list_get({list}, {idx}, sizeof({c})); if (g) {{ {copy} }} }}"));
             }
             ListOp::Remove | ListOp::SwapRemove => {
                 let (idx, dest) = (self.operand(&args[1].op), dest_lv.expect("an item has a destination"));

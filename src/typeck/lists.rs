@@ -443,13 +443,16 @@ impl Checker<'_> {
             );
             return None;
         }
-        if op == ListOp::Get && !self.g.plain_copy(Some(elem)) {
+        // `copy` is only meant for the call it wraps, not the calls in its arguments.
+        let copying = std::mem::replace(&mut self.copying_item, false);
+        if op == ListOp::Get && !self.g.plain_copy(Some(elem)) && !copying {
             for a in args {
                 self.expr(a);
             }
             self.diags.push(
-                Diagnostic::at(&codes::E0901, name_span, format!("`{name}` on a list of `{elem}` is not supported yet"))
-                    .note("an item that owns memory cannot be copied or lent out by `get` yet"),
+                Diagnostic::at(&codes::E0901, name_span, format!("`{name}` on a list of `{elem}` gives a view, which is not supported yet"))
+                    .note(format!("an item of type `{elem}` owns memory, so it is lent out, not copied"))
+                    .help(format!("write `copy {}::{name}({})` for an owned `{elem}?`", self.text(recv.span), args.first().map_or("", |a| self.text(a.span)))),
             );
             return None;
         }
@@ -512,7 +515,7 @@ impl Globals {
         let borrowed = Type::borrow(false, list);
         let (name, other, ret) = match kind {
             ListFunc::Eq => (format!("{list} =="), borrowed, Type::Bool),
-            ListFunc::Contains => (format!("{list} contains"), elem, Type::Bool),
+            ListFunc::Contains => (format!("{list} contains"), if self.plain_copy(Some(elem)) { elem } else { Type::borrow(false, elem) }, Type::Bool),
             ListFunc::Each(callback) => (format!("{list} each"), callback, Type::None),
         };
         let sig = Sig { name, params: vec![Some(borrowed), Some(other)], ret: Some(ret), span: Span::new(0, 0), fails: Vec::new(), outcome: None };
@@ -526,6 +529,8 @@ impl Globals {
     fn item_same(&mut self, a: hir::Expr, b: hir::Expr, elem: Type) -> hir::Expr {
         let eq = |a, b| hir::Expr::new(K::Binary(hir::BinOp::Eq, Box::new(a), Box::new(b)), Type::Bool);
         if let Some(inner) = elem.struct_id() {
+            // The comparison consumes its right side, so it gets a copy of a place.
+            let b = if b.is_place() && !self.copy_of(elem) { hir::Expr::new(K::DeepCopy(Box::new(b)), elem) } else { b };
             return self.struct_eq(inner, a, b);
         }
         if elem == Type::Str {
@@ -549,7 +554,7 @@ pub(super) fn list_func_body(g: &mut Globals, kind: ListFunc, list: Type, f: Fun
     let param = |name: &str, ty: Type| hir::Local { name: name.into(), ty, span: none, mutability: hir::Mutability::Fixed, is_param: true, written: None };
     let mut locals = vec![param("a", borrowed), match kind {
         ListFunc::Eq => param("b", borrowed),
-        ListFunc::Contains => param("item", elem),
+        ListFunc::Contains => param("item", if g.plain_copy(Some(elem)) { elem } else { Type::borrow(false, elem) }),
         ListFunc::Each(callback) => param("callback", callback),
     }];
     let i = locals.len();
@@ -590,7 +595,13 @@ pub(super) fn list_func_body(g: &mut Globals, kind: ListFunc, list: Type, f: Fun
             ]
         }
         ListFunc::Contains => {
-            let same = g.item_same(item(whole(0)), hir::Expr::new(K::Local(1), elem), elem);
+            // An item that owns memory is lent in (`&item`); look through the borrow.
+            let wanted = if g.plain_copy(Some(elem)) {
+                hir::Expr::new(K::Local(1), elem)
+            } else {
+                hir::Expr::new(K::Deref(Box::new(hir::Expr::new(K::Local(1), Type::borrow(false, elem)))), elem)
+            };
+            let same = g.item_same(item(whole(0)), wanted, elem);
             vec![
                 hir::Stmt::Decl(i),
                 hir::Stmt::Assign(hir::Place::local(i), int(0)),
@@ -719,16 +730,23 @@ impl Checker<'_> {
             }
             return None;
         };
-        if !self.g.plain_copy(Some(elem)) {
-            self.expr(arg);
-            self.diags.push(
-                Diagnostic::at(&codes::E0901, name_span, format!("`contains` on a list of `{elem}` is not supported yet"))
-                    .note("searching needs the items to be copied or lent out, which is not decided yet")
-                    .label(recv.span, format!("this is `{ty}`")),
-            );
-            return None;
-        }
-        let item = self.coerce(arg, elem)?;
+        // Items that own memory: the value to look for is lent, `names::contains(&name)`.
+        let item = if self.g.plain_copy(Some(elem)) {
+            self.coerce(arg, elem)?
+        } else {
+            let want = Type::borrow(false, elem);
+            if !matches!(arg.kind, ast::ExprKind::Borrow { mutable: false, .. }) {
+                let text = self.text(arg.span).to_string();
+                self.expr(arg);
+                self.diags.push(
+                    Diagnostic::at(&codes::E0101, arg.span, format!("`contains` on a list of `{elem}` takes the value with `&`"))
+                        .note(format!("without `&`, `{text}` would move into the search"))
+                        .help(format!("write `{}::contains(&{text})`", self.text(recv.span))),
+                );
+                return None;
+            }
+            self.coerce(arg, want)?
+        };
         let f = self.g.list_func(ListFunc::Contains, ty);
         let borrow = hir::Expr::new(K::Borrow { mutable: false, place: Box::new(v) }, Type::borrow(false, ty));
         Some(Val::Expr(hir::Expr::new(K::Call(f, vec![borrow, item]), Type::Bool)))

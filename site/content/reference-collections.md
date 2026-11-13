@@ -97,18 +97,25 @@ list usable.
 
 `xs::get(i)`, `xs::first()` and `xs::last()` give the item as a `T?`, which is
 `none` when there is no such item, so they never stop the program. They copy
-the item, so they are for items that copy (numbers, `bool`, Copy structs); a
-list of `string`s is E0901 for now. `xs::join(sep)` puts the items of a
-`string[?]` together with `sep` between them (`""` for an empty list).
+the item, so for items that copy (numbers, `bool`, Copy structs) that is all
+there is to it. For items that own memory (`string`, structs with a `string`)
+the answer is meant to be a view of the item that borrows the list;
+`copy xs::first()` gives an owned `T?` copy of it and works today. The view
+itself is **not implemented yet**: `names::first()` on a list of `string`s is
+E0901 and its message points at the `copy` form. `xs::join(sep)` puts the items
+of a `string[?]` together with `sep` between them (`""` for an empty list).
 
 <!-- example: list-methods -->
+
+<!-- example: list-owning-items -->
 
 `xs::contains(item)` is true when some item is equal to `item`. Lists and
 arrays compare with `==` and `!=`: they are equal when they have the same
 length and each item is equal to the item at its place. Items compare with
 their own `==` (numbers, `bool`, `string`, structs and lists of those; an
-enum with values is E0527). `contains` needs items that copy: on a list of
-`string`s it is E0901 for now.
+enum with values is E0527). On items that own memory, `contains` takes the
+value written with `&`, `names::contains(&name)`, so the search does not move
+it; without the `&` it is E0101.
 
 <!-- example: list-compare -->
 

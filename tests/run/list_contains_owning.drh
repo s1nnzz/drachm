@@ -1,0 +1,34 @@
+// `contains` on items that own memory takes the value lent with `&`.
+in io;
+
+struct Person {
+public:
+    string name;
+    uint32 age;
+}
+
+none main() {
+    string[?] names = ["Ann", "Bob"];
+    string bob = "Bob";
+    string cy = "Cy";
+    io::outln(names::contains(&bob)->text());
+    io::outln(names::contains(&cy)->text());
+    io::outln(names::contains(&"Ann")->text());
+    io::outln(bob);
+
+    string[?] empty = [];
+    io::outln(empty::contains(&bob)->text());
+
+    Person ann = "Ann", 30;
+    Person other = "Ann", 31;
+    Person[?] people = [];
+    mut Person[?] crowd = people;
+    crowd::push(copy ann);
+    io::outln(crowd::contains(&ann)->text());
+    io::outln(crowd::contains(&other)->text());
+
+    string[2] pair = ["x", "y"];
+    string y = "y";
+    io::outln(pair::contains(&y)->text());
+    io::outln(names::contains(&bob)->text());
+}

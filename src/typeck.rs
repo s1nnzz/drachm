@@ -1408,6 +1408,8 @@ struct Checker<'a> {
     /// Locals that do not have all their fields yet: a constructor's `self`,
     /// and a value inside its `fill` block.
     filling: Vec<LocalId>,
+    /// `copy xs::first()` is being checked: an item that owns memory is copied out.
+    copying_item: bool,
     /// Inside `now e`, where reading a field already set is allowed.
     now_depth: u32,
     /// The `self` of the constructor being checked.
@@ -1480,6 +1482,7 @@ impl<'a> Checker<'a> {
             targets: Vec::new(),
             labels: 0,
             filling: Vec::new(),
+            copying_item: false,
             now_depth: 0,
             ctor_self: None,
         }
@@ -2902,6 +2905,15 @@ impl<'a> Checker<'a> {
 
     /// `copy e`.
     fn copy_expr(&mut self, e: &ast::Expr, inner: &ast::Expr) -> Option<Val> {
+        // `copy names::first()`: the item of the list, copied out as an owned `T?`.
+        if let ExprKind::Method { name, .. } = &inner.kind
+            && matches!(name.as_str(), "get" | "first" | "last")
+        {
+            let before = std::mem::replace(&mut self.copying_item, true);
+            let v = self.expr(inner);
+            self.copying_item = before;
+            return v;
+        }
         if !ast_place(inner) {
             let text = self.quote(inner.span, "this value");
             self.diags.push(

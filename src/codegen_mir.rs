@@ -1589,7 +1589,7 @@ impl Cg<'_, '_> {
                 let (hit, join) = (self.b.create_block(), self.b.create_block());
                 self.b.ins().brif(found, hit, &[], join, &[]);
                 self.b.switch_to_block(hit);
-                self.copy_bits(elem, out, p);
+                self.copy_item(elem, out, p);
                 self.b.ins().jump(join, &[]);
                 self.b.switch_to_block(join);
                 self.item_done(elem, dest, tmp);
