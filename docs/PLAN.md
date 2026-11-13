@@ -823,7 +823,9 @@ a lone `.drh` file with no `drachm.toml` now takes the script default
 `unhandled_fail = crash` (`config::open`, `Home::Bare`; the E0544 interim is
 gone). The golden cases that need E0544 are projects with `unhandled_fail =
 "error"`: `tests/projects/fail_unhandled_*`. `tests/fail/script_unhandled` moved
-to `tests/run/script_unhandled_crash` (it compiles and stops now).
+to `tests/scripts/unhandled_crash` (it compiles and stops now; `NAME.err` lists
+the stderr lines a script must print). `drachm::front` (a source string) takes
+the lone-file settings too.
 Under `overflow = saturate` a negative shift amount shifts the other way
 (`runtime/runtime.c` `drachm_ovf_shift`: the exact result clamps; a constant
 `8 << -1` folds in `typeck.rs` `binary_vals`, where an untyped constant
