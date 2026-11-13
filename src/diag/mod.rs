@@ -5,7 +5,7 @@ pub mod codes;
 mod render;
 
 pub use codes::Code;
-pub use render::{render, render_all};
+pub use render::{render, render_all, render_all_map};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Span {
@@ -123,5 +123,79 @@ impl Source {
 
     pub fn line_count(&self) -> usize {
         self.line_starts.len()
+    }
+}
+
+/// Every source file of a build in one byte-offset space. File `k` occupies
+/// `base(k) .. base(k) + len`, and the next file starts one byte later, so a
+/// `Span` names its file by position alone and stays two words wide. The first
+/// file starts at 0: a one-file build has the same spans as before.
+#[derive(Default)]
+pub struct SourceMap {
+    files: Vec<(usize, Source)>,
+}
+
+impl SourceMap {
+    pub fn new() -> Self {
+        SourceMap::default()
+    }
+
+    /// A map of one file.
+    pub fn single(name: impl Into<String>, text: impl Into<String>) -> Self {
+        let mut m = SourceMap::new();
+        m.add(name, text);
+        m
+    }
+
+    /// The offset the next added file will start at.
+    pub fn next_base(&self) -> usize {
+        self.files.last().map_or(0, |(b, s)| b + s.text.len() + 1)
+    }
+
+    /// Add a file; returns its id and its base offset.
+    pub fn add(&mut self, name: impl Into<String>, text: impl Into<String>) -> (usize, usize) {
+        let base = self.next_base();
+        self.files.push((base, Source::new(name, text)));
+        (self.files.len() - 1, base)
+    }
+
+    pub fn len(&self) -> usize {
+        self.files.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.files.is_empty()
+    }
+
+    pub fn base(&self, file: usize) -> usize {
+        self.files[file].0
+    }
+
+    pub fn source(&self, file: usize) -> &Source {
+        &self.files[file].1
+    }
+
+    /// The file holding global offset `offset` (the last file for one past the end).
+    pub fn file_of(&self, offset: usize) -> usize {
+        self.files.partition_point(|(b, _)| *b <= offset).saturating_sub(1)
+    }
+
+    /// The file of a span and the span within that file.
+    pub fn locate(&self, span: Span) -> (usize, Span) {
+        let f = self.file_of(span.start);
+        let b = self.base(f);
+        let start = span.start - b;
+        (f, Span::new(start, span.end.saturating_sub(b).max(start)))
+    }
+
+    /// `name:line:column` of a global offset.
+    pub fn position(&self, offset: usize) -> String {
+        let f = self.file_of(offset);
+        let src = self.source(f);
+        let local = offset - self.base(f);
+        let line = src.line_of(local);
+        let (ls, le) = src.line_range(line);
+        let col = src.text[ls..local.min(le)].chars().count() + 1;
+        format!("{}:{}:{col}", src.name, line + 1)
     }
 }

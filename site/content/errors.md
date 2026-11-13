@@ -345,6 +345,52 @@ A `static` method is called on the struct (`Point::origin()`); every
 other method is called on a value (`p::length()`). This call used the
 wrong one.
 
+## E0230: module not found
+
+An `in` names a module that is neither a standard module (`io`, `si`)
+nor a file of the project. A path is relative to the folder of the file
+that writes it: `in game.physics;` (or `in physics inside game;`) means
+the file `game/physics.drh` beside this one. To start from the source
+folder of the project, begin with the project's name from `drachm.toml`:
+
+    in mygame.game.physics;
+
+A module file name must be a plain name (letters, digits, `_`).
+
+## E0231: module name is ambiguous
+
+An `in` path matches two places: a standard module and a file of the
+project (a file `math.drh` beside the importer and the standard `math`),
+or the project's own name and a folder of that name. Drachm does not
+pick one silently, so adding a standard module later can never change
+what a program means. Rename the file or folder.
+
+## E0232: two imports with the same name
+
+Two `in` lines give different modules the same name in one file, for
+example `game/audio.drh` and `engine/audio.drh` are both `audio`. Rename
+one with `as`:
+
+    in game.audio;
+    in engine.audio as engineAudio;
+
+## E0233: exported twice
+
+A name is exported more than once from one file, with `out` before the
+declaration and again in an `out` list, or in two lists. The name other
+files see (after `as`) must be unique in the file.
+
+## E0234: exporting a name that does not exist
+
+An `out` list names something this file does not declare. Only the
+functions, structs, enums, interfaces, failures and units written in the
+file can be exported.
+
+## E0235: cannot read a module file
+
+The file an `in` points at exists but could not be read (permissions,
+or it is not valid UTF-8 text).
+
 ## E0308: which parameter the result borrows from is ambiguous
 
 A function that returns a borrow gets its `lives` from its body when only

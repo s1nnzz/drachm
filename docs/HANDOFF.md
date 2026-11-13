@@ -42,7 +42,9 @@ For a new session with no memory of earlier conversations. Read this, then
 - Still undesigned: `exclusive &Shape`, `unit U with X`. Not built: map-walk
   views, interface methods with their own type parameters, borrowing a generic
   interface.
-- **Next after that: step 7** (modules, config, scripts, stdlib): needs a spec
+- **Step 7 started** (WP1 built, see PLAN "Step 7 progress"): the module graph
+  loads files; names across files are WP2. Spec: `docs/impl/step7-modules.md`.
+  Originally: modules, config, scripts, stdlib needed a spec
   (drachm-architect) and an owner question round first. Today only `io` and
   `si` exist (hardcoded in `src/typeck.rs` `check`; `si` is
   `src/prelude/si.drh`).

@@ -1,0 +1,4 @@
+in io;
+in game.physiks;
+
+none main() { io::outln("x"); }

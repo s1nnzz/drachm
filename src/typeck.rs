@@ -486,15 +486,23 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
     let mut g = Globals { unsafe_allowed: prog.unsafe_allowed, ..Globals::default() };
     let mut si = false;
     for import in &prog.imports {
-        if import.module == "io" {
-            g.io_imported = true;
-        } else if import.module == "si" {
-            si = true;
-        } else {
-            diags.push(
-                Diagnostic::at(&codes::E0201, import.span, format!("unknown module `{}`", import.module))
-                    .help("`io` and `si` are the only modules so far"),
-            );
+        match import.plain_name() {
+            Some("io") => g.io_imported = true,
+            Some("si") => si = true,
+            // Project files are loaded by `modules`; checking names across
+            // files is step 7's WP2.
+            _ if import.path.len() > 1 || !import.items.is_empty() || import.glob || import.alias.is_some() => {
+                diags.push(
+                    Diagnostic::at(&codes::E0901, import.span, "this form of `in` is not supported yet")
+                        .help("only `in io;` and `in si;` can be checked so far; imports of project files and items come with the name scopes of step 7"),
+                );
+            }
+            _ => {
+                diags.push(
+                    Diagnostic::at(&codes::E0201, import.span, format!("unknown module `{}`", import.path.join(".")))
+                        .help("`io` and `si` are the only modules so far"),
+                );
+            }
         }
     }
 

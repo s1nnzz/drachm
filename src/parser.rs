@@ -12,6 +12,7 @@ pub fn parse(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>) -> Program {
     let mut p = Parser { tokens, pos: 0, diags, optionals: Vec::new(), generics: Vec::new() };
     let mut program = Program {
         imports: Vec::new(),
+        exports: Vec::new(),
         units: Vec::new(),
         funcs: Vec::new(),
         structs: Vec::new(),
@@ -27,8 +28,21 @@ pub fn parse(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>) -> Program {
     };
     while p.peek() != &Tok::Eof {
         let start = p.pos;
+        // `out` before a declaration (`out struct Vector3 { }`) exports it.
+        let out_span = if p.peek() == &Tok::Kw("out") && !p.at_export_list() { Some(p.bump().span) } else { None };
+        let before = [
+            program.funcs.len(),
+            program.structs.len(),
+            program.enums.len(),
+            program.interfaces.len(),
+            program.failures.len(),
+            program.units.len(),
+            program.impls.len() + program.defs.len() + program.imports.len(),
+        ];
         let item = if p.peek() == &Tok::Kw("in") {
             p.import().map(|i| program.imports.push(i))
+        } else if p.peek() == &Tok::Kw("out") {
+            p.export_list().map(|e| program.exports.extend(e))
         } else if p.peek() == &Tok::Kw("struct") {
             p.struct_decl().map(|s| program.structs.push(s))
         } else if p.peek() == &Tok::Kw("interface") {
@@ -48,6 +62,24 @@ pub fn parse(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>) -> Program {
         } else {
             p.func().map(|f| program.funcs.push(f))
         };
+        if let (Some(out), Ok(())) = (out_span, &item) {
+            let named = match before {
+                [f, ..] if program.funcs.len() > f => program.funcs.last().map(|x| (x.name.clone(), x.name_span)),
+                [_, s, ..] if program.structs.len() > s => program.structs.last().map(|x| (x.name.clone(), x.name_span)),
+                [_, _, e, ..] if program.enums.len() > e => program.enums.last().map(|x| (x.name.clone(), x.name_span)),
+                [_, _, _, i, ..] if program.interfaces.len() > i => program.interfaces.last().map(|x| (x.name.clone(), x.name_span)),
+                [_, _, _, _, f, ..] if program.failures.len() > f => program.failures.last().map(|x| (x.name.clone(), x.name_span)),
+                [_, _, _, _, _, u, _] if program.units.len() > u => program.units.last().map(|x| (x.name.clone(), x.name_span)),
+                _ => None,
+            };
+            match named {
+                Some((name, at)) => program.exports.push(Export { name, alias: None, span: out.to(at), on_decl: true }),
+                None => p.diags.push(
+                    Diagnostic::at(&codes::E0003, out, "`out` cannot go here")
+                        .help("write `out` before a function, struct, enum, interface, failure or unit, or list names: `out A, B;`"),
+                ),
+            }
+        }
         if let Err(d) = item {
             p.diags.push(d);
             // Skip to something that looks like the start of the next item.
@@ -815,6 +847,22 @@ impl Parser<'_> {
         }
         match self.peek() {
             Tok::Kw("in" | "struct" | "enum" | "failure" | "interface") => true,
+            // `out` is also a parameter word: only an export list or `out`
+            // before a whole declaration counts.
+            Tok::Kw("out") => {
+                self.at_export_list()
+                    || matches!(self.peek_at(1), Tok::Kw("struct" | "enum" | "failure" | "interface"))
+                    || {
+                        let from = 1 + (self.peek_at(1) == &Tok::Kw("unsafe")) as usize;
+                        match self.type_end(from) {
+                            Some(n) => matches!(self.peek_at(n), Tok::Ident(_)) && {
+                                let after = self.tparams_end(n + 1).unwrap_or(n + 1);
+                                self.peek_at(after) == &Tok::Sym("(")
+                            },
+                            None => false,
+                        }
+                    }
+            }
             Tok::Ident(_) | Tok::Kw("none" | "unsafe") | Tok::Sym("&" | "&&" | "*" | "**" | "(") => {
                 let from = (self.peek() == &Tok::Kw("unsafe")) as usize;
                 match self.type_end(from) {
@@ -900,11 +948,130 @@ impl Parser<'_> {
         Ok(out)
     }
 
+    /// A dotted name: `game.physics`.
+    fn dotted(&mut self, what: &str) -> Parsed<(Vec<String>, Span)> {
+        let (first, start) = self.ident(what)?;
+        let mut parts = vec![first];
+        let mut end = start;
+        while self.peek() == &Tok::Sym(".") && matches!(self.peek_at(1), Tok::Ident(_)) {
+            self.bump();
+            let (name, at) = self.ident(what)?;
+            parts.push(name);
+            end = at;
+        }
+        Ok((parts, start.to(end)))
+    }
+
+    /// A module path, dotted or in words: `game.physics` or `physics inside
+    /// game.sound` (outermost folder first in the result).
+    fn module_path(&mut self) -> Parsed<(Vec<String>, Span, bool)> {
+        let (mut path, mut span) = self.dotted("a module name")?;
+        if matches!(self.peek(), Tok::Ident(w) if w == "inside") {
+            self.bump();
+            let (mut outer, outer_span) = self.dotted("the folder the module is inside")?;
+            outer.append(&mut path);
+            return Ok((outer, span.to(outer_span), true));
+        }
+        span = span.to(self.prev_span());
+        Ok((path, span, false))
+    }
+
+    /// `in` items; see `ast::Import` for the forms.
     fn import(&mut self) -> Parsed<Import> {
         let start = self.bump().span;
-        let (module, _) = self.ident("a module name")?;
+        let help = "write `in io;`, `in game.physics as phys;`, `in Vector3 as V3, gravity from physics;` or `in * from game.audio;`";
+        if self.eat("*") {
+            if !self.eat_kw("from") {
+                return Err(self.unexpected("`from` after `*`").help(help));
+            }
+            let (path, path_span, word_form) = self.module_path()?;
+            let alias = self.alias()?;
+            self.expect(";")?;
+            return Ok(Import { path, path_span, word_form, items: Vec::new(), glob: true, alias, span: start.to(self.prev_span()) });
+        }
+        // The first names, as dotted paths for now: `in a.b as c;` is a module,
+        // `in a as b, c from m;` is a list of items. `from` tells them apart.
+        let mut entries: Vec<(Vec<String>, Span, Option<(String, Span)>)> = Vec::new();
+        loop {
+            let (path, span) = self.dotted("a module or item name")?;
+            let alias = self.alias()?;
+            entries.push((path, span, alias));
+            if !self.eat(",") {
+                break;
+            }
+        }
+        if self.eat_kw("from") {
+            let mut items = Vec::new();
+            for (path, span, alias) in entries {
+                if path.len() != 1 {
+                    return Err(Diagnostic::at(&codes::E0003, span, "an imported item is a single name, not a path")
+                        .help("name the module after `from`: `in Vector3 from game.physics;`"));
+                }
+                let full = alias.as_ref().map_or(span, |a| span.to(a.1));
+                items.push(ImportItem { name: path.into_iter().next().unwrap(), alias: alias.map(|a| a.0), span: full });
+            }
+            let (path, path_span, word_form) = self.module_path()?;
+            if self.peek() == &Tok::Kw("as") {
+                return Err(self
+                    .unexpected("`;`")
+                    .help("rename an item next to its name: `in Vector3 as V3 from physics;`, or import the module with its own name: `in physics as phys;`"));
+            }
+            self.expect(";")?;
+            return Ok(Import { path, path_span, word_form, items, glob: false, alias: None, span: start.to(self.prev_span()) });
+        }
+        if entries.len() != 1 {
+            return Err(self.unexpected("`from` after the imported names").help(help));
+        }
+        let (mut path, mut path_span, alias) = {
+            let (p, s, a) = entries.pop().unwrap();
+            (p, s, a)
+        };
+        let mut word_form = false;
+        if alias.is_none() && matches!(self.peek(), Tok::Ident(w) if w == "inside") {
+            self.bump();
+            let (mut outer, outer_span) = self.dotted("the folder the module is inside")?;
+            outer.append(&mut path);
+            path = outer;
+            path_span = path_span.to(outer_span);
+            word_form = true;
+        }
+        let alias = if alias.is_none() { self.alias()? } else { alias };
         self.expect(";")?;
-        Ok(Import { module, span: start.to(self.prev_span()) })
+        Ok(Import { path, path_span, word_form, items: Vec::new(), glob: false, alias, span: start.to(self.prev_span()) })
+    }
+
+    /// `as name`, if written.
+    fn alias(&mut self) -> Parsed<Option<(String, Span)>> {
+        if !self.eat_kw("as") {
+            return Ok(None);
+        }
+        let (name, span) = self.ident("a name after `as`")?;
+        Ok(Some((name, span)))
+    }
+
+    /// Does an export list (`out A, B as C;`) start here, as against `out`
+    /// before a declaration?
+    fn at_export_list(&self) -> bool {
+        self.peek() == &Tok::Kw("out")
+            && matches!(self.peek_at(1), Tok::Ident(_))
+            && matches!(self.peek_at(2), Tok::Sym("," | ";") | Tok::Kw("as"))
+    }
+
+    /// `out A, B as C;`
+    fn export_list(&mut self) -> Parsed<Vec<Export>> {
+        self.bump();
+        let mut out = Vec::new();
+        loop {
+            let (name, at) = self.ident("a name to export")?;
+            let alias = self.alias()?;
+            let span = alias.as_ref().map_or(at, |a| at.to(a.1));
+            out.push(Export { name, alias: alias.map(|a| a.0), span, on_decl: false });
+            if !self.eat(",") {
+                break;
+            }
+        }
+        self.expect(";")?;
+        Ok(out)
     }
 
     fn func(&mut self) -> Parsed<Func> {
@@ -3372,5 +3539,96 @@ mod tests {
         let (s, d) = body("for (float64<m> x of xs) { }");
         assert!(d.is_empty(), "{:?}", errors(&d));
         assert!(matches!(&s[0], Stmt::ForEach { ty, .. } if type_unit(ty) == "m"));
+    }
+
+    fn import_of(src: &str) -> Import {
+        let (mut p, d) = parse_src(src);
+        assert!(d.is_empty(), "{src}: {:?}", errors(&d));
+        assert_eq!(p.imports.len(), 1);
+        p.imports.remove(0)
+    }
+
+    #[test]
+    fn import_module_forms() {
+        let i = import_of("in io;");
+        assert_eq!((i.plain_name(), i.binding()), (Some("io"), Some("io")));
+        let dotted = import_of("in game.physics;");
+        let words = import_of("in physics inside game;");
+        assert_eq!(dotted.path, ["game", "physics"]);
+        assert_eq!(words.path, dotted.path);
+        assert!(words.word_form && !dotted.word_form);
+        assert_eq!(import_of("in audio inside game.sound;").path, ["game", "sound", "audio"]);
+        let i = import_of("in game.physics as phys;");
+        assert_eq!((i.binding(), i.plain_name()), (Some("phys"), None));
+        assert_eq!(import_of("in physics inside game as phys;").binding(), Some("phys"));
+        assert_eq!(import_of("in game.physics;").binding(), Some("physics"));
+    }
+
+    #[test]
+    fn import_item_forms() {
+        let i = import_of("in Vector3 as V3, gravity from physics;");
+        assert_eq!(i.path, ["physics"]);
+        let names: Vec<_> = i.items.iter().map(|x| (x.name.as_str(), x.alias.as_deref())).collect();
+        assert_eq!(names, [("Vector3", Some("V3")), ("gravity", None)]);
+        assert_eq!(i.binding(), None);
+        assert_eq!(import_of("in Vector3 from game.physics;").path, ["game", "physics"]);
+        assert_eq!(import_of("in Vector3 from physics inside game;").path, ["game", "physics"]);
+        let g = import_of("in * from game.audio;");
+        assert!(g.glob && g.alias.is_none() && g.binding().is_none());
+        assert_eq!(import_of("in * from game.audio as audio;").binding(), Some("audio"));
+    }
+
+    #[test]
+    fn import_syntax_errors() {
+        for src in [
+            "in;",
+            "in game.;",
+            "in a, b;",
+            "in game.Vector3 from physics;",
+            "in Vector3 from physics as p;",
+            "in * game.audio;",
+            "in physics inside;",
+            "in Vector3 as from physics;",
+        ] {
+            let (_, d) = parse_src(src);
+            assert!(!d.is_empty(), "{src} should not parse");
+        }
+    }
+
+    #[test]
+    fn export_forms() {
+        let (p, d) = parse_src("out Vector3 as Vec3, gravity;\nout audio;\nout struct S { }\nout none f() { }\nout enum E { A }\nout interface I { }\nout failure F { A \"x\" }\nout unit furlong = 201.168 m;\nstruct T { }\n");
+        assert!(d.is_empty(), "{:?}", errors(&d));
+        let shown: Vec<_> = p.exports.iter().map(|e| (e.name.as_str(), e.shown_as(), e.on_decl)).collect();
+        assert_eq!(
+            shown,
+            [
+                ("Vector3", "Vec3", false),
+                ("gravity", "gravity", false),
+                ("audio", "audio", false),
+                ("S", "S", true),
+                ("f", "f", true),
+                ("E", "E", true),
+                ("I", "I", true),
+                ("F", "F", true),
+                ("furlong", "furlong", true),
+            ]
+        );
+        assert_eq!(p.structs.len(), 2);
+    }
+
+    #[test]
+    fn export_errors_and_params_still_work() {
+        for src in ["out;", "out A as;", "out in io;", "out Foo with Bar { }", "out A B;"] {
+            let (_, d) = parse_src(src);
+            assert!(!d.is_empty(), "{src} should not parse");
+        }
+        // a failed function still resyncs.
+        let (p, d) = parse_src("none f(uint32 x) { }\nnone g() { }");
+        assert!(d.is_empty(), "{:?}", errors(&d));
+        assert_eq!(p.funcs.len(), 2);
+        let (p, d) = parse_src("none ??? f(uint32 x) { }\nnone g() { }");
+        assert!(!d.is_empty());
+        assert!(p.funcs.iter().any(|f| f.name == "g"));
     }
 }

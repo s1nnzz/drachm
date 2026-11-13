@@ -883,23 +883,39 @@ async none main() {
 
 ```cpp
 // src/game/physics.drh
-out Vector3, gravity;               // export list; everything else is private
+out Vector3 as Vec3, step;          // export list (anywhere in the file; may rename)
+out struct Particle { Vector3 at; } // or `out` on the declaration
 struct Vector3 { float64 x; float64 y; float64 z; }
+none step() { }
 
 // another file
-in io;                              // whole module
-in physics from game as phys;       // renamed
-in Vector3 from phys as v3;         // one item, renamed
-in * from game.audio as audio;      // everything under one name
-in * from game.audio;               // everything straight into scope
+in io;                                   // whole module
+in game.physics as phys;                 // module, renamed
+in physics inside game as phys;          // the same, in words
+in Vector3 as V3, gravity from physics;  // items, each may be renamed
+in * from game.audio as audio;           // everything under one name
+in * from game.audio;                    // everything straight into scope
+in mygame.game.physics;                  // from the source root: starts with the project name
 
 phys::Vector3 v = 1, 2, 3;
 ```
 
 - Any file that exports something is a module.
 - Dots for path-like things (module paths); `::` for call-like (`phys::Vector3`, `io::out`).
+  Dotted and word forms (`game.physics`, `physics inside game`) are the same path.
+- A path is relative to the importing file's folder; one that starts with the
+  project's name from the config starts at the source folder. (Climbing a folder up
+  has no form yet.) A standard module and a project file of one name is an error.
 - Nothing is auto-imported in projects, not even `io`.
-- `in *` name clashes: config `import_clash` = warn | error.
+- Two modules of one file name in one file: an error at the second import, fix-it `as`.
+- A local declaration with a module's name shadows the module, with a warning.
+- `in *` name clashes (`import_clash` = warn | error): a local declaration wins,
+  then the first import; the warning is at the later import.
+- `X with I { }` blocks and `def`s follow the type.
+- Import cycles are allowed; cross-file mutual recursion is an error.
+- Built (step 7 WP1): paths, loading, the graph, `out` lists and `out` on
+  declarations (checked for duplicates and unknown names). Names across files:
+  not yet (WP2).
 - C headers: `in * from c."SDL2/SDL.h" as sdl;`
 
 ## 10. Projects, config, scripts, tooling

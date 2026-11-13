@@ -12,7 +12,7 @@
 //!  help: finish using `first` before changing `xs`
 //! ```
 
-use super::{Diagnostic, Severity, Source};
+use super::{Diagnostic, Severity, Source, SourceMap};
 
 const TAB: &str = "    ";
 
@@ -160,6 +160,50 @@ pub fn render_all(diags: &[Diagnostic], src: &Source, color: bool) -> String {
     out
 }
 
+/// `render_all` for a build of several files. Each diagnostic is shown in the
+/// file of its primary label; a label in another file becomes a note that
+/// names the place (`also src/a.drh:3:1: the first import`).
+pub fn render_all_map(diags: &[Diagnostic], map: &SourceMap, color: bool) -> String {
+    let mut order: Vec<&Diagnostic> = diags.iter().collect();
+    order.sort_by_key(|d| d.labels.first().map_or(0, |l| l.0.start));
+    let mut out = String::new();
+    for d in order {
+        let file = d.labels.first().map_or(0, |l| map.file_of(l.0.start));
+        let mut local = Diagnostic {
+            severity: d.severity,
+            code: d.code,
+            message: d.message.clone(),
+            labels: Vec::new(),
+            notes: d.notes.clone(),
+            help: d.help.clone(),
+        };
+        for (span, text) in &d.labels {
+            if map.file_of(span.start) == file {
+                local.labels.push((map.locate(*span).1, text.clone()));
+            } else {
+                let at = map.position(span.start);
+                local.notes.push(if text.is_empty() { format!("also {at}") } else { format!("also {at}: {text}") });
+            }
+        }
+        out += &render(&local, map.source(file), color);
+        out.push('\n');
+    }
+    let errors = diags.iter().filter(|d| d.is_error()).count();
+    let warnings = diags.len() - errors;
+    let plural = |n: usize, w: &str| format!("{n} {w}{}", if n == 1 { "" } else { "s" });
+    let mut parts = Vec::new();
+    if errors > 0 {
+        parts.push(plural(errors, "error"));
+    }
+    if warnings > 0 {
+        parts.push(plural(warnings, "warning"));
+    }
+    if !parts.is_empty() && !map.is_empty() {
+        out += &format!("{}: {}\n", map.source(0).name, parts.join(", "));
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -220,6 +264,28 @@ error[E0003]: m
 
         let d = Diagnostic::new(&codes::E0204, "no `main` function").help("add one");
         assert_eq!(render(&d, &src, false), "error[E0204]: no `main` function\n  --> t.drh\n help: add one\n");
+    }
+
+    #[test]
+    fn source_map_two_files() {
+        let mut map = SourceMap::new();
+        let (a, abase) = map.add("src/main.drh", "in util;\nnone main() { }\n");
+        let (b, bbase) = map.add("src/util.drh", "none f() { }\n");
+        assert_eq!((a, abase, b, bbase), (0, 0, 1, 26));
+        assert_eq!(map.file_of(25), 0);
+        assert_eq!(map.file_of(26), 1);
+        assert_eq!(map.position(bbase + 5), "src/util.drh:1:6");
+        let d = Diagnostic::at(&codes::E0201, Span::new(abase + 3, abase + 7), "unknown module").label(Span::new(bbase + 5, bbase + 6), "defined here");
+        let want = "\
+error[E0201]: unknown module
+  --> src/main.drh:1:4
+   |
+ 1 | in util;
+   |    ^^^^
+   |
+ note: also src/util.drh:1:6: defined here
+";
+        assert_eq!(render_all_map(&[d], &map, false), format!("{want}\nsrc/main.drh: 1 error\n"));
     }
 
     #[test]

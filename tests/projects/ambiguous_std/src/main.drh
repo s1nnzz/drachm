@@ -1,0 +1,3 @@
+in io;
+
+none main() { io::outln("x"); }

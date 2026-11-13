@@ -1,0 +1,4 @@
+error[E0230]: module `game.physiks` not found
+--> src/main.drh:2:4
+looked for the file `src/game/physiks.drh`
+begin with `missing_module`

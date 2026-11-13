@@ -1,0 +1,5 @@
+out none a() { }
+out a;
+out Nothing;
+out none b() { }
+out b as a;

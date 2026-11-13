@@ -25,7 +25,7 @@ answers into `docs/SPEC.md` and the design doc, and note leftovers under that st
 | 4.6 | Input: `io::inln()`, `io::ended()`, text `::to<T>()` | done (interim: bad text stops the program with exit 101; forgiving number text (spaces, `+`, `.5`); `\r\n` lines; invalid UTF-8 becomes U+FFFD) |
 | 5 | Constructors, enums, `fails` / `maybe` | done (the `crash` setting of `unhandled_fail` waits for step 7): S5A.1 done (enums with data, `match` with bindings/`take`/`copy`/guards/nesting/alternatives/values, exhaustiveness, `Switch`; `==` for payload-free enums) and S5B done (constructors, overloads, `new ... of`, named values, `Person(auto);`, `fill`, `fill partial`, `def`, `defaults`, `now`); optionals done (S5A.2, below); failures done (S5C and S5D, below: `failure`, `fails`, `fail`, `maybe`/`fails` on calls, handlers, `because`, `ConvertError`, exit codes, failing constructors and `drop()`) |
 | 6 | Generics, interfaces, collections | done (S6Z sweep, 2026-11-13): generic functions, structs and enums (inferred and written type arguments, borrows as type arguments, units); interfaces (`with`, `and`, `extends`, `Self`, `changes self`, built-in `Zero`/`Equal`/`Ordered`/`Text`, `with trusted`, generic interfaces, `&Shape` with vtables, `Iterable<T>` with `at(i)`); arrays, lists and maps (indexing, the methods, `take xs[i] reorders`, views of owning items, scalar and composite keys with `key()`, two-variable walks, `each`); function types, lambdas with inferred captures. The interims still open are listed in the step 6 section, each with its question number |
-| 7 | Modules, config, scripts, stdlib | not started |
+| 7 | Modules, config, scripts, stdlib | in progress: WP1 done (source map with global offsets, import/export grammar, `src/modules.rs` graph loader, project folders, E0230-E0235; a program of several files stops at E0901 until WP2 resolves names across files); spec `docs/impl/step7-modules.md` |
 | 7.5 | MIR optimiser: SSA, inlining, scalar replacement, constant folding, loop opts, check elimination, alias info from borrows | not started |
 | 8 | Language server | not started |
 | D | Documentation site (cross-cutting) | live locally: lessons 1-9, reference, design pages with status badges |
@@ -724,6 +724,18 @@ behaviour in golden tests.
 Decided (2026-11-10): scripts JIT in memory (`cranelift-jit`), shebang
 lines, local imports, deps in `srachm.toml` and via `//--!$dep name: ver`,
 `os-cpu` target names, `drachm fmt` with few knobs and no `=` alignment.
+
+**Step 7 progress (WP1, built):** `diag::SourceMap` (one byte-offset space, first
+file at 0, so single-file spans and output are unchanged; `render_all_map`),
+`Import` with path / items / glob / alias and `Program.exports`, `modules::load`
+(owner paths: relative to the importing file's folder, project name for the
+root, dots = words, cycles load each file once), `drachm build|run|check
+FOLDER`. Interims (narrowest readings): the project name is read from
+`[project] name` of `drachm.toml` by a small scanner until WP3 (`toml` crate);
+no way to climb a folder up; re-exporting an imported name and `out` on a
+`with` block or `def` are E0901 / rejected; the same-name import check (Q6)
+covers module imports, item clashes wait for WP2; cross-file mutual recursion
+(Q8) is a WP2 check. Next: WP2 (scoped names), then the rest.
 
 **Open (ask owner):** the full `[warnings]` name list (grows as warnings are added).
 
