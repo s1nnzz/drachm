@@ -248,6 +248,21 @@ impl UnitTable {
         self.intern(unit, false, text)
     }
 
+    /// The unit `x` with `x^k` equal to `a`, for a nonzero `k`, when there is
+    /// one: every exponent of `a` divides by `k` and its scale has an exact
+    /// `k`-th root. `None` otherwise (and for a point unit).
+    pub fn root(&mut self, a: &'static Unit, k: i32) -> Option<&'static Unit> {
+        if k == 0 || !a.offset.is_zero() || a.dim.iter().any(|(_, e)| e % k != 0) {
+            return None;
+        }
+        let n = k.unsigned_abs();
+        let base = if k < 0 { a.scale.recip() } else { a.scale.clone() };
+        let scale = exact_root(&base, n)?;
+        let dim: Vec<(&'static str, i32)> = a.dim.iter().map(|&(name, e)| (name, e / k)).collect();
+        let text = Unit { dim: dim.clone(), scale: scale.clone(), offset: BigRational::zero() }.to_string();
+        Some(self.intern(Unit { dim, scale, offset: BigRational::zero() }, false, text))
+    }
+
     /// Resolve a unit expression as written. Names must be declared.
     pub fn eval(&mut self, e: &UnitExprText) -> Result<&'static Unit, UnitError> {
         match e {
@@ -292,6 +307,15 @@ fn merge(a: &Unit, b: &Unit, sign: i64) -> Result<Vec<(&'static str, i32)>, Unit
         }
     }
     Ok(dim)
+}
+
+/// The exact `n`-th root of a positive rational, if it has one.
+fn exact_root(r: &BigRational, n: u32) -> Option<BigRational> {
+    let root = |x: &BigInt| {
+        let q = x.nth_root(n);
+        (num_traits::pow(q.clone(), n as usize) == *x).then_some(q)
+    };
+    Some(BigRational::new(root(r.numer())?, root(r.denom())?))
 }
 
 /// How many of `to` make one `from`, when both have the same dimension.

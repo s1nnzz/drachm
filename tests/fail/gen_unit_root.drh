@@ -1,0 +1,11 @@
+in io;
+in si;
+
+// `U*U/s` needs `U` squared: `m/s` has no `U` that makes it.
+float64<U> sq<unit U>(float64<U*U/s> v) {
+    return v;
+}
+
+none main() {
+    io::outln(f"${sq(3.0<m/s>)::text()}");
+}

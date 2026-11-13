@@ -1,0 +1,11 @@
+in io;
+in si;
+
+// One argument shows two unit parameters in one unit: no way to tell them apart.
+float64<U> two<unit U, unit Q>(float64<U*Q> v) {
+    return v;
+}
+
+none main() {
+    io::outln(f"${two(3.0<m/s>)::text()}");
+}

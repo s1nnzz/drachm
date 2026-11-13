@@ -33,6 +33,7 @@ use crate::ast::{self, ExprKind};
 use crate::diag::{codes, Diagnostic, Span};
 use crate::hir::{self, FuncId};
 use crate::types::{self, Type};
+use crate::units::Unit;
 
 /// How many instances may be nested: the body of one makes another.
 pub(super) const MAX_DEPTH: usize = 64;
@@ -220,11 +221,103 @@ fn unit_mentions(tparams: &[ast::TypeParam], e: &ast::UnitExpr) -> bool {
     }
 }
 
-/// A parameter type that puts a unit parameter inside a bigger unit
-/// (`float64<U/s>`, `Vec3<float64, unit U/s>`): inference cannot work that out yet.
-fn compound_unit(tparams: &[ast::TypeParam], p: &ast::TypeName) -> bool {
-    let compound = |spec: &Option<ast::UnitSpec>| spec.as_ref().is_some_and(|s| unit_mentions(tparams, &s.expr) && bare_unit_param(tparams, s).is_none());
-    compound(&p.unit) || compound(&p.unit_arg) || p.args.iter().any(|a| compound_unit(tparams, a))
+/// A unit spec that puts a unit parameter inside a bigger unit (`U/s`), as
+/// opposed to the bare parameter (`U`).
+fn compound_spec(tparams: &[ast::TypeParam], s: &ast::UnitSpec) -> bool {
+    unit_mentions(tparams, &s.expr) && bare_unit_param(tparams, s).is_none()
+}
+
+/// A parameter type that puts a unit parameter inside a `delta` (`delta U`),
+/// which is not worked out yet.
+fn delta_unit(tparams: &[ast::TypeParam], p: &ast::TypeName) -> bool {
+    let delta = |spec: &Option<ast::UnitSpec>| spec.as_ref().is_some_and(|s| s.delta && unit_mentions(tparams, &s.expr));
+    delta(&p.unit) || delta(&p.unit_arg) || p.args.iter().any(|a| delta_unit(tparams, a))
+}
+
+/// The unit parameters a unit expression names, each once, in order.
+fn unit_param_names(tparams: &[ast::TypeParam], e: &ast::UnitExpr, out: &mut Vec<String>) {
+    match e {
+        ast::UnitExpr::Name(n, _) => {
+            if tparams.iter().any(|tp| tp.is_unit && tp.name == *n) && !out.contains(n) {
+                out.push(n.clone());
+            }
+        }
+        ast::UnitExpr::One(_) => {}
+        ast::UnitExpr::Mul(a, b) | ast::UnitExpr::Div(a, b) => {
+            unit_param_names(tparams, a, out);
+            unit_param_names(tparams, b, out);
+        }
+        ast::UnitExpr::Pow(b, _, _) => unit_param_names(tparams, b, out),
+    }
+}
+
+/// The power a unit expression raises the unit parameter `name` to: `U/s` is 1,
+/// `U*U/s` is 2, `U/U` is 0.
+fn unit_exp(e: &ast::UnitExpr, name: &str) -> i32 {
+    match e {
+        ast::UnitExpr::Name(n, _) => i32::from(n == name),
+        ast::UnitExpr::One(_) => 0,
+        ast::UnitExpr::Mul(a, b) => unit_exp(a, name) + unit_exp(b, name),
+        ast::UnitExpr::Div(a, b) => unit_exp(a, name) - unit_exp(b, name),
+        ast::UnitExpr::Pow(b, n, _) => n * unit_exp(b, name),
+    }
+}
+
+/// The unit parameters among `names` that are bound so far, as a message
+/// says them (`` `U` is `m` ``).
+fn bound_names(tparams: &[ast::TypeParam], bound: &[Option<(Type, usize)>], names: &[String]) -> String {
+    let parts: Vec<String> = names
+        .iter()
+        .filter_map(|n| {
+            let k = tparams.iter().position(|tp| tp.name == *n)?;
+            let (t, _) = bound[k]?;
+            Some(format!("`{n}` = `{}`", show_arg(&t)))
+        })
+        .collect();
+    if parts.is_empty() { "no unit parameter given yet".to_string() } else { parts.join(" and ") }
+}
+
+/// A unit expression as written, for messages (`U/s`, `U*V^2`).
+fn unit_text(e: &ast::UnitExpr) -> String {
+    match e {
+        ast::UnitExpr::Name(n, _) => n.clone(),
+        ast::UnitExpr::One(_) => "1".to_string(),
+        ast::UnitExpr::Mul(a, b) => format!("{}*{}", unit_text(a), paren_unit(b)),
+        ast::UnitExpr::Div(a, b) => format!("{}/{}", unit_text(a), paren_unit(b)),
+        ast::UnitExpr::Pow(b, n, _) => format!("{}^{n}", paren_unit(b)),
+    }
+}
+
+fn paren_unit(e: &ast::UnitExpr) -> String {
+    match e {
+        ast::UnitExpr::Mul(..) | ast::UnitExpr::Div(..) => format!("({})", unit_text(e)),
+        _ => unit_text(e),
+    }
+}
+
+/// The compound unit parameters inside a parameter's type, for an argument of
+/// type `ty` at position `i`: `(i, spec, unit)` for each that has a unit.
+fn compound_of<'a>(g: &Globals, tparams: &[ast::TypeParam], p: &'a ast::TypeName, ty: Type, i: usize, out: &mut Vec<(usize, &'a ast::UnitSpec, &'static Unit)>) {
+    let inner = peel(g, p, ty);
+    if let Some(s) = p.unit.as_ref().filter(|s| compound_spec(tparams, s))
+        && let Some(u) = inner.unit()
+    {
+        out.push((i, s, u));
+    }
+    if let Some(s) = p.unit_arg.as_ref().filter(|s| compound_spec(tparams, s))
+        && let Some(u) = inner.as_unit_arg()
+    {
+        out.push((i, s, u));
+    }
+    if !p.args.is_empty()
+        && let Some((name, targs)) = g.mono.origin.get(&inner)
+        && *name == p.name
+        && targs.len() == p.args.len()
+    {
+        for (pa, ta) in p.args.iter().zip(targs) {
+            compound_of(g, tparams, pa, *ta, i, out);
+        }
+    }
 }
 
 /// A type or unit as a message shows it: a unit by its name.
@@ -478,11 +571,10 @@ impl Checker<'_> {
             );
             return fail(self);
         }
-        if let Some(p) = params.iter().find(|p| compound_unit(&tparams, p)) {
+        if let Some(p) = params.iter().find(|p| delta_unit(&tparams, p)) {
             self.diags.push(
-                Diagnostic::at(&codes::E0901, p.span, "a unit parameter inside a bigger unit is not supported yet")
-                    .note("the compiler cannot work out the unit parameter from this parameter")
-                    .help("write the parameter as the whole unit, for example `float64<U>`"),
+                Diagnostic::at(&codes::E0901, p.span, "a delta of a unit parameter is not supported yet")
+                    .help("write the parameter as the unit itself, for example `float64<U>`"),
             );
             return fail(self);
         }
@@ -526,13 +618,23 @@ impl Checker<'_> {
             pre.push(Pre::Done(v));
         }
         if !explicit {
+            // Units inside a bigger unit (`float64<U/s>`), solved below.
+            let mut compound: Vec<(usize, &ast::UnitSpec, &'static Unit)> = Vec::new();
             // The first argument that has a type decides.
             for (i, (a, p)) in args.iter().zip(&params).enumerate() {
                 let mut found = Vec::new();
                 match &pre[i] {
-                    Pre::Done(Some(Val::Expr(x))) => bindings(self.g, &tparams, p, x.ty, &mut found),
+                    Pre::Done(Some(Val::Expr(x))) => {
+                        bindings(self.g, &tparams, p, x.ty, &mut found);
+                        compound_of(self.g, &tparams, p, x.ty, i, &mut compound);
+                    }
                     // A constant with a unit binds a unit parameter the same way.
-                    Pre::Done(Some(Val::UConst(_, u))) => found.extend(p.unit.as_ref().and_then(|s| bare_unit_param(&tparams, s)).map(|k| (k, self.g.unit_arg(u)))),
+                    Pre::Done(Some(Val::UConst(_, u))) => {
+                        found.extend(p.unit.as_ref().and_then(|s| bare_unit_param(&tparams, s)).map(|k| (k, self.g.unit_arg(u))));
+                        if let Some(s) = p.unit.as_ref().filter(|s| compound_spec(&tparams, s)) {
+                            compound.push((i, s, u));
+                        }
+                    }
                     _ => continue,
                 }
                 for (k, ty) in found {
@@ -559,6 +661,95 @@ impl Checker<'_> {
                     _ => {}
                 }
                 }
+            }
+            // Compound unit parameters: each is solved once all but one of its unit
+            // parameters are known. Solving may bind more, so repeat while it goes on.
+            let mut todo = compound;
+            loop {
+                let before = todo.len();
+                let mut rest = Vec::new();
+                for (i, spec, u) in std::mem::take(&mut todo) {
+                    let mut names = Vec::new();
+                    unit_param_names(&tparams, &spec.expr, &mut names);
+                    let unknown: Vec<usize> = names
+                        .iter()
+                        .filter_map(|n| tparams.iter().position(|tp| tp.name == *n))
+                        .filter(|&k| bound[k].is_none())
+                        .collect();
+                    if unknown.len() > 1 {
+                        rest.push((i, spec, u));
+                        continue;
+                    }
+                    let mut map: HashMap<String, Type> = HashMap::new();
+                    for (k, tp) in tparams.iter().enumerate() {
+                        if let Some((t, _)) = &bound[k] {
+                            map.insert(tp.name.clone(), *t);
+                        }
+                    }
+                    let x = unknown.first().copied();
+                    if let Some(k) = x {
+                        let one = self.g.units.borrow_mut().table.dimensionless();
+                        map.insert(tparams[k].name.clone(), self.g.unit_arg(one));
+                    }
+                    let Some(r) = self.g.resolve_unit_spec_in(spec, &map, args[i].span, self.diags) else { continue };
+                    let shown = self.g.units.borrow().table.display(u);
+                    let text = unit_text(&spec.expr);
+                    match x {
+                        None => {
+                            if *r != *u {
+                                let got = self.g.units.borrow().table.display(r);
+                                self.diags.push(
+                                    Diagnostic::at(&codes::E0603, args[i].span, format!("the {} argument's unit `{shown}` does not fit `{text}`", ordinal(i)))
+                                        .note(format!("with {}, `{text}` is `{got}`", bound_names(&tparams, &bound, &names))),
+                                );
+                                return None;
+                            }
+                        }
+                        Some(k) => {
+                            let exp = unit_exp(&spec.expr, &tparams[k].name);
+                            let root = if exp == 0 {
+                                None
+                            } else {
+                                let q = self.g.units.borrow_mut().table.div(u, r).ok();
+                                q.and_then(|q| self.g.units.borrow_mut().table.root(q, exp))
+                            };
+                            match root {
+                                Some(v) => bound[k] = Some((self.g.unit_arg(v), i)),
+                                None if exp == 0 => {}
+                                None => {
+                                    let name = &tparams[k].name;
+                                    self.diags.push(
+                                        Diagnostic::at(&codes::E0603, args[i].span, format!("`{name}` cannot be worked out from the {} argument: `{shown}` does not fit `{text}`", ordinal(i)))
+                                            .note(format!("`{name}` is raised to the power {exp} in `{text}`, and `{shown}` does not split into {} equal parts", exp.unsigned_abs()))
+                                            .help(format!("the unit of this argument must be a power of `{name}` times the other units of `{text}`")),
+                                    );
+                                    return None;
+                                }
+                            }
+                        }
+                    }
+                }
+                todo = rest;
+                if todo.is_empty() || todo.len() == before {
+                    break;
+                }
+            }
+            if let Some((i, spec, _)) = todo.first() {
+                let mut names = Vec::new();
+                unit_param_names(&tparams, &spec.expr, &mut names);
+                let text = unit_text(&spec.expr);
+                self.diags.push(
+                    Diagnostic::at(&codes::E0601, args[*i].span, format!("cannot tell what the unit parameters of `{text}` are in this call of `{name}`"))
+                        .note(format!("`{text}` has {} unit parameters, and no other argument settles all but one", names.len()))
+                        .label(self.g.mono.templates[name].head.name_span, format!("`{name}` is declared here"))
+                        .help(format!("write them out: `{name}<{}>(...)`", names.iter().map(|n| format!("unit {n}")).collect::<Vec<_>>().join(", "))),
+                );
+                for (a, p) in args.iter().zip(&pre) {
+                    if matches!(p, Pre::Later) {
+                        self.expr(a);
+                    }
+                }
+                return None;
             }
             // A parameter only constants show takes the type a constant has by itself.
             for (k, tp) in tparams.iter().enumerate() {

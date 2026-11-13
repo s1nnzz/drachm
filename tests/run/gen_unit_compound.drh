@@ -1,0 +1,33 @@
+in io;
+in si;
+
+// A unit parameter inside a bigger unit: `U` is worked out from the argument
+// (`U/s` against `m/s` gives `U` = `m`).
+float64<U> dist<unit U>(float64<U/s> v, float64<s> t) {
+    return v * t;
+}
+
+// The unit is divided out: `U` is `m` from `m/s` when `U/s` is the parameter.
+float64<U/s> rate<unit U>(float64<U> d, float64<s> t) {
+    return d / t;
+}
+
+// Two unit parameters, each worked out from its own argument.
+float64<U*Q> area<unit U, unit Q>(float64<U> a, float64<Q> b) {
+    return a * b;
+}
+
+// A square root: `U*U/s` against `m*m/s` gives `U` = `m`.
+float64<U*U/s> same<unit U>(float64<U*U/s> v) {
+    return v;
+}
+
+none main() {
+    float64<m> d = dist(3.0<m/s>, 2.0<s>);
+    io::outln(f"${d::text()} ${d::unitText()}");
+    float64<km> k = dist(3.0<km/s>, 2.0<s>);
+    io::outln(f"${k::text()} ${k::unitText()}");
+    io::outln(f"${rate(1.0<m>, 2.0<s>)::unitText()}");
+    io::outln(f"${area(2.0<m>, 3.0<s>)::unitText()}");
+    io::outln(f"${same(2.0<m*m/s>)::unitText()}");
+}

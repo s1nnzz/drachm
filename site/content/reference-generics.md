@@ -514,10 +514,18 @@ struct: a declaration writes them.
 
 <!-- example: gen-unit-struct -->
 
+A parameter can put `U` inside a bigger unit, such as `float64<U/s> v`. The
+call works `U` out by dividing the argument's unit by the other units of the
+parameter: `dist(3.0<m/s>, 2.0<s>)` has `U` = `m`. A power of `U` takes a root:
+`float64<U*U/s>` gives `U` = `m` from `m*m/s`. When the argument's units do not
+split that way (`m/s` for `U*U/s`), the call is E0603. A parameter with two unit
+parameters (`float64<U*Q>`) needs the others from other arguments, or the call
+is E0601.
+
+<!-- example: gen-unit-compound -->
+
 A type argument where a unit goes, or a unit where a type goes, is E0602.
-Not built yet (E0901): a parameter type that puts `U` inside a bigger unit
-(`float64<U/s> a` as a parameter, where inference would have to work `U` out
-of `U/s`), and a constraint on a unit parameter (`unit U with Shape`).
+Not built yet (E0901): a constraint on a unit parameter (`unit U with Shape`).
 
 ## Function types and lambdas
 
