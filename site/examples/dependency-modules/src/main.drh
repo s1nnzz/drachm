@@ -1,0 +1,6 @@
+in io;
+in chart_depth from charts.survey.readings;
+
+none main() {
+    io::outln(f"${chart_depth()}");
+}

@@ -53,10 +53,14 @@ build stops (E0809); delete `drachm.lock` to take the new commit. Commit the
 lock file; whether `deps/` is committed is up to you.
 
 ### Dependency imports
-<!-- status: tentative -->
 
-Importing from a configured dependency is pending a decision on how packages
-expose and name their modules. Such imports report E0901 in the meantime.
+A dependency obeys its own `drachm.toml`. It publishes module paths with
+`public_modules = ["survey.readings"]` under `[project]`. Import a listed module
+through the alias declared under `[dependencies]`, for example
+`in chart_depth from charts.survey.readings;`. Each module exports its own
+items with `out`. The dependency can import its private modules internally.
+
+<!-- example: dependency-modules -->
 
 ## Build settings
 <!-- status: not-implemented -->

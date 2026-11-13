@@ -956,6 +956,10 @@ phys::Vector3 v = 1, 2, 3;
   `[build]`, `[warnings]` and `[behaviour]` keys are read and checked (behaviour
   is applied by WP4), `drachm new NAME`. Registry versions are E0901. Errors
   E0800-E0814.
+- A dependency lists the modules it publishes in `[project] public_modules`,
+  an array of dotted paths relative to its source root. Consumers use the
+  alias in their own `[dependencies]`. Published modules still export items
+  with `out`.
 
 ```toml
 [project]

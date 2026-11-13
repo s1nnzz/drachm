@@ -122,7 +122,13 @@ impl ModuleGraph {
 /// and export mistakes go to `diags`; the graph is returned either way, with
 /// as much as could be loaded.
 pub fn load(entry: &Path, info: &ProjectInfo, diags: &mut Vec<Diagnostic>) -> ModuleGraph {
-    let mut ld = Loader { info, graph: ModuleGraph { modules: Vec::new(), map: SourceMap::new() }, by_path: HashMap::new(), diags };
+    load_with_dependencies(entry, info, &[], diags)
+}
+
+pub(crate) fn load_with_dependencies(entry: &Path, info: &ProjectInfo, deps: &[crate::deps::Root], diags: &mut Vec<Diagnostic>) -> ModuleGraph {
+    let project_dir = info.display_base.as_deref().unwrap_or(&info.root);
+    let project_dir = overlay_key(project_dir);
+    let mut ld = Loader { info, deps, project_dir, graph: ModuleGraph { modules: Vec::new(), map: SourceMap::new() }, by_path: HashMap::new(), diags };
     ld.add_file(entry, None);
     let mut i = 0;
     while i < ld.graph.modules.len() {
@@ -135,6 +141,8 @@ pub fn load(entry: &Path, info: &ProjectInfo, diags: &mut Vec<Diagnostic>) -> Mo
 
 struct Loader<'a> {
     info: &'a ProjectInfo,
+    deps: &'a [crate::deps::Root],
+    project_dir: PathBuf,
     graph: ModuleGraph,
     by_path: HashMap<PathBuf, usize>,
     diags: &'a mut Vec<Diagnostic>,
@@ -198,6 +206,30 @@ fn file_for(dir: &Path, segs: &[String]) -> PathBuf {
 }
 
 impl Loader<'_> {
+    fn dependency_owner(&self, path: &Path) -> Option<&crate::deps::Root> {
+        let path = overlay_key(path);
+        self.deps.iter().filter(|dep| path.starts_with(&dep.src))
+            .max_by_key(|dep| dep.src.components().count())
+    }
+
+    fn visible(&mut self, importer: &Path, target: &Path, at: Span) -> bool {
+        let Some(dep) = self.dependency_owner(target) else { return true };
+        if self.dependency_owner(importer).is_some_and(|owner| owner.src == dep.src) {
+            return true;
+        }
+        let importer_dir = self.dependency_owner(importer).map_or_else(|| self.project_dir.clone(), |owner| overlay_key(&owner.dir));
+        let module = overlay_key(target).strip_prefix(&dep.src).ok()
+            .map(|path| path.with_extension("").components().map(|part| part.as_os_str().to_string_lossy().into_owned()).collect::<Vec<_>>().join("."));
+        if self.deps.iter().any(|edge| edge.src == dep.src && edge.declared_in == importer_dir)
+            && module.as_ref().is_some_and(|name| dep.config.project.public_modules.contains(name))
+        {
+            return true;
+        }
+        self.diags.push(Diagnostic::at(&codes::E0236, at, format!("dependency module `{}` is private", self.display(target)))
+            .help("declare the dependency and list the module in its `[project] public_modules`"));
+        false
+    }
+
     fn display(&self, path: &Path) -> String {
         match &self.info.display_base {
             Some(base) => shown(path.strip_prefix(base).unwrap_or(path)),
@@ -206,6 +238,13 @@ impl Loader<'_> {
     }
 
     fn module_name(&self, path: &Path) -> String {
+        if let Some(dep) = self.dependency_owner(path) {
+            let path = overlay_key(path);
+            if let Ok(relative) = path.strip_prefix(&dep.src) {
+                let module = relative.with_extension("").components().map(|part| part.as_os_str().to_string_lossy().into_owned()).collect::<Vec<_>>().join(".");
+                return format!("{}.{module}", dep.config.project.name.as_deref().unwrap_or(&dep.name));
+            }
+        }
         match path.strip_prefix(&self.info.root) {
             Ok(rel) => rel.with_extension("").components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect::<Vec<_>>().join("."),
             Err(_) => path.file_stem().map_or_else(String::new, |s| s.to_string_lossy().into_owned()),
@@ -286,6 +325,9 @@ impl Loader<'_> {
             );
             return None;
         }
+        if !self.visible(importer, &path, at) {
+            return None;
+        }
         self.add_file(&path, Some(at)).map(Target::File)
     }
 
@@ -294,14 +336,20 @@ impl Loader<'_> {
         let dir = importer.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
         let std = (segs.len() == 1).then(|| STD_MODULES.iter().find(|m| **m == segs[0])).flatten().copied();
         let beside = file_for(dir, segs);
-        let rooted = match &self.info.name {
-            Some(n) if *n == segs[0] && segs.len() > 1 => Some(file_for(&self.info.root, &segs[1..])),
-            _ => None,
-        };
+        let owner = self.dependency_owner(importer);
+        let (project_name, root, project_dir) = owner.map_or(
+            (self.info.name.as_ref(), &self.info.root, self.project_dir.clone()),
+            |dep| (dep.config.project.name.as_ref(), &dep.src, overlay_key(&dep.dir)),
+        );
+        let rooted = (project_name == segs.first() && segs.len() > 1)
+            .then(|| file_for(root, &segs[1..]));
+        let dependency = self.deps.iter().find(|dep| dep.declared_in == project_dir && dep.name == segs[0])
+            .filter(|_| segs.len() > 1)
+            .map(|dep| file_for(&dep.src, &segs[1..]));
         // The places this path could mean; two different ones is an error.
         let canon = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
         let mut files: Vec<PathBuf> = Vec::new();
-        for f in [Some(beside.clone()), rooted.clone()].into_iter().flatten() {
+        for f in [Some(beside.clone()), rooted.clone(), dependency.clone()].into_iter().flatten() {
             if f.is_file() && !files.iter().any(|g| canon(g) == canon(&f)) {
                 files.push(f);
             }
@@ -325,9 +373,9 @@ impl Loader<'_> {
         let Some(file) = files.pop() else {
             if self.info.dependency_names.contains(&segs[0]) {
                 self.diags.push(Diagnostic::at(
-                    &codes::E0901,
+                    &codes::E0230,
                     at,
-                    format!("importing from dependency `{}` is not supported yet", segs[0]),
+                    format!("importing from dependency `{}` requires a public module path", segs[0]),
                 ));
                 return None;
             }
@@ -336,6 +384,9 @@ impl Loader<'_> {
             if let Some(r) = &rooted {
                 d = d.note_line(format!("and, from the project root, `{}`", self.display(r)));
             }
+            if let Some(path) = &dependency {
+                d = d.note_line(format!("and, in the dependency, `{}`", self.display(path)));
+            }
             d = d.help(match &self.info.name {
                 Some(n) => format!("a path is relative to this file's folder; to start at the project's source folder, begin with `{n}`: `in {n}.{written};`"),
                 None => "a path is relative to this file's folder: `in game.physics;` is the file `game/physics.drh`".to_string(),
@@ -343,6 +394,9 @@ impl Loader<'_> {
             self.diags.push(d);
             return None;
         };
+        if !self.visible(importer, &file, at) {
+            return None;
+        }
         self.add_file(&file, Some(at)).map(Target::File)
     }
 
@@ -384,7 +438,7 @@ impl Loader<'_> {
             }
             if imported.contains(&e.name.as_str()) || has_glob {
                 out.push(
-                    Diagnostic::at(&codes::E0901, e.span, format!("`{}` comes from an import; exporting an imported name is not supported yet", e.name))
+                    Diagnostic::at(&codes::E0901, e.span, format!("`{}` comes from an import; exporting an imported name requires a public module path", e.name))
                         .note("re-export")
                         .help("export names the file declares itself"),
                 );

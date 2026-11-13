@@ -1,3 +1,6 @@
 [project]
 name = "showcase"
 kind = "program"
+
+[dependencies]
+charts = { path = "charts" }

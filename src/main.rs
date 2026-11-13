@@ -174,9 +174,9 @@ fn default_output(input: &Path) -> PathBuf {
 fn front_end(opened: &Opened, ownership: bool) -> (PathBuf, drachm::hir::Program) {
     let entry = opened.entry.clone();
     let (checked, graph, diags) = if ownership {
-        drachm::check_project(&entry, &opened.info)
+        drachm::check_project_with_dependencies(&entry, &opened.info, &opened.deps)
     } else {
-        drachm::front_project(&entry, &opened.info)
+        drachm::front_project_with_dependencies(&entry, &opened.info, &opened.deps)
     };
     if !diags.is_empty() {
         if graph.map.is_empty() {

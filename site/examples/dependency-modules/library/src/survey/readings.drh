@@ -1,0 +1,5 @@
+in offset from chart_library.calibration;
+
+out sint16 chart_depth() {
+    return -240 + offset();
+}

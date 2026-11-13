@@ -1,0 +1,4 @@
+[project]
+name = "chart_library"
+kind = "library"
+public_modules = ["survey.readings"]

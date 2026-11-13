@@ -9,6 +9,12 @@ A project is split into files with `in` and `out`. Every file is a module.
 Names work across files as described here; the C headers at the end are still
 design.
 
+## Dependency modules
+
+A dependency publishes selected module paths in its manifest. Use the alias
+from your own manifest to import them. The module's `out` declarations control
+which items you can use. See [Dependencies](design-config.md#dependencies).
+
 ## Exporting
 
 What other files may use is whatever the file marks with `out`; everything

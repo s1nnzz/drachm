@@ -76,8 +76,13 @@ fn ownership_checks(checked: Option<hir::Program>, mut diags: Vec<Diagnostic>) -
 /// A project of several files has its names resolved by `resolve` and is then
 /// checked as one program.
 pub fn front_project(entry: &std::path::Path, info: &modules::ProjectInfo) -> (Option<hir::Program>, modules::ModuleGraph, Vec<Diagnostic>) {
+    front_project_with_dependencies(entry, info, &[])
+}
+
+#[doc(hidden)]
+pub fn front_project_with_dependencies(entry: &std::path::Path, info: &modules::ProjectInfo, deps: &[deps::Root]) -> (Option<hir::Program>, modules::ModuleGraph, Vec<Diagnostic>) {
     let mut diags = Vec::new();
-    let mut graph = modules::load(entry, info, &mut diags);
+    let mut graph = modules::load_with_dependencies(entry, info, deps, &mut diags);
     if diag::has_errors(&diags) || graph.modules.is_empty() {
         // A chain on a name that is no module of its file is an error here too.
         for m in &mut graph.modules {
@@ -117,7 +122,12 @@ pub fn front_project(entry: &std::path::Path, info: &modules::ProjectInfo) -> (O
 
 /// `check` for a project: `front_project`, then the ownership checks.
 pub fn check_project(entry: &std::path::Path, info: &modules::ProjectInfo) -> (Option<hir::Program>, modules::ModuleGraph, Vec<Diagnostic>) {
-    let (checked, graph, diags) = front_project(entry, info);
+    check_project_with_dependencies(entry, info, &[])
+}
+
+#[doc(hidden)]
+pub fn check_project_with_dependencies(entry: &std::path::Path, info: &modules::ProjectInfo, deps: &[deps::Root]) -> (Option<hir::Program>, modules::ModuleGraph, Vec<Diagnostic>) {
+    let (checked, graph, diags) = front_project_with_dependencies(entry, info, deps);
     let (checked, diags) = ownership_checks(checked, diags);
     (checked, graph, diags)
 }

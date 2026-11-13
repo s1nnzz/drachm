@@ -62,11 +62,12 @@ pub struct Project {
     pub kind: Kind,
     /// The entry file, relative to the project folder.
     pub entry: String,
+    pub public_modules: Vec<String>,
 }
 
 impl Default for Project {
     fn default() -> Self {
-        Project { name: None, version: None, kind: Kind::Program, entry: DEFAULT_ENTRY.to_string() }
+        Project { name: None, version: None, kind: Kind::Program, entry: DEFAULT_ENTRY.to_string(), public_modules: Vec::new() }
     }
 }
 
@@ -362,7 +363,7 @@ impl Reader {
     }
 
     fn project(&mut self, t: &Table) -> Project {
-        self.check_keys(t, &["name", "version", "kind", "entry"], "[project]");
+        self.check_keys(t, &["name", "version", "kind", "entry", "public_modules"], "[project]");
         let mut p = Project::default();
         match t.get("name") {
             Some(item) => {
@@ -413,6 +414,25 @@ impl Reader {
                             .help("for example `entry = \"src/main.drh\"`"),
                     );
                 }
+            }
+        }
+        if let Some(item) = t.get("public_modules") {
+            if let Some(paths) = item.as_array() {
+                for path in paths.iter() {
+                    match path.as_str() {
+                        Some(name) if name.split('.').all(is_identifier) => {
+                            p.public_modules.push(name.to_owned());
+                        }
+                        _ => self.diags.push(Diagnostic::at(
+                            &codes::E0802, self.span(path.span()),
+                            "each public module must be a dotted module path such as `survey.readings`",
+                        )),
+                    }
+                }
+            } else {
+                self.diags.push(Diagnostic::at(
+                    &codes::E0802, self.span(item.span()), "`public_modules` must be an array",
+                ));
             }
         }
         p

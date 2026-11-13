@@ -16,6 +16,7 @@
 //      drachm run examples/showcase -O     (via C; must print the same)
 // ============================================================================
 in io;
+in chart_depth from charts.survey.readings;
 in voyage.units;
 in voyage.crew as crew;
 in * from voyage.systems as systems;
@@ -25,6 +26,7 @@ in voyage.cargo as cargo;
 
 none main() {
     io::outln(f"the survey ship Drachma: ${BAYS} cargo bays, ${rules::RACK_SLOTS} rack slots");
+    io::outln(f"depth correction: ${rules::downward_correction(240)}, chart depth: ${chart_depth()}");
     io::outln(f"hull ${rules::hull(7)::upper()}, also ${rules::hull(7)->lower()}");
     io::outln("");
     units::run();

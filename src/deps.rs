@@ -40,6 +40,8 @@ pub const DEPS_DIR: &str = "deps";
 pub struct Root {
     /// The name the project gives it: `sdl` in `in sdl...`.
     pub name: String,
+    /// Canonical folder of the project declaring this alias.
+    pub declared_in: PathBuf,
     /// The folder with its `drachm.toml`.
     pub dir: PathBuf,
     /// The source root: the folder of the dependency's entry file.
@@ -101,13 +103,13 @@ impl Resolver<'_> {
     fn dependencies(&mut self, base: &Path, config: &Config) {
         for dep in &config.dependencies {
             match &dep.source {
-                Source::Path(p) => self.enter(&dep.name, &base.join(p), None),
+                Source::Path(p) => self.enter(base, &dep.name, &base.join(p), None),
                 Source::Git { url, tag } => {
                     // Already fetched for another dependency of this build?
                     if let Some((l, folder)) = self.fetched.iter().find(|(_, f)| f.file_name().is_some_and(|n| n == dep.name.as_str())) {
                         if l.url == *url && l.tag == *tag {
                             let (commit, folder) = (l.commit.clone(), folder.clone());
-                            self.enter(&dep.name, &folder, Some(commit));
+                            self.enter(base, &dep.name, &folder, Some(commit));
                         } else {
                             self.diags.push(
                                 Diagnostic::new(&codes::E0804, format!("two dependencies are named `{}`", dep.name))
@@ -122,7 +124,7 @@ impl Resolver<'_> {
                         Ok((commit, folder)) => {
                             let l = Locked { url: url.clone(), tag: tag.clone(), commit: commit.clone() };
                             self.fetched.push((l, folder.clone()));
-                            self.enter(&dep.name, &folder, Some(commit));
+                            self.enter(base, &dep.name, &folder, Some(commit));
                         }
                         Err(d) => self.diags.push(d),
                     }
@@ -132,7 +134,7 @@ impl Resolver<'_> {
     }
 
     /// Reads the dependency in `folder` and resolves its own dependencies.
-    fn enter(&mut self, name: &str, folder: &Path, commit: Option<String>) {
+    fn enter(&mut self, base: &Path, name: &str, folder: &Path, commit: Option<String>) {
         let canon = folder.canonicalize().unwrap_or_else(|_| folder.to_path_buf());
         if self.stack.contains(&canon) {
             self.diags.push(
@@ -142,7 +144,12 @@ impl Resolver<'_> {
             );
             return;
         }
-        if self.roots.iter().any(|r| r.dir.canonicalize().unwrap_or_else(|_| r.dir.clone()) == canon) {
+        let declared_in = base.canonicalize().unwrap_or_else(|_| base.to_path_buf());
+        if let Some(root) = self.roots.iter().find(|r| r.dir.canonicalize().ok().as_ref() == Some(&canon)) {
+            let mut alias = root.clone();
+            alias.name = name.to_owned();
+            alias.declared_in = declared_in;
+            self.roots.push(alias);
             return;
         }
         let toml = folder.join(PROJECT_FILE);
@@ -171,8 +178,8 @@ impl Resolver<'_> {
             );
             return;
         }
-        let src = entry.parent().map_or_else(|| folder.to_path_buf(), Path::to_path_buf);
-        self.roots.push(Root { name: name.to_string(), dir: folder.to_path_buf(), src, config: config.clone(), commit });
+        let src = entry.parent().and_then(|p| p.canonicalize().ok()).unwrap_or_else(|| canon.clone());
+        self.roots.push(Root { name: name.to_string(), declared_in, dir: folder.to_path_buf(), src, config: config.clone(), commit });
         self.stack.push(canon);
         self.dependencies(folder, &config);
         self.stack.pop();

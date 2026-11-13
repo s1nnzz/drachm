@@ -156,3 +156,25 @@ fn a_git_dependency_is_fetched_by_check() {
     assert!(s.dir.join("app/deps/sdl/drachm.toml").is_file());
     assert!(s.dir.join("app/drachm.lock").is_file());
 }
+
+#[test]
+fn dependency_public_modules_gate_dotted_and_file_imports() {
+    let s = Scratch::new("dependency-visibility");
+    let example = Path::new(env!("CARGO_MANIFEST_DIR")).join("site/examples/dependency-modules");
+    for name in [
+        "drachm.toml", "src/main.drh", "library/drachm.toml",
+        "library/src/main.drh", "library/src/calibration.drh", "library/src/survey/readings.drh",
+    ] {
+        let dest = s.dir.join(name);
+        fs::create_dir_all(dest.parent().unwrap()).unwrap();
+        fs::copy(example.join(name), dest).unwrap();
+    }
+    let good = drachm(&s.dir, &["check"]);
+    assert!(good.status.success(), "{}", text(&good.stderr));
+    for import in ["in charts.calibration;", "in \"../library/src/calibration.drh\";"] {
+        fs::write(s.dir.join("src/main.drh"), format!("{import}\nnone main() {{}}\n")).unwrap();
+        let out = drachm(&s.dir, &["check"]);
+        assert!(!out.status.success());
+        assert!(text(&out.stderr).contains("E0236"), "{}", text(&out.stderr));
+    }
+}

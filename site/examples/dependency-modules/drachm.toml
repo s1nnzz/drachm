@@ -1,0 +1,5 @@
+[project]
+name = "voyage"
+
+[dependencies]
+charts = { path = "library" }

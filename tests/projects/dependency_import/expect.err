@@ -1,1 +1,1 @@
-error[E0901]: importing from dependency `maths` is not supported yet
+error[E0230]: importing from dependency `maths` requires a public module path

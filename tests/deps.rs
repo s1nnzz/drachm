@@ -184,7 +184,9 @@ fn path_and_git_dependencies_are_transitive_and_found_once() {
     let app = s.path("app");
     let roots = ok(&app);
     let names: Vec<&str> = roots.iter().map(|r| r.name.as_str()).collect();
-    assert_eq!(names, ["utils", "sdl"]);
+    assert_eq!(names, ["utils", "sdl", "sdl"]);
+    assert_eq!(roots[1].declared_in, s.path("utils"));
+    assert_eq!(roots[2].declared_in, app);
     assert_eq!(roots[0].commit, None);
     assert_eq!(roots[0].dir, s.path("app/../utils"));
     // The lock file lists the git dependency once, even though two lines name it.
