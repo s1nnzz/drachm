@@ -786,6 +786,10 @@ impl Checker<'_> {
 
     /// `call fails` for the failing call `f` (`e` is the whole expression).
     pub(super) fn pass_up_failing(&mut self, e: &ast::Expr, f: Failing) -> Option<Val> {
+        if self.script_entry {
+            self.diags.push(Diagnostic::at(&codes::E0901, e.span, "propagating failure from script statements is not supported yet"));
+            return None;
+        }
         if let Some(&missing) = f.fails.iter().find(|id| !self.fails.contains(id)) {
             let name = self.g.enums[missing].name.clone();
             let mut d = Diagnostic::at(&codes::E0548, e.span, format!("`{}` can fail with `{name}`, but this function does not list it", f.name))
@@ -915,7 +919,7 @@ impl Checker<'_> {
         if catch_all.is_none() && seen.len() < n && ok {
             let missing: Vec<EnumId> = ids.iter().enumerate().filter(|(i, _)| !seen.contains(i)).map(|(_, &id)| id).collect();
             self.diags.push(
-                Diagnostic::at(&codes::E0544, e.span, format!("`{}` can fail with {} here and nothing handles it", f.name, self.fail_names(&missing)))
+                Diagnostic::at(self.unhandled_failure_code(), e.span, format!("`{}` can fail with {} here and nothing handles it", f.name, self.fail_names(&missing)))
                     .note("no handler for this")
                     .help("add `otherwise (any e) => { ... }` or a handler for each failure"),
             );
@@ -1040,6 +1044,10 @@ impl Checker<'_> {
         self.report_unhandled(e.span, x);
     }
 
+    fn unhandled_failure_code(&self) -> &'static crate::diag::codes::Code {
+        if self.script_entry { &codes::E0901 } else { &codes::E0544 }
+    }
+
     /// E0544 for the failing call `x`, if it is one.
     pub(super) fn report_unhandled(&mut self, span: Span, x: &hir::Expr) {
         let (name, fails): (String, Vec<EnumId>) = match &x.kind {
@@ -1051,9 +1059,15 @@ impl Checker<'_> {
         let text = short_call(self.src, span);
         let nothing = matches!(&x.kind, hir::ExprKind::Call(fid, _) if self.g.sigs[*fid].ret == Some(Type::None));
         let pass = format!("pass the failure up with `{text} fails` (and add `fails {first}` to the function)");
-        let help = if nothing { pass } else { format!("give a fallback with `{text} maybe 0`, or {pass}") };
+        let help = if self.script_entry {
+            "handle the failure explicitly in the script".into()
+        } else if nothing {
+            pass
+        } else {
+            format!("give a fallback with `{text} maybe 0`, or {pass}")
+        };
         self.diags.push(
-            Diagnostic::at(&codes::E0544, span, format!("`{name}` can fail, and nothing says what to do when it does"))
+            Diagnostic::at(self.unhandled_failure_code(), span, format!("`{name}` can fail, and nothing says what to do when it does"))
                 .note(format!("this call can fail with {}", self.fail_names(&fails)))
                 .help(help),
         );

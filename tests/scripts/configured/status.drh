@@ -1,0 +1,5 @@
+sint32 STATUS = 7;
+
+sint32 main() {
+    return STATUS;
+}

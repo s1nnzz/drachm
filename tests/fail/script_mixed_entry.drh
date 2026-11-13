@@ -1,0 +1,4 @@
+#!/usr/bin/env drachm
+in io;
+io::outln("start");
+none main() {}

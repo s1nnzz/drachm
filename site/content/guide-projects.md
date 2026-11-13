@@ -8,7 +8,7 @@ description: Splitting code into modules with in and out, describing the project
 The compiler builds a single file or a project folder with a `drachm.toml`:
 modules between your own files work, the `[project]` name, kind and entry are
 read, path and git dependencies are fetched, and `build`, `run` and `check` take
-the folder. The `[behaviour]` settings, scripts and the other flags are designed,
+the folder. The `[behaviour]` settings and the other flags are designed,
 and their sections are marked. The code blocks there show the intended shape,
 not something you can run.
 
@@ -174,31 +174,14 @@ is validated and awaits code generation. `missing_key`, `unhandled_fail` and `im
 for the whole project, so a file flag that sets one is E0806.
 
 ## Scripts
-<!-- status: not-implemented -->
 
-A file is a script when no `drachm.toml` is near it.
+When the nearest configuration file is `srachm.toml`, or there is no
+configuration file above the source, you can run a file as a script. Use
+either top-level statements or an explicit `main()`. A script can import
+local helper files and call them from its statements.
 
-| Nearby file | Treated as |
-|---|---|
-| `drachm.toml` | a project (needs `main()`) |
-| `srachm.toml` | a script with config (same settings as `drachm.toml`) |
-| neither | a script with defaults |
+<!-- example: script-entry -->
 
-A script may have top-level statements and no `main`. The core modules (`io`,
-`string`, collections, `env`, `fs`) are imported for you, an unhandled failure
-stops it with a message, and warnings are hidden. Scripts run through
-Cranelift's JIT in memory, so nothing is written to disk.
-
-```drachm
-#!/usr/bin/env drachm
-io::outln("hello from a script");
-string name = env::get("USER") maybe "friend";
-io::outln(f"hi ${name}");
-```
-
-A script can import files next to it (`in helpers;` finds `helpers.drh`) and use
-packages from `srachm.toml` or an inline `//--!$dep json: 1.2` flag.
-
-Start a task as a script, and move it into a project when it grows a second
-file, needs tests, or has to be built for others. The code does not change much:
-add a `main`, the imports you used to get for free, and a `drachm.toml`.
+To move statements into a project, put them inside `none main() { ... }`
+and add a `drachm.toml`. See [Scripts](design-scripts.md) for current
+limitations and the planned script defaults.

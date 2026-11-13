@@ -9,6 +9,10 @@ use crate::lexer::{StrPiece, Tok, Token};
 /// Never fails: syntax errors are reported to `diags` and the parser carries
 /// on at the next statement or function, so several can be found in one go.
 pub fn parse(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>) -> Program {
+    parse_file(tokens, diags, false)
+}
+
+pub(crate) fn parse_file(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>, script_entry: bool) -> Program {
     let mut p = Parser { tokens, pos: 0, diags, optionals: Vec::new(), generics: Vec::new(), chain_slips: Vec::new() };
     let mut program = Program {
         imports: Vec::new(),
@@ -27,6 +31,8 @@ pub fn parse(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>) -> Program {
         generics: Vec::new(),
         chain_slips: Vec::new(),
     };
+    let mut script_stmts = Vec::new();
+    let mut first_script_stmt = None;
     while p.peek() != &Tok::Eof {
         let start = p.pos;
         // `out` before a declaration (`out struct Vector3 { }`) exports it.
@@ -60,7 +66,23 @@ pub fn parse(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>) -> Program {
         } else if p.at_def_item() {
             p.def_decl().map(|d| program.defs.push(d))
         } else if p.at_const_item() {
-            p.const_decl().map(|c| program.consts.push(c))
+            p.const_decl().map(|c| {
+                if script_entry && !c.fixed && !c.mutable && c.value.is_none() {
+                    p.diags.push(Diagnostic::at(&codes::E0901, c.name_span, "a script-wide declaration without an initializer is not supported yet"));
+                }
+                program.consts.push(c);
+            })
+        } else if script_entry && out_span.is_none() && !p.at_item_start() {
+            let span = p.span();
+            p.stmt().map(|stmt| {
+                let span = span.to(p.prev_span());
+                if matches!(stmt, Stmt::Let { .. }) {
+                    p.diags.push(Diagnostic::at(&codes::E0901, span, "script-wide storage is not supported yet"));
+                } else {
+                    first_script_stmt.get_or_insert(span);
+                    script_stmts.push(stmt);
+                }
+            })
         } else {
             p.func().map(|f| program.funcs.push(f))
         };
@@ -92,6 +114,31 @@ pub fn parse(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>) -> Program {
             while !p.at_item_start() && p.peek() != &Tok::Eof {
                 p.bump();
             }
+        }
+    }
+    if let Some(first) = first_script_stmt {
+        if let Some(main) = program.funcs.iter().find(|f| f.name == "main") {
+            p.diags.push(
+                Diagnostic::new(&codes::E0204, "a script cannot mix top-level statements with `main`")
+                    .label(first, "top-level statement")
+                    .label(main.name_span, "`main` declared here"),
+            );
+        } else {
+            program.funcs.push(Func {
+                ret: TypeName::plain("none", first),
+                name: SCRIPT_ENTRY.into(),
+                name_span: first,
+                tparams: Vec::new(),
+                params: Vec::new(),
+                body: Block { stmts: script_stmts, end: p.span() },
+                is_unsafe: None,
+                lives: Vec::new(),
+                lives_span: None,
+                lives_from: false,
+                fails: Vec::new(),
+                fails_span: None,
+                span: first,
+            });
         }
     }
     program.optionals = p.optionals;

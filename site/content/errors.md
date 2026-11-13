@@ -264,7 +264,8 @@ field and a method of one struct, or a struct and a built-in type.
 
 A program needs exactly one `main` function that takes no parameters
 and is either `none main()` or `sint32 main()` (which returns the exit
-code).
+code). A script can instead start with top-level statements. A script
+with an explicit `main` cannot also have top-level statements.
 
 ## E0205: changing an immutable binding
 

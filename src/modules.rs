@@ -273,7 +273,7 @@ impl Loader<'_> {
         let (file, base) = self.graph.map.add(self.display(path), text.clone());
         let fl = flags::parse_at(&text, base, self.diags);
         let tokens = lexer::lex_at(&text, base, self.diags);
-        let mut program = parser::parse(tokens, self.diags);
+        let mut program = parser::parse_file(tokens, self.diags, self.info.script && from.is_none());
         program.unsafe_allowed = fl.unsafe_allowed;
         let index = self.graph.modules.len();
         self.by_path.insert(key, index);

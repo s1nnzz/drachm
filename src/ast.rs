@@ -5,6 +5,9 @@ use crate::consts::Const;
 use crate::diag::Span;
 use crate::types::Type;
 
+/// Internal name of the function generated for a script's top-level statements.
+pub(crate) const SCRIPT_ENTRY: &str = "$script";
+
 #[derive(Debug, Default)]
 pub struct Program {
     pub imports: Vec<Import>,

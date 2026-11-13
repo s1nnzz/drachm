@@ -31,3 +31,8 @@ taller or shorter, and press Expand for a full-screen view (Esc closes it). Each
 pane scrolls on its own, and long lines scroll sideways.
 
 <!-- showcase -->
+
+The dispatch companion runs as a separate script. Run
+`drachm run examples/showcase/dispatch/dispatch.drh` to send the survey report
+to harbour through three relays. Its expected output is in
+`examples/showcase/dispatch/dispatch.out`.

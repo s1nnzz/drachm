@@ -1,0 +1,4 @@
+error[E0204]: a script cannot mix top-level statements with `main`
+script_mixed_entry.drh:3:1
+top-level statement
+`main` declared here

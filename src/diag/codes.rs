@@ -209,7 +209,8 @@ codes! {
     E0204: "missing or invalid `main`",
         "A program needs exactly one `main` function that takes no parameters\n\
          and is either `none main()` or `sint32 main()` (which returns the exit\n\
-         code).";
+         code). A script can instead start with top-level statements. A script\n\
+         with an explicit `main` cannot also have top-level statements.";
     E0205: "changing an immutable binding",
         "Bindings and parameters cannot change unless declared `mut`.\n\n\
          \x20   uint32 a = 1;\n\

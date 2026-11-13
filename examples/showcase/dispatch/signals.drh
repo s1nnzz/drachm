@@ -1,0 +1,3 @@
+out string packet(uint32 relay) {
+    return f"relay ${relay}: survey complete";
+}

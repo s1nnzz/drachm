@@ -1,0 +1,10 @@
+#!/usr/bin/env drachm
+in io;
+
+io::outln("survey starting");
+
+uint32 SECTORS = 3;
+for (uint32 sector of 1..SECTORS) {
+    string report = f"sector ${sector} clear";
+    io::outln(report);
+}

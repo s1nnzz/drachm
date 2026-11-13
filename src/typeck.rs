@@ -632,7 +632,8 @@ pub(crate) fn check_with_settings(
     maps::check_pending_keys(&g, diags);
     fill::declare_defs(&mut g, src, prog, diags);
 
-    match g.funcs_by_name.get("main").filter(|_| requires_main).map(|&id| &g.sigs[id]) {
+    let entry = g.funcs_by_name.get("main").or_else(|| g.funcs_by_name.get(ast::SCRIPT_ENTRY)).copied();
+    match entry.filter(|_| requires_main).map(|id| &g.sigs[id]) {
         None if requires_main => diags.push(
             Diagnostic::new(&codes::E0204, "this program has no `main` function")
                 .help("add `none main() { }`; it is where the program starts"),
@@ -660,7 +661,8 @@ pub(crate) fn check_with_settings(
         if !f.tparams.is_empty() {
             continue;
         }
-        let checked = check_body(&mut g, src, diags, f, None, format!("drachm_f_{}", types::mangle(&f.name)));
+        let symbol = if f.name == ast::SCRIPT_ENTRY { "drachm_script_entry".into() } else { format!("drachm_f_{}", types::mangle(&f.name)) };
+        let checked = check_body(&mut g, src, diags, f, None, symbol);
         if let Some(id) = *id {
             emit(&mut funcs, id, checked);
         }
@@ -744,7 +746,7 @@ pub(crate) fn check_with_settings(
         let f = failures::drop_wrapper(&g, wrapper, drop, ty);
         emit(&mut funcs, wrapper, f);
     }
-    let mut main = g.funcs_by_name.get("main").copied().unwrap_or(0);
+    let mut main = entry.unwrap_or(0);
     if requires_main && let Some((id, f)) = failures::main_wrapper(&mut g, main) {
         emit(&mut funcs, id, f);
         main = id;
@@ -1333,6 +1335,7 @@ fn check_body(g: &mut Globals, src: &str, diags: &mut Vec<Diagnostic>, f: &ast::
     let (fails, outcome) = failures::signature(g, f, ret, !method.is_some_and(|m| m.no_fails), &mut Vec::new());
     let mark = index::mark();
     let mut cx = Checker::new(g, src, diags, &symbol, ret, method);
+    cx.script_entry = f.name == ast::SCRIPT_ENTRY;
     cx.fails = fails;
     cx.outcome = outcome;
     let has_self = method.is_some_and(|m| m.static_span.is_none() && !m.ctor);
@@ -1549,6 +1552,8 @@ struct Checker<'a> {
     g: &'a mut Globals,
     diags: &'a mut Vec<Diagnostic>,
     symbol: &'a str,
+    /// The generated body of a script's top-level statements.
+    script_entry: bool,
     /// Present when checking a lambda whose result comes from its body.
     lambda: Option<lambdas::Frame>,
     /// `None` if the return type did not resolve.
@@ -1630,6 +1635,7 @@ impl<'a> Checker<'a> {
             g,
             diags,
             symbol,
+            script_entry: false,
             lambda: None,
             ret,
             fails: Vec::new(),
@@ -1890,6 +1896,9 @@ impl<'a> Checker<'a> {
                 if let Some(j) = self.skip_target(*target, *span) {
                     out.push(hir::Stmt::Jump(j));
                 }
+            }
+            Stmt::Return { span, .. } | Stmt::Fail { span, .. } if self.script_entry => {
+                self.diags.push(Diagnostic::at(&codes::E0901, *span, "returning or propagating a failure from script statements is not supported yet"));
             }
             Stmt::Return { value, span } if self.ctor_self.is_some() => {
                 let id = self.ctor_self.unwrap();

@@ -1,0 +1,1 @@
+error[E0901]: a script-wide declaration without an initializer is not supported yet

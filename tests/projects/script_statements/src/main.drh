@@ -1,0 +1,2 @@
+in io;
+io::outln("start");

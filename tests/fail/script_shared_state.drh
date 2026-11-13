@@ -1,0 +1,3 @@
+in io;
+io::outln("start");
+mut uint32 total = 0;

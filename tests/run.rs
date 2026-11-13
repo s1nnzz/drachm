@@ -234,6 +234,44 @@ fn site_examples() {
     run_all(sources("site/examples"), site_example);
 }
 
+#[test]
+fn script_entries() {
+    run_all(
+        [
+            root().join("site/examples/script-entry.drh"),
+            root().join("tests/scripts/configured/configured.drh"),
+            root().join("tests/scripts/configured/status.drh"),
+            root().join("examples/showcase/dispatch/dispatch.drh"),
+        ].into(),
+        |src| {
+            let want = read(&src.with_extension("out")).ok_or("missing script output")?;
+            let code = match read(&src.with_extension("code")) {
+                Some(code) => code.trim().parse().map_err(|_| "invalid script exit code")?,
+                None => 0,
+            };
+            for flags in [&[][..], &["-O"][..]] {
+                let run = run_script(flags, src);
+                let stderr = text(&run.stderr);
+                if run.status.code() != Some(code) || !stderr.is_empty() || text(&run.stdout) != want {
+                    return Err(format!("run with {flags:?} exited {:?}\nstdout:\n{}\nstderr:\n{stderr}", run.status.code(), text(&run.stdout)));
+                }
+            }
+            Ok(())
+        },
+    );
+}
+
+fn run_script(flags: &[&str], file: &Path) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_drachm"))
+        .current_dir(root())
+        .env("DRACHM_CHECK_LEAKS", "1")
+        .arg("run")
+        .args(flags)
+        .arg(file)
+        .output()
+        .expect("could not start the drachm binary")
+}
+
 /// Site examples of several files: a folder `site/examples/NAME/` that is a
 /// project (see `projects`), with `expect.out` beside `drachm.toml`.
 #[test]

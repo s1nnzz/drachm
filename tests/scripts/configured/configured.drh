@@ -1,0 +1,10 @@
+in io;
+
+io::outln(signal(2));
+
+string signal(uint32 n) {
+    if (n == 0) {
+        return "ready";
+    }
+    return signal(n - 1);
+}

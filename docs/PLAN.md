@@ -701,6 +701,11 @@ the interim behaviour that differs from an answer is listed above.
 
 ## Step 7: Modules, config, scripts, stdlib
 
+WP5 first slice: bare and configured scripts can use a shebang and ordered
+top-level statements with local imports, or keep explicit `main`. Both
+backends use the regular native executable path. Shared runtime declarations
+and unresolved generated-entry exits remain E0901.
+
 Work:
 1. Modules (SPEC section 9): resolve `in` paths against `src/` and dependencies.
    `out` export lists. Aliases. `in *` with clash detection (`import_clash`).

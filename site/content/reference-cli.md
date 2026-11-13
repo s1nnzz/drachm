@@ -89,9 +89,8 @@ Instead of a file, `build`, `run` and `check` take a project folder: one with a
 in the file `entry` names under `[project]` (`src/main.drh` by default), and the
 folder of that file is the source root. A file inside a project belongs to it;
 a file with no `drachm.toml` above it is a script and its own folder is its
-root. Files the program imports are found and read, but a program of several
-files cannot be built yet (error E0901): naming things across files is still to
-come.
+root. The nearest `srachm.toml` also selects script mode. Scripts can start
+with top-level statements and use local imports. See [Scripts](design-scripts.md).
 
 A project with `kind = "library"` has no program: `build` and `run` say so
 (E0811), and `check` checks it without requiring `main()`. A folder with no `drachm.toml` is an error

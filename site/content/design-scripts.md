@@ -1,13 +1,11 @@
 ---
 title: Scripts
 description: Running a single file as a script, srachm.toml, auto-imports, shebangs and inline dependencies.
-status: not-implemented
 ---
 
 # Scripts
 
-Drachm is meant to double as a scripting language. A file is a script when no
-`drachm.toml` is near it. Scripts are designed for step 7.
+The nearest `drachm.toml` or `srachm.toml` determines how Drachm treats a file.
 
 ## Which kind of file
 
@@ -17,25 +15,38 @@ Drachm is meant to double as a scripting language. A file is a script when no
 | `srachm.toml` | a script with config (same settings as `drachm.toml`) |
 | neither | a script with defaults |
 
-## What a script gets
+## Starting a script
 
-A script may have top-level statements and no `main`. The core modules (`io`,
-`string`, collections, `env`, `fs`) are imported for you, an unhandled failure
-stops it with a message, and warnings are hidden. Scripts run through
-Cranelift's JIT in memory, so nothing is written to disk.
+Use either an explicit `main()` or top-level statements. The compiler reports
+E0204 and points to both locations if you mix them. Statements run in source
+order and may call functions, use named constants, and declare locals inside
+loops and other statement bodies. A shebang can occupy the first line, before
+any file flags.
 
-```drachm
-#!/usr/bin/env drachm
-io::outln("hello from a script");
-string name = env::get("USER") maybe "friend";
-io::outln(f"hi ${name}");
-```
+<!-- example: script-entry -->
 
-## Using other files and packages
+Run the file with `drachm run script-entry.drh` or
+`drachm run script-entry.drh -O`. Both commands build and run a temporary
+executable. An explicit `sint32 main()` can set the exit status.
 
-A script imports local files that sit next to it: `in helpers;` finds
-`helpers.drh`. Packages come from `srachm.toml`, or inline with a flag:
+## Local imports
 
-```drachm
-//--!$dep json: 1.2
-```
+A script imports files next to it. For example, `in helpers;` finds
+`helpers.drh`. Import standard modules explicitly, as in `in io;` above.
+
+## Shared declarations and execution defaults
+<!-- status: not-implemented -->
+
+Script-wide variables will be shared by functions. Writes require `mut`,
+and declarations initialize before the first statement. Runtime top-level
+bindings, returning or propagating a failure from the generated entry, and
+unhandled failures in its statements currently report E0901.
+
+The design calls for automatic core imports, hidden warnings, crash on
+unhandled failure, and in-memory Cranelift execution.
+
+## Inline dependencies
+<!-- status: not-implemented -->
+
+The planned inline syntax is `//--!$dep json: 1.2`. Registry dependencies
+are pending.
