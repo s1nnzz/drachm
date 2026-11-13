@@ -42,8 +42,11 @@ For a new session with no memory of earlier conversations. Read this, then
   reading rather than their words.
 - **Agent types** (owner wants named agents, not "general-purpose"): `.claude/agents/`
   defines `drachm-architect` (Sonnet: hard packages, specs), `drachm-builder`
-  (Haiku: standard packages) and `drachm-writer` (Sonnet: docs, lessons, the
-  showcase). `.claude/` is git-ignored, so these live only on this machine.
+  (Haiku: standard packages) and `drachm-writer` (Haiku: docs, lessons, the
+  showcase). Owner, 2026-11-13: Sonnet is costly, so Haiku takes every
+  package except borrow-checker/MIR/phase-restructuring work; track Haiku
+  fix-up cost per package and move a kind of work back to Sonnet if fixing
+  costs more than it saved. `.claude/` is git-ignored, so these live only on this machine.
 - **Agents run in git worktrees** (`isolation: worktree`), commit after every
   step (a usage limit once wiped an uncommitted agent's work), and are merged
   into master by the main session, which runs the full suite once per merge.
