@@ -98,6 +98,8 @@ out none run() {
     mut Crate c = "relics", 40;
     string tag = take c.label leaving "(empty)";
     io::outln(f"took label '${tag}', crate now '${c.label}'");
+    // `assert` checks what must hold; a false one stops the voyage with its line.
+    assert(tag == "relics" && c.label == "(empty)");
 
     mut string[?] queue = ["alpha", "beta", "gamma", "delta"];
     string second = take queue[1] reorders;
@@ -114,6 +116,7 @@ out none run() {
     mut uint32 grand = 0;
     loads::each((uint32 n) => { grand += n; });
     io::outln(f"lambda total ${sum} after ${calls} calls; loads sum to ${grand}");
+    assert(sum == 48 && calls == 3 && grand == 15);
     string motto = "ad astra";
     () => none sing = move () => io::outln(f"  the crew sings: ${motto}");
     sing();

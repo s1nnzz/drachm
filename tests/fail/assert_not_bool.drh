@@ -1,0 +1,4 @@
+none main() {
+    uint32 n = 4;
+    assert(n);
+}

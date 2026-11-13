@@ -1,0 +1,13 @@
+// `assert` checks a condition in every build. A true one does nothing.
+in io;
+
+sint32 add(sint32 a, sint32 b) {
+    return a + b;
+}
+
+none main() {
+    sint32 total = add(2, 3);
+    assert(total == 5);
+    assert(add(-1, 1) == 0 && total > 4);
+    io::outln("both checks held");
+}

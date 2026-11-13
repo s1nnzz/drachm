@@ -542,6 +542,9 @@ pub enum Stmt {
     Fail { value: Expr, because: Option<Expr>, span: Span },
     /// `unsafe { }`
     Unsafe { body: Block, span: Span },
+    /// `assert(cond);`: stops the program, with the condition's text and place,
+    /// when the condition is false. Runs in every build.
+    Assert { cond: Expr, span: Span },
     /// `destroy x;`: runs `drop()` now and ends `x`.
     Destroy { target: Expr, span: Span },
     /// `fill [partial] x { ... }`, with `with defaults` or `with NAME` after the name.

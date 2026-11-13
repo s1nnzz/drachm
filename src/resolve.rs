@@ -782,6 +782,7 @@ impl Walker<'_> {
                 }
             }
             Stmt::Unsafe { body, .. } => self.block(body),
+            Stmt::Assert { cond, .. } => self.expr(cond),
             Stmt::Destroy { target, .. } => self.expr(target),
             Stmt::Fill { with, body, .. } => {
                 if let Some(FillWith::Named(n, sp)) = with {

@@ -683,7 +683,15 @@ impl<'a> Builder<'a> {
             Stmt::Stop(kind) => {
                 // The call never returns: the block after it is only there for code that follows.
                 let dead = self.new_block();
-                self.end(TerminatorKind::Call { callee: Callee::Stop(*kind), args: Vec::new(), dest: None, target: dead });
+                // A failed `assert` passes its message, a constant `string`.
+                let args = match *kind {
+                    hir::StopKind::Assert(i) => {
+                        let (message, span) = (self.hir.asserts[i].message.clone(), self.hir.asserts[i].span);
+                        vec![Arg { op: Operand::Const(Constant::Str(self.intern(&message))), span }]
+                    }
+                    hir::StopKind::ZeroStep => Vec::new(),
+                };
+                self.end(TerminatorKind::Call { callee: Callee::Stop(*kind), args, dest: None, target: dead });
                 self.cur = dead;
                 self.end(TerminatorKind::Unreachable);
                 self.cur = self.new_block();

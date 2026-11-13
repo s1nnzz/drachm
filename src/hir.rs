@@ -35,6 +35,8 @@ pub struct Program {
     pub structs: Vec<StructDef>,
     pub enums: Vec<EnumDef>,
     pub main: FuncId,
+    /// Every `assert`, indexed by `StopKind::Assert`.
+    pub asserts: Vec<Assertion>,
     /// Every list and array type the program uses (elements included), each
     /// once, an element before the types built from it. The backends make the
     /// drop and copy glue and the C array types from this list.
@@ -479,6 +481,20 @@ pub enum Stmt {
 pub enum StopKind {
     /// A range loop's `by` step is zero when the loop starts.
     ZeroStep,
+    /// A failed `assert`: the index into `Program.asserts`, whose message is printed.
+    Assert(usize),
+}
+
+/// One `assert` of the program.
+#[derive(Debug, Clone)]
+pub struct Assertion {
+    /// The condition as written in the source.
+    pub text: String,
+    /// The condition's span (its place in the files).
+    pub span: Span,
+    /// What the program prints when the condition is false. Set once the
+    /// files are loaded (their names are known then); empty before that.
+    pub message: String,
 }
 
 /// One arm of a `Handled` call.

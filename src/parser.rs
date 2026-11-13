@@ -1887,6 +1887,17 @@ impl Parser<'_> {
     fn stmt(&mut self) -> Parsed<Stmt> {
         let start = self.span();
         match self.peek() {
+            // `expect failure` is read before a binding: `expect` could be a type name.
+            Tok::Ident(w) if w == "expect" && self.peek_at(1) == &Tok::Kw("failure") => {
+                // Read the whole statement here: `failure` starts an item, so the
+                // usual recovery would stop inside it.
+                while !matches!(self.peek(), Tok::Sym(";" | "}") | Tok::Eof) {
+                    self.bump();
+                }
+                self.eat(";");
+                Err(Diagnostic::at(&codes::E0901, start.to(self.prev_span()), "`expect failure` is not supported yet")
+                    .help("this form is still being decided; for now compare the result and print it"))
+            }
             _ if self.at_fill() => self.fill_stmt(),
             _ if self.at_binding() => {
                 let (mutable, open) = self.binding_words();
@@ -1964,6 +1975,23 @@ impl Parser<'_> {
                 let value = if self.peek() == &Tok::Sym(";") { None } else { Some(self.expr()?) };
                 self.expect(";")?;
                 Ok(Stmt::Return { value, span: start.to(self.prev_span()) })
+            }
+            Tok::Ident(w) if w == "assert" && self.peek_at(1) == &Tok::Sym("(") => {
+                self.bump();
+                self.bump();
+                let cond = self.expr()?;
+                if self.peek() == &Tok::Sym(",") {
+                    // The message form is open (Q15): the failure prints the condition and its place.
+                    self.diags.push(
+                        Diagnostic::at(&codes::E0901, self.span(), "an `assert` with a message is not supported yet")
+                            .help("write `assert(condition);`: a failure prints the condition and where it is"),
+                    );
+                    self.bump();
+                    self.expr()?;
+                }
+                self.expect(")")?;
+                self.expect(";")?;
+                Ok(Stmt::Assert { cond, span: start.to(self.prev_span()) })
             }
             _ => {
                 let s = self.simple()?;

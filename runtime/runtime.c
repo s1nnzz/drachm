@@ -73,6 +73,13 @@ DRACHM_FN _Noreturn void drachm_div_zero(void) { drachm_panic("division by zero"
 // A range loop whose `by` step is zero at run time (the step never moves on).
 DRACHM_FN _Noreturn void drachm_range_step_zero(void) { drachm_panic("range step is zero"); }
 
+// A failed `assert`: `msg` is the message (the condition's text and its place).
+DRACHM_FN _Noreturn void drachm_assert_failed(const uint8_t *msg, uint64_t len) {
+    fflush(stdout);
+    fprintf(stderr, "drachm: panic: %.*s\n", (int)len, (const char *)msg);
+    _Exit(101);
+}
+
 // ---- output ---------------------------------------------------------------
 
 DRACHM_FN void drachm_out_str(const char *s, uint64_t len, int newline) {

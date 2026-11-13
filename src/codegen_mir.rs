@@ -1541,6 +1541,15 @@ impl Cg<'_, '_> {
                 }
                 self.rt("drachm_range_step_zero", &[], &[], &[]);
             }
+            Callee::Stop(crate::hir::StopKind::Assert(_)) => {
+                if let Some(cur) = self.b.current_block() {
+                    self.b.set_cold_block(cur);
+                }
+                let at = self.operand_addr(&args[0].op);
+                let text = self.b.ins().load(ptr, MEM, at, 0);
+                let len = self.b.ins().load(i64t, MEM, at, STR_LEN);
+                self.rt("drachm_assert_failed", &[ptr, i64t], &[], &[text, len]);
+            }
             Callee::Join => {
                 // The parts' values side by side, as the runtime's array.
                 let size = STR_SIZE * args.len() as u32;
