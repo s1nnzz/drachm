@@ -3,6 +3,7 @@ use num_traits::ToPrimitive;
 use crate::ast::*;
 use crate::consts::Const;
 use crate::diag::{codes, Diagnostic, Span};
+use crate::types;
 use crate::lexer::{StrPiece, Tok, Token};
 
 /// Never fails: syntax errors are reported to `diags` and the parser carries
@@ -73,10 +74,9 @@ struct Parser<'a> {
 type Parsed<T> = Result<T, Diagnostic>;
 
 /// State of a type lookahead. `half`: the type just read ended on the first
-/// `>` of a `>>`. `nums`: an integer may be a type argument (types, not calls).
+/// `>` of a `>>`.
 struct Look {
     half: bool,
-    nums: bool,
 }
 
 /// `uint8`..`uint128`, `sint*`, `float*`: the types a `<` after them opens a unit for.
@@ -231,7 +231,7 @@ impl Parser<'_> {
         match self.peek_at(n) {
             Tok::Sym("(") => self.after_open_paren(n + 1).is_some_and(|i| self.peek_at(i) == &Tok::Sym("=>")),
             Tok::Kw("maybe") => self.peek_at(n + 1) == &Tok::Sym("&"),
-            tok => matches!(tok, Tok::Ident(_) | Tok::Kw("none") | Tok::Sym("&" | "*" | "**" | ">") | Tok::Num(..)),
+            tok => matches!(tok, Tok::Ident(_) | Tok::Kw("none") | Tok::Sym("&" | "*" | "**" | ">" | "-") | Tok::Num(..)),
         }
     }
 
@@ -245,10 +245,8 @@ impl Parser<'_> {
         let mut args = Vec::new();
         loop {
             match self.peek().clone() {
-                Tok::Num(NumLit { value: Const::Int(v), suffix: None, .. }, None) => {
-                    let span = self.bump().span;
-                    args.push(TypeName { is_number: true, ..TypeName::plain(v.to_string(), span) });
-                }
+                Tok::Num(NumLit { value: Const::Int(_), suffix: None, .. }, None) | Tok::Sym("-") => args.push(self.value_arg()?),
+                Tok::Ident(_) if self.value_op_at(1) => args.push(self.value_arg()?),
                 _ if self.unit_arg_at(0) => {
                     let start = self.bump().span;
                     let spec = self.unit_spec()?;
@@ -271,6 +269,83 @@ impl Parser<'_> {
         }
         self.close_angle()?;
         Ok(args)
+    }
+
+    /// Does an arithmetic operator (`+ - * / %`) stand at token offset `n`?
+    fn value_op_at(&self, n: usize) -> bool {
+        matches!(self.peek_at(n), Tok::Sym("+" | "-" | "*" | "/" | "%"))
+    }
+
+    /// A value argument: a constant expression (`4`, `-1`, `SIZE * 2`).
+    fn value_arg(&mut self) -> Parsed<TypeName> {
+        let e = self.const_sum()?;
+        let span = e.span();
+        let name = match &e {
+            ConstExpr::Num(v, _) => v.to_string(),
+            _ => String::new(),
+        };
+        Ok(TypeName { is_number: true, val: Some(Box::new(e)), ..TypeName::plain(name, span) })
+    }
+
+    fn const_sum(&mut self) -> Parsed<ConstExpr> {
+        let mut left = self.const_product()?;
+        while let Tok::Sym(op @ ("+" | "-")) = self.peek().clone() {
+            self.bump();
+            let right = self.const_product()?;
+            let span = left.span().to(right.span());
+            let op = if op == "+" { BinOp::Add } else { BinOp::Sub };
+            left = ConstExpr::Bin(op, Box::new(left), Box::new(right), span);
+        }
+        Ok(left)
+    }
+
+    fn const_product(&mut self) -> Parsed<ConstExpr> {
+        let mut left = self.const_unary()?;
+        while let Tok::Sym(op @ ("*" | "/" | "%")) = self.peek().clone() {
+            self.bump();
+            let right = self.const_unary()?;
+            let span = left.span().to(right.span());
+            let op = match op {
+                "*" => BinOp::Mul,
+                "/" => BinOp::Div,
+                _ => BinOp::Rem,
+            };
+            left = ConstExpr::Bin(op, Box::new(left), Box::new(right), span);
+        }
+        Ok(left)
+    }
+
+    fn const_unary(&mut self) -> Parsed<ConstExpr> {
+        match self.peek().clone() {
+            Tok::Sym("-") => {
+                let start = self.bump().span;
+                let inner = self.const_unary()?;
+                let span = start.to(inner.span());
+                Ok(ConstExpr::Neg(Box::new(inner), span))
+            }
+            Tok::Sym("~") => {
+                let start = self.bump().span;
+                let inner = self.const_unary()?;
+                let span = start.to(inner.span());
+                Ok(ConstExpr::Not(Box::new(inner), span))
+            }
+            Tok::Sym("(") => {
+                let open = self.bump().span;
+                let inner = self.const_sum()?;
+                self.expect(")")?;
+                let _ = open;
+                Ok(inner)
+            }
+            Tok::Num(NumLit { value: Const::Int(v), suffix: None, .. }, None) => {
+                let span = self.bump().span;
+                Ok(ConstExpr::Num(v, span))
+            }
+            Tok::Ident(name) => {
+                let span = self.bump().span;
+                Ok(ConstExpr::Name(name, span))
+            }
+            _ => Err(self.unexpected("a number or a name")),
+        }
     }
 
     /// Is a unit written as a type argument at token offset `n`: `unit` and
@@ -310,6 +385,17 @@ impl Parser<'_> {
         while self.dim_look(0) {
             let open = self.bump().span;
             let dim = match self.peek().clone() {
+                Tok::Ident(name) if self.peek_at(1) == &Tok::Sym("]") => {
+                    let at = self.bump().span;
+                    Dim::Param(types::intern(&name), at)
+                }
+                Tok::Ident(_) | Tok::Num(..) if self.peek_at(1) != &Tok::Sym("]") => {
+                    let start = self.span();
+                    while !matches!(self.peek(), Tok::Sym("]") | Tok::Eof) {
+                        self.bump();
+                    }
+                    Dim::Complex(start.to(self.prev_span()))
+                }
                 Tok::Num(NumLit { value: Const::Int(v), .. }, None) => {
                     let at = self.span();
                     let n = v.to_u64().unwrap_or(0);
@@ -332,9 +418,36 @@ impl Parser<'_> {
 
     /// Is there a `[?]` or `[N]` at token offset `n`? (`[0]` counts: `ty` rejects it.)
     fn dim_look(&self, n: usize) -> bool {
-        self.peek_at(n) == &Tok::Sym("[")
-            && (self.peek_at(n + 1) == &Tok::Sym("?") || matches!(self.peek_at(n + 1), Tok::Num(NumLit { value: Const::Int(_), suffix: None, .. }, None)))
-            && self.peek_at(n + 2) == &Tok::Sym("]")
+        self.dim_end(n).is_some()
+    }
+
+    /// The offset after the `[?]`, `[4]` or `[N]` at token offset `n`.
+    fn dim_end(&self, n: usize) -> Option<usize> {
+        if self.peek_at(n) != &Tok::Sym("[") {
+            return None;
+        }
+        let close = match self.peek_at(n + 1) {
+            Tok::Sym("?") => n + 2,
+            Tok::Num(NumLit { value: Const::Int(_), suffix: None, .. }, None) => n + 2,
+            Tok::Ident(_) => self.dim_param_end(n + 1)?,
+            _ => return None,
+        };
+        (self.peek_at(close) == &Tok::Sym("]")).then_some(close + 1)
+    }
+
+    /// `N]` or `N + 1]` at token offset `n`: the offset of the `]`, if what
+    /// follows the name reads as a length (a name, numbers and `+ - * / %`).
+    fn dim_param_end(&self, mut n: usize) -> Option<usize> {
+        if self.peek_at(n + 1) == &Tok::Sym("]") {
+            return Some(n + 1);
+        }
+        if !self.value_op_at(n + 1) {
+            return None;
+        }
+        while matches!(self.peek_at(n), Tok::Ident(_) | Tok::Num(..) | Tok::Sym("+" | "-" | "*" | "/" | "%")) {
+            n += 1;
+        }
+        (self.peek_at(n) == &Tok::Sym("]")).then_some(n)
     }
 
     /// The `?` after a type name: `uint32?`. Recorded for the checker, which
@@ -510,7 +623,7 @@ impl Parser<'_> {
     /// unit part (`<m/s>`) or type arguments (`<A, B>`) and its `[?]`/`[N]`
     /// if they are written there.
     fn name_end(&self, n: usize) -> usize {
-        let mut look = Look { half: false, nums: true };
+        let mut look = Look { half: false };
         match self.name_look(n, &mut look) {
             Some(end) if !look.half => end,
             _ => {
@@ -549,8 +662,8 @@ impl Parser<'_> {
                 }
             }
         }
-        while self.dim_look(end) {
-            end += 3;
+        while let Some(next) = self.dim_end(end) {
+            end = next;
         }
         while self.peek_at(end) == &Tok::Sym("?") {
             end += 1;
@@ -564,11 +677,13 @@ impl Parser<'_> {
     fn args_look(&self, n: usize, look: &mut Look) -> Option<usize> {
         let mut j = n + 1;
         loop {
-            if matches!(self.peek_at(j), Tok::Num(NumLit { value: Const::Int(_), suffix: None, .. }, None)) {
-                if !look.nums {
-                    return None;
+            let num = matches!(self.peek_at(j), Tok::Num(NumLit { value: Const::Int(_), suffix: None, .. }, None));
+            let neg_num = self.peek_at(j) == &Tok::Sym("-") && matches!(self.peek_at(j + 1), Tok::Num(NumLit { value: Const::Int(_), suffix: None, .. }, None));
+            if num || neg_num || (matches!(self.peek_at(j), Tok::Ident(_)) && self.value_op_at(j + 1)) {
+                // A constant expression: names, numbers, operators, parentheses.
+                while matches!(self.peek_at(j), Tok::Ident(_) | Tok::Num(..) | Tok::Sym("+" | "-" | "*" | "/" | "%" | "~" | "(" | ")")) {
+                    j += 1;
                 }
-                j += 1;
             } else if self.unit_arg_at(j) {
                 j = self.unit_arg_end(j + 1)?;
             } else {
@@ -616,7 +731,7 @@ impl Parser<'_> {
         if self.peek() != &Tok::Sym("<") || !self.type_start_at(1) {
             return false;
         }
-        let mut look = Look { half: false, nums: false };
+        let mut look = Look { half: false };
         match self.args_look(0, &mut look) {
             Some(end) if !look.half => matches!(self.peek_at(end), Tok::Sym("(" | "::")),
             _ => false,
@@ -716,6 +831,14 @@ impl Parser<'_> {
             if is_unit {
                 self.bump();
             }
+            // `uint32 N`: a number type and then the name makes a value parameter.
+            let value = match (self.peek().clone(), self.peek_at(1).clone()) {
+                (Tok::Ident(ty), Tok::Ident(_)) if !is_unit && is_number_name(&ty) => {
+                    let at = self.bump().span;
+                    Some((ty, at))
+                }
+                _ => None,
+            };
             let (name, span) = self.ident("a type parameter name")?;
             let mut bounds = Vec::new();
             if self.eat_kw("with") {
@@ -728,7 +851,7 @@ impl Parser<'_> {
                     }
                 }
             }
-            out.push(TypeParam { name, span, is_unit, bounds });
+            out.push(TypeParam { name, span, is_unit, bounds, value });
             if !self.eat(",") {
                 break;
             }
@@ -2632,6 +2755,8 @@ mod tests {
             match d {
                 Dim::List(_) => s.push_str("[?]"),
                 Dim::Array(n, _) => s.push_str(&format!("[{n}]")),
+                Dim::Param(n, _) => s.push_str(&format!("[{n}]")),
+                Dim::Complex(_) => s.push_str("[..]"),
             }
         }
         if t.optional.is_some() {

@@ -203,6 +203,7 @@ pub(crate) fn c_type(t: Type) -> String {
         Type::Array { .. } => return array_name(t),
         Type::None => "void",
         Type::Unit { .. } => unreachable!("units are erased before the backends"),
+        Type::Val { .. } => unreachable!("a value argument is no type of the program"),
         Type::Struct { name, .. } => return struct_name(name),
         Type::Enum { id, .. } => return enum_name(id),
         Type::Ref { to: Type::Dyn { .. }, .. } => "drachm_dyn",

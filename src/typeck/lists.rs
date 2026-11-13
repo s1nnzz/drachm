@@ -44,18 +44,66 @@ impl Globals {
         }
     }
 
+    /// The length a value parameter stands for in `[N]`.
+    fn length_param(&self, name: &str, span: Span, diags: &mut Vec<Diagnostic>) -> Option<u64> {
+        match self.tenv.get(name) {
+            Some(t) => match t.as_val() {
+                Some((_, v)) if v >= 1 => Some(v as u64),
+                Some((_, v)) => {
+                    diags.push(
+                        Diagnostic::at(&codes::E0636, span, format!("`{name}` is {v}, and an array needs at least one item"))
+                            .note("an array length must be 1 or more")
+                            .help("use a list, `[?]`, for something that may be empty"),
+                    );
+                    None
+                }
+                None => {
+                    diags.push(
+                        Diagnostic::at(&codes::E0602, span, format!("`{name}` is not a value, so it cannot be an array length"))
+                            .help(format!("declare it as a value parameter: `uint32 {name}`")),
+                    );
+                    None
+                }
+            },
+            None => {
+                diags.push(
+                    Diagnostic::at(&codes::E0634, span, format!("`{name}` is not a constant"))
+                        .note("an array length is a number or a value parameter")
+                        .help(format!("declare `{name}` as a value parameter of the struct or function: `uint32 {name}`")),
+                );
+                None
+            }
+        }
+    }
+
     /// `elem` with the written `dim` after it. Reports why not.
     pub(super) fn collection_of(&self, elem: Type, dim: &ast::Dim, diags: &mut Vec<Diagnostic>) -> Option<Type> {
         let at = match dim {
-            ast::Dim::List(s) | ast::Dim::Array(_, s) => *s,
+            ast::Dim::List(s) | ast::Dim::Array(_, s) | ast::Dim::Param(_, s) | ast::Dim::Complex(s) => *s,
         };
         let kind = if matches!(dim, ast::Dim::List(_)) { "list" } else { "array" };
         if elem == Type::None {
             diags.push(Diagnostic::at(&codes::E0104, at, format!("a {kind} cannot hold `none`")).note("`none` holds no value"));
             return None;
         }
+        let param_len;
+        let dim = match dim {
+            ast::Dim::Param(name, span) => {
+                param_len = ast::Dim::Array(self.length_param(name, *span, diags)?, *span);
+                &param_len
+            }
+            ast::Dim::Complex(span) => {
+                diags.push(
+                    Diagnostic::at(&codes::E0901, *span, "a calculation in an array length is not supported yet")
+                        .help("write the length as a number or as one value parameter: `T[N]`"),
+                );
+                return None;
+            }
+            d => d,
+        };
         match dim {
             ast::Dim::List(_) => Some(self.make_list(elem)),
+            ast::Dim::Param(..) | ast::Dim::Complex(_) => unreachable!(),
             ast::Dim::Array(n, _) => {
                 if Self::scalar_bytes(elem).is_some_and(|b| b.saturating_mul(*n) > MAX_ARRAY_BYTES) {
                     diags.push(

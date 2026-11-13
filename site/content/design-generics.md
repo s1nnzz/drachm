@@ -88,18 +88,16 @@ E0901 today.
 `&Read<uint32>` is E0901 today: a generic interface can be implemented and
 used through a constraint, but not yet through a borrow.
 
-### Array lengths as parameters
+### Calculations on value parameters
 
 <!-- status: not-implemented -->
 
-The length of an array could be a generic value parameter:
-
-```drachm
-struct Buffer<T, uint32 N> { T[N] items; }
-```
-
-Today this is a parse error (E0003), not the E0901 the design asks for. Array
-lengths are written as numbers.
+A value parameter (see [Value parameters](reference-generics.md#value-parameters))
+can be passed on whole or used in the body, but a calculation on one inside a
+type is E0901 today: `T[N + 1]` as a field, or `Buffer<T, N * 2>` as a type
+argument. Whether and how such lengths are worked out at compile time is still
+to decide. Named constants (`SIZE`) do not exist yet, so a value argument is a
+number, a calculation on numbers, or a value parameter.
 
 ### Exclusive parameters
 

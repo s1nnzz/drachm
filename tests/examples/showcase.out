@@ -43,6 +43,7 @@ a drive with 4 thrusters
 42!
 drawn: 90 then 80
 convoy of 3 draws 45.0 kW
+a rack of 3 holds 15 in its last slot; 3 draws total 155.0 kW
 
 == Part 4: the mission script ==
 > jump 4.5

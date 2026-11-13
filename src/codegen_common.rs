@@ -44,6 +44,7 @@ pub(crate) fn cl_type(t: Type) -> Option<ClType> {
         Type::Dyn { .. } => unreachable!("an interface is only the target of a borrow"),
         Type::None | Type::Str | Type::List { .. } | Type::Map { .. } | Type::Array { .. } | Type::Struct { .. } | Type::Enum { .. } => None,
         Type::Unit { .. } => unreachable!("units are erased before the backends"),
+        Type::Val { .. } => unreachable!("a value argument is no type of the program"),
     }
 }
 

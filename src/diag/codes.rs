@@ -688,9 +688,11 @@ codes! {
          so the compiler would never stop making copies. Make the recursive call\n\
          use the same type. The same happens to a generic struct that holds an\n\
          instance of itself with a bigger type (`struct Bad<T> { Bad<Cell<T>> x; }`).";
-    E0609: "a unit parameter used as a type",
+    E0609: "a unit or value parameter used as a type",
         "`unit U` declares a unit, so it can only be used inside the `<>` of a\n\
-         number type: `float64<U>`. A type parameter would be written `<T>`.";
+         number type: `float64<U>`. A type parameter would be written `<T>`.\n\n\
+         A value parameter (`uint32 N`) stands for a number, so it can be used\n\
+         as a value in the body and as an array length (`T[N]`), not as a type.";
     E0606: "beyond the constraint",
         "Inside a generic function or struct whose type parameter has a\n\
          constraint (`T with Shape`), a value of type `T` can only do what the\n\
@@ -822,6 +824,26 @@ codes! {
          only their results differ, so that it can be `Iterable` over two types\n\
          (`Node? at(uint64 i)` and `Edge? at(uint64 i)`). Calling `g::at(0)` by\n\
          name cannot choose between them; walk the value with `for` instead.";
+    E0634: "a value argument is not a constant",
+        "A value parameter (`uint32 N`) is given its value when the program is\n\
+         compiled, so the argument must be known then: a whole number, a\n\
+         calculation on whole numbers, or a value parameter of the generic that\n\
+         is being written. A variable or anything else that only has a value\n\
+         while the program runs cannot be used.\n\n\
+         \x20   struct Buffer<T, uint32 N> { T[N] items; }\n\
+         \x20   Buffer<sint32, 16> a;                       // fine\n\
+         \x20   Buffer<sint32, 2 * 8> b;                    // fine\n\
+         \x20   Buffer<sint32, n> c;                        // error: `n` is not a constant";
+    E0635: "a value does not fit its parameter",
+        "A value parameter has an integer type, and its argument must fit that\n\
+         type: `uint8 N` takes 0 to 255, and no value parameter takes a negative\n\
+         number unless its type is a `sint`.\n\n\
+         \x20   struct Mod<uint8 P> { }\n\
+         \x20   Mod<300> m;                                 // error: 300 does not fit `uint8`";
+    E0636: "an array length of zero",
+        "An array holds at least one item, so a length parameter used as an array\n\
+         length (`T[N]`) cannot be zero. Use a list (`T[?]`) for something that may\n\
+         be empty.";
     W0600: "generic never used",
         "A generic function, struct or enum is only checked when something uses\n\
          it with particular types, so one nothing uses is not checked at all.";

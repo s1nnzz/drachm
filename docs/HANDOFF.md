@@ -13,8 +13,9 @@ For a new session with no memory of earlier conversations. Read this, then
   collections (step 6)" under Later decisions).
 - Step 6 leftovers merged (2026-11-13): `not same as`, `same as` on
   maps/structs is E0633, `T as unit`, `take xs[i] leaving v`, ranges `by`.
-  **Not built: array length parameters (Q12)**, `struct Buffer<T, uint32 N>`:
-  changes `Type` (a value argument), give it to `drachm-architect`.
+  Value (length) parameters (Q12) are built (`Type::Val` is the stand-in for
+  a value argument; see `typeck/generics.rs` `value_targ`). Open: calculations on
+  a value parameter inside a type (E0901).
 - **Owner questions pending** (ask in the next batch): what `T as unit` should
   add, since a type parameter can never share a unit's name (today it equals
   plain `T` inside `<...>`); a zero or negative `by` step at run time (literal

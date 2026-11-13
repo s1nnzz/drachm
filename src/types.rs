@@ -46,6 +46,11 @@ pub enum Type {
     /// A number with a unit: `float64<m/s>`. `of` is always `Int` or `Float`.
     /// Units are checked by `typeck::units`; they are erased before the backends.
     Unit { of: &'static Type, unit: &'static Unit },
+    /// The value a value parameter (`uint32 N`) stands for in the generic
+    /// tables: an integer of the parameter's type. Never the type of anything
+    /// in a program; it only keys instances, so `Buffer<sint32, 4>` and
+    /// `Buffer<sint32, 8>` differ.
+    Val { bits: u16, signed: bool, v: i128 },
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
@@ -273,6 +278,22 @@ impl Type {
         }
     }
 
+    /// The stand-in for the value of a value parameter, `v` of integer type `ty`.
+    pub fn val(ty: Type, v: i128) -> Type {
+        match ty {
+            Type::Int { bits, signed } => Type::Val { bits, signed, v },
+            _ => unreachable!("a value parameter is an integer"),
+        }
+    }
+
+    /// The value and integer type a value parameter's stand-in carries.
+    pub fn as_val(self) -> Option<(Type, i128)> {
+        match self {
+            Type::Val { bits, signed, v } => Some((Type::Int { bits, signed }, v)),
+            _ => None,
+        }
+    }
+
     /// Does this type, or the type it points at, carry a unit?
     pub fn mentions_unit(self) -> bool {
         match self {
@@ -412,6 +433,7 @@ impl fmt::Display for Type {
             Type::Array { elem, len } if elem.is_borrow() => write!(f, "Array<{elem}, {len}>"),
             Type::Array { elem, len } => write!(f, "{elem}[{len}]"),
             Type::Map { key, val, ordered } => write!(f, "{}<{key}, {val}>", if *ordered { "OrderedMap" } else { "Map" }),
+            Type::Val { v, .. } => write!(f, "{v}"),
         }
     }
 }
