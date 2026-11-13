@@ -1,0 +1,5 @@
+none main() {
+    Map<string, uint32> ages = { "a": 1 };
+    for (uint32 k, string v of ages) {
+    }
+}

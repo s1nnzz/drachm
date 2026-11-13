@@ -103,20 +103,71 @@ pub(crate) fn emit_c_main(
     Ok(())
 }
 
-/// The key function tag of a map key type (S6D). Keys hash and compare by
-/// their bits, so a tag is the key's width; a `string` has its own.
-pub fn key_tag(k: crate::types::Type) -> &'static str {
+/// The key function tag of a map key type (S6D). Scalar keys hash and compare
+/// by their bits, so a tag is the key's width; a `string` has its own, and any
+/// other key (a struct, an enum, an array) is named by its type.
+pub fn key_tag(k: crate::types::Type) -> String {
     use crate::types::Type;
-    match k.bare() {
-        Type::Str => "str",
-        t => match crate::hir::scalar_size(t) {
-            Some(1) => "u8",
-            Some(2) => "u16",
-            Some(4) => "u32",
-            Some(8) => "u64",
-            Some(16) => "u128",
-            _ => unreachable!("a map key is a number, bool or string"),
+    let t = k.bare();
+    match t {
+        Type::Str => "str".into(),
+        Type::Int { .. } | Type::Float(_) | Type::Bool => match crate::hir::scalar_size(t) {
+            Some(1) => "u8".into(),
+            Some(2) => "u16".into(),
+            Some(4) => "u32".into(),
+            Some(8) => "u64".into(),
+            _ => "u128".into(),
         },
+        _ => format!("k_{}", crate::types::mangle(&t.to_string())),
+    }
+}
+
+/// Is the key hashed by a plan (see `KeyPlan`) rather than by its width?
+pub fn key_is_composite(k: crate::types::Type) -> bool {
+    key_tag(k).starts_with("k_")
+}
+
+/// How a map key is hashed and compared, built from the key's layout. Offsets
+/// are from the base of the value the plan is for.
+pub enum KeyPlan {
+    /// A number or `bool` of this many bytes, by its bits.
+    Bytes { off: u32, size: u32 },
+    Str { off: u32 },
+    /// Each part in order.
+    Fields(Vec<KeyPlan>),
+    /// `len` items of `size` bytes from `off`; `item` is relative to an item.
+    Array { off: u32, size: u32, len: u64, item: Box<KeyPlan> },
+    /// The tag (`tag_size` bytes at `off`), then the plan of the variant it names.
+    Enum { off: u32, tag_size: u32, variants: Vec<KeyPlan> },
+    /// A struct with `key()`: the key is what `func` returns for the value at
+    /// `off`; that result is of type `ret` and keyed by `plan`.
+    Method { off: u32, func: usize, ret: crate::types::Type, plan: Box<KeyPlan> },
+}
+
+pub fn key_plan(hir: &crate::hir::Program, ty: crate::types::Type, off: u32) -> KeyPlan {
+    use crate::types::Type;
+    match ty.bare() {
+        Type::Str => KeyPlan::Str { off },
+        Type::Struct { id, .. } => {
+            let def = &hir.structs[id];
+            match def.key_fn {
+                Some(func) => {
+                    let ret = hir.funcs[func].ret;
+                    KeyPlan::Method { off, func, ret, plan: Box::new(key_plan(hir, ret, 0)) }
+                }
+                None => KeyPlan::Fields(def.fields.iter().map(|f| key_plan(hir, f.ty, off + f.offset)).collect()),
+            }
+        }
+        t @ Type::Enum { .. } => {
+            let def = hir.enum_def(t);
+            let variants = def.variants.iter().map(|v| KeyPlan::Fields(v.fields.iter().map(|f| key_plan(hir, f.ty, off + f.offset)).collect())).collect();
+            KeyPlan::Enum { off, tag_size: def.tag_size, variants }
+        }
+        Type::Array { elem, len } => {
+            let (size, _) = hir.size_align(*elem);
+            KeyPlan::Array { off, size, len: len, item: Box::new(key_plan(hir, *elem, 0)) }
+        }
+        t => KeyPlan::Bytes { off, size: crate::hir::scalar_size(t).expect("a hashable key is made of numbers, text, structs, enums and arrays") },
     }
 }
 

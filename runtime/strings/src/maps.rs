@@ -280,6 +280,12 @@ pub unsafe extern "C-unwind" fn drachm_map_remove(m: *mut DrachmMap, key: *const
     1
 }
 
+/// The panic of `m[k] += x` when `k` is not in the map.
+#[unsafe(no_mangle)]
+pub extern "C-unwind" fn drachm_map_key_panic() -> ! {
+    panic_text("the key is not in the map, so there is no value to change")
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn drachm_map_len(m: *const DrachmMap) -> u64 {
     unsafe { (*m).live }

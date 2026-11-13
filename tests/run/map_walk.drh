@@ -1,0 +1,86 @@
+// Walking a map: `for (K k, V v of m)` and `m::each(callback)`. The order is
+// the order of the first insertion of each key; replacing a value keeps the
+// entry where it is, and removing an entry and adding it again puts it last.
+in io;
+
+struct Pos {
+public:
+    sint32 x;
+    sint32 y;
+}
+
+enum Dir { North, East }
+
+Pos pos(sint32 x, sint32 y) {
+    Pos p = x, y;
+    return p;
+}
+
+none show(string name, uint32 age) {
+    io::outln(f"${name} is ${age}");
+}
+
+none main() {
+    mut OrderedMap<string, uint32> ages = { "Illy": 18, "Sam": 20, "Bob": 31 };
+    for (string name, uint32 age of ages) {
+        io::outln(f"${name}=${age}");
+    }
+
+    io::outln("-- replace Sam");
+    ages["Sam"] = 21;
+    for (string name, uint32 age of ages) {
+        io::outln(f"${name}=${age}");
+    }
+
+    io::outln("-- remove Illy, add Illy back, add Zed");
+    ages::remove("Illy");
+    ages["Illy"] = 19;
+    ages["Zed"] = 1;
+    for (string name, uint32 age of ages) {
+        io::outln(f"${name}=${age}");
+    }
+
+    io::outln("-- continue and break");
+    for (string name, uint32 age of ages) {
+        if (age == 21) { continue; }
+        if (name == "Zed") { break; }
+        io::outln(name);
+    }
+
+    io::outln("-- sum");
+    mut uint32 total = 0;
+    for (string name, uint32 age of ages) {
+        total += age;
+    }
+    io::outln(total::text());
+
+    io::outln("-- each");
+    ages::each(show);
+    ages::each((string name, uint32 age) => {
+        total += age;
+    });
+    io::outln(total::text());
+
+    io::outln("-- composite keys and a map made on the spot");
+    OrderedMap<Pos, Dir> path = { pos(0, 0): North, pos(1, 0): East };
+    for (Pos p, Dir d of path) {
+        io::outln(f"${p.x},${p.y}");
+    }
+    for (string k, uint32 v of ages) {
+        io::outln(k);
+    }
+
+    io::outln("-- empty and nested");
+    Map<string, uint32> none_here;
+    for (string k, uint32 v of none_here) {
+        io::outln("never");
+    }
+    OrderedMap<string, string[?]> lists = { "a": ["x", "y"], "b": [] };
+    for (string k, string[?] items of lists) {
+        io::outln(f"${k} has ${items::len()}");
+    }
+    Map<uint8, string> small = { 1: "one" };
+    small::each((uint8 n, string word) => {
+        io::outln(f"${n} ${word}");
+    });
+}

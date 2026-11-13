@@ -1,2 +1,2 @@
 E0901
-`get` on a list of `string` is not supported yet
+`get` on a list of `string` gives a view, which is not supported yet

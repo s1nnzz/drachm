@@ -593,9 +593,11 @@ impl Checker<'_> {
             Val::Expr(e) => format!("`{}`", e.ty),
             Val::NoneLit(_) => "`none`".to_string(),
         };
-        let d = Diagnostic::at(&codes::E0101, iter.span, format!("cannot loop over {found}"))
-            .note(format!("this is {found}"))
-            .help("to count, loop over a range: `for (uint32 i of 0..9) { }`; to walk text, loop over a `string`; to walk your own type, give it `with Iterable<T>` and a method `T? at(uint64 i)`");
+        let help = match &v {
+            Val::Expr(e) if e.ty.is_map() => "a map is walked with two variables: `for (string key, uint32 value of map) { }`",
+            _ => "to count, loop over a range: `for (uint32 i of 0..9) { }`; to walk text, loop over a `string`; to walk your own type, give it `with Iterable<T>` and a method `T? at(uint64 i)`",
+        };
+        let d = Diagnostic::at(&codes::E0101, iter.span, format!("cannot loop over {found}")).note(format!("this is {found}")).help(help);
         self.diags.push(d);
     }
 

@@ -97,18 +97,25 @@ list usable.
 
 `xs::get(i)`, `xs::first()` and `xs::last()` give the item as a `T?`, which is
 `none` when there is no such item, so they never stop the program. They copy
-the item, so they are for items that copy (numbers, `bool`, Copy structs); a
-list of `string`s is E0901 for now. `xs::join(sep)` puts the items of a
-`string[?]` together with `sep` between them (`""` for an empty list).
+the item, so for items that copy (numbers, `bool`, Copy structs) that is all
+there is to it. For items that own memory (`string`, structs with a `string`)
+the answer is meant to be a view of the item that borrows the list;
+`copy xs::first()` gives an owned `T?` copy of it and works today. The view
+itself is **not implemented yet**: `names::first()` on a list of `string`s is
+E0901 and its message points at the `copy` form. `xs::join(sep)` puts the items
+of a `string[?]` together with `sep` between them (`""` for an empty list).
 
 <!-- example: list-methods -->
+
+<!-- example: list-owning-items -->
 
 `xs::contains(item)` is true when some item is equal to `item`. Lists and
 arrays compare with `==` and `!=`: they are equal when they have the same
 length and each item is equal to the item at its place. Items compare with
 their own `==` (numbers, `bool`, `string`, structs and lists of those; an
-enum with values is E0527). `contains` needs items that copy: on a list of
-`string`s it is E0901 for now.
+enum with values is E0527). On items that own memory, `contains` takes the
+value written with `&`, `names::contains(&name)`, so the search does not move
+it; without the `&` it is E0101.
 
 <!-- example: list-compare -->
 
@@ -162,7 +169,7 @@ the same as a method, `m::remove(k)` takes the entry out, and `m::len()`
 counts the entries. Changes require a `mut` or `open` binding, or an
 `&mut` borrow.
 
-Keys can be whole numbers up to 128 bits, `bool`, `string` or floats. A float key is compared
+Keys can be whole numbers up to 128 bits, `bool`, `string`, floats, and structs, enums, optionals and arrays made of those (see below). A float key is compared
 by its bits, so `NaN` finds itself and `-0.0` and `0.0` are different keys.
 A map owns its keys and values, which move in when they are added. Reading a
 value with `m[k]` or `m::get(k)` returns an independent copy. This allocates
@@ -201,26 +208,59 @@ An empty `{}` needs a type to take, as an empty list does (E0624).
 
 ### Updating an entry with an operator
 
-<!-- status: not-implemented -->
+`m[k] += v;` (and `-=`, `*=` and the other compound operators) reads the
+value under `k`, combines it with `v` and puts the result back. The map and
+the key are evaluated once. A key that is not in the map stops the program
+(exit code 101): there is no value to change, so add the first entry with
+`m[k] = v;`.
 
-`m[k] += v;` will update the existing value and stop the program if the key is
-missing. Compound assignments through a map index currently give E0901.
+<!-- example: map-update -->
+
+```text
+drachm: panic: the key is not in the map, so there is no value to change
+```
 
 ### Walking a map
 
-<!-- status: not-implemented -->
+`for (string k, uint32 v of ages)` visits each entry, with a copy of its key
+and value in the two variables. The `each` method does the same with a
+callback, `ages::each((string k, uint32 v) => { ... })`, or a named function
+that takes the key and the value. Entries come in the order the map keeps
+them, which is the order the keys were first added. Replacing a value keeps
+the entry where it is; removing an entry and adding the key again puts it
+last. The loop borrows the map, so its body cannot change it.
 
-`for (string k, uint32 v of ages)` will visit each entry. Until it is built the
-loop is E0901. The `each` method form waits for lambdas.
+<!-- example: map-walk -->
+
+Looking at the entries without copying them (`&string k`) is not supported
+yet and gives E0901. A single loop variable over a map is an error: a map is
+walked with two.
 
 ### Composite keys and `key()`
 
-<!-- status: not-implemented -->
+A struct, enum, optional or array is a key when everything inside it can be
+a key. A map hashes and compares these field by field, a variant's tag first
+and then its values, so `none` and an empty `string?` are different keys.
 
-Structs, enums, optionals and arrays with hashable contents will be hashable.
-A struct's `key()` method will define how a map hashes and compares its keys,
-including when the struct has a custom `==` for ordinary comparisons. These
-key types currently give E0901.
+<!-- example: map-composite-key -->
+
+A struct with a `key()` method is hashed and compared by what `key()` returns,
+and its own `==` stays what it is for ordinary comparisons. `key()` takes
+nothing, is not `static`, and returns something that can be a key (E0628
+otherwise). A struct with its own `==` and no `key()` cannot be a key, because
+a map could not know how to hash it (E0627), and neither can a struct that
+holds one. Lists, maps, borrows and pointers inside a key are E0626, and the
+message names the field:
+
+```text
+error[E0626]: `Pos` cannot be a map key: `Pos.tags` is a `string[?]`
+  --> main.drh:7:9
+   |
+ 7 |     Map<Pos, string> m;
+   |         ^^^ `string[?]` is not hashed
+   |
+ help: give `Pos` a `key()` returning a whole number or text, which a map hashes instead
+```
 
 ### Borrowed values
 

@@ -1,0 +1,10 @@
+// `m[k] += x` on a missing key stops the program with exit code 101.
+in io;
+
+none main() {
+    mut Map<string, uint32> ages = { "Illy": 18 };
+    ages["Illy"] += 1;
+    io::outln((ages["Illy"] maybe 0)::text());
+    ages["Bob"] += 1;
+    io::outln("not reached");
+}

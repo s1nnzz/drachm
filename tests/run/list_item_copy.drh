@@ -1,0 +1,40 @@
+// `copy names::first()`, `last()` and `get(i)`: an owned copy of an item that
+// owns memory, or none when there is no such item.
+in io;
+
+struct Person {
+public:
+    string name;
+    uint32 age;
+}
+
+none main() {
+    mut string[?] names = ["Ann", "Bob", "Cy"];
+    string? first = copy names::first();
+    string? last = copy names::last();
+    string? middle = copy names::get(1);
+    string? outside = copy names::get(7);
+    string? from_end = copy names::get(-2);
+    io::outln((copy first) maybe "none");
+    io::outln(last maybe "none");
+    io::outln(middle maybe "none");
+    io::outln(outside maybe "none");
+    io::outln(from_end maybe "none");
+    io::outln((copy names::first()) maybe "none");
+
+    // The copy is independent of the list.
+    names::push("Di");
+    io::outln(names::len()->text());
+    io::outln(first maybe "none");
+
+    string[?] empty = [];
+    io::outln((copy empty::first()) maybe "none");
+    io::outln(((copy empty::last()) has value)::text());
+
+    mut Person[?] people = [];
+    Person ann = "Ann", 30;
+    people::push(copy ann);
+    Person? found = copy people::first();
+    Person who = found maybe ann;
+    io::outln(f"${who.name} ${who.age}");
+}

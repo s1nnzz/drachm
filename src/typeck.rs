@@ -125,6 +125,8 @@ struct Globals {
     unsafe_allowed: bool,
     /// Memoised layout, ownership and copy answers (`layout`).
     layouts: std::cell::RefCell<layout::Cache>,
+    /// Map key checks that wait for the methods (`maps.rs`).
+    keys: maps::KeyChecks,
     /// The units declared in the file (`typeck::units`).
     units: std::cell::RefCell<units::UnitEnv>,
     /// The `def`s of the file (`fill.rs`).
@@ -179,7 +181,7 @@ impl Globals {
         let args = args?;
         if maps::is_map_name(&t.name) && t.args.len() == 2 {
             let [key, val] = args[..] else { return None };
-            maps::check_key(key, t.args[0].span).ok()?;
+            self.check_key(key, t.args[0].span).ok()?;
             self.check_map_value(val, t.args[1].span, &t.name).ok()?;
             return Some(self.make_map(key, val, t.name == "OrderedMap"));
         }
@@ -516,6 +518,7 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
         })
         .collect();
 
+    maps::check_pending_keys(&g, diags);
     fill::declare_defs(&mut g, src, prog, diags);
 
     match g.funcs_by_name.get("main").map(|&id| &g.sigs[id]) {
@@ -608,6 +611,9 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
             emit(&mut funcs, id, f);
         } else if let Some((kind, list, id)) = g.list_pending.pop() {
             let f = lists::list_func_body(&mut g, kind, list, id);
+            emit(&mut funcs, id, f);
+        } else if let Some((callback, map, id)) = g.keys.each_pending.pop() {
+            let f = maps::map_each_body(&g, callback, map, id);
             emit(&mut funcs, id, f);
         } else {
             break;
@@ -1417,6 +1423,8 @@ struct Checker<'a> {
     /// Locals that do not have all their fields yet: a constructor's `self`,
     /// and a value inside its `fill` block.
     filling: Vec<LocalId>,
+    /// `copy xs::first()` is being checked: an item that owns memory is copied out.
+    copying_item: bool,
     /// Inside `now e`, where reading a field already set is allowed.
     now_depth: u32,
     /// The `self` of the constructor being checked.
@@ -1489,6 +1497,7 @@ impl<'a> Checker<'a> {
             targets: Vec::new(),
             labels: 0,
             filling: Vec::new(),
+            copying_item: false,
             now_depth: 0,
             ctor_self: None,
         }
@@ -1671,6 +1680,7 @@ impl<'a> Checker<'a> {
                 }
             }
             Stmt::ForEach { .. } => self.for_each(s, out),
+            Stmt::ForEntries { key, value, iter, body, span } => self.for_entries(key, value, iter, body, *span, out),
             Stmt::Match { value, cases, span } => self.match_stmt(value, cases, *span, out),
             Stmt::Break { cont, count, span } => {
                 if let Some(j) = self.break_target(*cont, *count, *span) {
@@ -2919,6 +2929,15 @@ impl<'a> Checker<'a> {
 
     /// `copy e`.
     fn copy_expr(&mut self, e: &ast::Expr, inner: &ast::Expr) -> Option<Val> {
+        // `copy names::first()`: the item of the list, copied out as an owned `T?`.
+        if let ExprKind::Method { name, .. } = &inner.kind
+            && matches!(name.as_str(), "get" | "first" | "last")
+        {
+            let before = std::mem::replace(&mut self.copying_item, true);
+            let v = self.expr(inner);
+            self.copying_item = before;
+            return v;
+        }
         if !ast_place(inner) {
             let text = self.quote(inner.span, "this value");
             self.diags.push(

@@ -1,0 +1,2 @@
+error[E0627]: `Tag` defines `==` but no `key()`, so a map cannot know how to hash it
+error[E0627]: `Item` cannot be a map key: `Item.tag` is a `Tag`, which defines `==` but no `key()`

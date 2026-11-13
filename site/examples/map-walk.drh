@@ -1,0 +1,18 @@
+in io;
+
+none main() {
+    mut OrderedMap<string, uint32> ages = { "Illy": 18, "Sam": 20, "Bob": 31 };
+    ages["Sam"] = 21;
+    ages::remove("Illy");
+    ages["Illy"] = 19;
+
+    for (string name, uint32 age of ages) {
+        io::outln(f"${name} is ${age}");
+    }
+
+    mut uint32 total = 0;
+    ages::each((string name, uint32 age) => {
+        total += age;
+    });
+    io::outln(total::text());
+}

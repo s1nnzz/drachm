@@ -1,0 +1,7 @@
+enum Shape { Circle(uint32 r), Many(uint32[?] rs), Empty, }
+
+none main() {
+    Map<Shape, uint32> m;
+    Map<uint32[?]?, uint32> n;
+    Map<Shape[2], uint32> o;
+}

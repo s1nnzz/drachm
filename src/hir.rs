@@ -165,6 +165,8 @@ pub struct StructDef {
     pub stays: bool,
     /// The `drop()` method, if there is one.
     pub has_drop: Option<FuncId>,
+    /// The `key()` method, if there is one: what a map hashes this struct by.
+    pub key_fn: Option<FuncId>,
     /// Indexes of the borrow fields named by `lives`.
     pub lives: Vec<usize>,
 }
@@ -768,6 +770,18 @@ pub enum MapOp {
     Set,
     /// `map::remove(key)`: the entry goes; its value is dropped.
     Remove,
+    /// `map[key] += x` reads the value under `key` (a `V`, not an optional)
+    /// and stops the program when there is none.
+    Expect,
+    /// Walking a map by a cursor (a `uint64`, 0 to start): is there an entry
+    /// at or after the cursor (`bool`)?
+    More,
+    /// The key of that entry (`K`, a copy).
+    KeyAt,
+    /// The value of that entry (`V`, a copy).
+    ValAt,
+    /// The cursor just after that entry (`uint64`).
+    After,
 }
 
 impl MapOp {

@@ -124,6 +124,8 @@ uint8_t drachm_map_insert(drachm_map *m, void *key, void *val, const drachm_map_
 // value is moved into out_val, or dropped when out_val is NULL.
 uint8_t drachm_map_remove(drachm_map *m, const void *key, void *out_val, const drachm_map_ops *ops);
 uint64_t drachm_map_len(const drachm_map *m);                            // live entries
+// The panic of `m[k] += x` when k is not in the map. Does not return.
+void drachm_map_key_panic(void) __attribute__((noreturn, cold));
 // Walks the entries in insertion order, skipping removed ones. Start with
 // *cursor == 0. Returns 1 and the key and value pointers for the next entry
 // (*cursor moves past it), or 0 at the end. The pointers point into the map

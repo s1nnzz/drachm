@@ -1,0 +1,32 @@
+in io;
+
+struct Pair<T> {
+public:
+    T a;
+    T b;
+}
+
+struct Holder {
+public:
+    Map<Pair<uint32>, string> names;
+}
+
+Pair<uint32> pair(uint32 a, uint32 b) {
+    Pair<uint32> p = a, b;
+    return p;
+}
+
+none main() {
+    mut Map<Pair<uint32>, string> m = { pair(1, 2): "x" };
+    m[pair(3, 4)] = "y";
+    io::outln(m[pair(1, 2)] maybe "none");
+    io::outln(m[pair(4, 3)] maybe "none");
+    mut Map<uint8?, string> small;
+    small[7] = "seven";
+    small[none] = "nothing";
+    io::outln(small[7] maybe "?");
+    io::outln(small[none] maybe "?");
+    for (Pair<uint32> k, string v of m) {
+        io::outln(f"${k.a} ${v}");
+    }
+}

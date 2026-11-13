@@ -28,5 +28,6 @@ xs::push("a");
 
 ## Walking a map
 
-`for (string name, uint32 age of ages)` will visit each entry. A map's
-iteration order is unspecified, and an `OrderedMap` keeps insertion order.
+`for (string name, uint32 age of ages)` visits each entry (it works now; see
+the [reference](reference-collections.md#walking-a-map)). A `Map`'s iteration
+order is unspecified, and an `OrderedMap` keeps insertion order.

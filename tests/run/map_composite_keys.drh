@@ -1,0 +1,132 @@
+// Keys that are structs, enums, optionals and arrays, hashed and compared
+// field by field; a struct with `key()` is hashed by that result. Run on both
+// backends with leak checking.
+in io;
+
+struct Pos {
+public:
+    sint32 x;
+    sint32 y;
+}
+
+struct Person {
+public:
+    string name;
+    uint32 age;
+}
+
+struct Tag {
+public:
+    string text;
+    uint32 weight;
+
+    // Two tags with the same text in any case are one key.
+    string key() { return self.text::lower(); }
+    // `==` stays what the owner wrote; the map uses `key()`.
+    bool ==(Tag o) { return self.text == o.text; }
+}
+
+enum Shape { Circle(uint32 r), Rect(uint32 w, uint32 h), Empty, }
+enum Dir { North, East, South, West }
+enum Named { Word(string s), Number(uint64 n), Nothing }
+
+Pos pos(sint32 x, sint32 y) {
+    Pos p = x, y;
+    return p;
+}
+
+Person person(string name, uint32 age) {
+    Person p = name, age;
+    return p;
+}
+
+Tag tag(string text, uint32 weight) {
+    Tag t = text, weight;
+    return t;
+}
+
+none main() {
+    mut Map<Pos, string> grid = { pos(1, 2): "a" };
+    grid[pos(3, 4)] = "b";
+    grid[pos(1, 2)] = "again";
+    io::outln(grid::len()->text());
+    io::outln(grid[pos(1, 2)] maybe "none");
+    io::outln(grid[pos(3, 4)] maybe "none");
+    io::outln(grid[pos(2, 1)] maybe "none");
+
+    // Owning struct keys.
+    mut Map<Person, uint32> visits;
+    Person ann = "Ann", 30;
+    visits[copy ann] = 1;
+    visits[person("Ann", 31)] = 2;
+    visits[person("Ann", 30)] = 3;
+    io::outln(visits::len()->text());
+    io::outln((visits[ann] maybe 0)::text());
+    io::outln((visits[person("Ann", 31)] maybe 0)::text());
+    io::outln((visits[person("Bob", 30)] maybe 0)::text());
+
+    // Enums: tags and payloads both count.
+    mut Map<Shape, string> shapes;
+    shapes[Circle(2)] = "circle 2";
+    shapes[Rect(2, 2)] = "square";
+    shapes[Empty] = "empty";
+    shapes[Circle(2)] = "circle again";
+    io::outln(shapes::len()->text());
+    io::outln(shapes[Circle(2)] maybe "none");
+    io::outln(shapes[Circle(3)] maybe "none");
+    io::outln(shapes[Rect(2, 2)] maybe "none");
+    io::outln(shapes[Rect(2, 3)] maybe "none");
+    io::outln(shapes[Empty] maybe "none");
+
+    mut Map<Dir, uint32> dirs = { North: 1, South: 3 };
+    io::outln((dirs[South] maybe 0)::text());
+    io::outln((dirs[East] maybe 0)::text());
+
+    mut Map<Named, uint32> names;
+    names[Word("")] = 1;
+    names[Nothing] = 2;
+    names[Number(0)] = 3;
+    names[Word("x")] = 4;
+    io::outln(names::len()->text());
+    io::outln((names[Word("")] maybe 9)::text());
+    io::outln((names[Nothing] maybe 9)::text());
+    io::outln((names[Number(0)] maybe 9)::text());
+    io::outln((names[Word("x")] maybe 9)::text());
+    io::outln((names[Number(1)] maybe 9)::text());
+
+    // Optionals: none and an empty string are different keys.
+    mut Map<string?, uint32> maybes;
+    maybes[none] = 1;
+    maybes[""] = 2;
+    maybes["a"] = 3;
+    io::outln(maybes::len()->text());
+    io::outln((maybes[none] maybe 9)::text());
+    io::outln((maybes[""] maybe 9)::text());
+    io::outln((maybes["a"] maybe 9)::text());
+
+    // Arrays.
+    mut Map<uint8[3], string> codes;
+    codes[[1, 2, 3]] = "one two three";
+    codes[[3, 2, 1]] = "reversed";
+    codes[[1, 2, 3]] = "same";
+    io::outln(codes::len()->text());
+    io::outln(codes[[1, 2, 3]] maybe "none");
+    io::outln(codes[[3, 2, 1]] maybe "none");
+    io::outln(codes[[1, 1, 1]] maybe "none");
+
+    // Nested: a struct holding a struct and an enum.
+    mut Map<Pos[2], uint32> paths;
+    paths[[pos(0, 0), pos(1, 1)]] = 5;
+    io::outln((paths[[pos(0, 0), pos(1, 1)]] maybe 0)::text());
+    io::outln((paths[[pos(0, 0), pos(1, 2)]] maybe 0)::text());
+
+    // `key()` decides; `==` is untouched.
+    mut Map<Tag, uint32> tags;
+    Tag a = "Hello", 1;
+    Tag b = "HELLO", 2;
+    tags[copy a] = 1;
+    tags[copy b] = 2;
+    io::outln(tags::len()->text());
+    io::outln((tags[tag("hello", 0)] maybe 0)::text());
+    io::outln((a == b)::text());
+}

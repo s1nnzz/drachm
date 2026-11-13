@@ -366,6 +366,16 @@ pub enum MapFn {
     Remove,
     /// `(&map) -> uint64`: the number of entries.
     Len,
+    /// `(&map, &key) -> V`: a copy of the value; stops the program when the key is missing.
+    Expect,
+    /// `(&map, cursor) -> bool`: is there an entry at or after the cursor?
+    More,
+    /// `(&map, cursor) -> K`: a copy of that entry's key.
+    KeyAt,
+    /// `(&map, cursor) -> V`: a copy of that entry's value.
+    ValAt,
+    /// `(&map, cursor) -> uint64`: the cursor just after that entry.
+    After,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

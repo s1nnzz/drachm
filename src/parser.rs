@@ -1538,19 +1538,22 @@ impl Parser<'_> {
             let ty = self.ty()?;
             let (name, name_span) = self.ident("a name for the loop variable")?;
             if self.peek() == &Tok::Sym(",") {
-                // `for (K k, V v of map)`: walking a map (Q16) is not built yet.
-                let span = start.to(self.span());
+                // `for (K k, V v of map)`: walking a map's entries (Q16).
                 self.bump();
-                let _ = self.ty()?;
-                let _ = self.ident("a name for the value")?;
+                let value_mutable = self.eat_kw("mut");
+                let value_ty = self.ty()?;
+                let (value_name, value_span) = self.ident("a name for the value")?;
                 if self.peek() != &Tok::Kw("of") {
                     return Err(self.unexpected("`of`"));
                 }
                 self.bump();
-                let _ = self.expr()?;
+                let iter = self.expr()?;
                 self.expect(")")?;
-                return Err(Diagnostic::at(&codes::E0901, span, "walking a map with two loop variables is not supported yet")
-                    .note(format!("`{name}` is the key")));
+                let span = start.to(self.prev_span());
+                let body = self.block()?;
+                let key = LoopVar { mutable, ty, name, name_span };
+                let value = LoopVar { mutable: value_mutable, ty: value_ty, name: value_name, name_span: value_span };
+                return Ok(Stmt::ForEntries { key, value, iter, body, span });
             }
             self.bump();
             let iter = self.expr()?;

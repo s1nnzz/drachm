@@ -1,0 +1,15 @@
+in io;
+
+none main() {
+    string[?] names = ["Ann", "Bob", "Cy"];
+
+    // `copy` gives an owned `string?`; `none` when there is no such item.
+    string? first = copy names::first();
+    io::outln(first maybe "nobody");
+    io::outln((copy names::get(7)) maybe "nobody");
+
+    // `contains` is given the value lent with `&`.
+    string wanted = "Bob";
+    io::outln(names::contains(&wanted)->text());
+    io::outln(names::contains(&"Dee")->text());
+}

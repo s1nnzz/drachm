@@ -69,10 +69,10 @@ pub fn compile(hir: &hir::Program, mir: &Program) -> Result<Vec<u8>, String> {
 
     let vt_ids = define_vtables(&mut module, hir, &ids)?;
     // The hash and equality functions of each key tag used by a map (S6D), declared up front.
-    let mut key_ids: HashMap<&'static str, (FuncId, FuncId)> = HashMap::new();
+    let mut key_ids: HashMap<String, (FuncId, FuncId, Type)> = HashMap::new();
     for t in hir.collections.iter().copied().filter(|t| t.is_map()) {
         let tag = key_tag(t.map_parts().expect("a map").0);
-        if key_ids.contains_key(tag) {
+        if key_ids.contains_key(&tag) {
             continue;
         }
         let mut hs = module.make_signature();
@@ -83,7 +83,7 @@ pub fn compile(hir: &hir::Program, mir: &Program) -> Result<Vec<u8>, String> {
         es.returns.push(AbiParam::new(types::I8));
         let h = module.declare_function(&format!("drachm_keyhash_{tag}"), Linkage::Local, &hs).map_err(err)?;
         let e = module.declare_function(&format!("drachm_keyeq_{tag}"), Linkage::Local, &es).map_err(err)?;
-        key_ids.insert(tag, (h, e));
+        key_ids.insert(tag, (h, e, t.map_parts().expect("a map").0.bare()));
     }
 
     let mut ctx = module.make_context();
@@ -148,10 +148,14 @@ pub fn compile(hir: &hir::Program, mir: &Program) -> Result<Vec<u8>, String> {
     for t in copy_glue_types(hir) {
         define_glue(&mut module, &mut ctx, &mut fctx, &mut runtime, hir, &ids, &drop_ids, &copy_ids, &map_ops, t, false)?;
     }
-    let mut tags: Vec<(&'static str, (FuncId, FuncId))> = key_ids.iter().map(|(t, f)| (*t, *f)).collect();
-    tags.sort_by_key(|x| x.0);
-    for (tag, (h, e)) in tags {
-        define_key_fns(&mut module, &mut ctx, &mut fctx, &mut runtime, tag, h, e)?;
+    let mut tags: Vec<(String, (FuncId, FuncId, Type))> = key_ids.iter().map(|(t, f)| (t.clone(), *f)).collect();
+    tags.sort_by(|a, b| a.0.cmp(&b.0));
+    for (tag, (h, e, key)) in tags {
+        if crate::codegen_common::key_is_composite(key) {
+            define_composite_key_fns(&mut module, &mut ctx, &mut fctx, &mut runtime, hir, &ids, &drop_ids, &copy_ids, &map_ops, key, h, e)?;
+        } else {
+            define_key_fns(&mut module, &mut ctx, &mut fctx, &mut runtime, &tag, h, e)?;
+        }
     }
 
     emit_c_main(&mut module, &mut ctx, &mut fctx, ids[hir.main], hir.funcs[hir.main].ret)?;
@@ -1585,7 +1589,7 @@ impl Cg<'_, '_> {
                 let (hit, join) = (self.b.create_block(), self.b.create_block());
                 self.b.ins().brif(found, hit, &[], join, &[]);
                 self.b.switch_to_block(hit);
-                self.copy_bits(elem, out, p);
+                self.copy_item(elem, out, p);
                 self.b.ins().jump(join, &[]);
                 self.b.switch_to_block(join);
                 self.item_done(elem, dest, tmp);
@@ -1859,6 +1863,247 @@ impl Cg<'_, '_> {
 
 // ---- maps (S6D) ----
 
+/// What the hash and equality of a composite key (a struct, an enum, an
+/// array) need to emit code: a walk over its `KeyPlan`.
+struct KeyEmit<'a, 'b> {
+    module: &'a mut ObjectModule,
+    runtime: &'a mut HashMap<&'static str, FuncId>,
+    env: GlueEnv<'b>,
+    ptr: ClType,
+}
+
+fn int_of(size: u32) -> ClType {
+    match size {
+        1 => types::I8,
+        2 => types::I16,
+        4 => types::I32,
+        8 => types::I64,
+        _ => types::I128,
+    }
+}
+
+impl KeyEmit<'_, '_> {
+    fn call_rt(&mut self, b: &mut FunctionBuilder, name: &'static str, params: &[ClType], returns: &[ClType], args: &[Value]) -> Option<Value> {
+        let id = import_rt(self.module, self.runtime, name, params, returns);
+        let callee = self.module.declare_func_in_func(id, b.func);
+        let call = b.ins().call(callee, args);
+        b.inst_results(call).first().copied()
+    }
+
+    fn combine(&mut self, b: &mut FunctionBuilder, h: Variable, x: Value) {
+        let cur = b.use_var(h);
+        let next = self.call_rt(b, "drachm_hash_combine", &[types::I64, types::I64], &[types::I64], &[cur, x]).expect("a hash");
+        b.def_var(h, next);
+    }
+
+    fn at(&self, b: &mut FunctionBuilder, base: Value, off: u32) -> Value {
+        if off == 0 { base } else { b.ins().iadd_imm_u(base, off as i64) }
+    }
+
+    fn tag(&self, b: &mut FunctionBuilder, base: Value, off: u32, tag_size: u32) -> Value {
+        b.ins().load(int_of(tag_size), MEM, base, off as i32)
+    }
+
+    /// Runs `key()` on the value at `at`, leaving the result in a fresh slot.
+    fn key_result(&mut self, b: &mut FunctionBuilder, func: usize, ret: Type, at: Value) -> Value {
+        let (size, align) = self.env.hir.size_align(ret);
+        let slot = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, size.max(1), align.trailing_zeros() as u8));
+        let out = b.ins().stack_addr(self.ptr, slot, 0);
+        let callee = self.module.declare_func_in_func(self.env.ids[func], b.func);
+        if in_memory(ret) {
+            b.ins().call(callee, &[out, at]);
+        } else {
+            let call = b.ins().call(callee, &[at]);
+            let v = b.inst_results(call)[0];
+            b.ins().store(MEM, v, out, 0);
+        }
+        out
+    }
+
+    fn drop_result(&mut self, b: &mut FunctionBuilder, ret: Type, slot: Value) {
+        glue_drop_field(self.module, self.runtime, &self.env, b, slot, 0, ret);
+    }
+
+    fn hash(&mut self, b: &mut FunctionBuilder, plan: &crate::codegen_common::KeyPlan, base: Value, h: Variable) {
+        use crate::codegen_common::KeyPlan;
+        match plan {
+            KeyPlan::Bytes { off, size } => {
+                let x = b.ins().load(int_of(*size), MEM, base, *off as i32);
+                if *size == 16 {
+                    let (low, high) = b.ins().isplit(x);
+                    self.combine(b, h, low);
+                    self.combine(b, h, high);
+                } else {
+                    let x = if *size == 8 { x } else { b.ins().uextend(types::I64, x) };
+                    self.combine(b, h, x);
+                }
+            }
+            KeyPlan::Str { off } => {
+                let at = self.at(b, base, *off);
+                let x = self.call_rt(b, "drachm_str_hash", &[self.ptr], &[types::I64], &[at]).expect("a hash");
+                self.combine(b, h, x);
+            }
+            KeyPlan::Fields(parts) => {
+                for p in parts {
+                    self.hash(b, p, base, h);
+                }
+            }
+            KeyPlan::Array { off, size, len, item } => {
+                let start = self.at(b, base, *off);
+                each_item(b, *len, *size, &mut |b, o| {
+                    let at = b.ins().iadd(start, o);
+                    self.hash(b, item, at, h);
+                });
+            }
+            KeyPlan::Enum { off, tag_size, variants } => {
+                let tag = self.tag(b, base, *off, *tag_size);
+                let wide = if *tag_size == 8 { tag } else { b.ins().uextend(types::I64, tag) };
+                self.combine(b, h, wide);
+                for (vi, v) in variants.iter().enumerate() {
+                    if matches!(v, KeyPlan::Fields(f) if f.is_empty()) {
+                        continue;
+                    }
+                    let (here, next) = (b.create_block(), b.create_block());
+                    let is = b.ins().icmp_imm(IntCC::Equal, tag, vi as i64);
+                    b.ins().brif(is, here, &[], next, &[]);
+                    b.switch_to_block(here);
+                    self.hash(b, v, base, h);
+                    b.ins().jump(next, &[]);
+                    b.switch_to_block(next);
+                }
+            }
+            KeyPlan::Method { off, func, ret, plan } => {
+                let at = self.at(b, base, *off);
+                let slot = self.key_result(b, *func, *ret, at);
+                self.hash(b, plan, slot, h);
+                self.drop_result(b, *ret, slot);
+            }
+        }
+    }
+
+    /// Jumps to `ne` when the values at `a` and `b` differ; falls through when they are equal.
+    fn eq(&mut self, bld: &mut FunctionBuilder, plan: &crate::codegen_common::KeyPlan, a: Value, b: Value, ne: ClBlock) {
+        use crate::codegen_common::KeyPlan;
+        match plan {
+            KeyPlan::Bytes { off, size } => {
+                let cl = int_of(*size);
+                let x = bld.ins().load(cl, MEM, a, *off as i32);
+                let y = bld.ins().load(cl, MEM, b, *off as i32);
+                let same = bld.ins().icmp(IntCC::Equal, x, y);
+                let next = bld.create_block();
+                bld.ins().brif(same, next, &[], ne, &[]);
+                bld.switch_to_block(next);
+            }
+            KeyPlan::Str { off } => {
+                let (x, y) = (self.at(bld, a, *off), self.at(bld, b, *off));
+                let same = self.call_rt(bld, "drachm_str_eq", &[self.ptr, self.ptr], &[types::I8], &[x, y]).expect("a result");
+                let next = bld.create_block();
+                bld.ins().brif(same, next, &[], ne, &[]);
+                bld.switch_to_block(next);
+            }
+            KeyPlan::Fields(parts) => {
+                for p in parts {
+                    self.eq(bld, p, a, b, ne);
+                }
+            }
+            KeyPlan::Array { off, size, len, item } => {
+                let (start_a, start_b) = (self.at(bld, a, *off), self.at(bld, b, *off));
+                each_item(bld, *len, *size, &mut |bld, o| {
+                    let (x, y) = (bld.ins().iadd(start_a, o), bld.ins().iadd(start_b, o));
+                    self.eq(bld, item, x, y, ne);
+                });
+            }
+            KeyPlan::Enum { off, tag_size, variants } => {
+                let (ta, tb) = (self.tag(bld, a, *off, *tag_size), self.tag(bld, b, *off, *tag_size));
+                let same = bld.ins().icmp(IntCC::Equal, ta, tb);
+                let next = bld.create_block();
+                bld.ins().brif(same, next, &[], ne, &[]);
+                bld.switch_to_block(next);
+                for (vi, v) in variants.iter().enumerate() {
+                    if matches!(v, KeyPlan::Fields(f) if f.is_empty()) {
+                        continue;
+                    }
+                    let (here, after) = (bld.create_block(), bld.create_block());
+                    let is = bld.ins().icmp_imm(IntCC::Equal, ta, vi as i64);
+                    bld.ins().brif(is, here, &[], after, &[]);
+                    bld.switch_to_block(here);
+                    self.eq(bld, v, a, b, ne);
+                    bld.ins().jump(after, &[]);
+                    bld.switch_to_block(after);
+                }
+            }
+            KeyPlan::Method { off, func, ret, plan } => {
+                let (x, y) = (self.at(bld, a, *off), self.at(bld, b, *off));
+                let (ra, rb) = (self.key_result(bld, *func, *ret, x), self.key_result(bld, *func, *ret, y));
+                let (differ, done) = (bld.create_block(), bld.create_block());
+                self.eq(bld, plan, ra, rb, differ);
+                self.drop_result(bld, *ret, ra);
+                self.drop_result(bld, *ret, rb);
+                bld.ins().jump(done, &[]);
+                bld.switch_to_block(differ);
+                self.drop_result(bld, *ret, ra);
+                self.drop_result(bld, *ret, rb);
+                bld.ins().jump(ne, &[]);
+                bld.switch_to_block(done);
+            }
+        }
+    }
+}
+
+/// The hash and equality functions of a composite key type, from its `KeyPlan`.
+#[allow(clippy::too_many_arguments)]
+fn define_composite_key_fns(
+    module: &mut ObjectModule,
+    ctx: &mut cranelift_codegen::Context,
+    fctx: &mut FunctionBuilderContext,
+    runtime: &mut HashMap<&'static str, FuncId>,
+    hir: &hir::Program,
+    ids: &[FuncId],
+    drop_ids: &HashMap<Type, FuncId>,
+    copy_ids: &HashMap<Type, FuncId>,
+    map_ops: &HashMap<Type, DataId>,
+    key: Type,
+    hash: FuncId,
+    eq: FuncId,
+) -> Result<(), String> {
+    let ptr = module.target_config().pointer_type();
+    let plan = crate::codegen_common::key_plan(hir, key, 0);
+    for (id, is_eq) in [(hash, false), (eq, true)] {
+        ctx.func.signature = module.declarations().get_function_decl(id).signature.clone();
+        ctx.func.name = UserFuncName::user(0, id.as_u32());
+        let cfg = module.isa().frontend_config();
+        {
+            let mut b = FunctionBuilder::new(&mut ctx.func, fctx);
+            let entry = b.create_block();
+            b.append_block_params_for_function_params(entry);
+            b.switch_to_block(entry);
+            let params = b.block_params(entry).to_vec();
+            let mut emit = KeyEmit { module, runtime, env: GlueEnv { hir, ids, drop_ids, copy_ids, map_ops }, ptr };
+            if is_eq {
+                let ne = b.create_block();
+                emit.eq(&mut b, &plan, params[0], params[1], ne);
+                let yes = b.ins().iconst(types::I8, 1);
+                b.ins().return_(&[yes]);
+                b.switch_to_block(ne);
+                let no = b.ins().iconst(types::I8, 0);
+                b.ins().return_(&[no]);
+            } else {
+                let h = b.declare_var(types::I64);
+                let zero = b.ins().iconst(types::I64, 0);
+                b.def_var(h, zero);
+                emit.hash(&mut b, &plan, params[0], h);
+                let result = b.use_var(h);
+                b.ins().return_(&[result]);
+            }
+            b.seal_all_blocks();
+            b.finalize(cfg);
+        }
+        module.define_function(id, ctx).map_err(|e| format!("in the key functions of `{key}`: {e:?}"))?;
+        module.clear_context(ctx);
+    }
+    Ok(())
+}
+
 /// A read-only operations table per (key, value) pair, with relocations to glue.
 fn define_map_ops(
     module: &mut ObjectModule,
@@ -1866,7 +2111,7 @@ fn define_map_ops(
     hir: &hir::Program,
     drop_ids: &HashMap<Type, FuncId>,
     copy_ids: &HashMap<Type, FuncId>,
-    key_ids: &HashMap<&'static str, (FuncId, FuncId)>,
+    key_ids: &HashMap<String, (FuncId, FuncId, Type)>,
 ) -> Result<HashMap<Type, DataId>, String> {
     let mut tables = HashMap::new();
     let ptr = module.target_config().pointer_type();
@@ -1884,7 +2129,7 @@ fn define_map_ops(
         let mut desc = DataDescription::new();
         desc.set_align(8);
         desc.define(bytes.into_boxed_slice());
-        let (hash, eq) = key_ids[key_tag(k)];
+        let (hash, eq, _) = key_ids[&key_tag(k)];
         let functions = [
             Some(hash),
             Some(eq),
@@ -1914,7 +2159,7 @@ fn map_ops_addr(module: &mut ObjectModule, b: &mut FunctionBuilder, tables: &Has
 
 /// The hash (`hash == true`) or equality function of one key tag: keys hash and
 /// compare by their bits, a `string` by its text.
-fn define_key_fns(module: &mut ObjectModule, ctx: &mut cranelift_codegen::Context, fctx: &mut FunctionBuilderContext, runtime: &mut HashMap<&'static str, FuncId>, tag: &'static str, hash: FuncId, eq: FuncId) -> Result<(), String> {
+fn define_key_fns(module: &mut ObjectModule, ctx: &mut cranelift_codegen::Context, fctx: &mut FunctionBuilderContext, runtime: &mut HashMap<&'static str, FuncId>, tag: &str, hash: FuncId, eq: FuncId) -> Result<(), String> {
     let ptr = module.target_config().pointer_type();
     let wide = match tag {
         "u128" => types::I128,
@@ -2048,6 +2293,44 @@ impl Cg<'_, '_> {
                 let null = self.b.ins().iconst(ptr, 0);
                 let ops = self.map_ops(mt);
                 self.rt("drachm_map_remove", &[ptr, ptr, ptr, ptr], &[types::I8], &[map, key, null, ops]);
+            }
+            MapFn::Expect => {
+                let key = self.operand(&args[1].op);
+                let ops = self.map_ops(mt);
+                let p = self.rt("drachm_map_find", &[ptr, ptr, ptr], &[ptr], &[map, key, ops])[0];
+                let found = self.b.ins().icmp_imm_u(IntCC::NotEqual, p, 0);
+                let (present, missing) = (self.b.create_block(), self.b.create_block());
+                self.b.ins().brif(found, present, &[], missing, &[]);
+                self.b.switch_to_block(missing);
+                self.b.set_cold_block(missing);
+                self.rt("drachm_map_key_panic", &[], &[], &[]);
+                self.b.ins().trap(TrapCode::unwrap_user(2));
+                self.b.switch_to_block(present);
+                let (tmp, out) = self.item_out(v, dest);
+                self.copy_item(v, out, p);
+                self.item_done(v, dest, tmp);
+            }
+            MapFn::More | MapFn::KeyAt | MapFn::ValAt | MapFn::After => {
+                // `drachm_map_next` moves a cursor; it is given a copy, so the cursor value stays.
+                let cursor = self.operand(&args[1].op);
+                let ops = self.map_ops(mt);
+                let slots: Vec<Value> = (0..3).map(|_| self.mem(Type::U64)).collect();
+                self.b.ins().store(MEM, cursor, slots[0], 0);
+                let found = self.rt("drachm_map_next", &[ptr, ptr, ptr, ptr, ptr], &[types::I8], &[map, slots[0], slots[1], slots[2], ops])[0];
+                match f {
+                    MapFn::More => self.set_dest(dest, found),
+                    MapFn::After => {
+                        let after = self.b.ins().load(i64t, MEM, slots[0], 0);
+                        self.set_dest(dest, after);
+                    }
+                    _ => {
+                        let (ty, slot) = if f == MapFn::KeyAt { (k, slots[1]) } else { (v, slots[2]) };
+                        let at = self.b.ins().load(ptr, MEM, slot, 0);
+                        let (tmp, out) = self.item_out(ty, dest);
+                        self.copy_item(ty, out, at);
+                        self.item_done(ty, dest, tmp);
+                    }
+                }
             }
         }
     }

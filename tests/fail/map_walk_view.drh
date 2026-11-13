@@ -1,0 +1,6 @@
+none main() {
+    Map<string, uint32> ages = { "a": 1 };
+    for (&string k, uint32 v of ages) {
+    }
+    ages::each((string k, &uint32 v) => { });
+}

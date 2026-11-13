@@ -6,7 +6,7 @@ status: not-implemented
 
 # Lesson 16: Collections and for-each
 
-The array, list and map lookup examples run today. Map iteration is planned.
+The array, list and map examples run today, including walking a map with two loop variables (see the [reference](reference-collections.md#walking-a-map)).
 
 **Goal:** keep many values together, look them up, and visit each one.
 

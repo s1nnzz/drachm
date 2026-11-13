@@ -1,0 +1,2 @@
+error[E0628]: the `key()` of `Tag` must take no parameters
+error[E0628]: the `key()` of `Plain` returns `string[?]`, which a map cannot hash

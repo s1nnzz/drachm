@@ -1,0 +1,44 @@
+in io;
+
+struct Pos {
+public:
+    sint32 x;
+    sint32 y;
+}
+
+enum Dir { North, East, South, West }
+
+struct Tag {
+public:
+    string text;
+
+    // A map hashes and compares tags by this, whatever `==` says.
+    string key() { return self.text::lower(); }
+    bool ==(Tag o) { return self.text == o.text; }
+}
+
+Pos pos(sint32 x, sint32 y) {
+    Pos p = x, y;
+    return p;
+}
+
+Tag tag(string text) {
+    Tag t = text;
+    return t;
+}
+
+none main() {
+    Map<Pos, string> names = { pos(0, 0): "origin", pos(1, 2): "far" };
+    io::outln(names[pos(1, 2)] maybe "unknown");
+    io::outln(names[pos(2, 1)] maybe "unknown");
+
+    Map<Dir, uint32> turns = { North: 0, East: 90 };
+    io::outln((turns[East] maybe 0)::text());
+
+    mut Map<Tag, uint32> counts;
+    counts[tag("Drachm")] = 1;
+    counts[tag("DRACHM")] = 2;
+    io::outln(counts::len()->text());
+    io::outln((counts[tag("drachm")] maybe 0)::text());
+    io::outln((tag("Drachm") == tag("DRACHM"))::text());
+}

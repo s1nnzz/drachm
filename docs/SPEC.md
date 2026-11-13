@@ -487,6 +487,8 @@ private:
   fields can be map keys. A `bool ==(T o)` operator method overrides ordinary `==`.
 - A `key()` method (e.g. `string key() { return self.text::lower(); }`) defines
   what map keys compare and hash by, including on types with a custom `==`.
+  (Conservative reading, not yet confirmed by the owner: a struct with a custom
+  `==` and no `key()`, or holding one, cannot be a key: E0627.)
 - Float map keys hash and compare by bits. A NaN key finds itself and
   `-0.0` and `0.0` are distinct keys.
 - Construction from the declared type: `Vector3 p = 1, 2, 3;`,

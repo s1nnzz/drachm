@@ -1,0 +1,4 @@
+error[E0101]: two loop variables walk a map, but this is `uint32[?]`
+error[E0101]: cannot loop over `Map<string, uint32>`
+error[E0650]: `each` wants a callback taking `(string key, uint32 value)`
+error[E0651]: this function gives `uint32`, but `each` wants `none`

@@ -1,0 +1,3 @@
+error[E0626]: `Shape` cannot be a map key: `Shape::Many.rs` is a `uint32[?]`
+error[E0626]: `uint32[?]?` cannot be a map key
+error[E0626]: `Shape[2]` cannot be a map key

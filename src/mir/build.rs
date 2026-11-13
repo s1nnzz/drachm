@@ -2030,6 +2030,21 @@ impl<'a> Builder<'a> {
                 let ops = self.operands(&es, &|i| if i == 0 { Some((true, true)) } else { Some((false, false)) });
                 self.call(Callee::MapOp(MapFn::Remove, map_ty), ops, Type::None)
             }
+            MapOp::Expect => {
+                let ops = self.operands(&es, &|_| Some((false, false)));
+                self.call(Callee::MapOp(MapFn::Expect, map_ty), ops, e.ty)
+            }
+            MapOp::More | MapOp::KeyAt | MapOp::ValAt | MapOp::After => {
+                // The cursor goes by value; only the map is borrowed.
+                let ops = self.operands(&es, &|i| if i == 0 { Some((false, false)) } else { None });
+                let f = match op {
+                    MapOp::More => MapFn::More,
+                    MapOp::KeyAt => MapFn::KeyAt,
+                    MapOp::ValAt => MapFn::ValAt,
+                    _ => MapFn::After,
+                };
+                self.call(Callee::MapOp(f, map_ty), ops, e.ty)
+            }
         }
     }
 }

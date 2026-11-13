@@ -1,0 +1,60 @@
+// `m[k] += x` and the other compound operators on map items: the key and the
+// map are evaluated once, and the value must already be there.
+in io;
+
+string name() {
+    io::outln("evaluated");
+    return "n";
+}
+
+struct Counter {
+public:
+    mut Map<string, uint32> hits;
+}
+
+
+none main() {
+    mut Map<string, uint32> ages = { "Illy": 18, "Sam": 20 };
+    ages["Illy"] += 1;
+    ages["Sam"] *= 2;
+    ages["Sam"] -= 10;
+    io::outln((ages["Illy"] maybe 0)::text());
+    io::outln((ages["Sam"] maybe 0)::text());
+    io::outln(ages::len()->text());
+
+    // The key is evaluated once, whatever the operator.
+    mut Map<string, uint32> seen = { "n": 1 };
+    seen[name()] += 5;
+    seen[name()] <<= 1;
+    io::outln((seen["n"] maybe 0)::text());
+
+
+    // Owning values: the new text replaces the old.
+    mut Map<uint32, string> words = { 1: "a" };
+    words[1] += "b";
+    words[1] += "c";
+    io::outln(words[1] maybe "none");
+
+    // Floats.
+    mut Map<float64, float64> weights = { 0.5: 1.5 };
+    weights[0.5] /= 3.0;
+    io::outln((weights[0.5] maybe 0.0)::text());
+
+    mut OrderedMap<string, sint32> ledger = { "a": 5, "b": 7 };
+    ledger["a"] -= 8;
+    ledger["b"] += 1;
+    io::outln((ledger["a"] maybe 0)::text());
+    io::outln((ledger["b"] maybe 0)::text());
+
+    // Through a borrow and a field.
+    mut Map<string, uint32> h = { "x": 1 };
+    mut Counter c = h;
+    c.hits["x"] += 41;
+    io::outln((c.hits["x"] maybe 0)::text());
+    bump(&mut ages);
+    io::outln((ages["Illy"] maybe 0)::text());
+}
+
+none bump(&mut Map<string, uint32> m) {
+    m["Illy"] += 100;
+}
