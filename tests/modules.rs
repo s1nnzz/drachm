@@ -94,16 +94,13 @@ fn item_and_glob_imports_name_a_module_too() {
         None,
         &[
             ("main.drh", "in Vector3 as V3, gravity from physics;\nin * from game.audio;\nin * from video inside game as v;\nnone main() { }\n"),
-            ("physics.drh", "out struct Vector3 { float64 x; }\nout float64 gravity = 9.81;\n"),
+            ("physics.drh", "out struct Vector3 { float64 x; }\nout float64 gravity() { return 9.81; }\n"),
             ("game/audio.drh", "\n"),
             ("game/video.drh", "\n"),
         ],
     );
     let (g, diags) = t.load();
-    // `out float64 gravity = 9.81;` is not a thing the parser knows yet (constants),
-    // so the only complaints are about physics.drh's syntax.
-    let text = t.shown(&diags, &g);
-    assert!(text.contains("src/physics.drh:2"), "{text}");
+    assert!(diags.is_empty(), "{}", t.shown(&diags, &g));
     assert_eq!(names(&g), ["main", "physics", "game.audio", "game.video"]);
     assert_eq!(g.modules[0].targets, [Some(Target::File(1)), Some(Target::File(2)), Some(Target::File(3))]);
 }
@@ -218,17 +215,19 @@ fn a_file_beyond_the_project_name_is_not_a_root_path() {
 }
 
 #[test]
-fn front_project_checks_one_file_and_stops_at_several() {
+fn front_project_checks_several_files_as_one_program() {
     let one = Tree::new("one", None, &[("main.drh", "in io;\nnone main() { io::outln(\"hi\"); }\n")]);
     let (checked, _, diags) = drachm::front_project(&one.entry(), &one.info);
     assert!(checked.is_some(), "{diags:?}");
 
-    let two = Tree::new("two", None, &[("main.drh", "in util;\nnone main() { }\n"), ("util.drh", "\n")]);
+    let two = Tree::new("two", None, &[("main.drh", "in util;\nnone main() { util::f(); }\n"), ("util.drh", "out none f() { }\n")]);
     let (checked, graph, diags) = drachm::front_project(&two.entry(), &two.info);
+    assert!(checked.is_some(), "{}", diag::render_all_map(&diags, &graph.map, false));
+    // Another file's names are reached through its module, and only if exported.
+    let private = Tree::new("private", None, &[("main.drh", "in util;\nnone main() { util::f(); }\n"), ("util.drh", "none f() { }\n")]);
+    let (checked, graph, diags) = drachm::front_project(&private.entry(), &private.info);
     assert!(checked.is_none());
-    let text = diag::render_all_map(&diags, &graph.map, false);
-    assert!(text.contains("error[E0901]: a program of several files cannot be built yet"), "{text}");
-    assert!(text.contains("this imports a project file"), "{text}");
+    assert!(diag::render_all_map(&diags, &graph.map, false).contains("error[E0236]"));
 }
 
 #[test]
@@ -252,4 +251,21 @@ fn project_discovery() {
     assert_eq!(info.name, None);
     assert_eq!(info.root, Path::new(&std::env::temp_dir()));
     let _ = fs::remove_file(loose);
+}
+
+#[test]
+fn string_paths_climb_folders() {
+    let t = Tree::new(
+        "strings",
+        Some("demo"),
+        &[
+            ("main.drh", "in game.physics;\nnone main() { }\n"),
+            ("game/physics.drh", "in * from \"../runtime/scheduler.drh\" as scheduler;\nin \"../nothing.drh\";\n"),
+            ("runtime/scheduler.drh", "out none tick() { }\n"),
+        ],
+    );
+    let (g, diags) = t.load();
+    let text = t.shown(&diags, &g);
+    assert!(text.contains("module file `../nothing.drh` not found"), "{text}");
+    assert_eq!(names(&g), ["main", "game.physics", "runtime.scheduler"]);
 }
