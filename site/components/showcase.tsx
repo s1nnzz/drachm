@@ -1,5 +1,5 @@
 'use client';
-import { Children, useEffect, useId, useRef, useState } from 'react';
+import { Children, isValidElement, useEffect, useId, useRef, useState } from 'react';
 import type { KeyboardEvent, PointerEvent, ReactNode } from 'react';
 
 // The showcase block: the program beside its output. Each pane scrolls on its
@@ -40,7 +40,7 @@ function save(s: Saved) {
 
 export function Showcase({ children, files }: { children: ReactNode; files: string }) {
   const paths: string[] = JSON.parse(files);
-  const blocks = Children.toArray(children);
+  const blocks = Children.toArray(children).filter(isValidElement);
   const output = blocks[paths.length];
   const tabId = useId();
   const tabs = useRef<Array<HTMLButtonElement | null>>([]);
