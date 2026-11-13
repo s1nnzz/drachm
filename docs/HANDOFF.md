@@ -32,6 +32,9 @@ For a new session with no memory of earlier conversations. Read this, then
 - **Design doc not synced yet** with the 2026-11-13 answers (tesla, unit-named
   parameters, `by` signs, float `by`, Q12 details, named constants, step 7
   batches A-D): the Docs connector was timing out. Do it next session.
+- **Early language server in flight (2026-11-13)**: owner finds editing .drh
+  without one painful, so step 8's core (diagnostics, recovery, hover,
+  definition, completion, VS Code client) was pulled forward as its own package.
 - **Step 7 WP1 merged 2026-11-13.** Step 7 spec: `docs/impl/step7-modules.md`; batches A-D answered
   (owner-answers), batch E and some sub-questions (9b, 13b, 13c, 15c, re-export,
   climbing a folder up) still open.
