@@ -130,7 +130,7 @@ fn run_case(src: &Path, expect_dir: &Path) -> Result<(), String> {
     let stem = src.file_stem().unwrap().to_str().unwrap();
     let expect = |ext: &str| expect_dir.join(format!("{stem}.{ext}"));
     let exe = Path::new(env!("CARGO_TARGET_TMPDIR"))
-        .join(format!("{}-{stem}{EXE_SUFFIX}", expect_dir.file_name().unwrap().to_str().unwrap()));
+        .join(format!("{}-{}-{stem}{EXE_SUFFIX}", std::process::id(), expect_dir.file_name().unwrap().to_str().unwrap()));
 
     let build = drachm(&["build", "-o", exe.to_str().unwrap()], src);
     let compiler_output = text(&build.stderr);
@@ -295,7 +295,7 @@ fn site_example(src: &Path) -> Result<(), String> {
     let want = if bless { None } else { Some(read(&out_file).ok_or_else(|| format!("no {stem}.out (write it, or run with DRACHM_BLESS=1)"))?) };
     let mut outputs = Vec::new();
     for flags in [&[][..], &["-O"][..]] {
-        let exe = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("site{}-{stem}{EXE_SUFFIX}", flags.len()));
+        let exe = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("site-{}-{}-{stem}{EXE_SUFFIX}", std::process::id(), flags.len()));
         let mut args = vec!["build", "-o", exe.to_str().unwrap()];
         args.extend(flags);
         let build = drachm(&args, src);
@@ -337,7 +337,7 @@ fn optimised_output_matches() {
         let stem = src.file_stem().unwrap().to_str().unwrap();
         let mut outputs = Vec::new();
         for flags in [&[][..], &["-O"][..]] {
-            let exe = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("opt{}-{stem}{EXE_SUFFIX}", flags.len()));
+            let exe = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("opt-{}-{}-{stem}{EXE_SUFFIX}", std::process::id(), flags.len()));
             let mut args = vec!["build", "-o", exe.to_str().unwrap()];
             args.extend(flags);
             let build = drachm(&args, src);
@@ -495,7 +495,7 @@ fn project_case(dir: &Path) -> Result<(), String> {
         let stdin = expect("in");
         let mut outputs = Vec::new();
         for flags in [&[][..], &["-O"][..]] {
-            let exe = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("proj{}-{name}{EXE_SUFFIX}", flags.len()));
+            let exe = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("proj-{}-{}-{name}{EXE_SUFFIX}", std::process::id(), flags.len()));
             let mut args = vec!["build", "-o", exe.to_str().unwrap()];
             args.extend(flags);
             let build = drachm(&args, dir);
