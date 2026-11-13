@@ -263,3 +263,8 @@ Q5 interfaces as types: any interface can be used as `&I` (its `static` methods 
 - Enums: a foreign enum type that also allows unknown values; a `match` on it needs a catch-all case (`case _`), since C can send values the header doesn't list.
 - Macros: a function-like macro is callable only after the code declares its types: `from c macro SDL_MUSTLOCK(foreign *SDL_Surface s) gives bool;`. My reading: object-like macros that evaluate to a number or string still come in as constants without a declaration; `static inline` functions follow the same declare-first rule (open).
 - Callbacks: a plain top-level Drachm function (no captures) can be passed as a C callback; variadic C functions (`printf`) wait until after 7.1.
+
+# C header imports batch D (safe wrappers), 2026-11-13
+- Strings and buffers: scoped helpers. `p::text()` on a `foreign *uint8` reads up to the NUL, checks UTF-8 and fails on bad text (inside `unsafe`); `&s as c string` passes a Drachm string to C, valid for that call only (embedded NUL: my reading, a failure or error at the conversion; open).
+- Returned memory: manual pairing; wrappers call the release function themselves, e.g. in `drop()`: `struct Window { foreign *SDL_Window w; none drop() { unsafe sdl::SDL_DestroyWindow(w); } }`. Never inferred from the pointer type.
+- C error conventions: ordinary wrapper code checks the result and fails as usual: `if (unsafe sdl::SDL_Init(f) < 0) { fail InitFailed(...); }`.
