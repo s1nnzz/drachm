@@ -65,21 +65,62 @@ impl Globals {
                     None
                 }
             },
+            None if let Some(info) = self.consts.get(name) => match &info.value {
+                crate::consts::Const::Int(v) if *v >= num_bigint::BigInt::from(1) => num_traits::ToPrimitive::to_u64(v).or_else(|| {
+                    diags.push(Diagnostic::at(&codes::E0901, span, "an array this long is not supported yet"));
+                    None
+                }),
+                crate::consts::Const::Int(v) => {
+                    diags.push(
+                        Diagnostic::at(&codes::E0636, span, format!("`{name}` is {v}, and an array needs at least one item"))
+                            .note("an array length must be 1 or more")
+                            .help("use a list, `[?]`, for something that may be empty"),
+                    );
+                    None
+                }
+                _ => {
+                    diags.push(Diagnostic::at(&codes::E0634, span, format!("`{name}` is not a whole number, so it cannot be an array length")));
+                    None
+                }
+            },
             None => {
                 diags.push(
                     Diagnostic::at(&codes::E0634, span, format!("`{name}` is not a constant"))
-                        .note("an array length is a number or a value parameter")
-                        .help(format!("declare `{name}` as a value parameter of the struct or function: `uint32 {name}`")),
+                        .note(self.run_value_note(name).unwrap_or_else(|| "an array length is a number, a constant or a value parameter".to_string()))
+                        .help(format!("declare `{name}` as a constant at the top of the file (`uint32 {name} = 8;`) or as a value parameter of the struct or function: `uint32 {name}`")),
                 );
                 None
             }
         }
     }
 
+    /// The length `[N + 1]` stands for here (the value parameters in scope are known).
+    fn calc_length(&self, e: &ast::ConstExpr, span: Span, diags: &mut Vec<Diagnostic>) -> Option<u64> {
+        let v = match super::generics::eval_value(self, e) {
+            Ok((v, _)) => v,
+            Err(d) => {
+                diags.push(d);
+                return None;
+            }
+        };
+        if v < num_bigint::BigInt::from(1) {
+            diags.push(
+                Diagnostic::at(&codes::E0636, span, format!("this length is {v}, and an array needs at least one item"))
+                    .note("an array length must be 1 or more")
+                    .help("use a list, `[?]`, for something that may be empty"),
+            );
+            return None;
+        }
+        num_traits::ToPrimitive::to_u64(&v).or_else(|| {
+            diags.push(Diagnostic::at(&codes::E0901, span, "an array this long is not supported yet"));
+            None
+        })
+    }
+
     /// `elem` with the written `dim` after it. Reports why not.
     pub(super) fn collection_of(&self, elem: Type, dim: &ast::Dim, diags: &mut Vec<Diagnostic>) -> Option<Type> {
         let at = match dim {
-            ast::Dim::List(s) | ast::Dim::Array(_, s) | ast::Dim::Param(_, s) | ast::Dim::Complex(s) => *s,
+            ast::Dim::List(s) | ast::Dim::Array(_, s) | ast::Dim::Param(_, s) | ast::Dim::Calc(_, s) => *s,
         };
         let kind = if matches!(dim, ast::Dim::List(_)) { "list" } else { "array" };
         if elem == Type::None {
@@ -92,18 +133,15 @@ impl Globals {
                 param_len = ast::Dim::Array(self.length_param(name, *span, diags)?, *span);
                 &param_len
             }
-            ast::Dim::Complex(span) => {
-                diags.push(
-                    Diagnostic::at(&codes::E0901, *span, "a calculation in an array length is not supported yet")
-                        .help("write the length as a number or as one value parameter: `T[N]`"),
-                );
-                return None;
+            ast::Dim::Calc(e, span) => {
+                param_len = ast::Dim::Array(self.calc_length(e, *span, diags)?, *span);
+                &param_len
             }
             d => d,
         };
         match dim {
             ast::Dim::List(_) => Some(self.make_list(elem)),
-            ast::Dim::Param(..) | ast::Dim::Complex(_) => unreachable!(),
+            ast::Dim::Param(..) | ast::Dim::Calc(..) => unreachable!(),
             ast::Dim::Array(n, _) => {
                 if Self::scalar_bytes(elem).is_some_and(|b| b.saturating_mul(*n) > MAX_ARRAY_BYTES) {
                     diags.push(

@@ -837,9 +837,10 @@ codes! {
     E0634: "a value argument is not a constant",
         "A value parameter (`uint32 N`) is given its value when the program is\n\
          compiled, so the argument must be known then: a whole number, a\n\
-         calculation on whole numbers, or a value parameter of the generic that\n\
-         is being written. A variable or anything else that only has a value\n\
-         while the program runs cannot be used.\n\n\
+         calculation on whole numbers, a named constant (a top-level value with\n\
+         a constant initializer, `uint32 SIZE = 8;`) or a value parameter of the\n\
+         generic that is being written. A variable or anything else that only\n\
+         has a value while the program runs cannot be used.\n\n\
          \x20   struct Buffer<T, uint32 N> { T[N] items; }\n\
          \x20   Buffer<sint32, 16> a;                       // fine\n\
          \x20   Buffer<sint32, 2 * 8> b;                    // fine\n\
@@ -854,6 +855,17 @@ codes! {
         "An array holds at least one item, so a length parameter used as an array\n\
          length (`T[N]`) cannot be zero. Use a list (`T[?]`) for something that may\n\
          be empty.";
+    E0637: "a fixed value is not a constant",
+        "A top-level value written with `fixed` must be a constant: its value is\n\
+         worked out when the program is compiled, from numbers, other constants\n\
+         and arithmetic. A function call, input or anything else that only has a\n\
+         value while the program runs is an error. Without `fixed` a constant\n\
+         value is still usable in types; `fixed` only makes the compiler check it.\n\n\
+         \x20   uint32 SIZE = 8;\n\
+         \x20   fixed uint32 MAX = SIZE * 2;               // fine: 16\n\
+         \x20   fixed uint32 N = io::inln().to<uint32>();  // error: known only when running";
+    E0638: "constant defined twice",
+        "Two top-level values have the same name.";
     W0600: "generic never used",
         "A generic function, struct or enum is only checked when something uses\n\
          it with particular types, so one nothing uses is not checked at all.";

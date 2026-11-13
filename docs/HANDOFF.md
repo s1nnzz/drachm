@@ -21,10 +21,11 @@ For a new session with no memory of earlier conversations. Read this, then
   (counts down), a run-time zero step stops with `range step is zero` (exit
   101), a literal zero is E0115; float ranges with `by` (value k is
   `start + k * step`).
-- **To build next (decided 2026-11-13, owner-answers "Step 7 batch D ... Q12
-  follow-ups")**: named constants (non-`mut` top-level with a constant value
-  usable in types; optional `fixed`), constant arithmetic on value parameters
-  in types (`T[N + 1]`, E0901 today).
+- **Built** (owner-answers "Step 7 batch D ... Q12 follow-ups"): named
+  constants (`src/typeck/constants.rs`: non-`mut` top-level number with a
+  constant value, usable in types; optional `fixed`, E0637/E0638) and constant
+  arithmetic on value parameters in types (`T[N + 1]`, `Buffer<T, N * 2>`).
+  Top-level values of the run (non-constant, `mut`) are E0901 until scripts.
 - **Owner questions pending**: `10..0 by -2` gives 10..2 in my question's
   preview but the inclusive end gives 0 too (built: 0 included); on an
   unsigned loop a literal `by -2` is only W0102: hard error instead?

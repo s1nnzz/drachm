@@ -1203,9 +1203,10 @@ name cannot choose between them; walk the value with `for` instead.
 
 A value parameter (`uint32 N`) is given its value when the program is
 compiled, so the argument must be known then: a whole number, a
-calculation on whole numbers, or a value parameter of the generic that
-is being written. A variable or anything else that only has a value
-while the program runs cannot be used.
+calculation on whole numbers, a named constant (a top-level value with
+a constant initializer, `uint32 SIZE = 8;`) or a value parameter of the
+generic that is being written. A variable or anything else that only
+has a value while the program runs cannot be used.
 
     struct Buffer<T, uint32 N> { T[N] items; }
     Buffer<sint32, 16> a;                       // fine
@@ -1226,6 +1227,22 @@ number unless its type is a `sint`.
 An array holds at least one item, so a length parameter used as an array
 length (`T[N]`) cannot be zero. Use a list (`T[?]`) for something that may
 be empty.
+
+## E0637: a fixed value is not a constant
+
+A top-level value written with `fixed` must be a constant: its value is
+worked out when the program is compiled, from numbers, other constants
+and arithmetic. A function call, input or anything else that only has a
+value while the program runs is an error. Without `fixed` a constant
+value is still usable in types; `fixed` only makes the compiler check it.
+
+    uint32 SIZE = 8;
+    fixed uint32 MAX = SIZE * 2;               // fine: 16
+    fixed uint32 N = io::inln().to<uint32>();  // error: known only when running
+
+## E0638: constant defined twice
+
+Two top-level values have the same name.
 
 ## W0600: generic never used
 

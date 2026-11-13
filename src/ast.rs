@@ -22,6 +22,8 @@ pub struct Program {
     pub failures: Vec<Failure>,
     /// `def NAME of STRUCT { ... }` declarations, in the order written.
     pub defs: Vec<DefDecl>,
+    /// Top-level values: `uint32 SIZE = 8;`, `fixed uint32 MAX = SIZE * 2;`.
+    pub consts: Vec<ConstDecl>,
     /// The file flag `//--!$unsafe: true` is present (set by `lib::check`).
     pub unsafe_allowed: bool,
     /// Every `T?` written in the file, with `T` as written (no marks, no `?`).
@@ -253,7 +255,20 @@ pub enum Dim {
     /// `[N]`: the length is a value parameter.
     Param(&'static str, Span),
     /// `[N + 1]` and the like: a length computed from more than one name or number.
-    Complex(Span),
+    Calc(&'static ConstExpr, Span),
+}
+
+/// A top-level value: `[fixed] [mut] Type NAME = value;`.
+#[derive(Debug)]
+pub struct ConstDecl {
+    /// `fixed`: the value must be a compile-time constant.
+    pub fixed: bool,
+    pub mutable: bool,
+    pub ty: TypeName,
+    pub name: String,
+    pub name_span: Span,
+    pub value: Option<Init>,
+    pub span: Span,
 }
 
 /// A constant expression written as a value argument: whole numbers, value

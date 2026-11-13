@@ -203,7 +203,7 @@ fn tkey(t: &ast::TypeName, env: &HashMap<String, Type>) -> String {
                 Some((_, v)) => s.push_str(&format!("[{v}]")),
                 None => s.push_str(&format!("[{n}]")),
             },
-            ast::Dim::Complex(_) => s.push_str("[..]"),
+            ast::Dim::Calc(e, _) => s.push_str(&format!("[{}]", calc_key(e, env))),
         }
     }
     if t.optional.is_some() {
@@ -1201,5 +1201,20 @@ impl Checker<'_> {
             _ => return,
         };
         self.diags.push(Diagnostic::at(code, name_span, message).note(note).help("the interface says `changes self`: borrow it as `&mut T`, or declare the binding `mut`"));
+    }
+}
+
+/// A length calculation written out with the value parameters of `env` filled in.
+fn calc_key(e: &ast::ConstExpr, env: &HashMap<String, Type>) -> String {
+    use ast::ConstExpr as C;
+    match e {
+        C::Num(v, _) => v.to_string(),
+        C::Name(n, _) => match env.get(n).and_then(|t| t.as_val()) {
+            Some((_, v)) => v.to_string(),
+            None => n.clone(),
+        },
+        C::Neg(i, _) => format!("-({})", calc_key(i, env)),
+        C::Not(i, _) => format!("~({})", calc_key(i, env)),
+        C::Bin(op, l, r, _) => format!("({} {} {})", calc_key(l, env), op.symbol(), calc_key(r, env)),
     }
 }

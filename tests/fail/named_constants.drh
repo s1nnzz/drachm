@@ -1,0 +1,35 @@
+in io;
+
+uint32 SIZE = 4;
+fixed uint32 BAD = io::inln()->to<uint32>();
+uint32 RUN = io::inln()->to<uint32>();
+uint8 BIG = 300;
+uint32 SIZE = 5;
+uint32 A = B;
+uint32 B = A;
+
+struct Mod<uint8 P> {
+    public:
+    uint8 v;
+}
+
+struct Shrink<T, uint32 N> {
+    public:
+    T[N - 1] items;
+}
+
+struct Twice<uint8 N> {
+    public:
+    Mod<N * 200> m;
+}
+
+uint32 halved<uint32 N>(&sint32[N / 2] a) { return N; }
+
+none main() {
+    sint32[4] q = [1, 2, 3, 4];
+    halved(&q);
+    uint8[RUN] a;
+    Shrink<sint32, 1> s;
+    Twice<2> t;
+    Shrink<sint32, SIZE - 4> z;
+}

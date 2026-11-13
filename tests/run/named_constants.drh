@@ -1,0 +1,55 @@
+in io;
+
+// Named constants: top-level values with a constant initializer.
+uint32 SIZE = 4;
+fixed uint32 MAX = SIZE * 2;
+uint8 SHIFT = 3;
+float64 SCALE = 0.5;
+
+struct Buffer<T, uint32 N> {
+    public:
+    T[N] items;
+    static uint32 capacity() { return N; }
+}
+
+struct Padded<T, uint32 N> {
+    public:
+    T[N + 1] items;
+    Buffer<T, N * 2> twice;
+}
+
+struct Raw {
+    public:
+    uint8[SIZE] bytes;
+}
+
+uint32 length_of<uint32 N>(&sint32[N] a) {
+    return N;
+}
+
+uint32 shrunk<uint32 N>(&sint32[N + 1] a) {
+    return N;
+}
+
+uint32 scaled<uint32 N>(&sint32[N * 2] a) {
+    return N;
+}
+
+uint32 from_end<uint32 N>(&sint32[10 - N] a) {
+    return N;
+}
+
+none main() {
+    uint8[SIZE] raw = [0, 1, 2, 3];
+    io::outln(f"${raw::len()} ${SIZE} ${MAX} ${SHIFT} ${SCALE}");
+    Raw r = new Raw of ([9, 8, 7, 6]);
+    io::outln(f"${r.bytes::len()} ${r.bytes[0] + SHIFT}");
+    Padded<sint32, 2> p = new Padded<sint32, 2> of ([1, 2, 3], new Buffer<sint32, 4> of ([1, 2, 3, 4]));
+    io::outln(f"${p.items::len()} ${p.twice.items::len()} ${Buffer<sint32, MAX>::capacity()}");
+    sint32[SIZE * 2 - 5] odd = [7, 8, 9];
+    io::outln(f"${length_of(&odd)} ${shrunk(&odd)} ${from_end(&odd)}");
+    sint32[6] six = [1, 2, 3, 4, 5, 6];
+    io::outln(f"${scaled(&six)}");
+    uint32 SIZE = 100;
+    io::outln(f"${SIZE}");
+}

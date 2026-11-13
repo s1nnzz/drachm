@@ -48,8 +48,6 @@ none main() {
     sint32[2] x = [1, 2];
     sint32[3] y = [1, 2, 3];
     same(&x, &y);
-    Wide<uint32, 2> w;
-    Twice<2> t;
     wrong<4>(1);
     first(&x);
 }

@@ -527,7 +527,7 @@ fn peel(g: &Globals, p: &ast::TypeName, ty: Type) -> Type {
     // `T[?]` and `T[4]` bind `T` to the item type.
     for d in p.dims.iter().rev() {
         t = match (d, t) {
-            (ast::Dim::List(_), Type::List { elem }) | (ast::Dim::Array(..) | ast::Dim::Param(..), Type::Array { elem, .. }) => *elem,
+            (ast::Dim::List(_), Type::List { elem }) | (ast::Dim::Array(..) | ast::Dim::Param(..) | ast::Dim::Calc(..), Type::Array { elem, .. }) => *elem,
             _ => t,
         };
     }
@@ -536,18 +536,54 @@ fn peel(g: &Globals, p: &ast::TypeName, ty: Type) -> Type {
 
 /// Does the written type `p` name one of the type parameters, anywhere?
 fn mentions(tparams: &[ast::TypeParam], p: &ast::TypeName) -> bool {
-    p.dims.iter().any(|d| matches!(d, ast::Dim::Param(n, _) if tparams.iter().any(|tp| tp.name == *n)))
-        || (p.args.is_empty() && tparams.iter().any(|tp| tp.name == p.name))
+    p.dims.iter().any(|d| match d {
+        ast::Dim::Param(n, _) => tparams.iter().any(|tp| tp.name == *n),
+        ast::Dim::Calc(e, _) => tparams.iter().any(|tp| calc_names(e, &tp.name)),
+        _ => false,
+    }) || (p.args.is_empty() && tparams.iter().any(|tp| tp.name == p.name))
         || p.unit.as_ref().is_some_and(|s| unit_mentions(tparams, &s.expr))
         || p.unit_arg.as_ref().is_some_and(|s| unit_mentions(tparams, &s.expr))
         || p.args.iter().any(|a| mentions(tparams, a))
+}
+
+/// Does the length calculation `e` name `n`?
+fn calc_names(e: &ast::ConstExpr, n: &str) -> bool {
+    use ast::ConstExpr as C;
+    match e {
+        C::Num(..) => false,
+        C::Name(m, _) => m == n,
+        C::Neg(i, _) | C::Not(i, _) => calc_names(i, n),
+        C::Bin(_, l, r, _) => calc_names(l, n) || calc_names(r, n),
+    }
+}
+
+/// The one name `e` has and the value it must have for `e` to be `len`, when
+/// that is plain to see: `N + 3`, `3 + N`, `N - 3`, `3 - N`, `N * 3`, `3 * N`.
+fn solve_calc(e: &ast::ConstExpr, len: i128) -> Option<(String, i128)> {
+    use ast::ConstExpr as C;
+    let C::Bin(op, l, r, _) = e else { return None };
+    let num = |x: &C| match x {
+        C::Num(v, _) => num_traits::ToPrimitive::to_i128(v),
+        _ => None,
+    };
+    let name = |x: &C| match x {
+        C::Name(n, _) => Some(n.clone()),
+        _ => None,
+    };
+    match (op, name(l), num(r), num(l), name(r)) {
+        (ast::BinOp::Add, Some(n), Some(k), ..) | (ast::BinOp::Add, _, _, Some(k), Some(n)) => Some((n, len.checked_sub(k)?)),
+        (ast::BinOp::Sub, Some(n), Some(k), ..) => Some((n, len.checked_add(k)?)),
+        (ast::BinOp::Sub, _, _, Some(k), Some(n)) => Some((n, k.checked_sub(len)?)),
+        (ast::BinOp::Mul, Some(n), Some(k), ..) | (ast::BinOp::Mul, _, _, Some(k), Some(n)) if k != 0 && len % k == 0 => Some((n, len / k)),
+        _ => None,
+    }
 }
 
 /// What a parameter written `p` makes of the type parameters, given an
 /// argument of type `ty`: `(parameter index, type)` for each one it shows.
 fn bindings(g: &Globals, tparams: &[ast::TypeParam], p: &ast::TypeName, ty: Type, out: &mut Vec<(usize, Type)>) {
     // `T[N]` binds `N` to the length of the array.
-    if p.dims.iter().any(|d| matches!(d, ast::Dim::Param(..))) {
+    if p.dims.iter().any(|d| matches!(d, ast::Dim::Param(..) | ast::Dim::Calc(..))) {
         let mut t = ty;
         for (m, _) in &p.mods {
             t = match (m, t) {
@@ -566,6 +602,15 @@ fn bindings(g: &Globals, tparams: &[ast::TypeParam], p: &ast::TypeName, ty: Type
                         && let Some(vt) = tparams[k].value.as_ref().and_then(|(t, _)| Type::from_name(t).ok())
                     {
                         out.push((k, Type::val(vt, i128::from(len))));
+                    }
+                    t = *elem;
+                }
+                (ast::Dim::Calc(e, _), Type::Array { elem, len }) => {
+                    if let Some((n, v)) = solve_calc(e, i128::from(len))
+                        && let Some(k) = tparams.iter().position(|tp| tp.name == n)
+                        && let Some(vt) = tparams[k].value.as_ref().and_then(|(t, _)| Type::from_name(t).ok())
+                    {
+                        out.push((k, Type::val(vt, v)));
                     }
                     t = *elem;
                 }
@@ -847,9 +892,15 @@ impl Checker<'_> {
                 } else {
                     "uint32"
                 };
+                let in_calc = params.iter().any(|p| p.dims.iter().any(|d| matches!(d, ast::Dim::Calc(e, _) if calc_names(e, tp))));
+                let why = if in_calc {
+                    format!("`{tp}` is only used in a calculation here, and the compiler solves only `{tp} + 1`, `{tp} - 1`, `{tp} * 2` and the like")
+                } else {
+                    format!("no argument shows `{tp}`")
+                };
                 self.diags.push(
                     Diagnostic::at(&codes::E0601, span, format!("cannot tell what `{tp}` is in this call of `{name}`"))
-                        .note(format!("no argument shows `{tp}`"))
+                        .note(why)
                         .label(self.g.mono.templates[name].head.name_span, format!("`{tp}` is declared here"))
                         .help(format!("write it out: `{name}<{example}>{sample}`")),
                 );
@@ -1006,7 +1057,7 @@ pub(super) fn unit_kind_error(name: &str, tp: &ast::TypeParam, t: &ast::TypeName
 
 /// The value a whole-number constant expression has (names are value parameters
 /// in scope). The flag says whether a name took part.
-fn eval_value(g: &Globals, e: &ast::ConstExpr) -> Result<(num_bigint::BigInt, bool), Diagnostic> {
+pub(super) fn eval_value(g: &Globals, e: &ast::ConstExpr) -> Result<(num_bigint::BigInt, bool), Diagnostic> {
     use crate::consts::{Const, FoldError, Folded};
     let whole = |c: Const| match c {
         Const::Int(v) => v,
@@ -1020,31 +1071,28 @@ fn eval_value(g: &Globals, e: &ast::ConstExpr) -> Result<(num_bigint::BigInt, bo
                 None => Err(Diagnostic::at(&codes::E0602, *span, format!("`{n}` is a type, not a value"))
                     .help("a value argument is a number or a value parameter declared as `uint32 N`")),
             },
-            None => Err(Diagnostic::at(&codes::E0634, *span, format!("`{n}` is not a constant"))
-                .note("a value argument must be known when the program is compiled")
-                .help("write a number, a calculation on numbers, or a value parameter of the enclosing generic")),
+            None => match g.consts.get(n.as_str()) {
+                Some(info) => match &info.value {
+                    Const::Int(v) => Ok((v.clone(), false)),
+                    _ => Err(Diagnostic::at(&codes::E0634, *span, format!("`{n}` is not a whole number"))),
+                },
+                None => Err(Diagnostic::at(&codes::E0634, *span, format!("`{n}` is not a constant"))
+                    .note(g.run_value_note(n).unwrap_or_else(|| "a value argument must be known when the program is compiled".to_string()))
+                    .help("write a number, a calculation on numbers, a constant (`uint32 SIZE = 8;` at the top of the file) or a value parameter of the enclosing generic")),
+            },
         },
-        ast::ConstExpr::Neg(inner, span) => {
+        ast::ConstExpr::Neg(inner, _) => {
             let (v, named) = eval_value(g, inner)?;
-            if named {
-                return Err(calc_on_param(*span));
-            }
-            Ok((-v, false))
+            Ok((-v, named))
         }
         ast::ConstExpr::Not(inner, span) => {
             let (v, named) = eval_value(g, inner)?;
-            if named {
-                return Err(calc_on_param(*span));
-            }
-            Ok((whole(Const::Int(v).bit_not().map_err(|_| Diagnostic::at(&codes::E0634, *span, "`~` needs a whole number"))?), false))
+            Ok((whole(Const::Int(v).bit_not().map_err(|_| Diagnostic::at(&codes::E0634, *span, "`~` needs a whole number"))?), named))
         }
         ast::ConstExpr::Bin(op, l, r, span) => {
             let ((a, an), (b, bn)) = (eval_value(g, l)?, eval_value(g, r)?);
-            if an || bn {
-                return Err(calc_on_param(*span));
-            }
             match Const::binary(*op, &Const::Int(a), &Const::Int(b)) {
-                Ok(Folded::Value(c)) => Ok((whole(c), false)),
+                Ok(Folded::Value(c)) => Ok((whole(c), an || bn)),
                 Ok(Folded::Bool(_)) => Err(Diagnostic::at(&codes::E0634, *span, "a value argument is a whole number")),
                 Err(FoldError::DivisionByZero) => Err(Diagnostic::at(&codes::E0107, *span, "this constant expression divides by zero").label(r.span(), "this is zero")),
                 Err(FoldError::TooLarge) => Err(Diagnostic::at(&codes::E0002, *span, "this constant expression is too large to evaluate")),
@@ -1052,11 +1100,6 @@ fn eval_value(g: &Globals, e: &ast::ConstExpr) -> Result<(num_bigint::BigInt, bo
             }
         }
     }
-}
-
-fn calc_on_param(span: Span) -> Diagnostic {
-    Diagnostic::at(&codes::E0901, span, "a calculation on a value parameter in a type is not supported yet")
-        .help("pass the value parameter alone, or write the calculation on numbers")
 }
 
 /// The stand-in type for the value of argument `a` of value parameter `tp`.

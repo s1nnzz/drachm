@@ -512,7 +512,7 @@ P>` is arithmetic modulo `P`.
 <!-- example: gen-values -->
 
 Where the type is used, the argument is any constant: a number, a calculation
-on numbers (`Buffer<sint32, 2 * 8>`), or a value parameter of the generic you
+on numbers (`Buffer<sint32, 2 * 8>`), a [named constant](#named-constants-and-calculations), or a value parameter of the generic you
 are inside (`Wrap<M>` can hold a `Buffer<sint32, M>`). The values are part of
 the type, so `Buffer<sint32, 4>` and `Buffer<sint32, 8>` are different types,
 as `Cell<uint32>` and `Cell<sint32>` are. In the body, `N` is a constant of its
@@ -530,15 +530,35 @@ E0634; one that does not fit the parameter's type (`300` for a `uint8`, `-1`
 for a `uint32`) is E0635; a length of 0 for `T[N]` is E0636; a type where a
 value goes, or a number where a type goes, is E0602.
 
-### Calculations on value parameters
+### Named constants and calculations
 
-<!-- status: not-implemented -->
+A top-level value that is not `mut` and whose initializer is known when the
+program is compiled is a **named constant**. It works as a value everywhere and
+also in types: as an array length, or as a value argument.
 
-A calculation on a value parameter inside a type, `T[N + 1]` or
-`Buffer<T, N * 2>`, is E0901 today, as is a constraint on a value parameter
-(`uint32 N with ...`). A value parameter on an interface is E0901 too. Named
-constants do not exist yet, so a value argument is a number, a calculation on
-numbers, or a value parameter.
+<!-- example: gen-constants -->
+
+The initializer can use numbers, other constants and arithmetic, in any order
+in the file. A function call or input (`io::inln()`) is only known while the
+program runs, so it cannot be used in a type; a top-level value like that is not
+supported yet (E0901), and using its name in a type is E0634. A local variable
+with the same name hides the constant. Two constants with one name are E0638.
+
+Writing `fixed` in front is optional and makes the compiler check that the value
+is a constant: `fixed uint32 MAX = SIZE * 2;` is fine, `fixed uint32 N =
+io::inln()->to<uint32>();` is E0637.
+
+Inside a type, any calculation on value parameters is allowed: `T[N + 1]` or
+`Buffer<T, N * 2>`. It is worked out for each instance, so `Padded<sint32, 2>`
+holds a `sint32[3]` and a `Buffer<sint32, 4>`. A result that does not fit the
+parameter (`Mod<N * 200>` with a `uint8` parameter and `N` = 2) is E0635, and a
+zero length (`T[N - 1]` with `N` = 1) is E0636; both point at the instantiation.
+
+A generic function works a value parameter out only from a plain `T[N]`, or from
+a simple shape with one name and a number: `[N + 1]`, `[N - 1]`, `[10 - N]`,
+`[N * 2]`. Any other calculation (`[N / 2]`) cannot be worked out, and the call
+writes the argument, `halved<4>(&q)` (E0601). A constraint on a value parameter
+(`uint32 N with ...`) and a value parameter on an interface are still E0901.
 
 ## Generic over units
 
