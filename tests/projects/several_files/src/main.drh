@@ -1,0 +1,4 @@
+in io;
+in util;
+
+none main() { io::outln("x"); }

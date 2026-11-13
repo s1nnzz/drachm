@@ -13,6 +13,7 @@ pub mod hir;
 pub mod lexer;
 pub mod link;
 pub mod mir;
+pub mod modules;
 pub mod ownership;
 pub mod parser;
 pub mod typeck;
@@ -44,9 +45,13 @@ pub fn front(src: &str) -> (Option<hir::Program>, Vec<Diagnostic>) {
 /// Lex, parse, type-check and ownership-check `src`. Returns every diagnostic
 /// found (warnings included); the program is `None` if any of them is an error.
 pub fn check(src: &str) -> (Option<hir::Program>, Vec<Diagnostic>) {
-    let (checked, mut diags) = front(src);
+    let (checked, diags) = front(src);
+    ownership_checks(checked, diags)
+}
+
+/// The ownership checks, which run on the MIR, after `front`.
+fn ownership_checks(checked: Option<hir::Program>, mut diags: Vec<Diagnostic>) -> (Option<hir::Program>, Vec<Diagnostic>) {
     let Some(checked) = checked else { return (None, diags) };
-    // The ownership checks run on the MIR.
     let mut mir = mir::build_program(&checked, &mut diags);
     ownership::conform::check(&checked, &mir.self_modes, &mut diags);
     if diag::has_errors(&diags) {
@@ -57,6 +62,51 @@ pub fn check(src: &str) -> (Option<hir::Program>, Vec<Diagnostic>) {
         return (None, diags);
     }
     (Some(checked), diags)
+}
+
+/// `front` for a program that may be several files: load the module graph from
+/// `entry`, then check it. The graph (with its source map) is returned for
+/// printing the diagnostics. A graph of one file is checked exactly like `front`.
+///
+/// Step 7 is only started: a project with other files in it loads, parses and
+/// has its imports and exports checked, but its names are not yet resolved
+/// across files (WP2), so it ends in E0901 where the first file import is.
+pub fn front_project(entry: &std::path::Path, info: &modules::ProjectInfo) -> (Option<hir::Program>, modules::ModuleGraph, Vec<Diagnostic>) {
+    let mut diags = Vec::new();
+    let graph = modules::load(entry, info, &mut diags);
+    if diag::has_errors(&diags) || graph.modules.is_empty() {
+        return (None, graph, diags);
+    }
+    if graph.modules.len() > 1 {
+        let main = &graph.modules[0];
+        // The first import of a project file, for the message.
+        let at = main
+            .targets
+            .iter()
+            .position(|t| matches!(t, Some(modules::Target::File(_))))
+            .map(|i| main.program.imports[i].span);
+        let mut d = Diagnostic::new(&diag::codes::E0901, "a program of several files cannot be built yet")
+            .note_line(format!("{} files were found and read; naming things across files is the next part of step 7", graph.modules.len()));
+        if let Some(at) = at {
+            d = d.label(at, "this imports a project file");
+        }
+        diags.push(d);
+        return (None, graph, diags);
+    }
+    let program = &graph.modules[0].program;
+    let src = &graph.map.source(0).text;
+    let checked = typeck::check(program, src, &mut diags);
+    if diag::has_errors(&diags) {
+        return (None, graph, diags);
+    }
+    (Some(checked), graph, diags)
+}
+
+/// `check` for a project: `front_project`, then the ownership checks.
+pub fn check_project(entry: &std::path::Path, info: &modules::ProjectInfo) -> (Option<hir::Program>, modules::ModuleGraph, Vec<Diagnostic>) {
+    let (checked, graph, diags) = front_project(entry, info);
+    let (checked, diags) = ownership_checks(checked, diags);
+    (checked, graph, diags)
 }
 
 /// Build an executable at `out`. Plain builds go through Cranelift, which is

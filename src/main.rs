@@ -3,15 +3,15 @@ use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::process::{exit, Command};
 
-use drachm::diag::{self, Source};
+use drachm::diag;
 
 const USAGE: &str = "\
 Drachm compiler
 
 usage:
-  drachm build <file.drh> [-o <output>] [-O]   compile to a native executable
-  drachm run   <file.drh> [-O]                 compile and run
-  drachm check <file.drh> [--dump-mir | --dump-borrowck]  check for errors only (the dumps print the MIR or the borrow checker state)
+  drachm build <file.drh | folder> [-o <output>] [-O]   compile to a native executable
+  drachm run   <file.drh | folder> [-O]                 compile and run
+  drachm check <file.drh | folder> [--dump-mir | --dump-borrowck]  check for errors only (the dumps print the MIR or the borrow checker state)
   drachm explain <code>                        describe an error code, e.g. E0101
 
   -O   optimised build: slower to compile, much faster to run";
@@ -51,7 +51,7 @@ fn main() {
         "check" => {
             // The MIR dump is for looking at programs the ownership checks
             // reject too, so it stops after type checking.
-            let hir = front_end(&input, !dump_mir && !dump_borrowck);
+            let (entry, hir) = front_end(&input, !dump_mir && !dump_borrowck);
             if dump_borrowck {
                 let mut diags = Vec::new();
                 let mir = drachm::mir::build_program(&hir, &mut diags);
@@ -66,9 +66,9 @@ fn main() {
                 drachm::mir::drops::elaborate_program(&hir, &mut mir);
                 if !diags.is_empty() {
                     let color = std::io::stderr().is_terminal() && std::env::var_os("NO_COLOR").is_none();
-                    let text = std::fs::read_to_string(&input).unwrap_or_default();
-                    let src = Source::new(input.display().to_string(), text);
-                    eprint!("{}", diag::render_all(&diags, &src, color));
+                    let text = std::fs::read_to_string(&entry).unwrap_or_default();
+                    let map = diag::SourceMap::single(entry.display().to_string(), text);
+                    eprint!("{}", diag::render_all_map(&diags, &map, color));
                     if diag::has_errors(&diags) {
                         exit(1);
                     }
@@ -77,7 +77,7 @@ fn main() {
             }
         }
         "build" => {
-            let out = output.unwrap_or_else(|| input.with_extension(EXE_EXTENSION));
+            let out = output.unwrap_or_else(|| default_output(&input));
             build(&input, &out, opt);
         }
         "run" => {
@@ -101,20 +101,33 @@ fn die(msg: &str) -> ! {
     exit(1)
 }
 
-/// Check the file, print its diagnostics, and exit if there were errors.
-/// `ownership` is false to stop after type checking.
-fn front_end(input: &Path, ownership: bool) -> drachm::hir::Program {
-    let text = std::fs::read_to_string(input).unwrap_or_else(|e| die(&format!("{}: {e}", input.display())));
-    let (checked, diags) = if ownership { drachm::check(&text) } else { drachm::front(&text) };
+/// `drachm build folder` writes `folder/folder` (a project is named by its folder).
+fn default_output(input: &Path) -> PathBuf {
+    if input.is_dir() {
+        let name = input.canonicalize().ok().and_then(|p| p.file_name().map(|n| n.to_owned())).unwrap_or_else(|| "program".into());
+        return input.join(name).with_extension(EXE_EXTENSION);
+    }
+    input.with_extension(EXE_EXTENSION)
+}
+
+/// Load and check the file or project folder, print its diagnostics, and exit
+/// if there were errors. `ownership` is false to stop after type checking.
+/// Returns the entry file (for the MIR dump's own messages) and the program.
+fn front_end(input: &Path, ownership: bool) -> (PathBuf, drachm::hir::Program) {
+    let (entry, info) = drachm::modules::ProjectInfo::open(input).unwrap_or_else(|e| die(&e));
+    let (checked, graph, diags) = if ownership { drachm::check_project(&entry, &info) } else { drachm::front_project(&entry, &info) };
     if !diags.is_empty() {
         let color = std::io::stderr().is_terminal() && std::env::var_os("NO_COLOR").is_none();
-        let src = Source::new(input.display().to_string(), text);
-        eprint!("{}", diag::render_all(&diags, &src, color));
+        if graph.map.is_empty() {
+            eprintln!("{}", diags.iter().map(|d| d.message.clone()).collect::<Vec<_>>().join("\n"));
+        } else {
+            eprint!("{}", diag::render_all_map(&diags, &graph.map, color));
+        }
     }
-    checked.unwrap_or_else(|| exit(1))
+    (entry, checked.unwrap_or_else(|| exit(1)))
 }
 
 fn build(input: &Path, out: &Path, opt: bool) {
-    let program = front_end(input, true);
+    let (_, program) = front_end(input, true);
     drachm::build(&program, out, opt).unwrap_or_else(|e| die(&format!("drachm: {e}")));
 }

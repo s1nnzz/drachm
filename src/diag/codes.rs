@@ -262,6 +262,37 @@ codes! {
         "A `static` method is called on the struct (`Point::origin()`); every\n\
          other method is called on a value (`p::length()`). This call used the\n\
          wrong one.";
+    E0230: "module not found",
+        "An `in` names a module that is neither a standard module (`io`, `si`)\n\
+         nor a file of the project. A path is relative to the folder of the file\n\
+         that writes it: `in game.physics;` (or `in physics inside game;`) means\n\
+         the file `game/physics.drh` beside this one. To start from the source\n\
+         folder of the project, begin with the project's name from `drachm.toml`:\n\n\
+         \x20   in mygame.game.physics;\n\n\
+         A module file name must be a plain name (letters, digits, `_`).";
+    E0231: "module name is ambiguous",
+        "An `in` path matches two places: a standard module and a file of the\n\
+         project (a file `math.drh` beside the importer and the standard `math`),\n\
+         or the project's own name and a folder of that name. Drachm does not\n\
+         pick one silently, so adding a standard module later can never change\n\
+         what a program means. Rename the file or folder.";
+    E0232: "two imports with the same name",
+        "Two `in` lines give different modules the same name in one file, for\n\
+         example `game/audio.drh` and `engine/audio.drh` are both `audio`. Rename\n\
+         one with `as`:\n\n\
+         \x20   in game.audio;\n\
+         \x20   in engine.audio as engineAudio;";
+    E0233: "exported twice",
+        "A name is exported more than once from one file, with `out` before the\n\
+         declaration and again in an `out` list, or in two lists. The name other\n\
+         files see (after `as`) must be unique in the file.";
+    E0234: "exporting a name that does not exist",
+        "An `out` list names something this file does not declare. Only the\n\
+         functions, structs, enums, interfaces, failures and units written in the\n\
+         file can be exported.";
+    E0235: "cannot read a module file",
+        "The file an `in` points at exists but could not be read (permissions,\n\
+         or it is not valid UTF-8 text).";
 
     E0308: "which parameter the result borrows from is ambiguous",
         "A function that returns a borrow gets its `lives` from its body when only\n\

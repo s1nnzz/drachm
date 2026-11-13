@@ -1,0 +1,4 @@
+in game.audio;
+in engine.audio;
+
+none main() { }

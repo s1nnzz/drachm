@@ -1,0 +1,2 @@
+error[E0230]: module `maths` not found
+looked for the file `tests/fail/maths.drh`

@@ -1,0 +1,3 @@
+error[E0233]: `a` is exported twice
+error[E0234]: `Nothing` is exported but not declared in this file
+--> src/util.drh:3:5

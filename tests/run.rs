@@ -393,3 +393,73 @@ fn borrowck() {
         if missing.is_empty() { Ok(()) } else { Err(format!("missing:\n  {}\nactual dump:\n{dump}", missing.join("\n  "))) }
     });
 }
+
+/// Project folders, `tests/projects/NAME/`: a `drachm.toml`, the files below
+/// `src/` (entry `src/main.drh`), and the expectations beside them:
+///
+/// - `expect.out` (with optional `expect.code`, `expect.in`): the project is
+///   built both ways, run with the leak check, and must print exactly that;
+/// - `expect.err` instead: `drachm check` must fail, each line of the file
+///   must appear in the stderr. Diagnostics name their file relative to the
+///   folder with `drachm.toml`, so the lines here are portable.
+#[test]
+fn projects() {
+    let mut dirs: Vec<PathBuf> = fs::read_dir(root().join("tests/projects"))
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .filter(|p| p.is_dir())
+        .collect();
+    dirs.sort();
+    assert!(!dirs.is_empty(), "no projects in tests/projects");
+    run_all(dirs, project_case);
+}
+
+fn project_case(dir: &Path) -> Result<(), String> {
+    let name = dir.file_name().unwrap().to_str().unwrap();
+    let expect = |ext: &str| dir.join(format!("expect.{ext}"));
+    if let Some(want) = read(&expect("out")) {
+        let want_code: i32 = match read(&expect("code")) {
+            Some(s) => s.trim().parse().map_err(|_| "expect.code is not a number".to_string())?,
+            None => 0,
+        };
+        let stdin = expect("in");
+        let mut outputs = Vec::new();
+        for flags in [&[][..], &["-O"][..]] {
+            let exe = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("proj{}-{name}{EXE_SUFFIX}", flags.len()));
+            let mut args = vec!["build", "-o", exe.to_str().unwrap()];
+            args.extend(flags);
+            let build = drachm(&args, dir);
+            if !build.status.success() || !build.stderr.is_empty() {
+                return Err(format!("did not compile cleanly with {flags:?}:\n{}", text(&build.stderr)));
+            }
+            let run = run_program(&exe, stdin.exists().then_some(stdin.as_path()))?;
+            let _ = fs::remove_file(&exe);
+            let stderr = text(&run.stderr);
+            if let Some(leak) = leak_report(&run, &stderr) {
+                return Err(format!("{leak} (with {flags:?})"));
+            }
+            if run.status.code() != Some(want_code) {
+                return Err(format!("exit code {:?}, expected {want_code} (with {flags:?})\n{stderr}", run.status.code()));
+            }
+            outputs.push(text(&run.stdout));
+        }
+        if outputs[0] != outputs[1] {
+            return Err(format!("plain build gave:\n{}\n-O build gave:\n{}", outputs[0], outputs[1]));
+        }
+        if outputs[0] != want {
+            return Err(format!("stdout differs\nexpected:\n{want}\nactual:\n{}", outputs[0]));
+        }
+        return Ok(());
+    }
+    let want = read(&expect("err")).ok_or("neither expect.out nor expect.err")?;
+    let out = drachm(&["check"], dir);
+    let stderr = text(&out.stderr);
+    if out.status.success() {
+        return Err("checked, but should have been rejected".into());
+    }
+    if out.status.code() != Some(1) {
+        return Err(format!("the compiler crashed instead of reporting errors:\n{stderr}"));
+    }
+    let missing = missing_lines(&want, &stderr);
+    if missing.is_empty() { Ok(()) } else { Err(format!("stderr lacks:\n  {}\nactual stderr:\n{stderr}", missing.join("\n  "))) }
+}

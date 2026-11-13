@@ -1,0 +1,6 @@
+in io;
+
+// A project folder with one imported-by-nobody module beside main.
+none main() {
+    io::outln("project ok");
+}

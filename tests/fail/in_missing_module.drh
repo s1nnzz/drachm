@@ -1,0 +1,6 @@
+in io;
+in maths;
+
+none main() {
+    io::outln("hi");
+}

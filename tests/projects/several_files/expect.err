@@ -1,0 +1,2 @@
+error[E0901]: a program of several files cannot be built yet
+this imports a project file
