@@ -274,3 +274,9 @@ Q5 interfaces as types: any interface can be used as `&I` (its `static` methods 
 - `assert` takes an optional message: `assert(n > 0, "need at least one crew");` prints `assertion failed: n > 0: need at least one crew`.
 - `drachm test PATH NAME`: the second argument filters tests by name (my reading: runs tests whose name contains NAME).
 - Test bodies are left out of normal `build`/`run` executables: type-checked, not emitted.
+
+# C imports follow-ups, 2026-11-13
+- Handing a Drachm pointer to C is written out: `sdl::SDL_free(buf as foreign *none);` (no automatic `*T` -> `foreign *T`; replaces the agent's interim).
+- `foreign` pointers copy freely, like numbers (as built); safety lives in the wrapper.
+- `p::text()` gives `string?`: `none` for a null pointer, and fails with `InvalidText` only on bad UTF-8.
+- The unsafe permission for C moves to the manifest: `[native] unsafe = true` in the project that owns the wrappers; projects that depend on it need nothing. My reading: the `//--!$unsafe: true` file flag stays for scripts and single files.
