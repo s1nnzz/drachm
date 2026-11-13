@@ -241,6 +241,29 @@ instance does not list is E0606.
 Not supported yet (E0901): borrowing a generic interface (`&Read<uint32>`), and
 interface methods with type parameters of their own.
 
+## Iterable
+
+`Iterable<T>` is built in: `interface Iterable<T> { T? at(uint64 i); }`. A type
+that implements it can be the thing after `of` in a `for`:
+`for (T x of thing)` evaluates `thing` once and calls `thing::at(0)`,
+`at(1)`, ... until one gives `none`, binding each payload to `x`. The value is
+not used up, and `at` takes `self` shared, so the loop body cannot change it
+(the same rule as for lists). `skip`, `continue`, `break` and `break 2` work as in
+any loop.
+
+<!-- example: iterable -->
+
+`T x` takes the item (a copy for numbers, the moved value for items that own
+memory); `&T x` looks at it. `&mut T x` is not available (E0901): `at` hands out
+values, so changes would be lost. A variable of any other type is E0630.
+
+A type may be `Iterable` over several item types; the variable's type picks
+the `at`. Two methods called `at` with the same parameters and different results
+are allowed for this; calling one by name (`g::at(0)`) is E0632, and a variable
+that matches none of the item types is E0631.
+
+<!-- example: iterable-two -->
+
 ## Self
 
 Inside an interface, `Self` stands for the type that implements it, so

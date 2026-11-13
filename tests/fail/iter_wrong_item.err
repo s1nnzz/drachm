@@ -1,0 +1,2 @@
+error[E0630]: the items are `uint32`, but the variable is `bool`
+error[E0901]: a changeable view `&mut uint32` of items from `at` is not supported

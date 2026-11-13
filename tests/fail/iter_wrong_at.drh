@@ -1,0 +1,13 @@
+struct Slow with Iterable<uint32> {
+public:
+    uint32 n;
+    uint32? at(uint32 i) { return none; }
+}
+
+struct Loud with Iterable<uint32> {
+public:
+    uint32 n;
+    uint32 at(uint64 i) { return 1; }
+}
+
+none main() { }

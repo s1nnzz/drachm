@@ -1,0 +1,25 @@
+in io;
+
+struct Names with Iterable<string> {
+public:
+    uint32 n;
+    string? at(uint64 i) {
+        if (i >= self.n) { return none; }
+        return f"item ${self.n - i::to<uint32>()}";
+    }
+}
+
+none main() {
+    Names source = 2;
+    mut string kept = "";
+    for (string s of source) {
+        kept = s;
+        break;
+    }
+    io::outln(kept);
+    for (string s of source) {
+        if (s == "item 2") { continue; }
+        io::outln(s);
+    }
+    for (&string s of source) { io::outln(s); }
+}

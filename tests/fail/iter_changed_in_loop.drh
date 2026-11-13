@@ -1,0 +1,15 @@
+struct Countdown with Iterable<uint32> {
+public:
+    mut uint32 n;
+    uint32? at(uint64 i) {
+        if (i >= self.n) { return none; }
+        return self.n - i::to<uint32>();
+    }
+}
+
+none main() {
+    mut Countdown c = new Countdown of (3);
+    for (uint32 n of c) {
+        c.n = 5;
+    }
+}

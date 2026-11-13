@@ -1,0 +1,14 @@
+struct Countdown with Iterable<uint32> {
+public:
+    uint32 n;
+    uint32? at(uint64 i) {
+        if (i >= self.n) { return none; }
+        return self.n - i::to<uint32>();
+    }
+}
+
+none main() {
+    Countdown c = 1;
+    for (bool n of c) { }
+    for (&mut uint32 n of c) { }
+}

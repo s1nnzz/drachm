@@ -1,0 +1,20 @@
+in io;
+
+struct Countdown with Iterable<uint32> {
+public:
+    uint32 start;
+    uint32? at(uint64 i) {
+        if (i >= self.start) { return none; }
+        return self.start - i::to<uint32>();
+    }
+}
+
+none main() {
+    Countdown c = new Countdown of (3);
+    for (uint32 n of c) { io::outln(n::text()); }
+    // The value was only read, so it can be walked again.
+    for (uint32 n of c) {
+        if (n == 2) { continue; }
+        io::outln(f"again ${n}");
+    }
+}

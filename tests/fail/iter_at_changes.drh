@@ -1,0 +1,10 @@
+struct Busy with Iterable<uint32> {
+public:
+    mut uint32 n;
+    uint32? at(uint64 i) {
+        self.n += 1;
+        return none;
+    }
+}
+
+none main() { }

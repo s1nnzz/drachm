@@ -1,0 +1,2 @@
+error[E0631]: `Graph` cannot be walked as `uint32`: it is `Iterable` over `Node` and `Edge`
+error[E0632]: `Graph` has 2 `at` methods that differ only in their result, so `g::at` cannot choose

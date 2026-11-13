@@ -1,0 +1,6 @@
+struct Plain { public: uint32 n; }
+
+none main() {
+    Plain p = new Plain of (1);
+    for (uint32 n of p) { }
+}

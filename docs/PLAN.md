@@ -659,7 +659,7 @@ list/map programs from the SPEC all run; constraint violations give clear errors
 Decided (2026-11-10): `&Shape` dynamic dispatch (vtables), `with A and B`,
 interface static methods / required fields / `extends` / `Self` (no default
 bodies), arrow function types, unspecified map order plus `OrderedMap`,
-`Iterable<T>` with `T? next()`, automatic `==`/hashing with `==` override
+`Iterable<T>` with `T? at(uint64 i)` (built in; no walker, owner 2026-11-13), automatic `==`/hashing with `==` override
 (SPEC sections 4-5, 8). Interfaces with required fields need the field at a
 known offset or an accessor in the vtable: pick one and note it.
 

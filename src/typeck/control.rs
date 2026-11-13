@@ -525,6 +525,7 @@ impl Checker<'_> {
         let source = match self.expr(iter) {
             Some(Val::Expr(e)) if e.ty == Type::Str => Some(e),
             Some(Val::Expr(e)) if e.ty.is_list() || e.ty.is_array() => return self.for_list(s, ty, e, iter.span, out),
+            Some(Val::Expr(e)) if self.g.ifaces.iterable.contains_key(&e.ty) => return self.for_iterable(s, ty, e, iter.span, out),
             Some(v) => {
                 self.not_iterable(v, iter);
                 None
@@ -594,7 +595,7 @@ impl Checker<'_> {
         };
         let d = Diagnostic::at(&codes::E0101, iter.span, format!("cannot loop over {found}"))
             .note(format!("this is {found}"))
-            .help("to count, loop over a range: `for (uint32 i of 0..9) { }`; to walk text, loop over a `string`");
+            .help("to count, loop over a range: `for (uint32 i of 0..9) { }`; to walk text, loop over a `string`; to walk your own type, give it `with Iterable<T>` and a method `T? at(uint64 i)`");
         self.diags.push(d);
     }
 

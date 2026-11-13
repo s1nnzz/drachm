@@ -1,0 +1,30 @@
+in io;
+
+struct Countdown with Iterable<uint32> {
+public:
+    uint32 n;
+    uint32? at(uint64 i) {
+        if (i >= self.n) { return none; }
+        return self.n - i::to<uint32>();
+    }
+}
+
+none main() {
+    for (uint32 n of new Countdown of (4)) {
+        if (n == 4) { skip; io::outln("unreachable"); }
+        if (n == 3) { continue; }
+        if (n == 1) { break; }
+        io::outln(n::text());
+    }
+    io::outln("done");
+
+    for (uint32 outer of new Countdown of (2)) {
+        for (uint32 inner of new Countdown of (3)) {
+            if (outer == 2 && inner == 2) { continue 2; }
+            if (outer == 1 && inner == 2) { break 2; }
+            io::outln(f"${outer}:${inner}");
+        }
+        io::outln("unreachable outer tail");
+    }
+    io::outln("after nested loops");
+}

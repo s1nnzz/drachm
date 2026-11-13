@@ -134,23 +134,17 @@ called through a `&` borrow, and one with it needs `&mut`; so every `changes
 self` you add makes the interface harder to use on borrowed values.
 
 ## Your own iterables
-<!-- status: tentative -->
 
-A type works with `for (T x of thing)` when it implements `Iterable<T>`, whose
-`T? next()` returns `none` when there is nothing left. The name and shape of
-`Iterable` are written down in the design, but the standard library's
-interfaces are not fixed yet.
+A type works with `for (T x of thing)` when it says `with Iterable<T>` and has a
+method `T? at(uint64 i)`. The loop calls `at(0)`, `at(1)`, ... until one gives
+`none`. The value is only read, so it can be walked again.
 
-```drachm
-struct Countdown with Iterable<uint32> {
-    mut uint32 n;
-    uint32? next() {
-        if (self.n == 0) { return none; }
-        self.n--;
-        return self.n + 1;
-    }
-}
-```
+<!-- example: iterable -->
+
+A type can be `Iterable` over several item types. The variable's type picks
+which `at` the loop uses.
+
+<!-- example: iterable-two -->
 
 ## Generic over units
 <!-- status: tentative -->

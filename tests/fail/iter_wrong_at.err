@@ -1,0 +1,2 @@
+error[E0611]: `Slow::at` takes `(uint32)`, but `Iterable<uint32>::at` takes `(uint64)`
+error[E0611]: `Loud::at` returns `uint32`, but `Iterable<uint32>::at` returns `uint32?`
