@@ -1,0 +1,15 @@
+//--!$overflow: panic
+in io;
+in si;
+
+// Under `panic`, a unit scaling that does not fit stops the program.
+none main() {
+    sint32 x = 2000000;
+    sint32<km> a = x * 1<km>;
+    sint64<m> ok = a::in<m>();
+    io::outln(f"fits ${ok}");
+    sint32 big = 3000000;
+    sint32<km> b = big * 1<km>;
+    sint32<m> bm = b::in<m>();
+    io::outln("not reached");
+}

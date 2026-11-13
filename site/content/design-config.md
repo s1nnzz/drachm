@@ -128,8 +128,9 @@ the program with exit status 101 if the key is missing. The default,
 
 `overflow` says what happens when a whole number does not fit its type. It
 covers `+ - *`, unary `-`, `/` (the smallest signed value divided by -1),
-`**`, `++` and `--`, shifts, constants that do not fit, and conversions
-(automatic ones and `::to<T>()`).
+`**`, `++` and `--`, shifts, constants that do not fit, conversions
+(automatic ones and `::to<T>()`), and the scaling of units: `x::in<km>()` and
+mixed-unit arithmetic ([Units](reference-units.md#scaled-units)).
 
 | Setting | Arithmetic | Shift outside the width | Conversion |
 |---|---|---|---|

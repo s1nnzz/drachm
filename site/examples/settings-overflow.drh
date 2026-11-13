@@ -1,5 +1,6 @@
 //--!$overflow: saturate
 in io;
+in si;
 
 uint8 brighten(uint8 level, uint8 amount) {
     return level + amount;
@@ -20,4 +21,8 @@ none main() {
     float64 zero = 0.0;
     float64 infinity = 1.0 / zero;
     io::outln(f"${infinity::to<uint8>()} ${(-infinity)::to<uint8>()} ${(zero / zero)::to<uint8>()}");
+    // Unit scaling follows the setting too: the metres stop at the end of the type.
+    sint64 metres = 9000000000000000000;
+    sint64<km> trip = metres * 1<km>;
+    io::outln(f"${trip::in<m>()}");
 }

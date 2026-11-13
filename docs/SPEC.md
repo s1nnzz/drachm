@@ -253,7 +253,8 @@ if (a) {                       // outermost
   W0102 and is changed (wrap: wraps, saturate: clamps) or, under panic, E0116
   (a constant shift amount outside the width too, which under saturate is
   silent and under wrap is W0106). Arithmetic the compiler writes for itself
-  (range loop counters, list walks, unit scaling) always wraps.
+  (range loop counters, list walks) always wraps. Unit scaling (`::in<U>()`,
+  mixed-unit arithmetic) follows the setting like any arithmetic.
 - `[behaviour] unhandled_fail = crash` (built): a call that can fail and has no
   `maybe`, `fails` or `fails with` compiles; if it fails the program prints
   `error: MESSAGE` (the failure's own report, causes included) and exits at once

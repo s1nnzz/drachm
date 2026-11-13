@@ -140,7 +140,10 @@ scaled at all.
 Whole numbers truncate toward zero when a unit shrinks, and the compiler
 warns ([W0102](errors.md)) that the conversion can lose information, or that a
 unit that grows can overflow. Say it is intended with `x::in<km>()`. A value
-that does not fit wraps around, as `::to<T>()` does.
+that does not fit wraps around, as `::to<T>()` does. The scaling follows the
+`overflow` setting like any other arithmetic: under `saturate` a value that does
+not fit stops at the end of its type, and under `panic` it stops the program
+(see [Overflow](design-config.md#overflow)).
 
 ## `::in` and `::to`
 

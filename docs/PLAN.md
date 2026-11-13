@@ -803,11 +803,11 @@ synthetic catch-all arm (`crash_arm`: message, exit code, `Report` with an
 exit); `Report` with an exit now ends its MIR block as unreachable. `import_clash`:
 `resolve::resolve` takes each module's setting (from the project or its
 dependency); E0242 replaces W0240. Interims (narrowest readings, owner to
-decide): the unit scaling inside `::in<U>()` and mixed-unit arithmetic still
-wraps; `unsigned_negate = wrap` on an unsigned value follows `overflow` (0 under
-saturate, panic for a non-zero value); a negative shift amount counts as
-outside the width; infinities become 0 under saturate (as SPEC says) instead of
-clamping; saturate silences W0106 and panic makes a constant out-of-range shift
+decide; the first three are settled by the follow-ups below): unit scaling
+(resolved); `unsigned_negate = wrap` on an unsigned value follows `overflow` (0
+under saturate, panic for a non-zero value); a negative shift amount counted as
+outside the width (resolved); infinities became 0 under saturate (resolved);
+saturate silences W0106 and panic makes a constant out-of-range shift
 E0116; the lossy-conversion warning W0102 stays in every mode (the wording
 changes); `unhandled_fail = crash` applies in scripts too where the script's
 default config says crash (script statements still say E0901 elsewhere).
@@ -831,6 +831,12 @@ negative amount was E0101 before, under wrap still is); float to integer:
 +inf clamps to the max, -inf to the min, NaN is 0 (`drachm_ovf_f2i`). Tests:
 `tests/run/settings_saturate_negative_shift`, `settings_overflow_saturate`,
 `site/examples/settings-overflow`, showcase `voyage/gauges.drh`.
+Unit scaling follows `overflow` (step 4.5 scaling in `typeck/units.rs`: every
+scaled `*`, `+`, `-`, `/` and the final conversion go through `Checker::ovf`),
+so `x::in<U>()` and mixed-unit arithmetic saturate or panic; the intermediate of a
+scale is the 64-bit working type and clamps there. W0102 says "stop at the end
+of the range" or "stop the program" under those settings. Tests:
+`tests/run/settings_saturate_units`, `settings_panic_units`.
 
 **Step 7 progress (WP9, built):** `assert(cond);` is a statement (`Stmt::Assert`,
 lowered to an `if` that stops with `StopKind::Assert`). It runs in every build,
