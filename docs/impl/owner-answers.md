@@ -268,3 +268,9 @@ Q5 interfaces as types: any interface can be used as `&I` (its `static` methods 
 - Strings and buffers: scoped helpers. `p::text()` on a `foreign *uint8` reads up to the NUL, checks UTF-8 and fails on bad text (inside `unsafe`); `&s as c string` passes a Drachm string to C, valid for that call only (embedded NUL: my reading, a failure or error at the conversion; open).
 - Returned memory: manual pairing; wrappers call the release function themselves, e.g. in `drop()`: `struct Window { foreign *SDL_Window w; none drop() { unsafe sdl::SDL_DestroyWindow(w); } }`. Never inferred from the pointer type.
 - C error conventions: ordinary wrapper code checks the result and fails as usual: `if (unsafe sdl::SDL_Init(f) < 0) { fail InitFailed(...); }`.
+
+# Test blocks follow-ups, 2026-11-13
+- A test can expect a failure with a line: `expect failure ConvertError from "x"::to<uint32>();` passes only if the call fails with that failure (my reading: a different failure or no failure fails the test).
+- `assert` takes an optional message: `assert(n > 0, "need at least one crew");` prints `assertion failed: n > 0: need at least one crew`.
+- `drachm test PATH NAME`: the second argument filters tests by name (my reading: runs tests whose name contains NAME).
+- Test bodies are left out of normal `build`/`run` executables: type-checked, not emitted.
