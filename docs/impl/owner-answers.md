@@ -151,3 +151,5 @@ Q5 interfaces as types: any interface can be used as `&I` (its `static` methods 
 - An optional that holds a borrow is written `maybe &string` (e.g. `maybe &string f = names::first();`); `&string?` stays a borrow of an optional. Built today as `Optional<&string>`: to change.
 - `List<&string>` for a list of borrows; `List<X>` means `X[?]` for any `X`.
 - `==` through borrows compares what they point at; owner adds `===` for a strict address compare, and asks whether value-vs-address compare needs its own design beyond strings (ideas to be offered).
+- Address compare is written in words, not `===`: `a same as b` (and `not (a same as b)`). Rules (my reading, from the option picked): allowed only when both sides are borrows or hold borrows (lists, optionals, maps of borrows compared item by item by address); on owned values it is an error.
+- `xs::containsRef(&p)` is the address version of `contains`. Method and function names are camelCase (owner confirmed).
