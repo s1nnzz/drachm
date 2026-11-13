@@ -991,7 +991,9 @@ Scripts:
 | `srachm.toml` | script with config (same settings as drachm.toml) |
 | neither | script with defaults |
 
-Scripts allow top-level statements, auto-import core (`io`, `string`,
+A script may define `main()` or contain top-level statements. Its top-level
+declarations initialize before the first statement. Functions share script-wide
+variables, and writes require `mut`. Scripts auto-import core (`io`, `string`,
 collections, `env`, `fs`), crash on unhandled failures, and hide warnings.
 Scripts run through Cranelift's JIT in memory (nothing written to disk). They
 may start with a shebang (`#!/usr/bin/env drachm`), import local files next to

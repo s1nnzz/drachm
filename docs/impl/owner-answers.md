@@ -238,3 +238,7 @@ Q5 interfaces as types: any interface can be used as `&I` (its `static` methods 
 - Scripts can check C headers with the default search path. Linking requires a project manifest.
 - A dependency lists its public module paths in its manifest.
 - Consumers automatically inherit native link requirements from the dependencies they import.
+
+# Script state follow-ups, 2026-11-13
+- Writes to script-wide variables require `mut`.
+- Initialize all top-level declarations before the first top-level statement.

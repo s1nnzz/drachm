@@ -52,9 +52,9 @@ state and clear it after teardown.
 
 The entry wrapper owns startup and cleanup. Lower runtime initializers
 using ordinary expression checking, with their file's settings. For the
-first supported slice, execute initializer and statement events in source
-order, and run declaration initializers before explicit main. Use E0901
-where a result depends on an unresolved ordering or initialization rule.
+script's startup, initialize all top-level declarations before the first
+statement or explicit main. Use E0901 where initialization order among
+declarations or initialization safety is unresolved.
 Set the initialized bit only after storing the completed value. Perform
 replacement with existing assignment and drop elaboration. Evaluate the
 incoming value before dropping the old value, using the same move and
@@ -118,18 +118,11 @@ backend. Compare output, stderr, exit status and observable drop order.
 
 ## Owner questions and interims
 
-- Q10 uses unmarked `uint32 total = 0` and changes it in a function.
-  Existing rules classify this spelling as a constant and make bindings
-  immutable by default. Ask how to distinguish a constant from shared
-  writable state, and how `mut`, `open` and `fixed` apply. Preserve
-  named constants and use explicitly `mut` state for the initial slice.
-  Record that slice as an interim against the Q10 example.
-- Confirm initialization and visibility before the declaration, including
-  reads through startup calls, forward references, cycles and declarations
-  without an initializer. Ask whether runtime declarations and executable
-  statements interleave in source order and whether explicit-main startup
-  uses that order. Until answered, gate cases whose observable result
-  depends on the ordering or whose initialization cannot be established.
+- Writes to script-wide variables require `mut`. Preserve named constants.
+- Confirm initialization order among declarations and visibility before
+  initialization, including reads through startup calls, forward references,
+  cycles and declarations without an initializer. Use E0901 where
+  initialization cannot be established.
 - Does script-wide state include imported helpers reading entry bindings,
   shared declarations in helper files, or exported state reached by
   multiple imports? Ask about module startup order if helpers can own
