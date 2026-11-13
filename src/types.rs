@@ -38,9 +38,17 @@ pub enum Type {
     /// `hir::Program::dyn_ifaces`, and its name for messages. Only ever the
     /// `to` of a `Ref`; the borrow is then fat (data pointer and vtable).
     Dyn { id: usize, name: &'static str },
+    /// A callable pair (code and environment) with an interned signature.
+    Func(&'static FuncSig),
     /// A number with a unit: `float64<m/s>`. `of` is always `Int` or `Float`.
     /// Units are checked by `typeck::units`; they are erased before the backends.
     Unit { of: &'static Type, unit: &'static Unit },
+}
+
+#[derive(Debug, PartialEq, Eq, Hash)]
+pub struct FuncSig {
+    pub params: Vec<Type>,
+    pub ret: Type,
 }
 
 /// Leaks each distinct type once, so a `Type` can point at another and stay `Copy`.
@@ -140,6 +148,22 @@ impl Type {
         }
     }
 
+    pub fn func(params: Vec<Type>, ret: Type) -> Type {
+        static SIGS: LazyLock<Mutex<HashSet<&'static FuncSig>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
+        let sig = FuncSig { params, ret };
+        let mut sigs = SIGS.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(&sig) = sigs.get(&sig) {
+            return Type::Func(sig);
+        }
+        let sig = Box::leak(Box::new(sig));
+        sigs.insert(sig);
+        Type::Func(sig)
+    }
+
+    pub fn is_func(self) -> bool {
+        matches!(self, Type::Func(_))
+    }
+
     /// `elem[?]`
     pub fn list(elem: Type) -> Type {
         Type::List { elem: intern_type(elem) }
@@ -200,6 +224,7 @@ impl Type {
             Type::FixedPtr { to } => Type::fixed_ptr(to.bare()),
             Type::List { elem } => Type::list(elem.bare()),
             Type::Array { elem, len } => Type::array(elem.bare(), len),
+            Type::Func(sig) if self.mentions_unit() => Type::func(sig.params.iter().map(|t| t.bare()).collect(), sig.ret.bare()),
             t => t,
         }
     }
@@ -218,6 +243,7 @@ impl Type {
             Type::Unit { .. } => true,
             Type::Ref { to, .. } | Type::Ptr { to } | Type::FixedPtr { to } => to.mentions_unit(),
             Type::List { elem } | Type::Array { elem, .. } => elem.mentions_unit(),
+            Type::Func(sig) => sig.ret.mentions_unit() || sig.params.iter().any(|t| t.mentions_unit()),
             _ => false,
         }
     }
@@ -335,6 +361,16 @@ impl fmt::Display for Type {
             Type::FixedPtr { to } => write!(f, "*fixed {to}"),
             Type::Unit { of, unit } => write!(f, "{of}<{}>", unit_name(unit)),
             Type::List { elem } => write!(f, "{elem}[?]"),
+            Type::Func(sig) => {
+                f.write_str("(")?;
+                for (i, p) in sig.params.iter().enumerate() {
+                    if i != 0 {
+                        f.write_str(", ")?;
+                    }
+                    write!(f, "{p}")?;
+                }
+                write!(f, ") => {}", sig.ret)
+            }
             Type::Array { elem, len } => write!(f, "{elem}[{len}]"),
         }
     }

@@ -209,7 +209,7 @@ fn enum_chunks(hir: &hir::Program, ty: Type, at: u32, out: &mut Vec<(u32, ClType
 
 /// Scalar leaves of a value of type `ty` that holds no strings, relative to `at`.
 fn plain_leaves(hir: &hir::Program, ty: Type, at: u32, out: &mut Vec<(u32, ClType)>) {
-    if ty.is_fat() {
+    if ty.is_fat() || ty.is_func() {
         out.extend([(at, types::I64), (at + 8, types::I64)]);
         return;
     }
@@ -591,7 +591,7 @@ impl Cg<'_, '_> {
                         Slot::Mem(addr)
                     }
                     // A struct parameter's memory is the callee's own.
-                    None if ty.struct_id().is_some() || ty.enum_id().is_some() || ty.is_list() || ty.is_array() || ty.is_fat() => match incoming {
+                    None if in_memory(ty) => match incoming {
                         Some(p) => Slot::Mem(p),
                         None => Slot::Mem(self.mem(ty)),
                     },
@@ -741,7 +741,7 @@ impl Cg<'_, '_> {
     // ---- values in memory --------------------------------------------------
 
     fn leaves(&self, ty: Type, at: u32, out: &mut Vec<(u32, Leaf)>) {
-        if ty.is_fat() {
+        if ty.is_fat() || ty.is_func() {
             out.extend([(at, Leaf::Scalar(types::I64)), (at + 8, Leaf::Scalar(types::I64))]);
             return;
         }
@@ -921,6 +921,17 @@ impl Cg<'_, '_> {
                 let src = self.addr_of(&q);
                 let d = self.addr_of(dest);
                 self.copy_bits(ty, d, src);
+            }
+            Rvalue::MakeFn(id, _, env) => {
+                let f = self.module.declare_func_in_func(self.ids[*id], self.b.func);
+                let code = self.b.ins().func_addr(self.ptr, f);
+                let env = match env {
+                    Some(p) => self.addr_of(p),
+                    None => self.b.ins().iconst(self.ptr, 0),
+                };
+                let d = self.addr_of(dest);
+                self.b.ins().store(MEM, code, d, 0);
+                self.b.ins().store(MEM, env, d, 8);
             }
             Rvalue::Unsize(op, to) => {
                 let from = self.op_ty(op);
@@ -1128,7 +1139,7 @@ impl Cg<'_, '_> {
             Rvalue::Ref(_, p) | Rvalue::RawRef(p) => self.addr_of(p),
             // `copy p` of a raw pointer: the bits.
             Rvalue::DeepCopy(p) if self.op_ty(&Operand::Copy(p.clone())).is_ptr() => self.operand(&Operand::Copy(p.clone())),
-            Rvalue::DeepCopy(_) | Rvalue::Aggregate(..) | Rvalue::Variant(..) | Rvalue::Array(..) | Rvalue::ListNew(..) | Rvalue::Unsize(..) => unreachable!("not a scalar rvalue: {rv:?}"),
+            Rvalue::DeepCopy(_) | Rvalue::Aggregate(..) | Rvalue::Variant(..) | Rvalue::Array(..) | Rvalue::ListNew(..) | Rvalue::Unsize(..) | Rvalue::MakeFn(..) => unreachable!("not a scalar rvalue: {rv:?}"),
         }
     }
 
@@ -1212,13 +1223,24 @@ impl Cg<'_, '_> {
     fn call(&mut self, callee: Callee, args: &[Arg], dest: Option<&Place>) {
         let (i32t, i64t, ptr) = (types::I32, types::I64, self.ptr);
         match callee {
-            Callee::Dyn { iface, method } => {
-                let (slot, m) = (self.hir.dyn_ifaces[iface].method_slot(method), &self.hir.dyn_ifaces[iface].methods[method]);
-                let (ret, params) = (m.ret, m.params.clone());
+            Callee::Dyn { .. } | Callee::Fn(_) => {
                 let fat = self.operand_addr(&args[0].op);
-                let data = self.b.ins().load(ptr, MEM, fat, 0);
-                let vt = self.b.ins().load(ptr, MEM, fat, 8);
-                let code = self.b.ins().load(ptr, MEM, vt, (slot * 8) as i32);
+                let (ret, params, data, code) = match callee {
+                    Callee::Dyn { iface, method } => {
+                        let iface = &self.hir.dyn_ifaces[iface];
+                        let m = &iface.methods[method];
+                        let data = self.b.ins().load(ptr, MEM, fat, 0);
+                        let vt = self.b.ins().load(ptr, MEM, fat, 8);
+                        let code = self.b.ins().load(ptr, MEM, vt, (iface.method_slot(method) * 8) as i32);
+                        (m.ret, m.params.as_slice(), data, code)
+                    }
+                    Callee::Fn(Type::Func(sig)) => {
+                        let code = self.b.ins().load(ptr, MEM, fat, 0);
+                        let env = self.b.ins().load(ptr, MEM, fat, 8);
+                        (sig.ret, sig.params.as_slice(), env, code)
+                    }
+                    _ => unreachable!("an indirect callee"),
+                };
                 let mut sig = self.module.make_signature();
                 let mut vals = Vec::new();
                 if in_memory(ret) {
@@ -1227,7 +1249,7 @@ impl Cg<'_, '_> {
                 }
                 sig.params.push(AbiParam::new(ptr));
                 vals.push(data);
-                for p in &params {
+                for p in params {
                     sig.params.push(AbiParam::new(cl_type(*p).unwrap_or(ptr)));
                 }
                 sig.returns.extend(cl_type(ret).map(AbiParam::new));

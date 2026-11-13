@@ -174,6 +174,24 @@ impl Parser<'_> {
                 _ => break,
             }
         }
+        if self.eat("(") {
+            let start = self.prev_span();
+            let mut params = Vec::new();
+            while self.peek() != &Tok::Sym(")") {
+                params.push(self.ty()?);
+                if !self.eat(",") {
+                    break;
+                }
+            }
+            self.expect(")")?;
+            self.expect("=>")?;
+            let ret = self.ty()?;
+            if self.peek() == &Tok::Kw("fails") {
+                return Err(Diagnostic::at(&codes::E0901, self.span(), "a failing function type is not supported yet"));
+            }
+            let span = start.to(self.prev_span());
+            return Ok(TypeName { mods, func: Some(Box::new(FuncType { params, ret })), ..TypeName::plain("", span) });
+        }
         if self.peek() == &Tok::Kw("none") {
             let span = self.bump().span;
             let unit = self.type_unit()?;
@@ -198,7 +216,10 @@ impl Parser<'_> {
 
     /// Can a type argument start at token offset `n`?
     fn type_start_at(&self, n: usize) -> bool {
-        matches!(self.peek_at(n), Tok::Ident(_) | Tok::Kw("none") | Tok::Sym("&" | "*" | "**" | ">") | Tok::Num(..))
+        match self.peek_at(n) {
+            Tok::Sym("(") => self.after_open_paren(n + 1).is_some_and(|i| self.peek_at(i) == &Tok::Sym("=>")),
+            tok => matches!(tok, Tok::Ident(_) | Tok::Kw("none") | Tok::Sym("&" | "*" | "**" | ">") | Tok::Num(..)),
+        }
     }
 
     /// `<A, B>`, at the `<`. An integer is an argument too (`Array<T, 4>`).
@@ -215,7 +236,13 @@ impl Parser<'_> {
                     let span = self.bump().span;
                     args.push(TypeName { is_number: true, ..TypeName::plain(v.to_string(), span) });
                 }
-                _ => args.push(self.ty()?),
+                _ => {
+                    let ty = self.ty()?;
+                    if ty.func.is_some() {
+                        return Err(Diagnostic::at(&codes::E0901, ty.span, "a function type as a type argument is not supported yet"));
+                    }
+                    args.push(ty);
+                }
             }
             if !self.eat(",") {
                 break;
@@ -392,10 +419,35 @@ impl Parser<'_> {
             match self.peek_at(n) {
                 Tok::Sym("&" | "&&" | "*" | "**") => n += 1,
                 Tok::Kw("mut") if n > 0 && matches!(self.peek_at(n - 1), Tok::Sym("&")) => n += 1,
+                Tok::Sym("(") => {
+                    let after = self.after_open_paren(n + 1)?;
+                    if self.peek_at(after) != &Tok::Sym("=>") {
+                        return None;
+                    }
+                    n = after + 1;
+                }
                 Tok::Ident(_) | Tok::Kw("none") => return Some(self.name_end(n)),
                 _ => return None,
             }
         }
+    }
+
+    fn after_open_paren(&self, first: usize) -> Option<usize> {
+        let mut depth = 1;
+        for n in first.. {
+            match self.peek_at(n) {
+                Tok::Sym("(") => depth += 1,
+                Tok::Sym(")") => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return Some(n + 1);
+                    }
+                }
+                Tok::Eof | Tok::Sym(";" | "{" | "}") => return None,
+                _ => {}
+            }
+        }
+        unreachable!()
     }
 
     /// The offset just after the type name at token offset `n`, with its
@@ -462,8 +514,19 @@ impl Parser<'_> {
                 }
                 j += 1;
             } else {
-                while matches!(self.peek_at(j), Tok::Sym("&" | "*" | "**")) || (self.peek_at(j) == &Tok::Kw("mut") && self.peek_at(j - 1) == &Tok::Sym("&")) {
-                    j += 1;
+                loop {
+                    match self.peek_at(j) {
+                        Tok::Sym("&" | "*" | "**") => j += 1,
+                        Tok::Kw("mut") if j > 0 && self.peek_at(j - 1) == &Tok::Sym("&") => j += 1,
+                        Tok::Sym("(") => {
+                            let after = self.after_open_paren(j + 1)?;
+                            if self.peek_at(after) != &Tok::Sym("=>") {
+                                return None;
+                            }
+                            j = after + 1;
+                        }
+                        _ => break,
+                    }
                 }
                 if !matches!(self.peek_at(j), Tok::Ident(_) | Tok::Kw("none")) {
                     return None;
@@ -534,7 +597,7 @@ impl Parser<'_> {
         }
         match self.peek() {
             Tok::Kw("in" | "struct" | "enum" | "failure" | "interface") => true,
-            Tok::Ident(_) | Tok::Kw("none" | "unsafe") | Tok::Sym("&" | "&&" | "*" | "**") => {
+            Tok::Ident(_) | Tok::Kw("none" | "unsafe") | Tok::Sym("&" | "&&" | "*" | "**" | "(") => {
                 let from = (self.peek() == &Tok::Kw("unsafe")) as usize;
                 match self.type_end(from) {
                     Some(n) => matches!(self.peek_at(n), Tok::Ident(_)) && {
@@ -620,7 +683,7 @@ impl Parser<'_> {
 
     fn func(&mut self) -> Parsed<Func> {
         let is_unsafe = if self.peek() == &Tok::Kw("unsafe") { Some(self.bump().span) } else { None };
-        if !matches!(self.peek(), Tok::Ident(_) | Tok::Kw("none") | Tok::Sym("&" | "&&" | "*" | "**")) {
+        if !matches!(self.peek(), Tok::Ident(_) | Tok::Kw("none") | Tok::Sym("&" | "&&" | "*" | "**" | "(")) {
             return Err(self
                 .unexpected("a function, `struct` or `in`")
                 .help("a function starts with its return type: `none main() { }`"));
@@ -630,10 +693,8 @@ impl Parser<'_> {
         self.func_rest(ret, name, name_span, is_unsafe)
     }
 
-    /// A function's parameters and body, after its return type and name.
-    fn func_rest(&mut self, ret: TypeName, name: String, name_span: Span, is_unsafe: Option<Span>) -> Parsed<Func> {
-        let tparams = self.type_params()?;
-        self.expect("(")?;
+    /// Parameters after the opening parenthesis, through the closing one.
+    fn params(&mut self) -> Parsed<Vec<Param>> {
         let mut params = Vec::new();
         while self.peek() != &Tok::Sym(")") {
             let start = self.span();
@@ -646,6 +707,14 @@ impl Parser<'_> {
             }
         }
         self.expect(")")?;
+        Ok(params)
+    }
+
+    /// A function's parameters and body, after its return type and name.
+    fn func_rest(&mut self, ret: TypeName, name: String, name_span: Span, is_unsafe: Option<Span>) -> Parsed<Func> {
+        let tparams = self.type_params()?;
+        self.expect("(")?;
+        let params = self.params()?;
         let span = ret.span.to(self.prev_span());
         let mut lives = Vec::new();
         let mut lives_span = None;
@@ -1243,6 +1312,7 @@ impl Parser<'_> {
         match self.peek() {
             Tok::Kw("mut" | "open") => true,
             Tok::Ident(_) | Tok::Kw("none") => matches!(self.peek_at(self.name_end(0)), Tok::Ident(_) | Tok::Kw(_)),
+            Tok::Sym("(") => self.type_end(0).is_some_and(|n| matches!(self.peek_at(n), Tok::Ident(_)) && matches!(self.peek_at(n + 1), Tok::Sym("=" | ";"))),
             Tok::Sym("&" | "&&") => true,
             // `*uint32 p = ..` declares; `*p = 7;` and `*p.f = 7;` assign.
             Tok::Sym("*" | "**") => {
@@ -2179,6 +2249,17 @@ impl Parser<'_> {
         }
     }
 
+    fn lambda(&mut self, moves: bool) -> Parsed<ExprKind> {
+        let params = self.params()?;
+        self.expect("=>")?;
+        let body = if self.peek() == &Tok::Sym("{") {
+            LambdaBody::Block(self.block()?)
+        } else {
+            LambdaBody::Expr(Box::new(self.expr()?))
+        };
+        Ok(ExprKind::Lambda { moves, params, body })
+    }
+
     fn primary(&mut self) -> Parsed<Expr> {
         let t = self.bump();
         let kind = match t.tok {
@@ -2234,6 +2315,11 @@ impl Parser<'_> {
                 self.expect("]")?;
                 ExprKind::ListLit(items)
             }
+            Tok::Kw("move") => {
+                self.expect("(")?;
+                self.lambda(true)?
+            }
+            Tok::Sym("(") if self.after_open_paren(0).is_some_and(|n| self.peek_at(n) == &Tok::Sym("=>")) => self.lambda(false)?,
             Tok::Sym("(") => {
                 let mut e = self.expr()?;
                 self.expect(")")?;

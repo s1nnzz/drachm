@@ -118,6 +118,10 @@ enum with values is E0527). `contains` needs items that copy: on a list of
 `&mut T x` for a changeable view; the [loops page](reference-control-flow.md#looping-over-a-list)
 has the rules and the example.
 
+`xs::each(f)` calls a function value for every item of a list or array in
+order. See [Collection callbacks](reference-generics.md#collection-callbacks)
+for parameter types and an example.
+
 ## Taking an item out
 
 `take xs[i] reorders` moves the item at `i` out and gives it. The last item

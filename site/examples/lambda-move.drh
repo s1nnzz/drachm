@@ -1,0 +1,9 @@
+in io;
+
+none main() {
+    uint32 number = 5;
+    string text = f"number ${number}";
+    () => none print = move () => io::outln(text);
+    print();
+    print();
+}

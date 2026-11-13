@@ -431,3 +431,10 @@ anything else is E0901 for now.
 If `destroy` is on only some paths, the compiler remembers at run time whether
 the value is still there, so the scope end drops it on the paths that did not
 destroy it and only on those.
+
+
+## Lambda captures
+
+A lambda borrows the enclosing bindings it reads and infers a mutable borrow
+for a binding it changes. A `move` lambda owns the values it captures. See
+[Captures](reference-generics.md#captures) for examples and borrow duration.

@@ -137,6 +137,8 @@ pub(crate) fn operand_place(op: &Operand) -> Option<&Place> {
 
 pub(crate) fn rvalue_places(rv: &Rvalue) -> Vec<&Place> {
     let ops: Vec<&Operand> = match rv {
+        Rvalue::MakeFn(_, _, Some(p)) => return vec![p],
+        Rvalue::MakeFn(_, _, None) => Vec::new(),
         Rvalue::Use(a) | Rvalue::Neg(a) | Rvalue::Not(a) | Rvalue::BitNot(a) | Rvalue::Convert(a, _) | Rvalue::Unsize(a, _) => vec![a],
         Rvalue::Binary(_, a, b) | Rvalue::IntPow(a, b) => vec![a, b],
         Rvalue::Shift { value, amount, .. } => vec![value, amount],

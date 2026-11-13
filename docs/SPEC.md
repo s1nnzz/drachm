@@ -721,7 +721,8 @@ async none main() {
 ```
 
 - Lambdas: `(params) => expr` or `(params) => { block }`. Captures borrow by
-  default; `move` takes ownership.
+  default. The compiler infers a mutable borrow when the body changes a
+  capture. `move` takes ownership.
 - Function types mirror lambdas: `(string) => none`, `(uint32, uint32) => uint32`:
 
   ```cpp
@@ -729,6 +730,13 @@ async none main() {
       for (string s of items) { f(s); }
   }
   ```
+- Function values can be called, kept in locals and passed as parameters.
+  This includes `move` lambdas. Returning or storing a function value
+  inside another value is an error.
+- `each` on lists and arrays takes a callback returning `none`. A parameter
+  of type `T` gets the item by value, with a copy for an owning item. A
+  parameter of type `&T` gets a shared view. **OPEN:** mutable item callbacks
+  and their borrow rules.
 - Both OS threads and async/await. The async runtime is built into the stdlib.
 - Channels and Mutex in the stdlib. Data races are compile errors.
 - **OPEN:** thread/async API details.

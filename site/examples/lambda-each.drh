@@ -1,0 +1,12 @@
+in io;
+
+none main() {
+    string[?] names = ["Ada", "Grace"];
+    names::each((string n) => io::outln(n));
+    names::each((&string n) => io::outln(n));
+
+    uint32[3] numbers = [1, 2, 3];
+    mut uint32 total = 0;
+    numbers::each((uint32 n) => { total += n; });
+    io::outln(total::text());
+}

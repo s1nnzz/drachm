@@ -1,0 +1,8 @@
+in io;
+
+none main() {
+    string name = f"value ${1}";
+    () => none say = move () => io::outln(name);
+    say();
+    io::outln(name);
+}

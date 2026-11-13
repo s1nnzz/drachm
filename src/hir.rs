@@ -44,7 +44,23 @@ pub struct Program {
     pub dyn_ifaces: Vec<DynIface>,
     /// Every pair (implementing type, interface) a borrow is converted at: one
     /// read-only table each (S6E). The backends emit them all.
+    /// Environments of lifted functions which capture outer locals.
+    pub closures: std::collections::BTreeMap<FuncId, Closure>,
     pub vtables: Vec<VTable>,
+}
+
+pub struct Closure {
+    pub env: Type,
+    /// Indexed by field in the environment struct, in lexical declaration order.
+    pub captures: Vec<Capture>,
+}
+
+pub struct Capture {
+    /// The lifted body's local id for this captured binding.
+    pub local: LocalId,
+    /// Borrowing captures are shared until mutation inference proves otherwise.
+    /// `None` is an owned field in a `move` closure.
+    pub borrow: Option<bool>,
 }
 
 /// An interface as the backends see it: the slots of a vtable.
@@ -244,7 +260,7 @@ pub fn enum_layout(tag_size: u32, variants: &[Vec<(u32, u32)>]) -> (Vec<Vec<u32>
 impl Program {
     /// Size and alignment of a value of type `t` in memory, in bytes.
     pub fn size_align(&self, t: Type) -> (u32, u32) {
-        if t.is_fat() {
+        if t.is_fat() || t.is_func() {
             return (16, 8);
         }
         if t == Type::Str || t.is_list() {
@@ -649,6 +665,12 @@ pub enum ExprKind {
     /// `p::freeze()` / `p::thaw()`: the same pointer bits under the other
     /// pointer kind (`*T` to `*fixed T` or back). Needs `unsafe`.
     PtrConv(Box<Expr>),
+    /// A named function adapted to the function-value ABI.
+    FuncRef(FuncId),
+    /// A lifted function with its captures as places in the enclosing function.
+    Closure(FuncId, Vec<Expr>),
+    /// Indirect call with the callable value at index zero.
+    FnCall(Vec<Expr>),
     /// A `&S` / `&mut S` made a `&Iface` / `&mut Iface` (the expression's type):
     /// the borrow and the vtable of `S` for the interface.
     Unsize(Box<Expr>),
@@ -685,7 +707,7 @@ impl Expr {
     pub fn children(&self) -> Vec<&Expr> {
         use ExprKind as K;
         match &self.kind {
-            K::Int(_) | K::Float(_) | K::Bool(_) | K::Str(_) | K::Local(_) | K::NullPtr | K::InLine | K::InEnded | K::IncDec { .. } => Vec::new(),
+            K::Int(_) | K::Float(_) | K::Bool(_) | K::Str(_) | K::Local(_) | K::FuncRef(_) | K::NullPtr | K::InLine | K::InEnded | K::IncDec { .. } => Vec::new(),
             K::Field(x, _)
             | K::Neg(x)
             | K::Not(x)
@@ -717,7 +739,7 @@ impl Expr {
             K::Logic { lhs, rhs, .. } | K::Maybe { value: lhs, fallback: rhs } => vec![&**lhs, &**rhs],
             K::Shift { value, amount, .. } => vec![&**value, &**amount],
             K::Struct(fields) => fields.iter().map(|(_, v)| v).collect(),
-            K::Call(_, args) | K::StrCall(_, args) | K::DynCall(_, _, args) => args.iter().collect(),
+            K::Call(_, args) | K::StrCall(_, args) | K::DynCall(_, _, args) | K::FnCall(args) | K::Closure(_, args) => args.iter().collect(),
             K::Join(parts) => parts.iter().collect(),
             K::Take { leaving, .. } => leaving.as_deref().into_iter().collect(),
         }

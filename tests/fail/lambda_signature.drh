@@ -1,0 +1,10 @@
+none accept((uint32) => uint32 f) {
+    f(3);
+}
+
+none main() {
+    accept((string n) => n);
+    accept((uint32 n) => n::text());
+    (uint32) => uint32 f = (uint32 n) => n;
+    f();
+}

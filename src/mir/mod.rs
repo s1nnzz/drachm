@@ -222,6 +222,8 @@ pub struct Arg {
 pub enum Callee {
     /// User function or method (`self` is `args[0]`).
     Func(FuncId),
+    /// A call through a function value, which is the first argument.
+    Fn(Type),
     /// A method through a `&Iface`: slot `method` of the vtable of `args[0]`,
     /// which is the borrow itself (`&Iface`, `&mut Iface` if the method changes `self`).
     Dyn { iface: usize, method: usize },
@@ -327,6 +329,7 @@ pub enum Rvalue {
     Convert(Operand, Type),
     /// A `&S` made a `&Iface` of the given type: the borrow and the vtable
     /// of `S` for the interface, two words.
+    MakeFn(FuncId, Type, Option<Place>),
     Unsize(Operand, Type),
     Ref(BorrowKind, Place),
     /// `address of place`: makes a `*T`.

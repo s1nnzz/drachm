@@ -1067,6 +1067,22 @@ a value, and a method that mentions `Self` (or is an operator) has
 types that depend on the struct. Call these on the struct itself, or
 in a function with a constraint (`<T with Shape>`).
 
+## E0650: function parameters do not match
+
+A callable value's parameter types and their order must match the function type.
+
+## E0651: function result does not match
+
+A callable value must give the result specified by its function type.
+
+## E0652: function value would escape
+
+Function values can be local bindings or passed to a function. They cannot be stored in another value or returned.
+
+## E0654: value is not callable
+
+Only functions and values with a function type can be called.
+
 ## E0640: no conversion to a borrow of an interface
 
 A `&Shape` is wanted, but the borrow given is of a struct that does not

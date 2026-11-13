@@ -1,0 +1,31 @@
+in io;
+
+none twice(() => none f) {
+    f();
+    f();
+}
+
+struct Meter {
+    uint32 n;
+    none bump() { self.n++; }
+    uint32 value() { return self.n; }
+    none tick() {
+        twice(() => self::bump());
+    }
+}
+
+none main() {
+    uint32 a = 4;
+    uint32 b = 5;
+    () => uint32 sum = () => a + b;
+    io::outln(sum()::text());
+    mut uint32 count = 0;
+    twice(() => { count++; });
+    io::outln(count::text());
+    string name = f"${count} times";
+    () => none print = move () => io::outln(name);
+    twice(print);
+    mut Meter meter = 0;
+    meter::tick();
+    io::outln(meter::value()->text());
+}

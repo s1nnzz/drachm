@@ -100,7 +100,7 @@ impl Globals {
         if t == Type::Str || t.is_list() {
             return (hir::STR_SIZE, 8);
         }
-        if t.is_fat() {
+        if t.is_fat() || t.is_func() {
             return (16, 8);
         }
         if let Type::Array { elem, len } = t {

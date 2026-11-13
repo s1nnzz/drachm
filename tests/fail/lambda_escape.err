@@ -1,0 +1,2 @@
+error[E0652]: a function value cannot be stored in another value
+error[E0652]: a function value cannot be returned

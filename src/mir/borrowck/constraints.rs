@@ -159,7 +159,15 @@ impl Gen<'_> {
                 }
             }
             // Enum payloads hold no borrows (E0901 at the declaration), so there is nothing to relate.
-            Rvalue::Variant(..) | Rvalue::Len(_) | Rvalue::ListNew(..) | Rvalue::Array(..) | Rvalue::Discriminant(_) | Rvalue::RawRef(_) | Rvalue::Neg(_) | Rvalue::Not(_) | Rvalue::BitNot(_) | Rvalue::Binary(..) | Rvalue::Shift { .. } | Rvalue::IntPow(..) | Rvalue::Convert(..) => {}
+            Rvalue::MakeFn(_, _, Some(env)) => {
+                self.borrow(loc, s.span, dest, BorrowKind::Shared, env);
+                if let Some(y) = dv.clone().next() {
+                    for x in self.place_vids(env) {
+                        self.push(x, y, loc, kind);
+                    }
+                }
+            }
+            Rvalue::MakeFn(_, _, None) | Rvalue::Variant(..) | Rvalue::Len(_) | Rvalue::ListNew(..) | Rvalue::Array(..) | Rvalue::Discriminant(_) | Rvalue::RawRef(_) | Rvalue::Neg(_) | Rvalue::Not(_) | Rvalue::BitNot(_) | Rvalue::Binary(..) | Rvalue::Shift { .. } | Rvalue::IntPow(..) | Rvalue::Convert(..) => {}
         }
     }
 

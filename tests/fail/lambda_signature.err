@@ -1,0 +1,3 @@
+error[E0650]: this function takes `(string)`, but `(uint32)` is wanted
+error[E0651]: this function gives `string`, but `uint32` is wanted
+error[E0650]: `f` takes 1 argument, but 0 given

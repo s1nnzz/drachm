@@ -201,6 +201,11 @@ impl<'a> Builder<'a> {
         let mut declared = HashSet::new();
         decls(&func.body, &mut declared);
         for (i, l) in func.locals.iter().enumerate() {
+            if self.hir.closures.get(&self.id).is_some_and(|c| c.captures.iter().any(|c| c.local == i)) {
+                // The body addresses the environment field through local_place.
+                self.decl(Type::None, LocalKind::Temp);
+                continue;
+            }
             let mutability = mutability(l.mutability);
             let kind = if i < func.params {
                 LocalKind::Param { name: l.name.clone(), mutability, written: l.written.clone() }
@@ -316,6 +321,16 @@ impl<'a> Builder<'a> {
 
     /// The place a HIR local stands for: a method's `self` is read through its borrow.
     fn local_place(&self, id: hir::LocalId) -> Place {
+        if let Some(closure) = self.hir.closures.get(&self.id)
+            && let Some((field, capture)) = closure.captures.iter().enumerate().find(|(_, c)| c.local == id)
+        {
+            let mut p = Place::local(self.local(0));
+            p.proj.extend([Proj::Deref, Proj::Field(field)]);
+            if capture.borrow.is_some() {
+                p.proj.push(Proj::Deref);
+            }
+            return p;
+        }
         let mut p = Place::local(self.local(id));
         if id == 0 && self.func.has_self {
             p.proj.push(Proj::Deref);
@@ -326,10 +341,7 @@ impl<'a> Builder<'a> {
     /// A HIR place as a MIR place (`self` of a method is read through its
     /// borrow). An index in it is evaluated and checked here, once.
     fn hir_place(&mut self, p: &hir::Place) -> Place {
-        let mut out = Place::local(Local::new(p.local + 1));
-        if p.local == 0 && self.func.has_self {
-            out.proj.push(Proj::Deref);
-        }
+        let mut out = self.local_place(p.local);
         for pr in &p.proj {
             match pr {
                 hir::HirProj::Field(f) => out.proj.push(Proj::Field(*f)),
@@ -573,7 +585,7 @@ impl<'a> Builder<'a> {
             Stmt::Assign(p, e) => {
                 self.at(p.span);
                 let fresh = declared == Some(self.local(p.local)) && p.proj.is_empty();
-                self.decl_init = fresh;
+                self.decl_init = fresh || (p.proj.is_empty() && matches!(e.kind, ExprKind::Closure(..)));
                 // A just-declared local holds nothing: nothing to drop first.
                 self.in_stmt(|b| {
                     let dest = b.hir_place(p);
@@ -886,7 +898,7 @@ impl<'a> Builder<'a> {
         let dest_span = self.span;
         self.at(expr_span(e));
         // Only a declaration whose whole initializer is a borrow hoists (B9).
-        self.decl_init = self.decl_init && matches!(e.kind, ExprKind::Borrow { .. });
+        self.decl_init = self.decl_init && matches!(e.kind, ExprKind::Borrow { .. } | ExprKind::Closure(..));
         let owning = drop_old && needs_drop(self.hir, e.ty);
         let is_rvalue = match &e.kind {
             ExprKind::Neg(_)
@@ -897,6 +909,8 @@ impl<'a> Builder<'a> {
             | ExprKind::IntPow(..)
             | ExprKind::Convert(_)
             | ExprKind::PtrConv(_)
+            | ExprKind::FuncRef(_)
+            | ExprKind::Closure(..)
             | ExprKind::Unsize(_)
             | ExprKind::Struct(_)
             | ExprKind::Variant { .. }
@@ -1148,6 +1162,8 @@ impl<'a> Builder<'a> {
             | ExprKind::IntPow(..)
             | ExprKind::Convert(_)
             | ExprKind::PtrConv(_)
+            | ExprKind::FuncRef(_)
+            | ExprKind::Closure(..)
             | ExprKind::Unsize(_)
             | ExprKind::Struct(_)
             | ExprKind::Variant { .. }
@@ -1276,6 +1292,11 @@ impl<'a> Builder<'a> {
                 let ops = self.operands(&es, &|i| (i == 0 && has_self).then_some((mutable, mutable)));
                 self.call(Callee::Func(*f), ops, e.ty)
             }
+            ExprKind::FnCall(args) => {
+                let refs: Vec<_> = args.iter().collect();
+                let ops = self.operands(&refs, &|_| None);
+                self.call(Callee::Fn(args[0].ty), ops, e.ty)
+            }
             ExprKind::DynCall(iface, method, args) => {
                 let changes = self.hir.dyn_ifaces[*iface].methods[*method].changes;
                 let es: Vec<&Expr> = args.iter().collect();
@@ -1358,6 +1379,24 @@ impl<'a> Builder<'a> {
             }
             ExprKind::Convert(a) => Rvalue::Convert(first(self.operands(&[&**a], &none)), e.ty),
             ExprKind::PtrConv(a) => Rvalue::Use(first(self.operands(&[&**a], &none))),
+            ExprKind::FuncRef(id) => Rvalue::MakeFn(*id, e.ty, None),
+            ExprKind::Closure(id, captures) => {
+                let keep = std::mem::take(&mut self.decl_init);
+                let closure = &self.hir.closures[id];
+                let env = self.decl(closure.env, LocalKind::Temp);
+                self.push(StatementKind::StorageLive(env));
+                self.register(env, true);
+                if keep {
+                    self.hoist(env);
+                }
+                let refs: Vec<_> = captures.iter().collect();
+                let fields = self.operands(&refs, &|i| closure.captures[i].borrow.map(|mutates| (mutates, false)));
+                let fields = fields.into_iter().map(|arg| arg.op).collect();
+                let p = Place::local(env);
+                self.assign_stmt(p.clone(), Rvalue::Aggregate(closure.env.struct_id().unwrap(), fields));
+                Rvalue::MakeFn(*id, e.ty, Some(p))
+            }
+
             ExprKind::Unsize(a) => Rvalue::Unsize(first(self.operands(&[&**a], &none)), e.ty),
             ExprKind::Struct(fields) => {
                 let sid = e.ty.struct_id().expect("a struct value has a struct type");
@@ -1891,6 +1930,9 @@ fn kind_name(k: &ExprKind) -> &'static str {
         ExprKind::Maybe { .. } => "Maybe",
         ExprKind::Convert(_) => "Convert",
         ExprKind::PtrConv(_) => "PtrConv",
+        ExprKind::FuncRef(_) => "FuncRef",
+        ExprKind::Closure(..) => "Closure",
+        ExprKind::FnCall(_) => "FnCall",
         ExprKind::Unsize(_) => "Unsize",
         ExprKind::DynCall(..) => "DynCall",
         ExprKind::Call(..) => "Call",

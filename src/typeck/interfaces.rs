@@ -170,6 +170,13 @@ fn tkey(t: &ast::TypeName) -> String {
             ast::TypeMod::FixedPtr => "*fixed ",
         });
     }
+    if let Some(f) = &t.func {
+        s.push('(');
+        s.push_str(&f.params.iter().map(tkey).collect::<Vec<_>>().join(","));
+        s.push_str(")=>");
+        s.push_str(&tkey(&f.ret));
+        return s;
+    }
     s.push_str(&t.name);
     if t.unit.is_some() {
         s.push_str("<unit>");
@@ -402,7 +409,7 @@ pub(super) fn validate(g: &mut Globals, diags: &mut Vec<Diagnostic>) {
             }
         }
         for f in &decl.fields {
-            g.resolve_binding_type(&f.ty, diags);
+            g.resolve_storable(&f.ty, diags);
         }
         g.tenv = saved;
     }
@@ -953,7 +960,7 @@ fn declare_ext_method(g: &mut Globals, ty: Type, m: &ast::Method, diags: &mut Ve
         return None;
     }
     let params = f.params.iter().map(|p| g.resolve_binding_type(&p.ty, diags)).collect();
-    let ret = g.resolve(&f.ret, diags);
+    let ret = g.resolve_return(&f.ret, diags);
     let (fails, outcome) = failures::signature(g, f, ret, true, diags);
     let sig = Sig { name: format!("{ty}::{}", f.name), params, ret, span: f.span, fails, outcome };
     check_signature_extras(g, f, &sig.params, m.is_static.is_none(), diags);
