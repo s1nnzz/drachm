@@ -217,6 +217,11 @@ impl Lexer<'_> {
             if b == b'>' {
                 break;
             }
+            // `K as unit`: the unit named `K`, written out after a name.
+            if b == b' ' && self.src[j..].starts_with(" as unit") {
+                j += " as unit".len();
+                continue;
+            }
             let allowed = is_word(b) || matches!(b, b'/' | b'*' | b'^' | b'-' | b'(' | b')');
             if !allowed && !(b == b' ' && &self.src[from..j] == "delta") {
                 return plain;
@@ -591,6 +596,9 @@ mod tests {
         // Not unit literals: a space, a bad unit, or no closing `>`.
         assert_eq!(nums("3 < m 3<m* 3<4 3<x && y>2"), ["3", "<", "m", "3", "<", "m", "*", "3", "<", "4", "3", "<", "x", "&&", "y", ">", "2"]);
         assert_eq!(nums("3.0<delta  degC>"), ["d3", "<", "delta", "degC", ">"]);
+        // `K as unit` names the unit K; `as` is only a unit word after a name.
+        assert_eq!(nums("0.5<T as unit> 2<K as unit^2>"), ["d1/2<T as unit>", "2<K as unit^2>"]);
+        assert_eq!(nums("3<(m) as unit>"), ["3", "<", "(", "m", ")", "as", "unit", ">"]);
     }
 
     #[test]

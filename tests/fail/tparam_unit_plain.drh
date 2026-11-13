@@ -1,0 +1,10 @@
+in si;
+
+// Inside `<K>` the plain name `K` is the type parameter, not the unit.
+float64<K> lift<K>(K a) {
+    return 0.0<K as unit>;
+}
+
+none main() {
+    lift<uint32>(1);
+}

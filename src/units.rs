@@ -425,6 +425,10 @@ impl Parser<'_> {
                     self.i += 1;
                 }
                 let name = String::from_utf8_lossy(&self.s[start..self.i]).into_owned();
+                // `K as unit` names the unit `K` (the same unit).
+                if self.s[self.i..].starts_with(b" as unit") {
+                    self.i += " as unit".len();
+                }
                 if self.peek() != Some(b'^') {
                     return Ok(UnitExprText::Name(name));
                 }

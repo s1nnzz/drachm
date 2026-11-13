@@ -1,0 +1,24 @@
+in io;
+in si;
+
+// `K` is kelvin after `in si;`, but here it is the type parameter (W0601).
+K largest<K>(K a, K b) {
+    if (a > b) {
+        return a;
+    }
+    return b;
+}
+
+// `K as unit` reaches kelvin, even where the type parameter `K` is in scope.
+float64<K as unit> warmer<K>(float64<K as unit> t) {
+    return t + 5.0<K as unit>;
+}
+
+none main() {
+    uint32 big = largest<uint32>(3, 9);
+    io::outln(big::text());
+    // Outside the generic, `K` is the unit again.
+    float64<K> temp = 293.15<K>;
+    float64<K> warm = warmer<uint32>(temp);
+    io::outln(warm::text() + " " + warm::unitText());
+}

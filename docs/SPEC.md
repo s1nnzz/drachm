@@ -451,11 +451,14 @@ float64<m/s> speed = dist / time;     // dist + time is a compile error
     point `degC`. Without it nothing is predeclared (E0402). A file that declares
     a name the SI set has is E0403.
   - The SI unit for magnetic flux density is `tesla` (owner, 2026-11-13: it was `T`,
-    which clashed with type parameters). `float64<tesla>`, `0.5<tesla>`. A type
-    parameter cannot be named like a unit with `in si;` (E0605, which suggests a
-    free letter). Built, with the reading that a type parameter never shadows a
-    unit name in `<...>`; so the explicit form currently means the same as the
-    plain name (owner to confirm whether it should do more).
+    which clashed with type parameters). `float64<tesla>`, `0.5<tesla>`.
+  - `X as unit` names the unit X out in full, anywhere a unit goes
+    (`float64<tesla as unit>`, `0.5<tesla as unit>`). Built (2026-11-13, owner).
+  - A type parameter named like a unit (`K` with `in si;`) is a warning, W0601,
+    not an error. Inside the parameter's scope the plain name is the type:
+    `float64<K>` there is E0402 ("a type parameter here, so it is not a unit"),
+    and `float64<K as unit>` is the unit. Built. A struct, enum or built-in type
+    name as a parameter is still E0605.
   - Unit into a plain slot strips to the base amount: `uint8 s = 3<m>;` is 3,
     `uint32 t = 3<km>;` is 3000. Whole numbers truncate toward zero when a unit
     shrinks (W0102 is the implementer's reading).

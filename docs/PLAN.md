@@ -671,6 +671,12 @@ Interims still open (each is E0901 unless noted; the question says what the owne
 - Enums and generic instances promising an interface from outside (E0901).
 - Config settings `bounds` and `missing_key` (step 7).
 
+Leftover follow-ups (owner, 2026-11-13, "Step 6 leftover follow-ups"):
+- SI unit `T` is `tesla` (done, commit "Rename the SI unit T to tesla").
+- A type parameter named like a unit is warning W0601 (was E0605); inside its
+  scope the plain name is the type (E0402 where a unit is meant); `X as unit`
+  names the unit anywhere (done).
+
 Decided, in progress in another package (not built, and not described as built
 anywhere in this sweep): `maybe &T` (an optional that holds a borrow), `a same as b`
 and `xs::containsRef(&p)`. They are in `docs/impl/owner-answers.md` (Q3 follow-ups).

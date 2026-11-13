@@ -52,10 +52,19 @@ Prefixes are not automatic: `km` is a declared unit, not `k` applied to `m`.
 You can declare your own scales the same way: `unit mi = 5280 ft;`. A file
 that declares a name `in si;` already has is an error ([E0403](errors.md)).
 
-Inside the `<...>` of a number type, `T as unit` names the unit `T` (tesla)
-out in full, so `float64<T as unit>` is the same type as `float64<T>`. A type
-parameter cannot take a unit's name (E0605), so the name of a unit is always
-the unit.
+`X as unit` names the unit `X` out in full, anywhere a unit can be written:
+`float64<tesla as unit>` is the same type as `float64<tesla>`, and
+`0.5<tesla as unit>` is the same value as `0.5<tesla>`. It is also how a unit
+is reached where a type parameter has the same name. A type parameter named
+like a unit is allowed with a warning (W0601). Inside its scope the plain name
+is the type, so `float64<K>` there is an error (E0402); `float64<K as unit>`
+is the unit `K`.
+
+<!-- example: units-as-unit -->
+
+The SI name `K` is kelvin. In a program that has `in si;` and a type parameter
+`K`, write `float64<K as unit>` for the unit wherever a plain `K` would be the
+type.
 
 ```drachm
 in io;

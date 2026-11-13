@@ -259,6 +259,9 @@ pub struct UnitSpec {
 #[derive(Debug, Clone, PartialEq)]
 pub enum UnitExpr {
     Name(String, Span),
+    /// `T as unit`: the unit named `T`, even where a type parameter `T` is in
+    /// scope (the parameter does not stand for a unit).
+    Explicit(String, Span),
     /// The dimensionless `1`.
     One(Span),
     Mul(Box<UnitExpr>, Box<UnitExpr>),
