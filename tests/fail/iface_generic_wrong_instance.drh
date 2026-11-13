@@ -1,0 +1,11 @@
+interface Read<T> { T get(); }
+struct Cell<T> with Read<T> {
+public:
+    T value;
+    T get() { return copy self.value; }
+}
+T fetch<T, R with Read<T>>(R r) { return r::get(); }
+none main() {
+    Cell<uint32> a = new Cell<uint32> of (7);
+    string s = fetch<string, Cell<uint32>>(a);
+}

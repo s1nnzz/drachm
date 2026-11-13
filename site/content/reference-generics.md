@@ -221,6 +221,26 @@ extends Shape and Positioned`. A struct that implements `Placed` implements
 equal signatures, and an interface that extends itself, directly or through
 others, is E0615.
 
+## Generic interfaces
+
+An interface can take type parameters: `interface Read<T>`. A type implements
+one particular instance, `with Read<uint32>`, and a generic struct can pass its
+own parameter on, `struct Cell<T> with Read<T>`. `extends` works the same way:
+`interface ReadChild<T> extends Read<T>`. A bound names the instance it asks for:
+`R with Read<T>`.
+
+<!-- example: iface-generic -->
+
+`Read<uint32>` and `Read<string>` are different interfaces. A type that
+implements one does not implement the other (E0607), a member with the wrong
+signature for the instance is E0611, and the wrong number of type arguments is
+E0602 (E0604 when none are written). A generic with a bound such as
+`R with Read<T>` is checked where it is written like any other: a method the
+instance does not list is E0606.
+
+Not supported yet (E0901): borrowing a generic interface (`&Read<uint32>`), and
+interface methods with type parameters of their own.
+
 ## Self
 
 Inside an interface, `Self` stands for the type that implements it, so
@@ -378,8 +398,8 @@ Any type can promise an interface from outside its own declaration, by
 writing its name, `with`, the interface and the methods:
 `uint8 with Describe { string describe() { ... } }`. The declaration can be
 anywhere in the project. For a number type, `bool` or `string` the methods
-get the value as `self`; for a struct they join the struct's own methods
-(including its private fields). Operators and constructors cannot be given
+get the value as `self`; for a struct they join the struct's own methods.
+Operators and constructors cannot be given
 to a built-in type yet, and enums and generic instances cannot promise
 interfaces this way yet (E0901).
 
@@ -400,6 +420,15 @@ The set and members above are the first attempt and may change. A struct can
 implement `Equal` without writing `==`, because every struct has one.
 
 <!-- example: iface-zero -->
+
+A block like this sees only the struct's public members. Writing
+`Secret with trusted Show { ... }` lets its methods use the private fields,
+methods and constructors too, as the struct's own methods do. `trusted` is
+not a reserved word: it counts as the modifier only when an interface name
+follows it. Using a private member in a plain block is E0212, and the help
+points at `trusted`.
+
+<!-- example: iface-trusted -->
 
 ## Generic over units
 <!-- status: tentative -->

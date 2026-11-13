@@ -1,0 +1,1 @@
+error[E0607]: `Cell<uint32>` does not implement `Read<string>`, which `fetch` asks of `R`

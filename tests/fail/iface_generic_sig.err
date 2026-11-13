@@ -1,0 +1,1 @@
+error[E0611]: `Bad::get` returns `string`, but `Read<uint32>::get` returns `uint32`

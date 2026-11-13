@@ -952,6 +952,11 @@ impl Parser<'_> {
         let start = self.span();
         let ty = self.ty()?;
         self.bump();
+        // `trusted` is a context word: a modifier only when an interface name follows.
+        let trusted = matches!(self.peek(), Tok::Ident(w) if w == "trusted") && matches!(self.peek_at(1), Tok::Ident(_));
+        if trusted {
+            self.bump();
+        }
         let with = self.and_list()?;
         let open = self.expect("{")?;
         // A scratch struct to collect the methods with the struct member rules.
@@ -991,7 +996,7 @@ impl Parser<'_> {
         if let Some(f) = s.fields.first() {
             self.diags.push(Diagnostic::at(&codes::E0003, f.name_span, "a declaration like this adds methods, not fields").help("fields belong to the type's own declaration"));
         }
-        Ok(ImplDecl { ty, with, methods: s.methods, span: start.to(self.prev_span()) })
+        Ok(ImplDecl { ty, with, trusted, methods: s.methods, span: start.to(self.prev_span()) })
     }
 
     /// `interface Name [extends A and B] { members }`

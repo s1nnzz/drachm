@@ -1,0 +1,6 @@
+interface Read<T> { T get(); }
+struct TwoArgs with Read<uint32, string> {
+public:
+    uint32 get() { return 1; }
+}
+none main() {}

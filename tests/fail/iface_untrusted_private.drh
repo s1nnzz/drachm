@@ -1,0 +1,17 @@
+interface Show {
+    string show();
+}
+
+struct Secret {
+public:
+    uint32 shown;
+private:
+    uint32 hidden;
+    uint32 helper() { return self.hidden; }
+}
+
+Secret with Show {
+    string show() { return self.shown::text() + self.hidden::text() + self::helper()->text(); }
+}
+
+none main() {}
