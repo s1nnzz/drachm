@@ -1,0 +1,44 @@
+//--!$unsafe: true
+in io;
+in * from c."drachm_fixture.h" as fx;
+
+// A safe wrapper turns the union into a Drachm enum.
+enum Input {
+    Key(uint32 code, bool down),
+    Motion(float64 x, float64 y),
+    Other(uint32 kind),
+    Done,
+}
+
+Input next() {
+    mut fx::fx_event ev = new fx::fx_event of ();
+    unsafe {
+        c::int more = fx::fx_event_poll((address of ev) as foreign *fx::fx_event);
+        if (more == 0) { return Done; }
+        if (ev.type == 1) { return Key(ev.key.code as uint32, ev.key.down != 0); }
+        if (ev.type == 2) { return Motion(ev.motion.x as float64, ev.motion.y as float64); }
+        return Other(ev.type as uint32);
+    }
+}
+
+none main() {
+    // A union value starts as zero bytes; its members share them.
+    mut fx::fx_number n = new fx::fx_number of ();
+    unsafe {
+        n.i = 1078530011;
+        io::outln(f"bits ${n.i as sint32}");
+        io::outln(f"as float ${fx::fx_number_float((address of n) as foreign *fx::fx_number) as float32}");
+    }
+    mut sint32 count = 0;
+    mut bool running = true;
+    while (running) {
+        match (next()) {
+            case Done { running = false; }
+            case Key(uint32 code, bool down) { io::outln(f"key ${code} down ${down}"); }
+            case Motion(float64 x, float64 y) { io::outln(f"motion ${x} ${y}"); }
+            case Other(uint32 kind) { io::outln(f"other ${kind}"); }
+        }
+        if (running) { count += 1; }
+    }
+    io::outln(f"events: ${count}");
+}

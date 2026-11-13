@@ -40,16 +40,20 @@ pub(crate) fn struct_defs(prog: &Program, asserts: bool) -> String {
     // Every struct is named up front: a pointer to one may come before its definition.
     for def in &prog.structs {
         let name = struct_name(&def.name);
-        let _ = writeln!(out, "typedef struct {name} {name};");
+        let _ = writeln!(out, "typedef {} {name} {name};", if def.is_union { "union" } else { "struct" });
     }
     for item in type_order(prog) {
         match item {
             Item::Struct(s) => {
                 let def = &prog.structs[s];
                 let name = struct_name(&def.name);
-                let _ = writeln!(out, "struct {name} {{");
+                let _ = writeln!(out, "{} {name} {{", if def.is_union { "union" } else { "struct" });
                 for f in &def.fields {
                     let _ = writeln!(out, "    {} f_{};", c_type(f.ty), f.name);
+                }
+                if def.is_union {
+                    // The C size and alignment, also when some members were not mapped.
+                    let _ = writeln!(out, "    _Alignas({}) unsigned char pad[{}];", def.align, def.size.max(1));
                 }
                 let _ = writeln!(out, "}};\n");
                 if asserts {

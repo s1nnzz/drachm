@@ -159,7 +159,11 @@ impl Validator<'_> {
                     }
                     Rvalue::Aggregate(sid, ops) => {
                         let fields = &self.hir.structs[*sid].fields;
-                        if fields.len() != ops.len() {
+                        if self.hir.structs[*sid].is_union {
+                            if !ops.is_empty() {
+                                self.err(&at, "a union is built from no values");
+                            }
+                        } else if fields.len() != ops.len() {
                             self.err(&at, format!("Aggregate of {} gives {} fields, expected {}", self.hir.structs[*sid].name, ops.len(), fields.len()));
                         } else {
                             for (i, (f, t)) in fields.iter().zip(&tys).enumerate() {

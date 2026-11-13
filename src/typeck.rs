@@ -67,6 +67,8 @@ struct StructInfo {
     ctors: Vec<construct::CtorInfo>,
     /// `Person(auto);`: the automatic constructor stays next to the written ones.
     auto_ctor: bool,
+    /// A C union: its size and alignment.
+    union_layout: Option<(u32, u32)>,
     /// The default `def`, an index into `Globals::defs`.
     default_def: Option<usize>,
     /// Written with a `lives` clause: it is a holder, even before its
@@ -1086,6 +1088,7 @@ fn new_struct_info(g: &mut Globals, name: &str, s: &ast::Struct) -> StructId {
         has_drop: None,
         ctors: Vec::new(),
         auto_ctor: s.auto_ctor.is_some(),
+        union_layout: s.union_layout,
         default_def: None,
         declared_lives: !s.lives.is_empty(),
         placeholder: None,
@@ -2642,6 +2645,17 @@ impl<'a> Checker<'a> {
     /// order, or all by name. Every field must be given exactly once.
     fn construct(&mut self, t: Type, values: Vec<GivenValue>, span: Span) -> Option<hir::Expr> {
         let s = t.struct_id().unwrap();
+        if self.g.structs[s].union_layout.is_some() {
+            if !values.is_empty() {
+                self.diags.push(
+                    Diagnostic::at(&codes::E0114, span, format!("the C union `{t}` is built without values"))
+                        .note("a union starts as all zero bytes")
+                        .help(format!("write `new {t} of ()`, then set a member inside `unsafe`")),
+                );
+                return None;
+            }
+            return Some(hir::Expr::new(hir::ExprKind::Struct(Vec::new()), t));
+        }
         if !self.g.structs[s].ctors.is_empty() {
             return self.construct_with_ctors(t, values, span);
         }

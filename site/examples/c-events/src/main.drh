@@ -1,0 +1,37 @@
+//--!$unsafe: true
+in io;
+in * from c."events.h" as ev;
+
+// What the program sees: an ordinary Drachm enum, no union in sight.
+enum Input {
+    Key(sint32 code, bool down),
+    Move(float64 x, float64 y),
+    Done,
+}
+
+// The wrapper reads the union. Reading a member is `unsafe`, because only the
+// wrapper's author knows which member the library filled in: `kind` says so.
+Input next() {
+    // A union starts as zero bytes; C fills it through its address.
+    mut ev::event e = new ev::event of ();
+    unsafe {
+        bool got = ev::event_next((address of e) as foreign *ev::event) != 0;
+        if (!got) { return Done; }
+        if (e.kind == ev::EVENT_KEY) {
+            // `e.key` is a struct inside the union: a member of a member.
+            return Key(e.key.code as sint32, e.key.down != 0);
+        }
+        return Move(e.motion.x as float64, e.motion.y as float64);
+    }
+}
+
+none main() {
+    mut bool running = true;
+    while (running) {
+        match (next()) {
+            case Key(sint32 code, bool down) { io::outln(f"key ${code}, down: ${down}"); }
+            case Move(float64 x, float64 y) { io::outln(f"moved to ${x}, ${y}"); }
+            case Done { running = false; }
+        }
+    }
+}

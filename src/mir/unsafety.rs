@@ -19,13 +19,13 @@ pub fn run(hir: &hir::Program, body: &Body, diags: &mut Vec<Diagnostic>) {
             if s.unsafe_ctx {
                 continue;
             }
-            if let Some(d) = statement(hir, body, s) {
+            if let Some(d) = statement(hir, body, s).or_else(|| union_statement(hir, body, s)) {
                 diags.push(d);
             }
         }
         let t = &block.terminator;
         if !t.unsafe_ctx {
-            if let Some(d) = terminator(hir, body, t) {
+            if let Some(d) = terminator(hir, body, t).or_else(|| union_terminator(hir, body, t)) {
                 diags.push(d);
             }
         }
@@ -244,6 +244,69 @@ fn terminator(hir: &hir::Program, body: &Body, t: &Terminator) -> Option<Diagnos
         TerminatorKind::Return => {
             let ret = body.locals.iter().find(|d| matches!(d.kind, LocalKind::Return))?;
             ret.ty.is_ptr().then(|| report(Op::Returning, t.span))
+        }
+        _ => None,
+    }
+}
+
+/// The union a place reads or writes a member of, if any (`ev.key`, `ev.type`).
+fn union_member(body: &Body, hir: &hir::Program, p: &Place) -> Option<String> {
+    let mut t = body.locals.get(p.local)?.ty;
+    let mut variant = None;
+    for pr in &p.proj {
+        match *pr {
+            Proj::Downcast(v) => variant = Some(v),
+            Proj::Index(_) => t = t.elem()?,
+            Proj::Deref => t = t.target()?,
+            Proj::Field(f) if variant.is_some() => {
+                let Type::Enum { id, .. } = t else { return None };
+                t = hir.enums[id].variants[variant.take().unwrap()].fields[f].ty;
+            }
+            Proj::Field(f) => {
+                let Type::Struct { id, .. } = t else { return None };
+                let def = hir.structs.get(id)?;
+                if def.is_union {
+                    return Some(def.name.clone());
+                }
+                t = def.fields.get(f)?.ty;
+            }
+        }
+    }
+    None
+}
+
+fn union_report(name: &str, span: Span) -> Diagnostic {
+    Diagnostic::at(&codes::E0336, span, format!("reading or writing a member of the C union `{name}` needs an `unsafe {{ }}` block"))
+        .note("a union holds one member's bytes: only you know which one is valid")
+        .help("check which member is set (a tag field, `ev.type`), then read it inside `unsafe { }`")
+}
+
+fn union_operand(hir: &hir::Program, body: &Body, o: &Operand) -> Option<String> {
+    match o {
+        Operand::Copy(p) | Operand::Move(p) => union_member(body, hir, p),
+        Operand::Const(_) => None,
+    }
+}
+
+fn union_statement(hir: &hir::Program, body: &Body, s: &Statement) -> Option<Diagnostic> {
+    let StatementKind::Assign(dst, rv) = &s.kind else { return None };
+    let name = union_member(body, hir, dst).or_else(|| match rv {
+        Rvalue::Ref(_, p) | Rvalue::RawRef(p) | Rvalue::DeepCopy(p) | Rvalue::Discriminant(p) | Rvalue::Len(p) => union_member(body, hir, p),
+        Rvalue::Use(o) | Rvalue::Neg(o) | Rvalue::Not(o) | Rvalue::BitNot(o) | Rvalue::Convert(o, _) | Rvalue::Unsize(o, _) => union_operand(hir, body, o),
+        Rvalue::Binary(_, a, b) | Rvalue::IntPow(a, b) | Rvalue::Checked(_, _, a, b) | Rvalue::Shift { value: a, amount: b, .. } => union_operand(hir, body, a).or_else(|| union_operand(hir, body, b)),
+        Rvalue::Aggregate(_, os) | Rvalue::Variant(_, _, os) | Rvalue::Array(_, os) => os.iter().find_map(|o| union_operand(hir, body, o)),
+        _ => None,
+    })?;
+    Some(union_report(&name, s.span))
+}
+
+fn union_terminator(hir: &hir::Program, body: &Body, t: &Terminator) -> Option<Diagnostic> {
+    match &t.kind {
+        TerminatorKind::Call { args, dest, .. } => {
+            if let Some(n) = dest.as_ref().and_then(|d| union_member(body, hir, d)) {
+                return Some(union_report(&n, t.span));
+            }
+            args.iter().find_map(|a| union_operand(hir, body, &a.op).map(|n| union_report(&n, a.span)))
         }
         _ => None,
     }

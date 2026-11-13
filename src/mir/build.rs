@@ -1501,11 +1501,15 @@ impl<'a> Builder<'a> {
                 let sid = e.ty.struct_id().expect("a struct value has a struct type");
                 let es: Vec<&Expr> = fields.iter().map(|(_, v)| v).collect();
                 let ops = self.operands(&es, &none);
-                let mut by_field: Vec<Option<Operand>> = vec![None; self.hir.structs[sid].fields.len()];
-                for ((f, _), op) in fields.iter().zip(ops) {
-                    by_field[*f] = Some(op.op);
+                if self.hir.structs[sid].is_union {
+                    Rvalue::Aggregate(sid, Vec::new())
+                } else {
+                    let mut by_field: Vec<Option<Operand>> = vec![None; self.hir.structs[sid].fields.len()];
+                    for ((f, _), op) in fields.iter().zip(ops) {
+                        by_field[*f] = Some(op.op);
+                    }
+                    Rvalue::Aggregate(sid, by_field.into_iter().map(|o| o.expect("every field is given")).collect())
                 }
-                Rvalue::Aggregate(sid, by_field.into_iter().map(|o| o.expect("every field is given")).collect())
             }
             ExprKind::Variant { enum_id, variant, args } => {
                 let es: Vec<&Expr> = args.iter().collect();

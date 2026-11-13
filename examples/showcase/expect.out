@@ -123,6 +123,7 @@ berths: taken, taken, closed, closed
   berth 0: 25 t
   berth 1: 45 t
   berth 2: 65 t
+signals: bell x3; lamp 2 at 87.5;
 distance Vega to Sol: 5.0
 an unlisted state is still a number: 7
 inside: Brief, open 3

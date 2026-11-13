@@ -1,0 +1,150 @@
+// A safe window over SDL3. Everything unsafe in the program lives in this
+// file: the C calls, the raw pointers and the SDL_Event union. The rest of the
+// program (main.drh) sees a Window with methods and a Drachm enum of events.
+
+in * from c."SDL3/SDL.h" as sdl;
+
+// The keys the program cares about. WASD and the arrows are the same keys.
+out enum Key { Left, Right, Up, Down, Escape, Space, Other }
+
+// What happened since the last call to `poll`.
+out enum Event {
+    Quit,
+    Pressed(Key key),
+    Released(Key key),
+    MouseMoved(float32 x, float32 y),
+    MouseDown(float32 x, float32 y),
+    Idle,
+}
+
+out failure ScreenError {
+    InitFailed(string reason) f"could not start SDL: ${reason}",
+    WindowFailed(string reason) f"could not open a window: ${reason}",
+}
+
+// What SDL last complained about, as a Drachm string.
+string reason() {
+    unsafe {
+        foreign *uint8 text = sdl::SDL_GetError();
+        return (text::text() maybe none) maybe "unknown error";
+    }
+}
+
+// An open window and the renderer that draws into it. `drop()` closes both,
+// and shuts SDL down, whichever way the scope that owns the Window ends.
+out struct Window {
+    foreign *sdl::SDL_Window window;
+    foreign *sdl::SDL_Renderer renderer;
+    sint32 width;
+    sint32 height;
+
+    // Fill the whole window with one colour.
+    none clear(uint8 r, uint8 g, uint8 b) {
+        unsafe {
+            sdl::SDL_SetRenderDrawColor(self.renderer, r as c::uchar, g as c::uchar, b as c::uchar, 255);
+            sdl::SDL_RenderClear(self.renderer);
+        }
+    }
+
+    // A filled rectangle. Positions and sizes are in pixels.
+    none fillRect(float32 x, float32 y, float32 w, float32 h, uint8 r, uint8 g, uint8 b) {
+        unsafe {
+            mut sdl::SDL_FRect rect = x as c::float, y as c::float, w as c::float, h as c::float;
+            sdl::SDL_SetRenderDrawColor(self.renderer, r as c::uchar, g as c::uchar, b as c::uchar, 255);
+            sdl::SDL_RenderFillRect(self.renderer, (address of rect) as foreign *sdl::SDL_FRect);
+        }
+    }
+
+    // A line from one point to another.
+    none line(float32 x1, float32 y1, float32 x2, float32 y2, uint8 r, uint8 g, uint8 b) {
+        unsafe {
+            sdl::SDL_SetRenderDrawColor(self.renderer, r as c::uchar, g as c::uchar, b as c::uchar, 255);
+            sdl::SDL_RenderLine(self.renderer, x1 as c::float, y1 as c::float, x2 as c::float, y2 as c::float);
+        }
+    }
+
+    // Show what was drawn. With vsync on, this waits for the next refresh.
+    none present() {
+        unsafe { sdl::SDL_RenderPresent(self.renderer); }
+    }
+
+    // The next thing that happened, or Idle when nothing is waiting.
+    Event poll() {
+        // SDL fills the union with whichever member the event is; `type` says which.
+        mut sdl::SDL_Event ev = new sdl::SDL_Event of ();
+        unsafe {
+            bool got = sdl::SDL_PollEvent((address of ev) as foreign *sdl::SDL_Event) as bool;
+            if (!got) {
+                return Idle;
+            }
+            uint32 kind = ev.type as uint32;
+            if (kind == sdl::SDL_EVENT_QUIT as uint32) { return Quit; }
+            if (kind == sdl::SDL_EVENT_KEY_DOWN as uint32) { return Pressed(keyOf(ev.key.key as uint32)); }
+            if (kind == sdl::SDL_EVENT_KEY_UP as uint32) { return Released(keyOf(ev.key.key as uint32)); }
+            if (kind == sdl::SDL_EVENT_MOUSE_MOTION as uint32) { return MouseMoved(inside(ev.motion.x as float32, self.width), inside(ev.motion.y as float32, self.height)); }
+            if (kind == sdl::SDL_EVENT_MOUSE_BUTTON_DOWN as uint32) { return MouseDown(ev.button.x as float32, ev.button.y as float32); }
+        }
+        // Some other event (focus, window moved, ...): nothing this program uses.
+        return Idle;
+    }
+
+    none drop() {
+        unsafe {
+            sdl::SDL_DestroyRenderer(self.renderer);
+            sdl::SDL_DestroyWindow(self.window);
+            sdl::SDL_Quit();
+        }
+    }
+}
+
+// Wait, in milliseconds.
+out none wait(uint64 ms) {
+    unsafe { sdl::SDL_Delay(ms::to<c::uint>()); }
+}
+
+// Milliseconds since SDL started.
+out uint64 ticks() {
+    unsafe { return sdl::SDL_GetTicks() as uint64; }
+}
+
+// A mouse coordinate kept inside the window.
+float32 inside(float32 v, sint32 limit) {
+    if (v < 0.0) { return 0.0; }
+    if (v > limit::to<float32>()) { return limit::to<float32>(); }
+    return v;
+}
+
+Key keyOf(uint32 code) {
+    if (code == sdl::SDLK_LEFT || code == sdl::SDLK_A) { return Left; }
+    if (code == sdl::SDLK_RIGHT || code == sdl::SDLK_D) { return Right; }
+    if (code == sdl::SDLK_UP || code == sdl::SDLK_W) { return Up; }
+    if (code == sdl::SDLK_DOWN || code == sdl::SDLK_S) { return Down; }
+    if (code == sdl::SDLK_ESCAPE) { return Escape; }
+    if (code == sdl::SDLK_SPACE) { return Space; }
+    return Other;
+}
+
+// Start SDL and open a window with a renderer. Failures come back as ScreenError.
+out Window openWindow(string title, sint32 width, sint32 height) fails ScreenError {
+    unsafe {
+        bool started = sdl::SDL_Init(sdl::SDL_INIT_VIDEO) as bool;
+        if (!started) {
+            fail InitFailed(reason());
+        }
+        foreign *sdl::SDL_Window window = sdl::SDL_CreateWindow(&title as c string, width as c::int, height as c::int, 0);
+        if (window == none) {
+            string why = reason();
+            sdl::SDL_Quit();
+            fail WindowFailed(why);
+        }
+        foreign *sdl::SDL_Renderer renderer = sdl::SDL_CreateRenderer(window, none);
+        if (renderer == none) {
+            string why = reason();
+            sdl::SDL_DestroyWindow(window);
+            sdl::SDL_Quit();
+            fail WindowFailed(why);
+        }
+        sdl::SDL_SetRenderVSync(renderer, 1);
+        return new Window of (window: window, renderer: renderer, width: width, height: height);
+    }
+}

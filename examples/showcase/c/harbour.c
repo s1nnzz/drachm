@@ -8,6 +8,7 @@ struct harbour {
     sky_point where;
     int tons[HARBOUR_BERTHS];
     int used;
+    int signals;
 };
 
 static int open_harbours = 0;
@@ -49,3 +50,12 @@ void harbour_each(const harbour *h, void (*visit)(int berth, int tons)) {
 double harbour_distance(sky_point a, sky_point b) { return hypot(a.x - b.x, a.y - b.y); }
 
 int harbour_open_count(void) { return open_harbours; }
+
+int harbour_signal_next(harbour *h, harbour_signal *out) {
+    memset(out, 0, sizeof *out);
+    switch (h->signals++) {
+    case 0: out->bell.kind = SIGNAL_BELL; out->bell.strikes = 3; return 1;
+    case 1: out->lamp.kind = SIGNAL_LAMP; out->lamp.colour = 2; out->lamp.bearing = 87.5; return 1;
+    default: return 0;
+    }
+}

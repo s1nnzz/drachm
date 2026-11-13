@@ -1,0 +1,2 @@
+E0336
+reading or writing a member of the C union `fx::fx_event` needs an `unsafe { }` block

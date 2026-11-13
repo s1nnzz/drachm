@@ -1036,6 +1036,14 @@ impl Cg<'_, '_> {
                 self.b.ins().store(MEM, data, d, 0);
                 self.b.ins().store(MEM, vt, d, 8);
             }
+            Rvalue::Aggregate(sid, ops) if self.hir.structs[*sid].is_union => {
+                // A union starts as zero bytes.
+                let d = self.addr_of(dest);
+                let zero = self.b.ins().iconst(types::I8, 0);
+                let n = self.b.ins().iconst(self.ptr, self.hir.structs[*sid].size as i64);
+                let cfg = self.module.target_config();
+                self.b.call_memset(cfg, d, zero, n);
+            }
             Rvalue::Aggregate(sid, ops) => {
                 let offs: Vec<u32> = self.hir.structs[*sid].fields.iter().map(|f| f.offset).collect();
                 self.aggregate(dest, ty, &offs, ops, None)

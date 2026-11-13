@@ -1,0 +1,149 @@
+// A window with SDL3, written in safe Drachm. All the C lives in screen.drh;
+// this file has no `unsafe`, no C types and no pointers.
+//
+//   WASD or the arrow keys    move the square
+//   the mouse                 leaves a trail and a crosshair
+//   a click                   pins a line from the square to the mouse
+//   Space                     centres the square and removes the pin
+//   Escape or closing         quits
+//
+// WINDOW_FRAMES=N quits after N frames (for a run without a display:
+// `SDL_VIDEO_DRIVER=dummy WINDOW_FRAMES=120 drachm run examples/sdl3-window`).
+
+in io;
+in os;
+in screen;
+
+out uint64 FRAME_MS = 16;
+out sint32 WIDTH = 640;
+out sint32 HEIGHT = 480;
+out uint32 TRAIL = 24;
+
+// Which movement keys are held right now.
+struct Held {
+public:
+    bool left;
+    bool right;
+    bool up;
+    bool down;
+
+    none set(screen::Key key, bool down_now) {
+        match (key) {
+            case Left { self.left = down_now; }
+            case Right { self.right = down_now; }
+            case Up { self.up = down_now; }
+            case Down { self.down = down_now; }
+            case _ { }
+        }
+    }
+}
+
+// How many frames to run: WINDOW_FRAMES, or until the window is closed.
+uint32 frameLimit() {
+    string? text = os::getEnv("WINDOW_FRAMES");
+    string value = text maybe "0";
+    return value::to<uint32>() maybe 0;
+}
+
+none main() fails screen::ScreenError {
+    screen::Window win = screen::openWindow("Drachm and SDL3", WIDTH, HEIGHT) fails;
+    uint32 limit = frameLimit();
+
+    mut float32 x = 300.0;
+    mut float32 y = 220.0;
+    mut Held held = false, false, false, false;
+    mut float32 mouseX = 320.0;
+    mut float32 mouseY = 240.0;
+    // The last TRAIL mouse positions, a ring that starts at the middle.
+    mut float32[?] trailX = [];
+    mut float32[?] trailY = [];
+    mut uint32 filled = 0;
+    while (filled < TRAIL) {
+        trailX::push(320.0);
+        trailY::push(240.0);
+        filled += 1;
+    }
+    mut uint32 slot = 0;
+    mut bool pinned = false;
+    mut float32 pinX = 0.0;
+    mut float32 pinY = 0.0;
+    mut bool running = true;
+    mut uint32 frame = 0;
+    mut uint32 clicks = 0;
+
+    while (running) {
+        uint64 started = screen::ticks();
+
+        // Everything that happened since the last frame.
+        mut bool pending = true;
+        while (pending) {
+            match (win::poll()) {
+                case Quit { running = false; }
+                case Pressed(Escape) { running = false; }
+                case Pressed(Space) {
+                    x = 300.0;
+                    y = 220.0;
+                    pinned = false;
+                }
+                case Pressed(screen::Key key) { held::set(key, true); }
+                case Released(screen::Key key) { held::set(key, false); }
+                case MouseMoved(float32 mx, float32 my) {
+                    mouseX = mx;
+                    mouseY = my;
+                    trailX[slot] = mx;
+                    trailY[slot] = my;
+                    slot = (slot + 1) % TRAIL;
+                }
+                case MouseDown(float32 mx, float32 my) {
+                    pinned = true;
+                    pinX = mx;
+                    pinY = my;
+                    clicks += 1;
+                }
+                case Idle { pending = false; }
+            }
+        }
+
+        // Move the square and keep it inside the window.
+        if (held.left) { x -= 5.0; }
+        if (held.right) { x += 5.0; }
+        if (held.up) { y -= 5.0; }
+        if (held.down) { y += 5.0; }
+        if (x < 0.0) { x = 0.0; }
+        if (x > 600.0) { x = 600.0; }
+        if (y < 0.0) { y = 0.0; }
+        if (y > 440.0) { y = 440.0; }
+
+        // Draw.
+        win::clear(18, 22, 40);
+        mut uint32 i = 0;
+        while (i < TRAIL) {
+            // Older points are dimmer and smaller.
+            uint32 age = (slot + i) % TRAIL;
+            uint8 shade = (40 + i * 8)::to<uint8>();
+            float32 size = 2.0 + (i::to<float32>() / 4.0);
+            win::fillRect(trailX[age], trailY[age], size, size, shade, shade, 255);
+            i += 1;
+        }
+        win::line(mouseX - 12.0, mouseY, mouseX + 12.0, mouseY, 120, 220, 160);
+        win::line(mouseX, mouseY - 12.0, mouseX, mouseY + 12.0, 120, 220, 160);
+        if (pinned) {
+            win::line(x + 20.0, y + 20.0, pinX, pinY, 255, 220, 80);
+            win::fillRect(pinX - 4.0, pinY - 4.0, 8.0, 8.0, 255, 220, 80);
+        }
+        // The square pulses between two oranges.
+        mut uint32 pulse = frame % 120;
+        if (pulse >= 60) { pulse = 119 - pulse; }
+        uint8 glow = (140 + pulse)::to<uint8>();
+        win::fillRect(x, y, 40.0, 40.0, 255, glow, 60);
+        win::present();
+
+        frame += 1;
+        if (limit > 0 && frame >= limit) { running = false; }
+
+        // Keep to about 60 frames a second even where vsync does not wait.
+        uint64 spent = screen::ticks() - started;
+        if (spent < FRAME_MS) { screen::wait(FRAME_MS - spent); }
+    }
+    io::outln(f"closed after ${frame} frames, ${clicks} clicks");
+}

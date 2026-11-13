@@ -18,7 +18,8 @@ spells them. The compiler reads headers with libclang (the C parser of the LLVM
 project), so a machine that builds programs with C imports needs the Clang
 libraries installed. Programs without a C import never load it.
 
-This guide builds up a safe wrapper in four steps. The
+This guide builds up a safe wrapper in four steps; the
+[SDL3 window](guide-sdl3-window.md) is a whole program built this way. The
 [reference](reference-c-imports.md) has the exact rules and the list of what is
 not supported yet.
 
@@ -88,6 +89,18 @@ hand-over is written with `as`, `(address of p) as foreign *shape::shape_point`,
 and any pointer goes to C's `void *` with `as foreign *none`. Without the `as`
 the compiler says so (E0335) and shows what to write.
 
+## Unions
+
+<!-- example: c-events -->
+
+A C union holds one of several members, and a tag next to it (here `kind`) says
+which. Drachm gives the union its exact C size, makes it with
+`new ev::event of ()` (all zero bytes), and lets C fill it through its address.
+Reading any member is `unsafe` ([E0336](errors.md)), since only you know which
+one is set. The wrapper checks the tag, reads the right member (`e.key.code`
+goes through a struct inside the union) and returns an ordinary Drachm enum.
+The [SDL3 window](guide-sdl3-window.md) uses exactly this for `SDL_Event`.
+
 ## Pointers, text and returned memory
 
 <!-- example: c-handles -->
@@ -126,7 +139,7 @@ usual.
 
 Not everything in a C header is usable yet. The compiler tells you which
 declaration and why (E0901) when you name one it cannot use, and the rest of
-the header stays available: variadic functions (`printf`), unions, bit-fields,
+the header stays available: variadic functions (`printf`), bit-fields,
 global variables, structs larger than 16 bytes passed
 by value, and struct passing on machines other than x86-64 Linux and macOS. The
 [reference](reference-c-imports.md#not-supported-yet) lists them.

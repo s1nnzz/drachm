@@ -637,6 +637,9 @@ impl Gen<'_> {
                     }
                 }
             }
+            Rvalue::Aggregate(sid, _) if self.hir.structs[*sid].is_union => {
+                format!("({}){{ .pad = {{ 0 }} }}", crate::cgen_common::struct_name(&self.hir.structs[*sid].name))
+            }
             Rvalue::Aggregate(sid, ops) => {
                 let def = &self.hir.structs[*sid];
                 let parts: Vec<String> = ops.iter().enumerate().map(|(i, op)| format!(".f_{} = {}", def.fields[i].name, self.operand(op))).collect();

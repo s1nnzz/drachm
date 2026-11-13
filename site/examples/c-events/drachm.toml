@@ -1,0 +1,6 @@
+[project]
+name = "c_events"
+
+[native]
+include = ["c"]
+sources = ["c/events.c"]

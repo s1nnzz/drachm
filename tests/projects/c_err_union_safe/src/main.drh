@@ -1,0 +1,10 @@
+//--!$unsafe: true
+in io;
+in * from c."drachm_fixture.h" as fx;
+
+none main() {
+    mut fx::fx_event ev = new fx::fx_event of ();
+    unsafe { fx::fx_event_key((address of ev) as foreign *fx::fx_event, 65, 1); }
+    uint32 kind = ev.type as uint32;
+    io::outln(f"kind ${kind}");
+}

@@ -205,6 +205,8 @@ pub struct StructDef {
     pub fields: Vec<FieldDef>,
     pub size: u32,
     pub align: u32,
+    /// A C union: every field is at offset 0.
+    pub is_union: bool,
     /// Holds a `string` somewhere inside, so its values are owned.
     pub owns: bool,
     /// Copies automatically: not `stays`, no `drop()`, every field Copy, and

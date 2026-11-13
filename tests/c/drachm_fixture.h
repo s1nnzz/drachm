@@ -74,9 +74,24 @@ typedef int (*fx_int_fn)(int);
 int fx_apply(fx_int_fn f, int v);
 int fx_apply_n(int (*f)(int), int v, int times);
 
+/* unions */
+typedef union fx_number { int i; float f; } fx_number;
+typedef struct fx_key_event { unsigned type; unsigned code; unsigned char down; } fx_key_event;
+typedef struct fx_motion_event { unsigned type; double x; double y; } fx_motion_event;
+typedef union fx_event {
+    unsigned type;
+    fx_key_event key;
+    fx_motion_event motion;
+    struct { unsigned small : 3; } bits;
+    unsigned char padding[40];
+} fx_event;
+float fx_number_float(fx_number *n);
+void fx_event_key(fx_event *e, unsigned code, int down);
+void fx_event_motion(fx_event *e, double x, double y);
+int fx_event_poll(fx_event *e); /* a short fixed queue: 1 while events remain */
+
 /* things the compiler does not support yet */
 typedef struct fx_flags { unsigned a : 3; unsigned b : 5; } fx_flags;
-typedef union fx_number { int i; float f; } fx_number;
 int fx_printf(const char *fmt, ...);
 static inline int fx_twice(int x) { return x * 2; }
 extern int fx_global;

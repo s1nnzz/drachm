@@ -62,6 +62,27 @@ struct Harbour {
         }
     }
 
+    // A C union is read only in `unsafe`, and only after its `kind` says which
+    // member the harbour set. Here the wrapper turns each signal into text.
+    string signals() {
+        mut string report = "";
+        mut harbour::harbour_signal sig = new harbour::harbour_signal of ();
+        unsafe {
+            mut bool more = true;
+            while (more) {
+                more = harbour::harbour_signal_next(self.handle, (address of sig) as foreign *harbour::harbour_signal) != 0;
+                if (more) {
+                    if (sig.kind == harbour::SIGNAL_BELL) {
+                        report += f" bell x${sig.bell.strikes as sint32};";
+                    } else {
+                        report += f" lamp ${sig.lamp.colour as sint32} at ${sig.lamp.bearing as float64};";
+                    }
+                }
+            }
+        }
+        return report;
+    }
+
     harbour::sky_point position() {
         unsafe { return harbour::harbour_position(self.handle); }
     }
@@ -123,6 +144,7 @@ out none run() {
     dockAll(&vega, ["Wren", "Ibis", "Kite", "Lark"]);
     io::outln(f"berths: ${vega::berth(0)}, ${vega::berth(2)}, ${vega::berth(3)}, ${vega::berth(9)}");
     vega::manifest();
+    io::outln(f"signals:${vega::signals()}");
     io::outln(f"distance Vega to Sol: ${gap(vega::position(), sol::position())}");
     harbour::berth_state odd = 7 as harbour::berth_state;
     io::outln(f"an unlisted state is still a number: ${odd as sint32}");
