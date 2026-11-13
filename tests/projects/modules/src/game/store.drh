@@ -1,0 +1,6 @@
+out struct Cell<T> {
+    public:
+    T value;
+    Cell(T v) { self.value = v; }
+    T get() { return copy self.value; }
+}

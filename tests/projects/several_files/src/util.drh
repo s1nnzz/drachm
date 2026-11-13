@@ -1,1 +1,1 @@
-out none f() { }
+out string greeting(string who) { return f"hello from ${who}"; }

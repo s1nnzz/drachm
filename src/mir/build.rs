@@ -18,7 +18,11 @@ pub fn display_name(symbol: &str) -> std::borrow::Cow<'_, str> {
     if let Some(rest) = symbol.strip_prefix("drachm_g_") {
         return std::borrow::Cow::Owned(crate::types::demangle(rest));
     }
-    std::borrow::Cow::Borrowed(symbol.strip_prefix("drachm_f_").unwrap_or(symbol))
+    let plain = symbol.strip_prefix("drachm_f_").unwrap_or(symbol);
+    if plain.contains("_x3a__x3a_") {
+        return std::borrow::Cow::Owned(crate::types::demangle(plain));
+    }
+    std::borrow::Cow::Borrowed(plain)
 }
 
 const NO_SPAN: Span = Span { start: 0, end: 0 };

@@ -49,10 +49,11 @@ Agent briefs must say this.
 
 ## The showcase
 
-`examples/showcase.drh` is one program that shows off everything the compiler
-accepts today, written to impress (owner, 2026-11-13: "EVERYTHING the
-language can do, at max awesomeness"). It is a tested example (expected output
-in `tests/examples/showcase.out`, run on both backends by `cargo test`). Every
+`examples/showcase/` is one project (`drachm.toml`, `src/main.drh` and its
+modules) that shows off everything the compiler accepts today, written to
+impress (owner, 2026-11-13: "EVERYTHING the language can do, at max
+awesomeness"). It is a tested example (expected output in
+`examples/showcase/expect.out`, run on both backends by `cargo test`). Every
 change that makes a feature usable extends the showcase **in the same commit**,
 weaving the feature into the program rather than appending a toy. Agent briefs
 must say this.

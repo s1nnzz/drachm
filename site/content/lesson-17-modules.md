@@ -1,12 +1,11 @@
 ---
 title: "Lesson 17: Modules and projects"
 description: Splitting a program into files with in and out, renaming imports, and drachm.toml.
-status: not-implemented
 ---
 
 # Lesson 17: Modules and projects
 
-The compiler can't run this lesson yet; the code shows the planned design.
+Modules run today. Only the settings in `drachm.toml` and dependencies, further down, are still design, and their sections say so.
 
 **Goal:** split a program across files, choose what each file shows to the
 others, and describe a project in `drachm.toml`.
@@ -43,22 +42,28 @@ The `physics` file of the `game` folder (next to this file), under the name `phy
 <!-- focus: 3 -->
 Items, each one may be renamed.
 
-<!-- focus: 4-5 -->
-`*` takes everything: under one name, or straight into scope.
+<!-- focus: 4-6 -->
+`*` takes everything: straight into scope, under one name (`audio::play()`
+only), or under one name and straight into scope (`also bare`).
 
 ```drachm
 in io;
 in game.physics as phys;
 in Vector3 as V3, gravity from game.physics;
-in * from game.audio as audio;
 in * from game.audio;
+in * from game.video as video;
+in * from game.input as input also bare;
 ```
 
 A path is relative to the folder of the file that writes it. To start from the
 project's `src/` folder, begin with the project's name: `in mygame.game.physics;`.
 
-When `in *` brings in a name that already exists, a setting in `drachm.toml`
-chooses whether that is a warning or an error.
+To reach a file outside the current folder, write its path in a string:
+`in "../runtime/scheduler.drh" as scheduler;`.
+
+When `in *` brings in a name that already exists, your own declaration wins,
+then the first import, and there is a warning at the later import. Names that
+are not marked `out` cannot be imported at all (E0236).
 
 ### Your turn: import and use
 
@@ -100,6 +105,7 @@ none main() {
 ```
 
 ## A project
+<!-- status: not-implemented -->
 
 A project is a folder with a `drachm.toml`. `drachm new mygame` creates it,
 along with `src/main.drh` and a `tests/` folder. The file names the project,

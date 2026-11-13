@@ -1,0 +1,92 @@
+// The ship's orders: the types and functions the mission script uses.
+// Only what is marked `out` can be used from another file; `number` stays private.
+in io;
+
+// ---------------------------------------------------------------------------
+// Part 4: enums with data, match, optionals, failures, skip, loop control
+// ---------------------------------------------------------------------------
+out enum Order {
+    Jump(float64 distance),
+    Scan(string target),
+    Repair(string part, uint32 amount),
+    Hail(string who),
+    Rest,
+}
+
+// A failure type lists its variants; each has a message and may set the exit code.
+out failure ShipError {
+    UnknownOrder(string word) f"unknown order '${word}'" exit 2,
+    BadNumber(string text) f"'${text}' is not a number",
+    MissingArgument(string word) f"'${word}' needs an argument",
+    OutOfFuel(uint32 short) f"short by ${short} units of fuel" exit 3,
+    TooFar(float64 distance) f"${distance} ly is beyond the drive's range" exit 4,
+}
+
+out struct Ship {
+public:
+    string name;
+    mut uint32 fuel;
+    mut uint32 hull;
+    mut float64 travelled;
+}
+
+float64 number(string text) fails ShipError {
+    // `to<T>()` fails with the built-in ConvertError; turn it into ours.
+    return text::to<float64>() fails with (ConvertError e) => {
+        fail BadNumber(copy text) because e;
+    };
+}
+
+out Order parse(string line) fails ShipError {
+    string[?] w = line::split(" ");
+    string verb = copy w[0];
+    if (verb == "rest") { return Rest; }
+    if (w::len() < 2) { fail MissingArgument(verb); }
+    match (verb) {
+        case "jump" { return Jump(number(copy w[1]) fails); }
+        case "scan" { return Scan(copy w[1]); }
+        case "hail" { return Hail(copy w[1]); }
+        case "repair" {
+            if (w::len() < 3) { fail MissingArgument(verb); }
+            uint32 amount = w[2]::to<uint32>() maybe 1;
+            return Repair(copy w[1], amount);
+        }
+        case _ { fail UnknownOrder(verb); }
+    }
+}
+
+out none obey(&mut Ship ship, &Order order) fails ShipError {
+    match (order) {
+        case Jump(float64 d) if d > 100.0 {
+            fail TooFar(d);
+        }
+        case Jump(float64 d) {
+            uint32 cost = (d * 3.0)::to<uint32>();
+            if (cost > ship.fuel) { fail OutOfFuel(cost - ship.fuel); }
+            ship.fuel -= cost;
+            ship.travelled += d;
+            io::outln(f"  jumped ${d} ly, fuel left ${ship.fuel}");
+        }
+        case Scan(copy string target) {
+            match (target) {
+                case globbed "planet-*" { io::outln(f"  ${target}: habitable, probably"); }
+                case "sun", "star" { io::outln("  hot. very hot."); }
+                case _ { io::outln(f"  ${target}: nothing of interest"); }
+            }
+        }
+        case Repair(copy string part, uint32 amount) {
+            ship.hull += amount;
+            io::outln(f"  repaired the ${part} (+${amount}), hull ${ship.hull}");
+        }
+        case Hail(copy string who) { io::outln(f"  ${who} replies: 'greetings, ${ship.name}'"); }
+        case Rest { io::outln("  the crew naps"); }
+    }
+}
+
+// An optional: a part may or may not be in the stores.
+out string? stockroom(string part) {
+    match (part) {
+        case "coil", "valve" { return f"spare ${part}"; }
+        case _ { return none; }
+    }
+}

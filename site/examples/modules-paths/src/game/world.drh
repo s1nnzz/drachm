@@ -1,0 +1,5 @@
+// A file path in a string climbs a folder with `..`; the module is named
+// after the file unless `as` says otherwise.
+in "../tools/clock.drh";
+
+out string describe() { return f"the world, at tick ${clock::now()}"; }

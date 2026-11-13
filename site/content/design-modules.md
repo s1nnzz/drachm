@@ -1,35 +1,34 @@
 ---
 title: Modules
 description: in and out between files, paths, renaming, importing everything, and C headers.
-status: not-implemented
 ---
 
 # Modules
 
-A project is split into files with `in` and `out`. The one form that builds
-today is `in io;` and `in si;` for the built-in modules. The compiler already
-finds the files an `in` points at, reads each once and checks the paths and the
-`out` lists (the errors below are real); what the names inside them mean across
-files comes next.
+A project is split into files with `in` and `out`. Every file is a module.
+Names work across files as described here; the C headers at the end are still
+design.
 
 ## Exporting
 
-Any file that exports something is a module. What other files may use is
-whatever the file marks with `out`; everything else is private. There are two
-ways to mark, and one file can mix them freely, anywhere in the file.
+What other files may use is whatever the file marks with `out`; everything
+else is private to the file. There are two ways to mark, and one file can mix
+them freely, anywhere in the file: a list, which may rename with `as`, and
+`out` in front of the declaration itself. Functions, structs, enums,
+interfaces, failures, units and named constants can all be exported. A unit is
+used by its bare name (`in fathom from lib;`), since a unit expression has no
+`::`.
 
-```drachm
-// src/game/physics.drh
-out Vector3 as Vec3, step;          // a list; it may rename
+<!-- example: modules-basic -->
 
-struct Vector3 { float64 x; float64 y; float64 z; }
-none step() { }
+A name exported twice is an error (E0233), and so is exporting a name the file
+does not declare (E0234). Using a name that is not exported is E0236, and
+asking a module for a name it does not have is E0237. Passing an imported name
+on (re-exporting) is not supported yet.
 
-out struct Particle { Vector3 at; } // or `out` on the declaration itself
-```
-
-A name exported twice is an error (E0233), and so is exporting a name the
-file does not declare (E0234). Passing an imported name on is still open.
+`X with I { }` blocks and `def`s follow the type: wherever the struct or the
+interface is visible, so are the `with` blocks written for it, and importing a
+struct brings the `def`s that fill it.
 
 ## Paths
 
@@ -51,42 +50,66 @@ project's source folder from anywhere, begin with the project's name from
 in mygame.game.physics;             // src/game/physics.drh, from any file
 ```
 
+To climb out of a folder, write the file path in a string, relative to the
+file that imports it. A string path works wherever a module path does; without
+`as` the module is named after the file.
+
+```drachm
+in "../runtime/scheduler.drh";                       // named scheduler
+in tick from "../runtime/scheduler.drh";             // one item
+in * from "../runtime/scheduler.drh" as scheduler;   // everything, under scheduler::
+```
+
 If a path matches a built-in module and a project file at the same time (a
 file `math.drh` beside you and the standard `math`), it is an error (E0231):
 rename the file. A path that matches nothing is E0230, and the message lists
 the files it looked for.
 
+<!-- example: modules-paths -->
+
 ## Importing
 
-Nothing is imported automatically in a project, not even `io`. Path-like names
-use dots; call-like names use `::`.
+Nothing is imported automatically in a project, not even `io`, and each file
+imports what it uses: a file that uses `io::outln` without its own `in io;` is
+E0206 even if another file imports `io`. Path-like names use dots; call-like
+names use `::`, so a name from a module is `phys::Vector3` in types and
+`phys::gravity(2.0)` in calls.
 
-<!-- focus: 1,2,3,4,5 -->
+<!-- focus: 1,2,3,4,5,6 -->
 
 ```drachm
 in io;                                   // a whole module
 in game.physics as phys;                 // renamed
 in Vector3 as V3, gravity from physics;  // items, each may be renamed
-in * from game.audio as audio;           // everything under one name
 in * from game.audio;                    // everything straight into scope
+in * from game.audio as audio;           // everything, under audio:: only
+in * from game.audio as audio also bare; // under audio:: and straight into scope
 
 phys::Vector3 v = 1, 2, 3;
 ```
 
-Two modules with the same file name (`game/audio.drh` and `engine/audio.drh`)
-cannot both be called `audio` in one file: the second import is an error
-(E0232) with the fix-it `in engine.audio as engineAudio;`.
+`in * from m as y` puts everything under `y::` and nothing bare; add
+`also bare` for both, so `play()` and `audio::play()` are the same function.
+
+<!-- example: modules-glob -->
+
+Two names that end up with the same spelling in one file are an error
+(E0232) with a fix-it: two modules called `audio` (`game/audio.drh` and
+`engine/audio.drh`) get `in engine.audio as engineAudio;`, and two items called
+`Vector3` get `in Vector3 as VectorB from b;`.
 
 A name you declare yourself that has the same name as an imported module
-shadows it in its scope, with a warning. When `in *` brings in a name that
-already exists, your own declaration wins, then the first import; with
-`import_clash = warn` the warning is at the later import line.
+shadows it in that file, with a warning (W0241). When `in *` brings in a name
+that already exists, your own declaration wins, then the first import, with a
+warning at the later import line (W0240).
 
 ## Cycles
 
 Two files may import each other; their declarations see each other. What is
 not allowed is a function in `a.drh` that calls into `b.drh` which calls back
-into `a.drh` (recursion across files). Recursion inside one file is fine.
+into `a.drh` (recursion across files), and the error shows the chain (E0238).
+Recursion inside one file is fine. The check follows direct calls of
+functions; calls through methods are not followed yet.
 
 ## C headers
 
@@ -100,6 +123,7 @@ in * from c."SDL2/SDL.h" as sdl;
 ```
 
 ## Local files in scripts
+<!-- status: not-implemented -->
 
 A script can import files next to it: `in helpers;` finds `helpers.drh`. See
 [Scripts](design-scripts.md).

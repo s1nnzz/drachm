@@ -250,6 +250,11 @@ pre[data-focus-on] .line:not([data-hl])::before { opacity: 0.3; }
   overscroll-behavior: contain;
 }
 
+/* The source pane of a project: one block per file, the pane scrolls as a whole. */
+.drh-sc-files { overflow: auto; overscroll-behavior: contain; }
+.drh-sc-files > .drh-block { flex: 0 0 auto; }
+.drh-sc-files > .drh-block > .drh-scroll { flex: 0 0 auto; overflow-x: auto; }
+
 /* Handles: hidden in the narrow layout */
 .drh-sc-split,
 .drh-sc-vert { display: none; position: relative; user-select: none; touch-action: none; }

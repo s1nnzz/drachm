@@ -1,0 +1,2 @@
+error[E0232]: `Vector` is already taken in this file
+help: give one of them a name of its own with `as`: `in Vector as Vector2 from game.b;`

@@ -1,0 +1,2 @@
+out string play() { return "audio play"; }
+out uint32 volume() { return 1; }

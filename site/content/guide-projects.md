@@ -5,12 +5,12 @@ description: Splitting code into modules with in and out, describing the project
 
 # Organising a project
 
-The compiler builds a project folder with a `drachm.toml`: its `[project]` name,
-kind and entry are read, and `build`, `run` and `check` take the folder. The
-built pieces are `in io;`, `in si;`, the file flag `//--!$unsafe: true` and the
-project file's `[project]` section. Modules between your own files, dependencies,
-scripts and the other settings are designed, and their sections are marked. The
-code blocks there show the intended shape, not something you can run.
+The compiler builds a single file or a project folder with a `drachm.toml`:
+modules between your own files work, the `[project]` name, kind and entry are
+read, path and git dependencies are fetched, and `build`, `run` and `check` take
+the folder. The `[behaviour]` settings, scripts and the other flags are designed,
+and their sections are marked. The code blocks there show the intended shape,
+not something you can run.
 
 ## Start small, split when it hurts
 
@@ -31,7 +31,6 @@ mygame/
 `drachm new mygame` makes `drachm.toml`, `src/main.drh` and `tests/` for you.
 
 ## Modules: what a file shows
-<!-- status: not-implemented -->
 
 Any file that exports something is a module. An `out` line (or `out` before a
 declaration) marks what other files may use, and everything else stays private
@@ -49,19 +48,19 @@ struct Vector3 { float64 x; float64 y; float64 z; }
 ```
 
 ## Modules: what a file uses
-<!-- status: not-implemented -->
 
 In a project, nothing is imported automatically, not even `io`. Names that are
 paths use dots, and names you call use `::`.
 
-<!-- focus: 1-5,7 -->
+<!-- focus: 1-6,8 -->
 
 ```drachm
 in io;                                   // a whole module
 in game.physics as phys;                 // renamed
 in Vector3 as V3, gravity from physics;  // items, each may be renamed
-in * from game.audio as audio;           // everything under one name
+in * from game.audio as audio;           // everything under audio:: only
 in * from game.audio;                    // everything straight into scope
+in "../tools/clock.drh";                 // a file path may climb with ..
 
 phys::Vector3 v = 1, 2, 3;
 ```

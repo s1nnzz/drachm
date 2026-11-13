@@ -1,0 +1,16 @@
+// What other files may use: a list (it could rename: `out gravity as g;`),
+// and `out` in front of a declaration.
+out gravity;
+
+out struct Vector3 {
+public:
+    float64 x;
+    float64 y;
+
+    float64 length() { return (self.x * self.x + self.y * self.y) ** 0.5; }
+}
+
+float64 gravity(float64 seconds) { return friction() * 9.8 * seconds; }
+
+// Not exported: only this file can call it.
+float64 friction() { return 1.0; }

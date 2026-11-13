@@ -18,6 +18,7 @@ pub mod mir;
 pub mod modules;
 pub mod ownership;
 pub mod parser;
+pub mod resolve;
 pub mod typeck;
 pub mod types;
 pub mod units;
@@ -70,9 +71,8 @@ fn ownership_checks(checked: Option<hir::Program>, mut diags: Vec<Diagnostic>) -
 /// `entry`, then check it. The graph (with its source map) is returned for
 /// printing the diagnostics. A graph of one file is checked exactly like `front`.
 ///
-/// Step 7 is only started: a project with other files in it loads, parses and
-/// has its imports and exports checked, but its names are not yet resolved
-/// across files (WP2), so it ends in E0901 where the first file import is.
+/// A project of several files has its names resolved by `resolve` and is then
+/// checked as one program.
 pub fn front_project(entry: &std::path::Path, info: &modules::ProjectInfo) -> (Option<hir::Program>, modules::ModuleGraph, Vec<Diagnostic>) {
     let mut diags = Vec::new();
     let graph = modules::load(entry, info, &mut diags);
@@ -80,20 +80,20 @@ pub fn front_project(entry: &std::path::Path, info: &modules::ProjectInfo) -> (O
         return (None, graph, diags);
     }
     if graph.modules.len() > 1 {
-        let main = &graph.modules[0];
-        // The first import of a project file, for the message.
-        let at = main
-            .targets
-            .iter()
-            .position(|t| matches!(t, Some(modules::Target::File(_))))
-            .map(|i| main.program.imports[i].span);
-        let mut d = Diagnostic::new(&diag::codes::E0901, "a program of several files cannot be built yet")
-            .note_line(format!("{} files were found and read; naming things across files is the next part of step 7", graph.modules.len()));
-        if let Some(at) = at {
-            d = d.label(at, "this imports a project file");
+        // Several files: give every name its program-wide meaning, join the
+        // files into one program, and check that. The text is the files in
+        // order with a newline between, which is how the source map numbers it.
+        let mut graph = graph;
+        let program = resolve::resolve(&mut graph, &mut diags);
+        if diag::has_errors(&diags) {
+            return (None, graph, diags);
         }
-        diags.push(d);
-        return (None, graph, diags);
+        let src = (0..graph.map.len()).map(|f| graph.map.source(f).text.as_str()).collect::<Vec<_>>().join("\n");
+        let checked = typeck::check(&program, &src, &mut diags);
+        if diag::has_errors(&diags) {
+            return (None, graph, diags);
+        }
+        return (Some(checked), graph, diags);
     }
     let program = &graph.modules[0].program;
     let src = &graph.map.source(0).text;

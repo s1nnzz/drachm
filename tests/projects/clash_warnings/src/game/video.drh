@@ -1,0 +1,3 @@
+out string play() { return "video play"; }
+out string show() { return "video show"; }
+out uint32 volume() { return 2; }

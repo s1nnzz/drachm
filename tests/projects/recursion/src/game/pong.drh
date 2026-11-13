@@ -1,0 +1,5 @@
+in ping from "../main.drh";
+
+out uint32 pong(uint32 n) {
+    return ping(n);
+}

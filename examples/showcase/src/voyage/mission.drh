@@ -1,0 +1,66 @@
+// Part 4 of the voyage, in its own file: the mission script.
+// Items are imported by name; `Order` and `Ship` are used bare.
+in io;
+in Order, Ship, ShipError, parse, obey, stockroom from orders;
+
+out none run() {
+    io::outln("== Part 4: the mission script ==");
+    mut Ship ship = new Ship of ("Drachma", 30, 80, 0.0);
+    string script = """jump 4.5
+scan planet-9
+hail Vega
+repair coil 7
+dance wildly
+jump 1x
+jump
+jump 500
+scan sun
+jump 9
+rest""";
+    mut uint32 done = 0;       // lines read
+    mut uint32 failed = 0;
+    for (string line of script::lines()) {
+        io::outln(f"> ${line}");
+        Order order = parse(copy line) fails with (ShipError e) => {
+            io::outln(f"  rejected: ${e}");
+            failed++;
+            maybe Rest;
+        };
+        // A handler can also cover many failure types at once and read the exit code.
+        obey(&mut ship, &order) fails with (any e) => {
+            io::outln(f"  failed: ${e::message()} (exit code ${e::exit()})");
+            failed++;
+        };
+        done++;
+    }
+    io::outln(f"orders: ${done} read, ${failed} refused or failed");
+    io::outln(f"travelled ${ship.travelled} ly on ${ship.fuel} fuel; hull ${ship.hull}");
+
+    // Failures can also be ignored on purpose, and say so in the code.
+    obey(&mut ship, &Order::Jump(900.0)) ignore failure;
+    obey(&mut ship, &Order::Jump(900.0)) fails with none;
+    uint32 spare = "12x"::to<uint32>() maybe 0;
+    io::outln(f"ignored two failed jumps; a bad reading falls back to ${spare}");
+
+    // Optionals: `maybe` supplies a fallback, `is empty` asks.
+    string[?] wanted = ["coil", "warp core", "valve"];
+    for (&string part of wanted) {
+        string? found = stockroom(copy part);
+        if (found is empty) {
+            io::outln(f"  no ${part} in stores");
+            continue;
+        }
+        io::outln(f"  ${part}: " + (found maybe "?"));
+    }
+
+    // Loop control with counts: leave both loops as soon as a hazard is found.
+    mut string hazard = "none";
+    for (uint32 row of 0..4) {
+        for (uint32 col of 0..4) {
+            if (col > row) { continue 2; }
+            if (row * col == 6) { hazard = f"asteroid at ${row},${col}"; break 2; }
+        }
+    }
+    io::outln(f"sector scan: ${hazard}");
+    io::outln("");
+}

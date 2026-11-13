@@ -1,0 +1,7 @@
+in io;
+in game.physics;
+in secret from game.physics;
+
+none main() {
+    io::outln(physics::hidden()->text());
+}
