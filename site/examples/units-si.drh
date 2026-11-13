@@ -15,4 +15,8 @@ none main() {
 
     float64<degC> room = 20.0<degC>;
     io::outln(room::in<K>()->text() + " " + room::in<K>()->unitText());
+
+    // `T as unit` is the unit T (tesla), named out in full.
+    float64<T as unit> flux = 0.5<T>;
+    io::outln(flux::text() + " " + flux::unitText());
 }

@@ -294,6 +294,7 @@ impl Parser<'_> {
             match self.peek_at(n) {
                 Tok::Ident(_) | Tok::Sym("*" | "/" | "^" | "-") => {}
                 Tok::Num(NumLit { value: Const::Int(_), suffix: None, .. }, None) => {}
+                Tok::Kw("as") if self.as_unit_at(n) => {}
                 Tok::Sym("(") => depth += 1,
                 Tok::Sym(")") => depth = depth.checked_sub(1)?,
                 _ => break,
@@ -404,6 +405,11 @@ impl Parser<'_> {
             Tok::Ident(name) => {
                 let span = self.bump().span;
                 let base = UnitExpr::Name(name, span);
+                // `T as unit`: the unit named `T`, written out (the same unit as `T`).
+                if self.as_unit_at(0) {
+                    self.bump();
+                    self.bump();
+                }
                 if !self.eat("^") {
                     return Ok(base);
                 }
@@ -629,10 +635,17 @@ impl Parser<'_> {
             match self.peek_at(j) {
                 Tok::Ident(_) | Tok::Sym("*" | "/" | "^" | "-" | "(" | ")") => j += 1,
                 Tok::Num(NumLit { value: Const::Int(_), suffix: None, .. }, None) => j += 1,
+                Tok::Kw("as") if self.as_unit_at(j) => j += 1,
                 Tok::Sym(">" | ">>") => return Some(j),
                 _ => return None,
             }
         }
+    }
+
+    /// Is the `as` at token offset `n` the `as unit` that follows a unit name
+    /// (`float64<T as unit>`)? `as` is a keyword only in `same as`.
+    fn as_unit_at(&self, n: usize) -> bool {
+        self.peek_at(n) == &Tok::Kw("as") && matches!(self.peek_at(n + 1), Tok::Ident(w) if w == "unit")
     }
 
     /// Does a unit declaration (`unit NAME;` or `unit NAME = ...`) start here?

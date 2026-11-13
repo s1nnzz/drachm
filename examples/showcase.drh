@@ -56,6 +56,9 @@ none part1() {
     io::outln(f"doubled: ${doubled(5.0<s>)::text()} ${doubled(5.0<s>)::unitText()}");
     float64<ly> gap = 4.2<ly>;
     io::outln(f"nearest star: ${gap::in<m>()->text()} m");
+    // `T as unit` names the unit T (tesla) inside <...>: the same unit as `T`, written out.
+    float64<T as unit> flux = 0.5<T>;
+    io::outln(f"flux: ${flux::text()} ${flux::unitText()}");
     io::outln("");
 }
 

@@ -447,6 +447,12 @@ float64<m/s> speed = dist / time;     // dist + time is a compile error
     base mass unit), `mm cm km mg ms us ns min h kHz MHz GHz kJ kW kN`, and the
     point `degC`. Without it nothing is predeclared (E0402). A file that declares
     a name the SI set has is E0403.
+  - `T as unit` inside the `<...>` of a number type names the unit `T` explicitly
+    (`float64<T as unit>` is tesla; the literal `0.5<T>` is the same). A type
+    parameter cannot be named like a unit with `in si;` (E0605, which suggests a
+    free letter). Built, with the reading that a type parameter never shadows a
+    unit name in `<...>`; so the explicit form currently means the same as the
+    plain name (owner to confirm whether it should do more).
   - Unit into a plain slot strips to the base amount: `uint8 s = 3<m>;` is 3,
     `uint32 t = 3<km>;` is 3000. Whole numbers truncate toward zero when a unit
     shrinks (W0102 is the implementer's reading).

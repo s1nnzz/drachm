@@ -52,6 +52,11 @@ Prefixes are not automatic: `km` is a declared unit, not `k` applied to `m`.
 You can declare your own scales the same way: `unit mi = 5280 ft;`. A file
 that declares a name `in si;` already has is an error ([E0403](errors.md)).
 
+Inside the `<...>` of a number type, `T as unit` names the unit `T` (tesla)
+out in full, so `float64<T as unit>` is the same type as `float64<T>`. A type
+parameter cannot take a unit's name (E0605), so the name of a unit is always
+the unit.
+
 ```drachm
 in io;
 in si;
