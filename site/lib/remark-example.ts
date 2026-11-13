@@ -4,6 +4,11 @@ import type { Root } from 'mdast';
 import { examplesDir } from './content';
 
 const MARKER = /^\s*<!--\s*example:\s*([\w./-]+?)\s*-->\s*$/;
+const SHOWCASE = /^\s*<!--\s*showcase\s*-->\s*$/;
+
+// The showcase is the compiler's own tested example, read straight from the
+// repo so the page can never drift from `examples/showcase.drh`.
+const repoRoot = path.resolve(process.cwd(), process.env.DRACHM_REPO_DIR || '..');
 
 /**
  * Replaces `<!-- example: NAME -->` with the contents of examples/NAME.drh as a
@@ -15,6 +20,27 @@ export function remarkExample() {
   return (tree: Root) => {
     const out: Root['children'] = [];
     for (const node of tree.children) {
+      if (node.type === 'html' && SHOWCASE.test(node.value)) {
+        const src = path.join(repoRoot, 'examples/showcase.drh');
+        const expected = path.join(repoRoot, 'tests/examples/showcase.out');
+        if (!existsSync(src) || !existsSync(expected)) throw new Error(`showcase: ${src} or ${expected} not found`);
+        const code = (lang: string, title: string, file: string) =>
+          ({ type: 'code', lang, meta: `title="${title}"`, value: readFileSync(file, 'utf8').replace(/\n+$/, '') }) as never;
+        const col = (children: unknown[]) =>
+          ({
+            type: 'mdxJsxFlowElement',
+            name: 'div',
+            attributes: [{ type: 'mdxJsxAttribute', name: 'className', value: 'drh-code-col' }],
+            children,
+          }) as never;
+        out.push({
+          type: 'mdxJsxFlowElement',
+          name: 'div',
+          attributes: [{ type: 'mdxJsxAttribute', name: 'className', value: 'drh-showcase' }],
+          children: [col([code('drachm', 'showcase.drh', src)]), col([code('text', 'output', expected)])],
+        } as never);
+        continue;
+      }
       const m = node.type === 'html' ? MARKER.exec(node.value) : null;
       if (!m) {
         out.push(node);

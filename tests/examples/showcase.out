@@ -1,0 +1,97 @@
+== Part 1: numbers and units ==
+crew 200, deck -12, stars 1000000000000, hull 2.5, mask 255
+atoms in the cargo hold: 1267650600228229401496703205376
+overflow wraps: 250 + 10 = 4
+force: 50000.0 N
+cruise: 20.0 m/s
+cabin: 294.15 K
+mean run 2.5 m, mean leg 4.5 km
+doubled: 10.0 s
+nearest star: 39735067984839360.0 m
+
+== Part 2: the crew ==
+5 recruits, first letters: A B C D E
+member          rank      trips
+Ada      hp 180 captain   0
+Bo       hp 100 cadet     2
+Cy       hp 180 cadet     0
+Dee      hp 100 cadet     0
+Eli      hp 180 pilot     0
+vector 8.0, 10.0; length squared 164.0; origin 0.0
+'the' appears 3 times among 4 distinct words
+  tank ALPHA: 40 L
+  tank BETA: 35 L
+  tank GAMMA: 90 L
+log has 49 chars, 2 quiet days, first '!' at 48
+Day 1 | AY 3: COMET!
+alpha 255, lists equal: true, contains 2: true
+reversed initials: I.V.A.N.
+
+== Part 3: ship systems ==
+power report:
+  reactor.........    50.0 kW
+  drive...........    30.0 kW
+  reactor.........    80.0 kW
+  located at (0.0, 0.0)
+  bank of drives..    60.0 kW
+  two reactors: 160.0 kW
+a byte, 7
+a drive with 4 thrusters
+9 2.5 0 equal different
+42!
+drawn: 90 then 80
+convoy of 3 draws 45.0 kW
+
+== Part 4: the mission script ==
+> jump 4.5
+  jumped 4.5 ly, fuel left 17
+> scan planet-9
+  planet-9: habitable, probably
+> hail Vega
+  Vega replies: 'greetings, Drachma'
+> repair coil 7
+  repaired the coil (+7), hull 87
+> dance wildly
+  rejected: unknown order 'dance'
+  the crew naps
+> jump 1x
+  rejected: '1x' is not a number
+  the crew naps
+> jump
+  rejected: 'jump' needs an argument
+  the crew naps
+> jump 500
+  failed: 500.0 ly is beyond the drive's range (exit code 4)
+> scan sun
+  hot. very hot.
+> jump 9
+  failed: short by 10 units of fuel (exit code 3)
+> rest
+  the crew naps
+orders: 11 read, 5 refused or failed
+travelled 4.5 ly on 17 fuel; hull 87
+ignored two failed jumps; a bad reading falls back to 0
+  coil: spare coil
+  no warp core in stores
+  valve: spare valve
+sector scan: asteroid at 3,2
+
+== Part 5: cargo and ownership ==
+  [crate tea unloaded]
+weighing crate b: 8 kg
+  [crate seed vault unloaded]
+  a is gone, the hold is empty
+longer: per aspera ad astra
+reader left 15 of 19
+mayday!! / all clear
+took label 'relics', crate now '(empty)'
+took beta; queue is alpha, delta, gamma
+lambda total 48 after 3 calls; loads sum to 15
+  the crew sings: ad astra
+  the crew sings: ad astra
+  fuel 75: plenty
+  fuel 30: low, refuel soon
+  fuel 5: critical
+  leaving part 5; c drops now
+  [crate (empty) unloaded]
+-- end of voyage --

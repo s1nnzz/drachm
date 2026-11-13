@@ -39,3 +39,6 @@ order. Each one explains a few ideas beside the code, shows the compiler's real
 messages, and ends with exercises that you solve by writing and running a
 program. The Reference pages cover each area in full, once you know your way
 around.
+
+Want to see it all at once first? [The showcase](showcase.md) is one program that
+uses everything the compiler accepts today, shown beside its output.
