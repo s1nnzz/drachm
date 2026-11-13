@@ -82,3 +82,122 @@ fn a_half_typed_struct_keeps_its_members() {
     assert_eq!(s.fields.len(), 2);
     assert_eq!(s.methods.len(), 1);
 }
+
+/// Analyse `text` with a `$` marking the cursor; returns the analysis, the
+/// path and the cursor's byte offset.
+fn marked(text: &str) -> (Analysis, PathBuf, usize) {
+    let off = text.find('$').expect("a $ marks the cursor");
+    let clean = text.replacen('$', "", 1);
+    let (a, p) = of_source(&clean);
+    (a, p, off)
+}
+
+const SHAPES: &str = "in io;\n\
+struct Point {\n    public:\n    sint32 x;\n    sint32 y;\n    sint32 sum() { return self.x + self.y; }\n    static Point origin() { return new Point of (0, 0); }\n}\n\
+enum Dir { North, East(sint32 steps), }\n\
+sint32 add(sint32 a, sint32 b) { return a + b; }\n\
+none main() {\n    Point p = 3, 4;\n    sint32 total = add(p.x, p.y);\n    sint32 s = p::sum();\n    Dir d = North;\n    io::outln(total::text());\n}\n";
+
+fn hover_text(src: &str) -> String {
+    let (a, p, off) = marked(src);
+    a.hover(&p, off).map(|h| h.markdown).unwrap_or_default()
+}
+
+fn goto(src: &str) -> Option<(usize, usize)> {
+    let (a, p, off) = marked(src);
+    let d = a.definition(&p, off)?;
+    Some((d.span.start, d.span.end))
+}
+
+#[test]
+fn the_sample_program_checks() {
+    let (a, _) = of_source(SHAPES);
+    assert!(a.diags.iter().all(|d| !d.is_error()), "{:?}", a.diags.iter().map(|d| &d.message).collect::<Vec<_>>());
+}
+
+#[test]
+fn hover_shows_local_types() {
+    let h = hover_text(&SHAPES.replace("add(p.x", "add($p.x"));
+    assert!(h.contains("Point p"), "{h}");
+    let h = hover_text(&SHAPES.replace("sint32 total", "sint32 tot$al"));
+    assert!(h.contains("sint32 total"), "{h}");
+}
+
+#[test]
+fn hover_shows_fields_methods_and_functions() {
+    assert!(hover_text(&SHAPES.replace("p.x, p.y", "p.$x, p.y")).contains("sint32 x"));
+    assert!(hover_text(&SHAPES.replace("p::sum", "p::s$um")).contains("sint32 sum()"));
+    let h = hover_text(&SHAPES.replace("= add(", "= ad$d("));
+    assert!(h.contains("sint32 add(sint32 a, sint32 b)"), "{h}");
+}
+
+#[test]
+fn hover_shows_expression_types() {
+    let h = hover_text(&SHAPES.replace("return a + b", "return a $+ b"));
+    assert!(h.contains("a + b: sint32"), "{h}");
+}
+
+#[test]
+fn hover_on_a_type_name_shows_the_struct() {
+    let h = hover_text(&SHAPES.replace("    Point p =", "    Poi$nt p ="));
+    assert!(h.contains("struct Point") && h.contains("sint32 x"), "{h}");
+}
+
+#[test]
+fn hover_shows_a_variant() {
+    let h = hover_text(&SHAPES.replace("= North", "= Nor$th"));
+    assert!(h.contains("Dir::North"), "{h}");
+}
+
+#[test]
+fn definition_of_locals_functions_fields_methods_variants_and_structs() {
+    let clean = SHAPES.to_string();
+    // A local: the declaration.
+    let (s, _) = goto(&SHAPES.replace("add(p.x", "add($p.x")).unwrap();
+    assert_eq!(s, clean.find("p = 3, 4").unwrap());
+    // A function.
+    let (s, e) = goto(&SHAPES.replace("= add(", "= ad$d(")).unwrap();
+    assert_eq!(&clean[s..e], "add");
+    assert_eq!(s, clean.find("add(sint32 a").unwrap());
+    // A field.
+    let (s, e) = goto(&SHAPES.replace("p.x, p.y", "p.$x, p.y")).unwrap();
+    assert_eq!(&clean[s..e], "x");
+    assert_eq!(s, clean.find("x;").unwrap());
+    // A method.
+    let (s, _) = goto(&SHAPES.replace("p::sum", "p::s$um")).unwrap();
+    assert_eq!(s, clean.find("sum()").unwrap());
+    // A variant.
+    let (s, e) = goto(&SHAPES.replace("= North", "= Nor$th")).unwrap();
+    assert_eq!(&clean[s..e], "North");
+    // A struct, from its type.
+    let (s, e) = goto(&SHAPES.replace("    Point p =", "    Poi$nt p =")).unwrap();
+    assert_eq!(&clean[s..e], "Point");
+    assert_eq!(s, clean.find("Point {").unwrap());
+}
+
+#[test]
+fn hover_works_in_half_typed_code() {
+    // The line under the cursor is unfinished and the function never closes.
+    let src = SHAPES.replace("    sint32 s = p::sum();\n", "    sint32 s = p::sum();\n    sint32 q = \n").replace("add(p.x", "add($p.x");
+    let src = src.trim_end_matches("}\n").to_string();
+    let (a, p, off) = marked(&src);
+    assert!(a.diags.iter().any(|d| d.is_error()));
+    let h = a.hover(&p, off).map(|h| h.markdown).unwrap_or_default();
+    assert!(h.contains("Point p"), "{h}");
+}
+
+#[test]
+fn hover_and_definition_across_files() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/projects/several_files");
+    let main = dir.join("src/main.drh");
+    let text = std::fs::read_to_string(&main).unwrap();
+    let a = Analysis::run(&main, &HashMap::new());
+    assert!(a.diags.iter().all(|d| !d.is_error()));
+    let off = text.find("greeting").unwrap() + 2;
+    let h = a.hover(&main, off).expect("hover on greeting");
+    assert!(h.markdown.contains("greeting("), "{}", h.markdown);
+    let d = a.definition(&main, off).expect("definition of greeting");
+    assert!(a.files[d.file].ends_with("util.drh"), "{:?}", a.files[d.file]);
+    let util = std::fs::read_to_string(dir.join("src/util.drh")).unwrap();
+    assert_eq!(d.span.start, util.find("greeting").unwrap());
+}

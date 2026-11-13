@@ -11,6 +11,7 @@ use super::pos::{path_to_uri, to_range};
 use crate::config;
 use crate::diag::{Diagnostic, Severity, SourceMap};
 use crate::modules::{self, ModuleGraph};
+use crate::typeck::index::{self, Index};
 
 pub struct Analysis {
     /// The file the program starts at (the project's entry, or the file itself).
@@ -20,12 +21,33 @@ pub struct Analysis {
     pub map: SourceMap,
     pub graph: Option<ModuleGraph>,
     pub diags: Vec<Diagnostic>,
+    /// What the checker found out about names and types.
+    pub index: Index,
 }
 
 /// The nearest folder above `file` with a `drachm.toml`.
 fn project_dir(file: &Path) -> Option<PathBuf> {
     let start = file.canonicalize().ok().or_else(|| Some(file.to_path_buf()))?;
     start.ancestors().skip(1).find(|d| d.join(config::PROJECT_FILE).is_file()).map(Path::to_path_buf)
+}
+
+/// The index of a program that did not pass the parser, from the tree the
+/// parser's recovery left. A panic on such a tree gives an empty index.
+fn recover_index(graph: &mut ModuleGraph) -> Index {
+    let run = std::panic::AssertUnwindSafe(|| {
+        index::collect(|| {
+            let mut scratch = Vec::new();
+            if graph.modules.len() > 1 {
+                let program = crate::resolve::resolve(graph, &mut scratch);
+                let src = (0..graph.map.len()).map(|f| graph.map.source(f).text.as_str()).collect::<Vec<_>>().join("\n");
+                crate::typeck::check(&program, &src, &mut scratch);
+            } else if let Some(m) = graph.modules.first() {
+                crate::typeck::check(&m.program, &graph.map.source(0).text, &mut scratch);
+            }
+        })
+        .1
+    });
+    std::panic::catch_unwind(run).unwrap_or_default()
 }
 
 impl Analysis {
@@ -45,7 +67,7 @@ impl Analysis {
     }
 
     fn empty(file: &Path) -> Analysis {
-        Analysis { entry: file.to_path_buf(), files: Vec::new(), map: SourceMap::new(), graph: None, diags: Vec::new() }
+        Analysis { entry: file.to_path_buf(), files: Vec::new(), map: SourceMap::new(), graph: None, diags: Vec::new(), index: Index::default() }
     }
 
     /// `None` when `member` is given and the program does not contain it.
@@ -56,10 +78,15 @@ impl Analysis {
                 // The config could not be read: its problems belong to the config files.
                 let base = if at.is_dir() { at.to_path_buf() } else { at.parent().unwrap_or(Path::new(".")).to_path_buf() };
                 let files = (0..f.map.len()).map(|i| base.join(&f.map.source(i).name)).collect();
-                return Some(Analysis { entry: at.to_path_buf(), files, map: f.map, graph: None, diags: f.diags });
+                return Some(Analysis { entry: at.to_path_buf(), files, map: f.map, graph: None, diags: f.diags, index: Index::default() });
             }
         };
-        let (_, graph, diags) = crate::check_project(&opened.entry, &opened.info);
+        let ((_, mut graph, diags), mut index) = index::collect(|| crate::check_project(&opened.entry, &opened.info));
+        if !index.ran {
+            // Syntax errors stopped the checker. Check what the parser could
+            // keep, for the names and types only: its errors would be noise.
+            index = recover_index(&mut graph);
+        }
         let mut files = vec![PathBuf::new(); graph.map.len()];
         for m in &graph.modules {
             files[m.file] = m.path.clone();
@@ -70,7 +97,7 @@ impl Analysis {
                 return None;
             }
         }
-        Some(Analysis { entry: opened.entry, files, map: SourceMap::new(), graph: Some(graph), diags })
+        Some(Analysis { entry: opened.entry, files, map: SourceMap::new(), graph: Some(graph), diags, index })
     }
 
     /// The file id of `path` in this program.

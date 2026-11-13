@@ -10,6 +10,7 @@
 
 mod analysis;
 mod pos;
+mod query;
 
 pub use analysis::Analysis;
 
@@ -47,6 +48,8 @@ fn capabilities() -> ServerCapabilities {
             save: Some(lsp_types::TextDocumentSyncSaveOptions::Supported(true)),
             ..Default::default()
         })),
+        hover_provider: Some(lsp_types::HoverProviderCapability::Simple(true)),
+        definition_provider: Some(lsp_types::OneOf::Left(true)),
         ..Default::default()
     }
 }
@@ -149,7 +152,47 @@ impl<'a> Server<'a> {
 
     fn request(&mut self, req: Request) {
         self.flush();
-        let _ = self.conn.sender.send(Message::Response(Response::new_err(req.id, lsp_server::ErrorCode::MethodNotFound as i32, format!("unsupported request {}", req.method))));
+        let id = req.id.clone();
+        let answer = match req.method.as_str() {
+            "textDocument/hover" => self.hover(req.params),
+            "textDocument/definition" => self.definition(req.params),
+            m => {
+                let err = Response::new_err(id, lsp_server::ErrorCode::MethodNotFound as i32, format!("unsupported request {m}"));
+                let _ = self.conn.sender.send(Message::Response(err));
+                return;
+            }
+        };
+        let _ = self.conn.sender.send(Message::Response(Response::new_ok(id, answer)));
+    }
+
+    /// The analysis holding the file `uri` names, the file, and the cursor's byte offset in it.
+    fn locate(&self, pos: &lsp_types::TextDocumentPositionParams) -> Option<(&Analysis, PathBuf, usize)> {
+        let path = pos::uri_to_path(&pos.text_document.uri)?;
+        let a = self.analyses.get(self.root_of.get(&path)?)?;
+        let id = a.file_id(&path)?;
+        let offset = pos::to_offset(a.source_map().source(id), pos.position);
+        Some((a, path, offset))
+    }
+
+    fn hover(&self, params: serde_json::Value) -> serde_json::Value {
+        let Ok(p) = serde_json::from_value::<lsp_types::HoverParams>(params) else { return serde_json::Value::Null };
+        let Some((a, path, offset)) = self.locate(&p.text_document_position_params) else { return serde_json::Value::Null };
+        let Some(h) = a.hover(&path, offset) else { return serde_json::Value::Null };
+        let src = a.source_map().source(a.file_id(&path).unwrap());
+        let hover = lsp_types::Hover {
+            contents: lsp_types::HoverContents::Markup(lsp_types::MarkupContent { kind: lsp_types::MarkupKind::Markdown, value: h.markdown }),
+            range: Some(pos::to_range(src, h.span)),
+        };
+        serde_json::to_value(hover).unwrap_or_default()
+    }
+
+    fn definition(&self, params: serde_json::Value) -> serde_json::Value {
+        let Ok(p) = serde_json::from_value::<lsp_types::GotoDefinitionParams>(params) else { return serde_json::Value::Null };
+        let Some((a, path, offset)) = self.locate(&p.text_document_position_params) else { return serde_json::Value::Null };
+        let Some(place) = a.definition(&path, offset) else { return serde_json::Value::Null };
+        let Some(uri) = a.files.get(place.file).and_then(|f| pos::path_to_uri(f)) else { return serde_json::Value::Null };
+        let loc = lsp_types::Location { uri, range: pos::to_range(a.source_map().source(place.file), place.span) };
+        serde_json::to_value(loc).unwrap_or_default()
     }
 
     /// Bring the analyses up to date if the buffers changed.
