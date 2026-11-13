@@ -265,6 +265,13 @@ test result: FAILED. 1 passed; 1 failed
 one that can fail (E0003 otherwise), and the failure must be a `failure` type
 (E0540).
 
-These are not decided yet, so the compiler does not accept them: choosing
-tests by name. Until the owner decides, use the expected-output technique
-above for the rest.
+To run some tests, give a name after the file. Only the tests whose name
+contains it run, and the summary says how many were filtered out:
+
+```text title="terminal"
+$ drachm test test-blocks.drh negative
+running 1 test
+test negative sums ... ok
+
+test result: ok. 1 passed; 0 failed; 2 filtered out
+```

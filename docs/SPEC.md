@@ -953,8 +953,9 @@ phys::Vector3 v = 1, 2, 3;
   `${}`, E0003). `expect failure F from call;` (owner, 2026-11-13, in a test
   only, E0014 elsewhere): passes when the call fails with `F`; no failure, or
   another failure, stops the test with a message. A failure type the call can
-  never raise is E0545. Undecided, so not accepted: a name filter.
-  See `docs/PLAN.md` step 7 WP9.
+  never raise is E0545. `drachm test PATH NAME` (owner, 2026-11-13) runs only
+  the tests whose name contains NAME (substring, case-sensitive); the summary
+  says how many were filtered out. See `docs/PLAN.md` step 7 WP9.
 - `drachm fmt`: one official style with few knobs (indent width, line length,
   brace placement). It never aligns `=` or comments across lines.
 - Registry: **the Agora** (agora.drachm.dev); `drachm add json`. Deps may also be

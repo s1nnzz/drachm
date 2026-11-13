@@ -12,7 +12,7 @@ else takes a flag.
 ```text
 drachm build [file.drh | folder] [-o <output>] [-O]   compile to a native executable
 drachm run   [file.drh | folder] [-O]                 compile and run
-drachm test  [file.drh | folder] [-O]                 run the test blocks, each on its own
+drachm test  [file.drh | folder] [NAME] [-O]          run the test blocks, each on its own (NAME: only those whose name contains it)
 drachm check [file.drh | folder]                      check for errors only
 drachm new <name>                            make a project folder
 drachm lsp                                   run the language server on stdin and stdout
@@ -43,6 +43,20 @@ sint32 main() {
 its own and runs it, so a test that fails does not stop the others. It prints
 one line per test, shows the output of the failing ones, and exits with 1 if
 any test failed. See [The test keyword](guide-testing.md#the-test-keyword).
+
+A name after the file runs only the tests whose name contains it. The others are
+not built, and the summary says how many were filtered out:
+
+```text
+$ drachm test tests-demo.drh wrong
+running 1 test
+test a wrong sum ... FAILED
+    drachm: panic: assertion failed: add(2, 3) == 6
+      --> tests-demo.drh:13
+    exit code 101
+
+test result: FAILED. 0 passed; 1 failed; 2 filtered out
+```
 
 ```text
 $ drachm test tests-demo.drh

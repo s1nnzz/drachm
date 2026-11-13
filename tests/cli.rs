@@ -339,6 +339,32 @@ fn test_passes_with_exit_zero_and_handles_no_tests() {
 }
 
 #[test]
+fn test_name_filter_runs_only_the_tests_whose_name_contains_it() {
+    let s = Scratch::new("testfilter");
+    fs::write(s.dir.join("sums.drh"), TESTS_FILE).unwrap();
+    for flags in [&[][..], &["-O"][..]] {
+        // One test matches: it runs, and the other two are counted as filtered out.
+        let mut args = vec!["test", "sums.drh", "wrong"];
+        args.extend(flags);
+        let out = drachm(&s.dir, &args);
+        let stdout = text(&out.stdout);
+        assert_eq!(out.status.code(), Some(1), "{stdout}\n{}", text(&out.stderr));
+        assert!(stdout.starts_with("running 1 test\n"), "{stdout}");
+        assert!(stdout.contains("test a wrong sum ... FAILED\n"), "{stdout}");
+        assert!(!stdout.contains("adds small numbers"), "{stdout}");
+        assert!(!stdout.contains("negative sums"), "{stdout}");
+        assert!(stdout.ends_with("\ntest result: FAILED. 0 passed; 1 failed; 2 filtered out\n"), "{stdout}");
+
+        // A name that matches a passing test: exit 0.
+        let mut args = vec!["test", "sums.drh", "negative"];
+        args.extend(flags);
+        let out = drachm(&s.dir, &args);
+        assert!(out.status.success(), "{}", text(&out.stdout));
+        assert!(text(&out.stdout).ends_with("\ntest result: ok. 1 passed; 0 failed; 2 filtered out\n"), "{}", text(&out.stdout));
+    }
+}
+
+#[test]
 fn test_runs_the_tests_of_a_library_without_a_main() {
     let s = Scratch::new("testlib");
     fs::create_dir_all(s.dir.join("mathlib/src")).unwrap();
