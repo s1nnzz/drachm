@@ -5,13 +5,14 @@ description: build, run, check and explain, the -O flag, and exit codes.
 
 # Command line
 
-The compiler has six commands: `new` makes a project, `lsp` starts the language
-server for editors, and the others work on a file or project folder. `-O` works with `build` and `run`, and nothing
+The compiler has seven commands: `new` makes a project, `lsp` starts the language
+server for editors, and the others work on a file or project folder. `-O` works with `build`, `run` and `test`, and nothing
 else takes a flag.
 
 ```text
 drachm build [file.drh | folder] [-o <output>] [-O]   compile to a native executable
 drachm run   [file.drh | folder] [-O]                 compile and run
+drachm test  [file.drh | folder] [-O]                 run the test blocks, each on its own
 drachm check [file.drh | folder]                      check for errors only
 drachm new <name>                            make a project folder
 drachm lsp                                   run the language server on stdin and stdout
@@ -34,6 +35,26 @@ A `main` that returns `sint32` sets the exit code, and a `none main()` exits wit
 sint32 main() {
     return 3;
 }
+```
+
+## test
+
+`test` builds each `test "name" { }` block of the file or folder as a program of
+its own and runs it, so a test that fails does not stop the others. It prints
+one line per test, shows the output of the failing ones, and exits with 1 if
+any test failed. See [The test keyword](guide-testing.md#the-test-keyword).
+
+```text
+$ drachm test tests-demo.drh
+running 3 tests
+test adds small numbers ... ok
+test a wrong sum ... FAILED
+    drachm: panic: assertion failed: add(2, 3) == 6
+      --> tests-demo.drh:13
+    exit code 101
+test negative sums ... ok
+
+test result: FAILED. 2 passed; 1 failed
 ```
 
 ## check

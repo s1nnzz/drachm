@@ -33,6 +33,8 @@ pub(crate) fn parse_file(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>, script
     };
     let mut script_stmts = Vec::new();
     let mut first_script_stmt = None;
+    // The first test of a file that is a script; an error only if the file has top-level statements.
+    let mut script_test = None;
     while p.peek() != &Tok::Eof {
         let start = p.pos;
         // `out` before a declaration (`out struct Vector3 { }`) exports it.
@@ -61,6 +63,20 @@ pub(crate) fn parse_file(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>, script
             p.enum_decl().map(|e| program.enums.push(e))
         } else if p.peek() == &Tok::Kw("failure") {
             p.failure_decl().map(|f| program.failures.push(f))
+        } else if p.peek() == &Tok::Kw("test") {
+            p.test_decl().map(|f| {
+                let (name, name_span) = f.test.clone().expect("a test has a name");
+                let again = program.funcs.iter().filter_map(|g| g.test.as_ref()).find(|(n, _)| *n == name).map(|(_, s)| *s);
+                if script_entry {
+                    script_test.get_or_insert(name_span);
+                }
+                if let Some(first) = again {
+                    p.diags.push(Diagnostic::at(&codes::E0239, name_span, format!("a test named \"{name}\" is written twice")).label(first, "first written here"));
+                } else if out_span.is_none() {
+                    // With `out` before it, the usual `out` error is reported.
+                    program.funcs.push(f);
+                }
+            })
         } else if p.at_unit_item() {
             p.unit_decl().map(|u| program.units.push(u))
         } else if p.at_def_item() {
@@ -117,6 +133,9 @@ pub(crate) fn parse_file(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>, script
         }
     }
     if let Some(first) = first_script_stmt {
+        if let Some(t) = script_test {
+            p.diags.push(Diagnostic::at(&codes::E0901, t, "a test in a script with top-level statements is not supported yet").help("put the test in a file that has `main`, or in a project file"));
+        }
         if let Some(main) = program.funcs.iter().find(|f| f.name == "main") {
             p.diags.push(
                 Diagnostic::new(&codes::E0204, "a script cannot mix top-level statements with `main`")
@@ -138,6 +157,7 @@ pub(crate) fn parse_file(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>, script
                 fails: Vec::new(),
                 fails_span: None,
                 span: first,
+                test: None,
             });
         }
     }
@@ -936,7 +956,7 @@ impl Parser<'_> {
             return true;
         }
         match self.peek() {
-            Tok::Kw("in" | "struct" | "enum" | "failure" | "interface") => true,
+            Tok::Kw("in" | "struct" | "enum" | "failure" | "interface" | "test") => true,
             // `out` is also a parameter word: only an export list or `out`
             // before a whole declaration counts.
             Tok::Kw("out") => {
@@ -1245,6 +1265,42 @@ impl Parser<'_> {
         Ok(params)
     }
 
+    /// `test "name" { }`: the block as a function that takes nothing and returns nothing.
+    fn test_decl(&mut self) -> Parsed<Func> {
+        let start = self.bump().span;
+        let Tok::Str(pieces) = self.peek().clone() else {
+            return Err(self.unexpected("a test name in quotes").help("a test is named with a string: `test \"adds\" { }`"));
+        };
+        let name_span = self.bump().span;
+        let mut name = String::new();
+        for piece in &pieces {
+            match piece {
+                StrPiece::Raw(text, _) => name.push_str(text),
+                StrPiece::Escape(c, _) => name.push(*c),
+                StrPiece::Interp(..) => {
+                    return Err(Diagnostic::at(&codes::E0003, name_span, "a test name is plain text").help("write the name without `${}`: `test \"adds\" { }`"));
+                }
+            }
+        }
+        let body = self.block()?;
+        Ok(Func {
+            ret: TypeName::plain("none", start),
+            name: format!("test \"{name}\""),
+            name_span,
+            tparams: Vec::new(),
+            params: Vec::new(),
+            body,
+            is_unsafe: None,
+            lives: Vec::new(),
+            lives_span: None,
+            lives_from: false,
+            fails: Vec::new(),
+            fails_span: None,
+            span: start.to(self.prev_span()),
+            test: Some((name, name_span)),
+        })
+    }
+
     /// A function's parameters and body, after its return type and name.
     fn func_rest(&mut self, ret: TypeName, name: String, name_span: Span, is_unsafe: Option<Span>) -> Parsed<Func> {
         let tparams = self.type_params()?;
@@ -1298,7 +1354,7 @@ impl Parser<'_> {
             }
         }
         let body = self.block()?;
-        Ok(Func { ret, name, name_span, tparams, params, body, is_unsafe, lives, lives_span, lives_from, fails, fails_span, span })
+        Ok(Func { ret, name, name_span, tparams, params, body, is_unsafe, lives, lives_span, lives_from, fails, fails_span, span, test: None })
     }
 
     /// `self or key or other`, after `lives from`.
@@ -1887,6 +1943,17 @@ impl Parser<'_> {
     fn stmt(&mut self) -> Parsed<Stmt> {
         let start = self.span();
         match self.peek() {
+            // `expect failure` is read before a binding: `expect` could be a type name.
+            Tok::Ident(w) if w == "expect" && self.peek_at(1) == &Tok::Kw("failure") => {
+                // Read the whole statement here: `failure` starts an item, so the
+                // usual recovery would stop inside it.
+                while !matches!(self.peek(), Tok::Sym(";" | "}") | Tok::Eof) {
+                    self.bump();
+                }
+                self.eat(";");
+                Err(Diagnostic::at(&codes::E0901, start.to(self.prev_span()), "`expect failure` is not supported yet")
+                    .help("this form is still being decided; for now compare the result and print it"))
+            }
             _ if self.at_fill() => self.fill_stmt(),
             _ if self.at_binding() => {
                 let (mutable, open) = self.binding_words();
@@ -1964,6 +2031,23 @@ impl Parser<'_> {
                 let value = if self.peek() == &Tok::Sym(";") { None } else { Some(self.expr()?) };
                 self.expect(";")?;
                 Ok(Stmt::Return { value, span: start.to(self.prev_span()) })
+            }
+            Tok::Ident(w) if w == "assert" && self.peek_at(1) == &Tok::Sym("(") => {
+                self.bump();
+                self.bump();
+                let cond = self.expr()?;
+                if self.peek() == &Tok::Sym(",") {
+                    // The message form is open (Q15): the failure prints the condition and its place.
+                    self.diags.push(
+                        Diagnostic::at(&codes::E0901, self.span(), "an `assert` with a message is not supported yet")
+                            .help("write `assert(condition);`: a failure prints the condition and where it is"),
+                    );
+                    self.bump();
+                    self.expr()?;
+                }
+                self.expect(")")?;
+                self.expect(";")?;
+                Ok(Stmt::Assert { cond, span: start.to(self.prev_span()) })
             }
             _ => {
                 let s = self.simple()?;

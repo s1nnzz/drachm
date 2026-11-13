@@ -1,0 +1,14 @@
+sint32 add(sint32 a, sint32 b) {
+    return a + b;
+}
+
+test "adds" {
+    assert(add(2, 3) == 5);
+}
+
+test "adds" {
+    assert(add(1, 1) == 2);
+}
+
+none main() {
+}

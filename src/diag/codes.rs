@@ -309,6 +309,12 @@ codes! {
     E0237: "no such name in the module",
         "An import or a qualified name asks a module for a name it does not have.\n\
          Check the spelling; the help lists what the module exports.";
+    E0239: "two tests have the same name",
+        "Each `test` block needs its own name, because `drachm test` reports\n\
+         a test by its name. Two blocks in one file with the same name are an\n\
+         error; the second one is the one reported.\n\n\
+         \x20   test \"adds\" { assert(add(2, 3) == 5); }\n\
+         \x20   test \"adds\" { assert(add(1, 1) == 2); }   // E0239\n";
     E0238: "files call each other in a circle",
         "A function of one file calls a function of another file that calls back\n\
          into the first (directly or through more functions). Files may import\n\

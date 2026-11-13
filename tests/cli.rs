@@ -270,3 +270,98 @@ none main() {
         assert!(start.elapsed() >= std::time::Duration::from_millis(30));
     }
 }
+
+/// A file of three tests, one failing: each runs on its own, the failure is
+/// reported with its assertion, the others still run, and the exit code is 1.
+const TESTS_FILE: &str = r#"
+in io;
+
+sint32 add(sint32 a, sint32 b) {
+    return a + b;
+}
+
+test "adds small numbers" {
+    assert(add(2, 3) == 5);
+}
+
+test "a wrong sum" {
+    io::outln("this line prints before the check fails");
+    assert(add(2, 3) == 6);
+}
+
+test "negative sums" {
+    assert(add(-2, -3) == -5);
+}
+
+none main() {
+    io::outln(f"add gives ${add(2, 3)}");
+}
+"#;
+
+#[test]
+fn test_runs_each_block_on_its_own_and_reports_the_failure() {
+    let s = Scratch::new("testfail");
+    fs::write(s.dir.join("sums.drh"), TESTS_FILE).unwrap();
+    for flags in [&[][..], &["-O"][..]] {
+        let mut args = vec!["test", "sums.drh"];
+        args.extend(flags);
+        let out = drachm(&s.dir, &args);
+        let stdout = text(&out.stdout);
+        assert_eq!(out.status.code(), Some(1), "{stdout}\n{}", text(&out.stderr));
+        assert!(stdout.starts_with("running 3 tests\n"), "{stdout}");
+        assert!(stdout.contains("test adds small numbers ... ok\n"), "{stdout}");
+        assert!(stdout.contains("test a wrong sum ... FAILED\n"), "{stdout}");
+        assert!(stdout.contains("    this line prints before the check fails\n"), "{stdout}");
+        assert!(stdout.contains("    drachm: panic: assertion failed: add(2, 3) == 6\n"), "{stdout}");
+        assert!(stdout.contains("      --> sums.drh:14\n"), "{stdout}");
+        assert!(stdout.contains("    exit code 101\n"), "{stdout}");
+        assert!(stdout.contains("test negative sums ... ok\n"), "{stdout}");
+        assert!(stdout.ends_with("\ntest result: FAILED. 2 passed; 1 failed\n"), "{stdout}");
+        // A normal run compiles the tests and runs only `main`.
+        let run = drachm(&s.dir, &["run", "sums.drh"]);
+        assert!(run.status.success(), "{}", text(&run.stderr));
+        assert_eq!(text(&run.stdout), "add gives 5\n");
+    }
+}
+
+#[test]
+fn test_passes_with_exit_zero_and_handles_no_tests() {
+    let s = Scratch::new("testpass");
+    fs::write(s.dir.join("ok.drh"), "test \"one\" {\n    assert(1 + 1 == 2);\n}\n\nnone main() { }\n").unwrap();
+    let out = drachm(&s.dir, &["test", "ok.drh"]);
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    assert!(text(&out.stdout).ends_with("\ntest result: ok. 1 passed; 0 failed\n"), "{}", text(&out.stdout));
+
+    fs::write(s.dir.join("empty.drh"), "none main() { }\n").unwrap();
+    let none = drachm(&s.dir, &["test", "empty.drh"]);
+    assert!(none.status.success(), "{}", text(&none.stderr));
+    assert_eq!(text(&none.stdout), "running 0 tests\n\ntest result: ok. 0 passed; 0 failed\n");
+}
+
+#[test]
+fn test_runs_the_tests_of_a_library_without_a_main() {
+    let s = Scratch::new("testlib");
+    fs::create_dir_all(s.dir.join("mathlib/src")).unwrap();
+    fs::write(s.dir.join("mathlib/drachm.toml"), "[project]\nname = \"mathlib\"\nkind = \"library\"\n").unwrap();
+    fs::write(s.dir.join("mathlib/src/main.drh"), "sint32 twice(sint32 n) { return n * 2; }\n\ntest \"doubles\" {\n    assert(twice(4) == 8);\n}\n").unwrap();
+    let out = drachm(&s.dir, &["test", "mathlib"]);
+    assert!(out.status.success(), "{}{}", text(&out.stdout), text(&out.stderr));
+    assert!(text(&out.stdout).contains("test doubles ... ok\n"), "{}", text(&out.stdout));
+}
+
+#[test]
+fn test_runs_the_showcase_project_tests() {
+    let showcase = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/showcase");
+    let out = drachm(&showcase, &["test"]);
+    assert!(out.status.success(), "{}{}", text(&out.stdout), text(&out.stderr));
+    assert!(text(&out.stdout).ends_with("\ntest result: ok. 2 passed; 0 failed\n"), "{}", text(&out.stdout));
+}
+
+#[test]
+fn duplicate_test_names_are_e0239() {
+    let s = Scratch::new("testdup");
+    fs::write(s.dir.join("dup.drh"), "test \"same\" {\n    assert(true);\n}\n\ntest \"same\" {\n    assert(true);\n}\n\nnone main() { }\n").unwrap();
+    let out = drachm(&s.dir, &["check", "dup.drh"]);
+    assert_eq!(out.status.code(), Some(1));
+    assert!(text(&out.stderr).contains("error[E0239]"), "{}", text(&out.stderr));
+}

@@ -1,0 +1,3 @@
+none main() {
+    expect failure ConvertError from "x"::to<uint32>();
+}

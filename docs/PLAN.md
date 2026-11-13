@@ -25,7 +25,7 @@ answers into `docs/SPEC.md` and the design doc, and note leftovers under that st
 | 4.6 | Input: `io::inln()`, `io::ended()`, text `::to<T>()` | done (interim: bad text stops the program with exit 101; forgiving number text (spaces, `+`, `.5`); `\r\n` lines; invalid UTF-8 becomes U+FFFD) |
 | 5 | Constructors, enums, `fails` / `maybe` | done (the `crash` setting of `unhandled_fail` waits for step 7): S5A.1 done (enums with data, `match` with bindings/`take`/`copy`/guards/nesting/alternatives/values, exhaustiveness, `Switch`; `==` for payload-free enums) and S5B done (constructors, overloads, `new ... of`, named values, `Person(auto);`, `fill`, `fill partial`, `def`, `defaults`, `now`); optionals done (S5A.2, below); failures done (S5C and S5D, below: `failure`, `fails`, `fail`, `maybe`/`fails` on calls, handlers, `because`, `ConvertError`, exit codes, failing constructors and `drop()`) |
 | 6 | Generics, interfaces, collections | done (S6Z sweep, 2026-11-13): generic functions, structs and enums (inferred and written type arguments, borrows as type arguments, units); interfaces (`with`, `and`, `extends`, `Self`, `changes self`, built-in `Zero`/`Equal`/`Ordered`/`Text`, `with trusted`, generic interfaces, `&Shape` with vtables, `Iterable<T>` with `at(i)`); arrays, lists and maps (indexing, the methods, `take xs[i] reorders`, views of owning items, scalar and composite keys with `key()`, two-variable walks, `each`); function types, lambdas with inferred captures. The interims still open are listed in the step 6 section, each with its question number |
-| 7 | Modules, config, scripts, stdlib | in progress: WP1 done (source map with global offsets, import/export grammar, `src/modules.rs` graph loader, project folders, E0230-E0235); WP2 done (names across files, `src/resolve.rs`); follow-ups 2026-11-13: a call through a module chains with `::` or `->` (done); W0240's help asks whether the module's name was meant (done); `in si;` is per file (done, E0402 in a file without it); spec `docs/impl/step7-modules.md` |
+| 7 | Modules, config, scripts, stdlib | in progress: WP1 done (source map with global offsets, import/export grammar, `src/modules.rs` graph loader, project folders, E0230-E0235); WP2 done (names across files, `src/resolve.rs`); WP9 done (`test` blocks, `assert`, `drachm test`; see the WP9 paragraph); follow-ups 2026-11-13: a call through a module chains with `::` or `->` (done); W0240's help asks whether the module's name was meant (done); `in si;` is per file (done, E0402 in a file without it); spec `docs/impl/step7-modules.md` |
 | 7.1 | C header import (`in * from c."SDL2/SDL.h" as sdl;`), right after step 7 | not started; owner, 2026-11-13: scheduled next after step 7; not all calls `unsafe` if avoidable |
 | 7.6 | Package manager (`drachm add/remove/update`, git tags as versions, per-project `deps/`, later the Agora; ties into C header packages) | not started; owner answers "Package manager, 2026-11-13" |
 | 7.5 | MIR optimiser: SSA, inlining, scalar replacement, constant folding, loop opts, check elimination, alias info from borrows | not started |
@@ -790,6 +790,27 @@ end, and constant array indexes are checked by the type checker.
 `unsigned_negate` is applied during type checking. Signed negation of
 `uint128` is E0901 until `sint256` is supported. `missing_key = "panic"`
 uses the same checked map lookup as a compound assignment.
+
+**Step 7 progress (WP9, built):** `assert(cond);` is a statement (`Stmt::Assert`,
+lowered to an `if` that stops with `StopKind::Assert`). It runs in every build,
+`-O` included. A failure prints `drachm: panic: assertion failed: TEXT` and
+`  --> FILE:LINE` on stderr and exits 101; the text is the condition as written,
+the place is filled in when the files are loaded (`hir::Assertion`, `lib.rs`
+`locate_asserts`). `test "name" { }` is a function that takes nothing and returns
+nothing (`ast::Func.test`), named `test "name"` in the program, listed in
+`hir::Program.tests`. Test names are unique per file (E0239). A test in a file
+with top-level statements is E0901. `drachm test FILE|FOLDER [-O]` builds one
+program per test (its function as `main`, `lib::build_test`) and runs each with
+its output captured: a failing test does not stop the others, and only a failing
+test's output is shown. Exit 1 if any test failed. Libraries have tests too.
+Tests: `assert` golden cases in `tests/run` and `tests/fail`, `test` blocks in
+`tests/run/test_blocks_build.drh`, the showcase's `rules` tests, `tests/cli.rs`.
+Interims (narrowest readings, owner to decide; Q15): no name filter (the path
+is the only argument); no `expect failure` (E0901); `assert` takes only the
+condition (E0901 with a message); a failing test does not stop the others; the
+test bodies are compiled into normal builds (type-checked and compiled, never
+run); `drachm test` builds once per test, so a large suite builds slowly; the
+`[warnings] as_errors` names (Q15c) are unchanged.
 
 **Open (ask owner):** the full `[warnings]` name list (grows as warnings are added).
 Also: a `deps/`

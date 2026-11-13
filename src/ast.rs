@@ -479,6 +479,9 @@ pub struct Func {
     pub fails_span: Option<Span>,
     /// From the return type to the closing `)`.
     pub span: Span,
+    /// `test "name" { }`: the name and where it is written. A test takes
+    /// nothing, returns nothing, and is run by `drachm test`.
+    pub test: Option<(String, Span)>,
 }
 
 /// One variable of a `for` over map entries: `mut string name`.
@@ -542,6 +545,9 @@ pub enum Stmt {
     Fail { value: Expr, because: Option<Expr>, span: Span },
     /// `unsafe { }`
     Unsafe { body: Block, span: Span },
+    /// `assert(cond);`: stops the program, with the condition's text and place,
+    /// when the condition is false. Runs in every build.
+    Assert { cond: Expr, span: Span },
     /// `destroy x;`: runs `drop()` now and ends `x`.
     Destroy { target: Expr, span: Span },
     /// `fill [partial] x { ... }`, with `with defaults` or `with NAME` after the name.

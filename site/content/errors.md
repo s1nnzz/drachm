@@ -412,6 +412,16 @@ Everything else is private to its file.
 An import or a qualified name asks a module for a name it does not have.
 Check the spelling; the help lists what the module exports.
 
+## E0239: two tests have the same name
+
+Each `test` block needs its own name, because `drachm test` reports
+a test by its name. Two blocks in one file with the same name are an
+error; the second one is the one reported.
+
+    test "adds" { assert(add(2, 3) == 5); }
+    test "adds" { assert(add(1, 1) == 2); }   // E0239
+
+
 ## E0238: files call each other in a circle
 
 A function of one file calls a function of another file that calls back
