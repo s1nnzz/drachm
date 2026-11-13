@@ -1,0 +1,2 @@
+error[E0602]: `Track` takes a unit for `U`, not a type
+error[E0602]: `Pair` takes a type for `Left`, not a unit

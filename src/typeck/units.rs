@@ -290,7 +290,15 @@ impl Globals {
     /// A unit written as a type argument (`unit m/s`), as its stand-in.
     pub(super) fn resolve_unit_arg(&self, spec: &ast::UnitSpec, at: Span, diags: &mut Vec<Diagnostic>) -> Option<Type> {
         let unit = self.resolve_unit_spec(spec, at, diags)?;
-        Some(Type::unit_arg(unit))
+        Some(self.unit_arg(unit))
+    }
+
+    /// The stand-in for `unit` in the generic tables (`Type::unit_arg`), with
+    /// its display name recorded: instance names and symbols are made from it.
+    pub(super) fn unit_arg(&self, unit: &'static Unit) -> Type {
+        let name = self.units.borrow().table.display(unit);
+        types::name_unit(unit, &name);
+        Type::unit_arg(unit)
     }
 
     /// A type written with a unit (`float64<m>`, `&mut uint32<kg>`). Errors

@@ -418,12 +418,12 @@ fn bindings(g: &Globals, tparams: &[ast::TypeParam], p: &ast::TypeName, ty: Type
     if let Some(k) = p.unit.as_ref().and_then(|s| bare_unit_param(tparams, s))
         && let Some(u) = inner.unit()
     {
-        out.push((k, Type::unit_arg(u)));
+        out.push((k, g.unit_arg(u)));
     }
     if let Some(k) = p.unit_arg.as_ref().and_then(|s| bare_unit_param(tparams, s))
         && let Some(u) = inner.as_unit_arg()
     {
-        out.push((k, Type::unit_arg(u)));
+        out.push((k, g.unit_arg(u)));
     }
     if p.args.is_empty() {
         if let Some(k) = tparams.iter().position(|tp| tp.name == p.name) {
@@ -532,7 +532,7 @@ impl Checker<'_> {
                 match &pre[i] {
                     Pre::Done(Some(Val::Expr(x))) => bindings(self.g, &tparams, p, x.ty, &mut found),
                     // A constant with a unit binds a unit parameter the same way.
-                    Pre::Done(Some(Val::UConst(_, u))) => found.extend(p.unit.as_ref().and_then(|s| bare_unit_param(&tparams, s)).map(|k| (k, Type::unit_arg(u)))),
+                    Pre::Done(Some(Val::UConst(_, u))) => found.extend(p.unit.as_ref().and_then(|s| bare_unit_param(&tparams, s)).map(|k| (k, self.g.unit_arg(u)))),
                     _ => continue,
                 }
                 for (k, ty) in found {
@@ -681,12 +681,12 @@ impl Checker<'_> {
 fn unit_kind_error(name: &str, tp: &ast::TypeParam, t: &ast::TypeName) -> Diagnostic {
     if tp.is_unit {
         Diagnostic::at(&codes::E0602, t.span, format!("`{name}` takes a unit for `{}`, not a type", tp.name))
-            .note("a unit parameter is given a unit")
-            .help(format!("write the unit with `unit`: `{name}<unit m>(...)`"))
+            .note(format!("`{}` stands for a unit", tp.name))
+            .help("write the unit with `unit` in front, for example `unit m`")
     } else {
         Diagnostic::at(&codes::E0602, t.span, format!("`{name}` takes a type for `{}`, not a unit", tp.name))
-            .note("a type parameter is given a type")
-            .help(format!("write the type, for example `{name}<uint32>(...)`"))
+            .note(format!("`{}` stands for a type", tp.name))
+            .help("write a type here, for example `uint32`")
     }
 }
 
@@ -896,6 +896,10 @@ pub(super) fn check_type_args(g: &Globals, t: &ast::TypeName, diags: &mut Vec<Di
         );
         return Some(false);
     }
+    if let Some((p, a)) = tpl.tparams.iter().zip(&t.args).find(|(p, a)| p.is_unit != a.unit_arg.is_some()) {
+        diags.push(unit_kind_error(&t.name, p, a));
+        return Some(false);
+    }
     if let Some(a) = t.args.iter().find(|a| a.is_number) {
         diags.push(Diagnostic::at(&codes::E0901, a.span, "a number as a type argument is not supported yet"));
         return Some(false);
@@ -979,6 +983,10 @@ fn ensure_type(g: &mut Globals, t: &ast::TypeName, diags: &mut Vec<Diagnostic>) 
     if !tpl.usable || tpl.tparams.len() != args.len() || t.args.iter().any(|a| a.is_number) {
         return;
     }
+    // A type where a unit goes (or the reverse) is reported when it is resolved.
+    if tpl.tparams.iter().zip(&t.args).any(|(p, a)| p.is_unit != a.unit_arg.is_some()) {
+        return;
+    }
     let key = (t.name.clone(), args.clone());
     if g.mono.type_instances.contains_key(&key) || g.mono.refused.contains(&key) {
         return;
@@ -1001,7 +1009,7 @@ pub(super) fn instantiate_type(g: &mut Globals, name: &str, types: Vec<Type>, at
     if let Some(&t) = g.mono.type_instances.get(&key) {
         return Some(t);
     }
-    let list: Vec<String> = types.iter().map(Type::to_string).collect();
+    let list: Vec<String> = types.iter().map(written_arg).collect();
     let display = format!("{name}<{}>", list.join(", "));
     if g.mono.type_depth + 1 > MAX_DEPTH {
         g.mono.refused.insert(key);

@@ -1,0 +1,19 @@
+in io;
+in si;
+
+struct Track<Num, unit U> {
+    public:
+    Num count;
+    float64<U> total;
+}
+
+struct Pair<Left, Right> {
+    public:
+    Left first;
+    Right second;
+}
+
+none main() {
+    Track<float64, float64> bad_unit;
+    Pair<unit m, float64> bad_type;
+}
