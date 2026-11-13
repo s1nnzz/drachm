@@ -152,13 +152,16 @@ functions and methods use the setting of the file that defines them.
 
 ### Unhandled failures
 
-`unhandled_fail = "error"` (the default) makes a call to a failing function
-without `maybe`, `fails` or `fails with` a compile error (E0544). With
+`unhandled_fail = "error"` (the default in a project) makes a call to a failing
+function without `maybe`, `fails` or `fails with` a compile error (E0544). With
 `crash`, the call stands: if it fails, the program prints the failure's
 message, as a failure that leaves `main` would, and ends with the failure's
 exit code (the `exit` of its variant, or 1). A call that has handlers for only
 some of the failures it can raise crashes on the others. Nothing in the
 program is cleaned up on the way out, as with a failure that escapes `main`.
+
+A lone `.drh` file with no `drachm.toml` beside it, and a script, use `crash`
+by default.
 
 <!-- example: settings-unhandled-crash -->
 

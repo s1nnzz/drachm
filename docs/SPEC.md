@@ -808,8 +808,8 @@ Save s = load(p) fails with (FileMissing e) => { maybe Save::empty(); }
 
 - A bare `fails` passes the failure up; the caller must itself declare it.
 - Calling a failing function with none of `maybe` / `fails` / `fails with`: config
-  `unhandled_fail`, default compile **error**; `crash` mode (default in scripts)
-  stops with a message on failure.
+  `unhandled_fail`, default compile **error** in a project; `crash` mode (default in
+  scripts and in a lone `.drh` file with no `drachm.toml`) stops with a message on failure.
 - Runtime faults (division by zero, bounds) panic: message + exit code 101.
 
 Failure types are their own kind of declaration, listing variants with a

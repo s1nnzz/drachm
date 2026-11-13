@@ -1,0 +1,5 @@
+[project]
+name = "fail_unhandled_calls"
+
+[behaviour]
+unhandled_fail = "error"
