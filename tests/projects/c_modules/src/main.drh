@@ -1,0 +1,18 @@
+//--!$unsafe: true
+in io;
+in wrap;
+in * from c."drachm_fixture.h" as fx;
+
+// Drachm and C names live apart: `fx_add` here is not `fx::fx_add`.
+sint32 fx_add(sint32 a, sint32 b) {
+    return a - b;
+}
+
+none main() {
+    io::outln(f"wrapped: ${wrap::total(2, 3)}");
+    io::outln(f"point: ${wrap::corner()}");
+    io::outln(f"drachm: ${fx_add(10, 3)}");
+    unsafe {
+        io::outln(f"c: ${fx::fx_add(10, 3) as sint32}");
+    }
+}

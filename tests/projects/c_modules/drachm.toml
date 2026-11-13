@@ -1,0 +1,6 @@
+[project]
+name = "c_modules"
+
+[native]
+include = ["../../c"]
+sources = ["../../c/drachm_fixture.c"]
