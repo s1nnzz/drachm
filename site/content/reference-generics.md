@@ -8,8 +8,8 @@ description: Generic functions, type arguments and how they are worked out, how 
 A generic function is written once and works for many types. The compiler
 makes one real function for each set of types it is called with, so a generic
 call is exactly as fast as one written out by hand. This page states the
-rules for what builds today, then interfaces and constraints; generic units
-are at the end, marked. The [lesson](lesson-15-generics.md) and
+rules for what builds today, then interfaces and constraints, and generic
+units at the end. The [lesson](lesson-15-generics.md) and
 the [guide](guide-generics.md) introduce the ideas.
 
 ## Generic functions
@@ -115,7 +115,9 @@ stop, and is E0608 after 64 instances.
 A type name can be followed by type arguments in `<>`: `Map<string, uint32>`,
 `Stack<Stack<uint32>>`. After a number type, `<` still opens a unit
 (`float64<m/s>`), so `Vec<float64<m>>` is a `Vec` of metres. A type that takes
-no arguments, such as `Point`, is E0602 when it is given some.
+no arguments, such as `Point`, is E0602 when it is given some. A unit can be
+an argument too, written with `unit` in front: `Track<float64, unit m/s>`
+(see [Generic over units](#generic-over-units)).
 
 `[?]` after a type is a list that grows (`string[?]`), and `[4]` is an array of
 four (`uint8[4]`); they can be stacked (`uint32[?][?]`) and followed by `?`
@@ -454,10 +456,33 @@ points at `trusted`.
 <!-- example: iface-trusted -->
 
 ## Generic over units
-<!-- status: tentative -->
 
-`float64<U> twice<unit U>(float64<U> x)` would work with any unit and keep it.
-Today `unit U` is E0901. The spelling is still open.
+A function can take a unit parameter: `unit U` after its name stands for a
+unit, and `float64<U>` uses it the way a type parameter is used. The function
+works with any unit and keeps the one it was given.
+
+<!-- example: gen-twice-unit -->
+
+The unit of a call is worked out from the arguments, just as a type parameter
+is: the first argument that has a unit decides it, and every other argument
+that shows `U` must have the same one (E0603). A plain number has no unit to
+give, so when no argument shows `U` the call needs it written: `twice<unit m>(x)`
+(E0601). A result can use the unit inside a bigger one, as `speed` does above.
+The body is checked for each unit the function is called with, so `x * 2.0`
+keeps the unit, and `x + y` needs both to have it. A unit parameter is not a
+type: `U copy = a;` is E0609. Units written two ways are one unit: `N` and
+`kg*m/s^2` (see [Units of measure](reference-units.md)) make one instance.
+
+A struct or an enum takes a unit parameter in the same way, and each use
+writes its unit with `unit` in the arguments. Units are never worked out for a
+struct: a declaration writes them.
+
+<!-- example: gen-unit-struct -->
+
+A type argument where a unit goes, or a unit where a type goes, is E0602.
+Not built yet (E0901): a parameter type that puts `U` inside a bigger unit
+(`float64<U/s> a` as a parameter, where inference would have to work `U` out
+of `U/s`), and a constraint on a unit parameter (`unit U with Shape`).
 
 ## Function types and lambdas
 

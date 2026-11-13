@@ -1,0 +1,21 @@
+in io;
+in si;
+
+enum Reading<unit U> {
+    Measured(float64<U> value),
+    Missing,
+}
+
+float64<U> value_or_zero<unit U>(Reading<unit U> r) {
+    match (r) {
+        case Measured(float64<U> v) { return v; }
+        case Missing { return 0.0<U>; }
+    }
+}
+
+none main() {
+    Reading<unit m> a = Measured(2.5<m>);
+    io::outln(f"${value_or_zero(a)::text()} ${value_or_zero(a)::unitText()}");
+    Reading<unit s> b = Missing;
+    io::outln(f"${value_or_zero(b)::text()}");
+}

@@ -147,16 +147,20 @@ which `at` the loop uses.
 <!-- example: iterable-two -->
 
 ## Generic over units
-<!-- status: tentative -->
 
-A unit in a signature is fixed today (see [Units of measure](reference-units.md)):
-`float64<m>` is metres and nothing else. With generics, a function can work over
-any unit, and the result keeps the unit it was given. The `<unit U>` spelling is
-the planned form, not a decided one.
+A unit in a signature is fixed (see [Units of measure](reference-units.md)):
+`float64<m>` is metres and nothing else. A function can instead work over any
+unit, and the result keeps the unit it was given. You write `unit U` once and
+use `U` where the unit goes:
 
 ```drachm
 float64<U> twice<unit U>(float64<U> x) { return x * 2; }
 ```
+
+You never say which unit `U` is: `twice(2.5<m>)` gives metres and
+`twice(1.5<km>)` kilometres, because the compiler reads the unit from the
+argument. The [reference](reference-generics.md#generic-over-units) says how
+that works when no argument has a unit.
 
 ## Which tool when
 

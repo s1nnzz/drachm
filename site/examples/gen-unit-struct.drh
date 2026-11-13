@@ -1,0 +1,36 @@
+in io;
+in si;
+
+// A generic struct with a unit parameter. Each use says which unit it holds,
+// with `unit` in the angle brackets.
+struct Track<Num, unit U> {
+    public:
+    Num count;
+    float64<U> total;
+    float64<U> mean() { return self.total / self.count; }
+    float64<U> doubled() { return self.total * 2.0; }
+}
+
+// A generic struct holding another generic struct with a unit.
+struct Pair<Left, Right> {
+    public:
+    Left first;
+    Right second;
+}
+
+// A unit parameter of a function, shared by two structs.
+float64<U> longest<unit U>(Track<float64, unit U> a, Track<float64, unit U> b) {
+    if (a.total > b.total) { return a.total; }
+    return b.total;
+}
+
+none main() {
+    Track<float64, unit m> run = new Track<float64, unit m> of (4.0, 10.0<m>);
+    io::outln(f"run: ${run::mean()->text()} ${run::mean()->unitText()}");
+    Track<float64, unit km> trip = new Track<float64, unit km> of (2.0, 3.0<km>);
+    io::outln(f"trip: ${trip::doubled()->text()} ${trip::doubled()->unitText()}");
+    Track<float64, unit m> other = new Track<float64, unit m> of (2.0, 8.0<m>);
+    io::outln(f"longest: ${longest(run, other)::text()} ${longest(run, other)::unitText()}");
+    Pair<Track<float64, unit m>, string> p = new Pair<Track<float64, unit m>, string> of (run, "lap");
+    io::outln(f"pair: ${p.first::mean()->text()} ${p.second}");
+}

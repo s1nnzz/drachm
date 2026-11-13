@@ -1,0 +1,25 @@
+in io;
+in si;
+
+// One function for every unit. The unit of each call is worked out from the
+// argument, and the result keeps it.
+float64<U> twice<unit U>(float64<U> x) {
+    return x * 2.0;
+}
+
+// A unit parameter can stand inside a bigger unit in the result.
+float64<U/s> speed<unit U>(float64<U> distance, float64<s> time) {
+    return distance / time;
+}
+
+none main() {
+    float64<m> width = 2.5<m>;
+    float64<km> route = 1.5<km>;
+    float64<m/s> pace = 4.0<m/s>;
+    io::outln(f"${twice(width)::text()} ${twice(width)::unitText()}");
+    io::outln(f"${twice(route)::text()} ${twice(route)::unitText()}");
+    io::outln(f"${twice(pace)::text()} ${twice(pace)::unitText()}");
+    io::outln(f"${speed(width, 2.0<s>)::text()} ${speed(width, 2.0<s>)::unitText()}");
+    // The unit can also be written at the call.
+    io::outln(f"${twice<unit m>(width)::text()}");
+}

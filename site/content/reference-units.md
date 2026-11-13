@@ -179,3 +179,10 @@ difference of two points is a **delta**, written `delta degC`.
   gives the reading in the base unit: `20.0<degC>` is 293.15.
 
 <!-- example: units-points -->
+
+## Generic over units
+
+A function, struct or enum can take a unit parameter (`unit U`) and work with
+any unit; the unit of each use is worked out from the arguments, or written
+with `unit` in the type arguments (`Track<float64, unit m>`). See
+[Generic over units](reference-generics.md#generic-over-units).
