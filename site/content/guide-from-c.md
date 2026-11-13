@@ -164,18 +164,21 @@ drachm run program.drh -O
 
 ## Importing C headers
 
-<!-- status: tentative -->
-
-Calling existing C libraries is planned. The idea is that a header is imported
-like a module, with every name behind a prefix:
+Existing C libraries are called by importing their header like a module, with
+every name behind a prefix:
 
 ```drachm
 in * from c."SDL2/SDL.h" as sdl;
 ```
 
-It would use libclang to read the header. How C types map onto Drachm types, how
-`char *` becomes a string and who owns what a C function returns are all open,
-and none of it is built. Until then there is no way to call C from Drachm.
+The compiler reads the header with libclang. `sdl::SDL_Init(...)` is the C
+function, `sdl::SDL_Rect` the C struct with its exact layout, and `sdl::SDL_INIT_VIDEO`
+the macro's value. C calls need `unsafe`; you write a small Drachm wrapper that
+checks what C needs and gives the rest of the program a safe signature. `int`
+and `long` are `c::int` and `c::long`, types of their own that you convert with
+`as`; `char *` is a `foreign *uint8`, and `p::text()` turns it into a `string`.
+What a C function returns is released by the wrapper, in `drop()`, never
+automatically. See [Calling C libraries](guide-c-imports.md).
 
 ## What is not here
 

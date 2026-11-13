@@ -1,0 +1,37 @@
+//--!$unsafe: true
+in io;
+in * from c."tally.h" as tally;
+
+// A function-like macro is callable once its types are declared.
+from c macro TALLY_DOUBLE(c::int x) gives c::int;
+
+// A safe wrapper: the unsafe call stays inside, and what comes out is a Drachm number.
+sint32 add(sint32 a, sint32 b) {
+    unsafe {
+        return tally::tally_add(a as c::int, b as c::int) as sint32;
+    }
+}
+
+sint64 clamp(sint64 value) {
+    unsafe {
+        return tally::tally_clamp(value as c::long) as sint64;
+    }
+}
+
+none main() {
+    io::outln(f"2 + 3 = ${add(2, 3)}");
+    io::outln(f"clamped: ${clamp(250)} ${clamp(-7)} ${clamp(-250)}");
+
+    // Macros that are numbers or text come in as plain constants.
+    uint32 limit = tally::TALLY_LIMIT;
+    io::outln(f"${tally::TALLY_NAME} limit ${limit}");
+
+    unsafe {
+        // C numbers are types of their own; `as` converts them.
+        c::double mean = tally::tally_mean(1.0, 2.0);
+        io::outln(f"mean ${mean as float64}");
+        c::uchar next = tally::tally_next_byte(255);
+        io::outln(f"next byte ${next as uint8}");
+        io::outln(f"double ${tally::TALLY_DOUBLE(21) as sint32}");
+    }
+}

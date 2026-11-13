@@ -76,6 +76,14 @@ Calling it needs a block:
 
 <!-- example: unsafe-fn -->
 
+## Pointers from C
+
+A pointer that comes from a C header is a `foreign *T` (`foreign *uint8` for a
+`char *`, `foreign *none` for `void *`). It is used like `*T` in `unsafe`
+code, with two differences: it copies freely, since C owns what it points at,
+and a `*T` made by `address of` goes where C wants the same pointer without a
+conversion. See [Calling C libraries](guide-c-imports.md).
+
 ## Pointers to fixed values
 
 `address of` an immutable binding gives a `*fixed T`. It can be read through but

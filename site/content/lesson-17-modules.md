@@ -167,10 +167,10 @@ json = "1.2"
 
 ## C headers
 
-<!-- status: tentative -->
-
-A C header may be imported the same way, as `in * from c."SDL2/SDL.h" as sdl;`.
-How C types map onto Drachm types is still open.
+A C header is imported the same way, as `in * from c."SDL2/SDL.h" as sdl;`, and
+its functions, structs and constants are used as `sdl::name`. Calling C needs
+`unsafe`, so a library is usually wrapped in a small module of safe functions.
+See [Calling C libraries](guide-c-imports.md).
 
 See [Modules](design-modules.md) and [Projects and config](design-config.md).
 The last lesson is about running things at the same time:

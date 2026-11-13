@@ -1,0 +1,13 @@
+//--!$unsafe: true
+// A script can read the system's own headers; no `drachm.toml` is needed for
+// the C library and the maths library, which every program links.
+in io;
+in * from c."stdlib.h" as libc;
+in * from c."math.h" as cmath;
+
+unsafe {
+    c::int a = libc::abs(-5);
+    io::outln(f"abs(-5) = ${a as sint32}");
+    io::outln(f"pow(2, 10) = ${cmath::pow(2.0, 10.0) as float64}");
+    io::outln(f"hypot(3, 4) = ${cmath::hypot(3.0, 4.0) as float64}");
+}

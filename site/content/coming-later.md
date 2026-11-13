@@ -24,6 +24,7 @@ the compiler accepts what they show.
 | 5 | Constructors, enums, `fails` / `maybe` | done: enums with data and `match` on them ([Enums](reference-enums.md)), constructors, `new ... of`, `fill` and `def` ([Structs](reference-structs.md#constructors)) are done; optionals ([Optionals](reference-enums.md#optionals)) are done; [Failures](reference-errors.md) (`failure`, `fails`, `fail`, `maybe`, a bare `fails`, handlers, `because`, failing constructors and `drop()`) are done. Only the `crash` setting for `unhandled_fail` waits for step 7 |
 | 6 | Generics, interfaces, collections | done: generic functions, structs and enums, with units and borrows as type arguments ([Generics](reference-generics.md)); interfaces with `with`, `extends`, generic interfaces, `&Shape` and `Iterable` ([Interfaces](reference-generics.md#interfaces)); arrays, lists and maps with their keys, updates and walks ([Arrays and lists](reference-collections.md), [Maps](reference-collections.md#maps)); function types and lambdas ([Function types and lambdas](reference-generics.md#function-types-and-lambdas)). What is still to come is marked on [Generics and interfaces](design-generics.md#still-to-come) and [Collections](design-collections.md) |
 | 7 | Modules, config, scripts, stdlib | not started: [Modules](design-modules.md), [Config](design-config.md), [Scripts](design-scripts.md) |
+| 7.1 | Importing C headers | done: functions, scalars, pointers, text, structs, enums, macros and callbacks, see [Calling C libraries](guide-c-imports.md); what is still missing is listed in the [reference](reference-c-imports.md#not-supported-yet) |
 | 7.5 | MIR optimiser: SSA, inlining, scalar replacement, constant folding, loop optimisations, check elimination, alias information from borrows | not started, see [Performance](guide-performance.md#the-planned-optimiser) |
 | 8 | Language server | partly done: diagnostics, hover, go to definition and completion work, see [Editor support](install.md#editor-support); inlay hints, imports completion, rename and references are left |
 
@@ -31,7 +32,6 @@ the compiler accepts what they show.
 
 - [Concurrency](design-concurrency.md): threads, channels, async.
 - [Maths and exact numbers](design-maths.md): vectors, matrices, fractions.
-- Importing C headers, in [Modules](design-modules.md#c-headers).
 - `drachm fmt` and the Agora package registry, in [Tooling](design-tooling.md).
 - Assembly functions, in [Unsafe](design-unsafe.md#assembly-functions).
 - Targets besides x86-64 Linux and Windows: macOS, and AArch64.

@@ -6,8 +6,7 @@ description: in and out between files, paths, renaming, importing everything, an
 # Modules
 
 A project is split into files with `in` and `out`. Every file is a module.
-Names work across files as described here; the C headers at the end are still
-design.
+Names work across files as described here.
 
 ## Dependency modules
 
@@ -130,14 +129,16 @@ functions; calls through methods are not followed yet.
 
 ## C headers
 
-<!-- status: tentative -->
-
-A C header can be imported the same way. The details of how C types map onto
-Drachm types are open.
+A C header is imported like a module, with the alias in front of every name:
 
 ```drachm
 in * from c."SDL2/SDL.h" as sdl;
 ```
+
+`sdl::SDL_Init(...)` calls the C function (in `unsafe`), `sdl::SDL_Rect` is the C
+struct, and the header's `[native]` settings live in `drachm.toml`. See
+[Calling C libraries](guide-c-imports.md) and the
+[reference](reference-c-imports.md).
 
 ## Local files in scripts
 <!-- status: not-implemented -->

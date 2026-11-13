@@ -1449,6 +1449,55 @@ folder is used by default, and it has no `drachm.toml`. A project is a
 folder with a `drachm.toml` and the program in `src/main.drh`; `drachm new`
 makes one.
 
+## E0700: libclang cannot be loaded
+
+`in * from c."header.h" as name;` reads the header with libclang, the C
+parser of the LLVM project, which is loaded when a C import is checked.
+It was not found. Install the Clang libraries (`libclang`), or set
+`LIBCLANG_PATH` to the folder that holds `libclang.so` (`libclang.dylib`,
+`libclang.dll`). Programs without C imports never need it.
+
+## E0701: C header not found
+
+The header named in `in * from c."header.h" as name;` is not on the
+include path. Headers are found like a C compiler finds them: the system
+folders, then the `include` folders of the `[native]` table in `drachm.toml`.
+Install the library's development package, or add its header folder:
+
+    [native]
+    include = ["vendor/include"]
+
+## E0702: C header has errors
+
+libclang found the header but could not read it without errors: a type it
+needs is missing, a definition has to come first, or a setting differs
+from the one the library expects. The first messages are shown. Add the
+library's `defines` and `include` folders to the `[native]` table.
+
+## E0703: no such name in the C header
+
+The name after `alias::` is not declared by the header or by any header it
+includes. C names are written exactly as the header spells them
+(`sdl::SDL_Init`). The message suggests a similar name when there is one.
+
+## E0704: C types are their own types
+
+The C number types (`c::int`, `c::long`, `c::size_t`, `c::char`, ...) are
+types of their own, not synonyms of `sint32` or `uint64`. A value of one
+does not become another number type by itself; convert it explicitly:
+`n as sint32` or `n::to<sint32>()`. A plain constant (`5`, `FLAG_A`) fits any of them.
+
+## E0705: a match on a C enum needs a catch-all
+
+C code can send a value the header does not name, so a `match` on a C enum
+type (for example `fx::fx_color`) always needs a `case _`, even when every
+named value has a case:
+
+    match (color) {
+        case sdl::RED { }
+        case _ { }
+    }
+
 ## E0901: not supported yet
 
 This is part of Drachm's design, but this version of the compiler does
