@@ -201,3 +201,86 @@ fn hover_and_definition_across_files() {
     let util = std::fs::read_to_string(dir.join("src/util.drh")).unwrap();
     assert_eq!(d.span.start, util.find("greeting").unwrap());
 }
+
+/// The labels offered where `$` stands in `text`.
+fn completions(text: &str) -> Vec<String> {
+    let off = text.find('$').expect("a $ marks the cursor");
+    let clean = text.replacen('$', "", 1);
+    let path = PathBuf::from("/nonexistent-drachm-test/main.drh");
+    let docs = HashMap::from([(path.clone(), clean)]);
+    Analysis::complete_at(&path, &docs, off).into_iter().map(|i| i.label).collect()
+}
+
+#[test]
+fn methods_after_the_colons() {
+    let got = completions(&SHAPES.replace("p::sum()", "p::$"));
+    assert!(got.contains(&"sum".to_string()), "{got:?}");
+    assert!(!got.contains(&"origin".to_string()), "static methods are not offered on a value: {got:?}");
+    assert!(!got.contains(&"add".to_string()), "{got:?}");
+    // A word already typed does not change what is offered.
+    assert!(completions(&SHAPES.replace("p::sum()", "p::su$")).contains(&"sum".to_string()));
+}
+
+#[test]
+fn fields_after_the_dot() {
+    let got = completions(&SHAPES.replace("p.x, p.y", "p.$, p.y"));
+    assert_eq!(got, vec!["x".to_string(), "y".to_string()]);
+}
+
+#[test]
+fn static_methods_after_a_struct_name_and_variants_after_an_enum_name() {
+    let got = completions(&SHAPES.replace("p::sum()", "Point::$"));
+    assert_eq!(got, vec!["origin".to_string()]);
+    let got = completions(&SHAPES.replace("= North", "= Dir::$"));
+    assert_eq!(got, vec!["North".to_string(), "East".to_string()]);
+}
+
+#[test]
+fn string_list_and_map_methods() {
+    let src = "none main() {\n    string s = \"a\";\n    sint32[?] xs;\n    s::$\n}\n";
+    let got = completions(src);
+    assert!(got.contains(&"upper".to_string()) && got.contains(&"split".to_string()), "{got:?}");
+    let got = completions(&src.replace("s::$", "xs::$"));
+    assert!(got.contains(&"push".to_string()) && !got.contains(&"upper".to_string()), "{got:?}");
+}
+
+#[test]
+fn bare_variants_from_the_expected_type() {
+    // In a declaration, an assignment, a comparison and an argument.
+    let got = completions(&SHAPES.replace("= North", "= $"));
+    assert_eq!(&got[..2], &["North".to_string(), "East".to_string()], "{got:?}");
+    let got = completions(&SHAPES.replace("    Dir d = North;\n", "    Dir d = North;\n    d = $;\n"));
+    assert_eq!(&got[..2], &["North".to_string(), "East".to_string()], "{got:?}");
+    let got = completions(&SHAPES.replace("    Dir d = North;\n", "    Dir d = North;\n    if (d == $) { }\n"));
+    assert_eq!(&got[..2], &["North".to_string(), "East".to_string()], "{got:?}");
+}
+
+#[test]
+fn bare_variants_in_a_match() {
+    let src = SHAPES.replace("    Dir d = North;\n", "    Dir d = North;\n    match (d) {\n        case $\n    }\n");
+    let got = completions(&src);
+    assert_eq!(&got[..2], &["North".to_string(), "East".to_string()], "{got:?}");
+}
+
+#[test]
+fn names_in_scope_and_keywords() {
+    let got = completions(&SHAPES.replace("    io::outln", "    $\n    io::outln"));
+    for want in ["p", "total", "s", "d", "add", "Point", "Dir", "while", "uint32"] {
+        assert!(got.contains(&want.to_string()), "{want} missing in {got:?}");
+    }
+    // A local is not offered before it is declared.
+    let got = completions(&SHAPES.replace("    sint32 total", "    $\n    sint32 total"));
+    assert!(got.contains(&"p".to_string()) && !got.contains(&"total".to_string()), "{got:?}");
+}
+
+#[test]
+fn completion_in_half_typed_code() {
+    // The block is never closed.
+    let src = SHAPES.replace("p::sum()", "p::$").trim_end_matches("}\n").to_string();
+    assert!(completions(&src).contains(&"sum".to_string()));
+}
+
+#[test]
+fn nothing_inside_a_string_or_comment() {
+    assert!(completions("none main() {\n    string s = \"p::$\";\n}\n").is_empty());
+}

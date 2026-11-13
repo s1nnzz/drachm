@@ -1705,7 +1705,8 @@ impl<'a> Checker<'a> {
         }
         index::with(|ix| {
             let ty = l.ty.map_or("?".to_string(), |t| index::demangle(&t.to_string()));
-            let rec = index::LocalRec { name: l.name.clone(), ty, decl: l.span, mutable: l.mutable, is_param: l.is_param, end: 0 };
+            let rec = index::LocalRec { name: l.name.clone(), ty: ty.clone(), decl: l.span, mutable: l.mutable, is_param: l.is_param, end: 0 };
+            ix.types.push((at, ty));
             ix.refs.push(index::Ref { at, def: Some(l.span), code: local_code(&rec), note: String::new() });
         });
     }
@@ -2281,6 +2282,7 @@ impl<'a> Checker<'a> {
         }
         index::with(|ix| {
             let ty = f.ty.map_or("?".to_string(), |t| index::demangle(&t.to_string()));
+            ix.types.push((recv_span.to(name_span), ty.clone()));
             ix.refs.push(index::Ref { at: name_span, def: Some(f.span), code: format!("{ty} {name}"), note: format!("field of `{}`", index::demangle(&ty.to_string())) });
         });
         Some((i, f.ty?))

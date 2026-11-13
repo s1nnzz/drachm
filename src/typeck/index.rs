@@ -182,9 +182,11 @@ pub(super) fn close(mark: usize, end: usize) {
 pub(super) fn finish(g: &Globals, src: &str) {
     with(|ix| {
         ix.ran = true;
+        // A declaration of the prelude (`ConvertError`) has spans in text that is not the program's.
+        let real = |name: &str, at: Span| short(src, at) == name.rsplit("::").next().unwrap_or(name);
         for s in &g.structs {
             // Stand-ins of type parameters are not declarations.
-            if s.placeholder.is_some() || s.name_span == Span::new(0, 0) {
+            if s.placeholder.is_some() || !real(&s.name, s.name_span) {
                 continue;
             }
             ix.structs.push(StructRec {
@@ -202,7 +204,7 @@ pub(super) fn finish(g: &Globals, src: &str) {
             });
         }
         for e in &g.enums {
-            if e.kind != crate::hir::EnumKind::User && e.kind != crate::hir::EnumKind::Failure {
+            if (e.kind != crate::hir::EnumKind::User && e.kind != crate::hir::EnumKind::Failure) || !real(&e.name, e.name_span) {
                 continue;
             }
             let hidden = (e.kind == crate::hir::EnumKind::Failure) as usize;

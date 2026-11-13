@@ -9,6 +9,7 @@
 //! from; an async runtime would only add dependencies.
 
 mod analysis;
+mod complete;
 mod pos;
 mod query;
 
@@ -50,6 +51,7 @@ fn capabilities() -> ServerCapabilities {
         })),
         hover_provider: Some(lsp_types::HoverProviderCapability::Simple(true)),
         definition_provider: Some(lsp_types::OneOf::Left(true)),
+        completion_provider: Some(lsp_types::CompletionOptions { trigger_characters: Some(vec![":".into(), ">".into(), ".".into()]), ..Default::default() }),
         ..Default::default()
     }
 }
@@ -156,6 +158,7 @@ impl<'a> Server<'a> {
         let answer = match req.method.as_str() {
             "textDocument/hover" => self.hover(req.params),
             "textDocument/definition" => self.definition(req.params),
+            "textDocument/completion" => self.completion(req.params),
             m => {
                 let err = Response::new_err(id, lsp_server::ErrorCode::MethodNotFound as i32, format!("unsupported request {m}"));
                 let _ = self.conn.sender.send(Message::Response(err));
@@ -184,6 +187,27 @@ impl<'a> Server<'a> {
             range: Some(pos::to_range(src, h.span)),
         };
         serde_json::to_value(hover).unwrap_or_default()
+    }
+
+    fn completion(&self, params: serde_json::Value) -> serde_json::Value {
+        let Ok(p) = serde_json::from_value::<lsp_types::CompletionParams>(params) else { return serde_json::Value::Null };
+        let pos = &p.text_document_position;
+        let Some(path) = pos::uri_to_path(&pos.text_document.uri) else { return serde_json::Value::Null };
+        let Some(text) = self.docs.get(&path) else { return serde_json::Value::Null };
+        let offset = pos::to_offset(&crate::diag::Source::new("", text.as_str()), pos.position);
+        let docs = self.docs.clone();
+        let items = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| Analysis::complete_at(&path, &docs, offset))).unwrap_or_default();
+        let items: Vec<lsp_types::CompletionItem> = items
+            .into_iter()
+            .map(|i| lsp_types::CompletionItem {
+                sort_text: Some(format!("{}{}", i.sort, i.label)),
+                label: i.label,
+                kind: Some(i.kind),
+                detail: (!i.detail.is_empty()).then_some(i.detail),
+                ..Default::default()
+            })
+            .collect();
+        serde_json::to_value(items).unwrap_or_default()
     }
 
     fn definition(&self, params: serde_json::Value) -> serde_json::Value {
