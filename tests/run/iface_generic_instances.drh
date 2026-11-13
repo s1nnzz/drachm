@@ -1,0 +1,28 @@
+in io;
+
+interface Read<T> {
+    T get();
+}
+
+interface ReadChild<T> extends Read<T> {
+    T twice();
+}
+
+struct Cell<T> with ReadChild<T> {
+public:
+    T value;
+    T get() { return copy self.value; }
+    T twice() { return copy self.value; }
+}
+
+T fetch<T, R with Read<T>>(R r) { return r::get(); }
+
+T fetch_child<T, R with ReadChild<T>>(R r) { return r::twice(); }
+
+none main() {
+    Cell<uint32> a = new Cell<uint32> of (7);
+    Cell<string> b = new Cell<string> of ("hi");
+    io::outln(fetch<uint32, Cell<uint32>>(a)::text());
+    io::outln(fetch<string, Cell<string>>(b));
+    io::outln(fetch_child<uint32, Cell<uint32>>(a)::text());
+}

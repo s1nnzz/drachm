@@ -1,0 +1,6 @@
+interface Read<T> { T get(); }
+struct Bad with Read<uint32> {
+public:
+    string get() { return "x"; }
+}
+none main() {}

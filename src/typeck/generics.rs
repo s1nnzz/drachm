@@ -1144,6 +1144,11 @@ fn mentions_name(d: &Diagnostic, name: &str) -> bool {
             part.contains('<') && part.split(|c: char| !(c.is_alphanumeric() || c == '_')).any(|word| word == name)
         })
     };
+    if d.code.id == "E0606" {
+        // Only the constrained name it is about counts; a loose parameter inside
+        // its constraint (`R with Read<T>`) does not hide it.
+        return d.message.split('`').nth(1) == Some(name);
+    }
     mentions(&d.message) || d.labels.iter().any(|(_, t)| mentions(t))
 }
 

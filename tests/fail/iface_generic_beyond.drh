@@ -1,0 +1,3 @@
+interface Read<T> { T get(); }
+uint32 fetch<T, R with Read<T>>(R r) { return r::nope(); }
+none main() {}
