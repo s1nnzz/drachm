@@ -26,18 +26,20 @@ export function remarkExample() {
         if (!existsSync(src) || !existsSync(expected)) throw new Error(`showcase: ${src} or ${expected} not found`);
         const code = (lang: string, title: string, file: string) =>
           ({ type: 'code', lang, meta: `title="${title}"`, value: readFileSync(file, 'utf8').replace(/\n+$/, '') }) as never;
-        const col = (children: unknown[]) =>
+        // <DrhShowcase> is the client component (components/showcase.tsx) that
+        // lays out the two panes with their resize handles and expand button.
+        const pane = (children: unknown[]) =>
           ({
             type: 'mdxJsxFlowElement',
             name: 'div',
-            attributes: [{ type: 'mdxJsxAttribute', name: 'className', value: 'drh-code-col' }],
+            attributes: [{ type: 'mdxJsxAttribute', name: 'className', value: 'drh-sc-pane' }],
             children,
           }) as never;
         out.push({
           type: 'mdxJsxFlowElement',
-          name: 'div',
-          attributes: [{ type: 'mdxJsxAttribute', name: 'className', value: 'drh-showcase' }],
-          children: [col([code('drachm', 'showcase.drh', src)]), col([code('text', 'output', expected)])],
+          name: 'DrhShowcase',
+          attributes: [],
+          children: [pane([code('drachm', 'showcase.drh', src)]), pane([code('text', 'output', expected)])],
         } as never);
         continue;
       }

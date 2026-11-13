@@ -6,6 +6,7 @@ import { getContent, STATUS_LABEL } from '@/lib/content';
 import { renderDoc } from '@/lib/render';
 import { CodeBlock } from '@/components/code-block';
 import { Walkthrough } from '@/components/walkthrough';
+import { Showcase } from '@/components/showcase';
 
 type Props = { params: Promise<{ slug?: string[] }> };
 
@@ -35,7 +36,7 @@ export default async function Page({ params }: Props) {
       </DocsTitle>
       <DocsDescription>{doc.description}</DocsDescription>
       <DocsBody>
-        <Body components={{ ...defaultMdxComponents, pre: CodeBlock }} />
+        <Body components={{ ...defaultMdxComponents, pre: CodeBlock, DrhShowcase: Showcase }} />
         <Walkthrough key={doc.slug} />
       </DocsBody>
     </DocsPage>
