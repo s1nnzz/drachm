@@ -120,7 +120,7 @@ impl Ctx<'_> {
                         Type::Int { .. } => Const::from_int_bits(c.wrap_to_int(ty), ty),
                         _ => c.clone(),
                     };
-                    let mut diag = if mode == Overflow::Panic && matches!(ty, Type::Int { .. }) {
+                    let diag = if mode == Overflow::Panic && matches!(ty, Type::Int { .. }) {
                         Diagnostic::at(&codes::E0116, value.span, format!("this constant does not fit `{ty}`"))
                             .note_line(format!("`{ty}` holds {}, and this file has `overflow = panic`", ty.describe_range()))
                             .help("use a value that fits or a bigger type")
