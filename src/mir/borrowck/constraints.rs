@@ -248,9 +248,14 @@ impl Gen<'_> {
                 let Some(list) = args.first().and_then(|a| self.operand_vids(&a.op)) else { return };
                 let inner = (list.0.start + 1)..list.0.end;
                 match op {
-                    ListOp::Insert => {
+                    ListOp::Insert | ListOp::TakeLeaving => {
                         if let Some(value) = args.get(2).and_then(|a| self.operand_vids(&a.op)) {
-                            self.relate(value.0, *elem, inner, loc, ConstraintKind::Call);
+                            self.relate(value.0, *elem, inner.clone(), loc, ConstraintKind::Call);
+                        }
+                        // `take xs[i] leaving v` also gives out the item it took.
+                        if let (ListOp::TakeLeaving, Some(d)) = (op, dest) {
+                            let dv = self.place_vids(d);
+                            self.relate(inner, *elem, dv, loc, ConstraintKind::Call);
                         }
                     }
                     ListOp::Get | ListOp::Remove | ListOp::SwapRemove | ListOp::Pop => {

@@ -374,6 +374,7 @@ impl Validator<'_> {
                 match op {
                     hir::ListOp::Get | hir::ListOp::View => (Some(vec![shared_list, Want::Any]), elem),
                     hir::ListOp::Remove | hir::ListOp::SwapRemove => (Some(vec![mut_list, Want::Any]), elem),
+                    hir::ListOp::TakeLeaving => (Some(vec![mut_list, Want::Any, Want::Exact(elem)]), elem),
                     hir::ListOp::Insert => (Some(vec![mut_list, Want::Any, Want::Exact(elem)]), Type::None),
                     hir::ListOp::Clear => (Some(vec![mut_list]), Type::None),
                     hir::ListOp::Join => (Some(vec![shared_list, Want::Exact(Type::borrow(false, Type::Str))]), Type::Str),

@@ -967,6 +967,11 @@ impl Gen<'_> {
                 let name = if op == ListOp::Remove { "drachm_list_remove" } else { "drachm_list_swap_remove" };
                 self.line(format!("{name}({list}, {idx}, &{dest}, sizeof({c}));"));
             }
+            ListOp::TakeLeaving => {
+                let (idx, value) = (self.operand(&args[1].op), self.operand(&args[2].op));
+                let dest = dest_lv.expect("an item has a destination");
+                self.line(format!("{{ {c} v = {value}; drachm_list_replace({list}, {idx}, &v, &{dest}, sizeof({c})); }}"));
+            }
             ListOp::Insert => {
                 let (idx, value) = (self.operand(&args[1].op), self.operand(&args[2].op));
                 self.line(format!("{{ {c} v = {value}; drachm_list_insert({list}, {idx}, &v, sizeof({c}), _Alignof({c})); }}"));

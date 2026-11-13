@@ -1601,6 +1601,21 @@ impl Cg<'_, '_> {
                 self.rt(name, &[ptr, i64t, ptr, i64t], &[], &[list, idx, out, size_v]);
                 self.item_done(elem, dest, tmp);
             }
+            ListOp::TakeLeaving => {
+                let idx = self.operand(&args[1].op);
+                let ety = self.op_ty(&args[2].op);
+                let item = if in_memory(ety) {
+                    self.operand_addr(&args[2].op)
+                } else {
+                    let v = self.operand(&args[2].op);
+                    let tmp = self.mem(ety);
+                    self.b.ins().store(MEM, v, tmp, 0);
+                    tmp
+                };
+                let (tmp, out) = self.item_out(elem, dest);
+                self.rt("drachm_list_replace", &[ptr, i64t, ptr, ptr, i64t], &[], &[list, idx, item, out, size_v]);
+                self.item_done(elem, dest, tmp);
+            }
             ListOp::Insert => {
                 let idx = self.operand(&args[1].op);
                 let ety = self.op_ty(&args[2].op);

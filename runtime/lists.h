@@ -73,6 +73,9 @@ void drachm_list_remove(drachm_list *l, int64_t i, void *out, uint64_t size);
 // Moves element `i` into `out`, moves the last element into its slot and
 // shrinks (order not kept). Costs one move.
 void drachm_list_swap_remove(drachm_list *l, int64_t i, void *out, uint64_t size);
+// `take xs[i] leaving v`: element `i` moves into `out`, `elem` (moved in) takes
+// its place. The length and the order do not change.
+void drachm_list_replace(drachm_list *l, int64_t i, const void *elem, void *out, uint64_t size);
 // Index of the first element equal to `*v` (by `eq`), or -1 when none is.
 int64_t drachm_list_index_of(const drachm_list *l, const void *v, uint64_t size, drachm_eq_fn eq);
 // Drops every element in order and keeps the buffer; the list ends with len 0.

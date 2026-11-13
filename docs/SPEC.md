@@ -308,8 +308,8 @@ uint32? age = ages["Bob"];                 // missing key -> none
   `mut string[?] xs;`.
 - Taking an item out by index (Q11): `take xs[i] reorders` is built: the item
   moves out, the last item fills its place, and the order of the others is not
-  kept. `take xs[i] leaving v`, which keeps length and order, is decided and not
-  built (E0901).
+  kept. `take xs[i] leaving v` (built) moves the item out and puts `v` in its place,
+  so the length and the order are kept.
 - Items that own memory (S6C.2): `get(i)`, `first()` and `last()` give a view,
   an optional that borrows the list (`&T?`); `copy xs::first()` gives an owned
   `T?`. `contains` takes the value written with `&`: `names::contains(&name)`.

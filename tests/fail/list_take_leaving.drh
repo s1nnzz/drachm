@@ -1,4 +1,4 @@
 none main() {
     mut uint32[?] xs = [1, 2];
-    uint32 n = take xs[0] leaving 5;
+    uint32 n = take xs[0] leaving "five";
 }

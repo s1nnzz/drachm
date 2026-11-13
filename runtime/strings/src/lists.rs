@@ -257,6 +257,21 @@ pub unsafe extern "C-unwind" fn drachm_list_swap_remove(l: *mut DrachmList, i: i
     }
 }
 
+/// `take xs[i] leaving v`: element `i` moves into `out`, and `elem` (moved in)
+/// takes its place. The length and the order do not change.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn drachm_list_replace(l: *mut DrachmList, i: i64, elem: *const u8, out: *mut u8, size: u64) {
+    let (data, len) = unsafe { ((*l).ptr, (*l).len) };
+    let idx = index_or_panic(len, i);
+    if size > 0 {
+        unsafe {
+            let at = slot(data, idx, size);
+            ptr::copy_nonoverlapping(at, out, size as usize);
+            ptr::copy_nonoverlapping(elem, at, size as usize);
+        }
+    }
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn drachm_list_index_of(l: *const DrachmList, v: *const u8, size: u64, eq: EqFn) -> i64 {
     let (data, len) = unsafe { ((*l).ptr, (*l).len) };

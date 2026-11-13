@@ -556,6 +556,9 @@ none part5() {
     mut string[?] queue = ["alpha", "beta", "gamma", "delta"];
     string second = take queue[1] reorders;
     io::outln(f"took ${second}; queue is ${queue::join(", ")}");
+    // `leaving v` keeps the length and the order: the new word takes the old one's place.
+    string third = take queue[1] leaving "omega";
+    io::outln(f"took ${third}; queue is now ${queue::join(", ")}");
 
     // Lambdas: capture by reference, `move` to capture a copy, function types.
     mut uint32 calls = 0;

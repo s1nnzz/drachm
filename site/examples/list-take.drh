@@ -16,4 +16,10 @@ none main() {
     string last = take names[-1] reorders;
     io::outln(last);
     io::outln(names::join(","));
+
+    // `leaving v` puts v in the item's place: the length and the order stay.
+    mut string[?] crew = ["ann", "bo", "cy"];
+    string swapped = take crew[1] leaving "dee";
+    io::outln(swapped);
+    io::outln(crew::join(","));
 }
