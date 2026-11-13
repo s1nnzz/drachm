@@ -185,21 +185,112 @@ pre[data-focus-on] .line:not([data-hl])::before { opacity: 0.3; }
 .drh-status-tentative { border-style: dashed; }
 .drh-status-side { margin-left: 0.5rem; padding: 0 0.4rem; font-size: 0.625rem; }
 
-/* The showcase page: the whole program beside its output (stacked when narrow). */
+/* The showcase block (components/showcase.tsx): the program beside its output.
+   Each pane is a flex column; the code area under its label is the one scroller,
+   so long lines scroll sideways and the rest scrolls up and down, per pane.
+   Wide (the frame is at least 40rem): a row, splitter between, height from
+   --sc-h (set by the handle, default 70vh). Narrow: stacked at natural height,
+   no handles. Expanded: a full-screen overlay. */
+.drh-showcase-slot { margin-top: 1.5rem; min-width: 0; }
 .drh-showcase {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 1rem;
-  margin-top: 1.5rem;
+  --sc-split: 58%;
+  --sc-h: 70vh;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
 }
-.drh-showcase > .drh-code-col { min-width: 0; }
-@media (min-width: 1100px) {
-  .drh-showcase { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 1.5rem; align-items: start; }
-  .drh-showcase > .drh-code-col:last-child {
-    position: sticky;
-    top: calc(var(--fd-docs-row-2, 3.5rem) + 1.5rem);
-    max-height: calc(100dvh - var(--fd-docs-row-2, 3.5rem) - 3rem);
-    overflow-y: auto;
-    overscroll-behavior: contain;
-  }
+.drh-sc-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 1.75rem;
+}
+.drh-sc-btn {
+  margin-left: auto;
+  padding: 0.3rem 0.6rem;
+  border: 1px solid var(--color-fd-border);
+  border-radius: 4px;
+  background: var(--color-fd-background);
+  color: var(--color-fd-muted-foreground);
+  font: 500 0.75rem/1 var(--font-sans);
+  cursor: pointer;
+}
+.drh-sc-btn:hover { color: var(--color-fd-foreground); }
+.drh-sc-btn:focus-visible { outline: 2px solid color-mix(in srgb, var(--drh) 45%, transparent); outline-offset: 2px; }
+
+.drh-sc-frame {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  container-type: inline-size;
+}
+.drh-sc-body { display: flex; flex-direction: column; gap: 0.75rem; min-width: 0; }
+.drh-sc-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--color-fd-muted);
+  border: 1px solid var(--color-fd-border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.drh-sc-pane > .drh-block {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+.drh-sc-pane > .drh-block > .drh-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+/* Handles: hidden in the narrow layout */
+.drh-sc-split,
+.drh-sc-vert { display: none; position: relative; user-select: none; touch-action: none; }
+.drh-sc-split { flex: 0 0 0.75rem; cursor: col-resize; outline: none; }
+.drh-sc-vert { height: 0.75rem; cursor: row-resize; outline: none; }
+.drh-sc-split::before,
+.drh-sc-vert::before {
+  content: '';
+  position: absolute;
+  background: var(--color-fd-border);
+  border-radius: 1px;
+  transition: background-color 0.15s ease;
+}
+.drh-sc-split::before { top: 0.5rem; bottom: 0.5rem; left: 50%; width: 2px; transform: translateX(-50%); }
+.drh-sc-vert::before { left: 0.5rem; right: 0.5rem; top: 50%; height: 2px; transform: translateY(-50%); }
+.drh-sc-split:hover::before, .drh-sc-split:focus-visible::before, .drh-sc-split:active::before,
+.drh-sc-vert:hover::before, .drh-sc-vert:focus-visible::before, .drh-sc-vert:active::before { background: var(--drh); }
+
+@container (min-width: 40rem) {
+  .drh-sc-body { flex-direction: row; gap: 0; height: clamp(12rem, var(--sc-h), 95dvh); }
+  .drh-sc-pane:first-child { flex: 0 0 var(--sc-split); }
+  .drh-sc-pane:last-child { flex: 1 1 0; }
+  .drh-sc-split { display: block; }
+  .drh-sc-vert { display: block; }
+}
+
+/* Expanded: a full-screen overlay (Esc or Close returns). The slot keeps the page height. */
+.drh-showcase[data-expanded] {
+  position: fixed;
+  inset: 0.75rem;
+  z-index: 60;
+  padding: 0.75rem;
+  background: var(--color-fd-background);
+  border: 1px solid var(--color-fd-border);
+  border-radius: calc(var(--radius) + 2px);
+  box-shadow: 0 24px 80px rgb(0 0 0 / 0.25);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.drh-showcase[data-expanded] .drh-sc-frame { flex: 1 1 auto; min-height: 0; }
+@container (min-width: 40rem) {
+  .drh-showcase[data-expanded] .drh-sc-body { flex: 1 1 0; height: auto; min-height: 0; }
+  .drh-showcase[data-expanded] .drh-sc-vert { display: none; }
 }
