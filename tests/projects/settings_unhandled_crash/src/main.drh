@@ -1,0 +1,32 @@
+in io;
+
+failure ReadError {
+    Missing(string name) f"no such file: ${name}" exit 4,
+    Locked(string name) f"locked: ${name}" exit 5,
+}
+
+failure ParseFailure {
+    Bad(string text) f"cannot read `${text}` as a number" exit 6,
+}
+
+uint32 find(string name, uint32 limit) fails ReadError, ParseFailure {
+    if (name == "gone") { fail Missing(name); }
+    if (name == "busy") { fail Locked(name); }
+    if (name == "x") { fail Bad(name); }
+    return limit;
+}
+
+// A call with nothing said about failure: `unhandled_fail = crash` in
+// drachm.toml lets it stand. It runs when nothing fails.
+uint32 twice(string name) {
+    return find(name, 21) * 2;
+}
+
+none main() {
+    io::outln(f"fine: ${twice("ok")}");
+    // A handler for one failure only: the others crash.
+    uint32 n = find("busy", 1) fails with (ReadError e) => { maybe 99; };
+    io::outln(f"handled: ${n}");
+    uint32 m = find("x", 1) fails with (ReadError e) => { maybe 99; };
+    io::outln("not reached");
+}

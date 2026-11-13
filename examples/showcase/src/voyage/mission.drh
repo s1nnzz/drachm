@@ -42,6 +42,11 @@ rest""";
     uint32 spare = "12x"::to<uint32>() maybe 0;
     io::outln(f"ignored two failed jumps; a bad reading falls back to ${spare}");
 
+    // drachm.toml says `unhandled_fail = "crash"`, so a call may stand with
+    // nothing said about its failure. If this one failed, the run would end
+    // here with its message and exit code, like a failure that escapes `main`.
+    obey(&mut ship, &Order::Scan("buoy"));
+
     // Optionals: `maybe` supplies a fallback, `is empty` asks.
     string[?] wanted = ["coil", "warp core", "valve"];
     for (&string part of wanted) {

@@ -719,7 +719,10 @@ codes! {
          does. Fall back to a value with `maybe`, or pass the failure up with\n\
          `fails` (the caller must then list the failure type itself).\n\n\
          \x20   uint32 n = parse(line) maybe 0;\n\
-         \x20   uint32 m = parse(line) fails;";
+         \x20   uint32 m = parse(line) fails;\n\n\
+         With `unhandled_fail = \"crash\"` in `drachm.toml` the call is allowed:\n\
+         if it fails, the program prints the failure's message and ends with\n\
+         the failure's exit code.";
     E0545: "handler for a failure the call cannot raise",
         "A `fails with (Type e)` handler names a failure that the call cannot\n\
          fail with. Handle one of the failures the function lists after `fails`.";

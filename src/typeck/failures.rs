@@ -935,7 +935,10 @@ impl Checker<'_> {
                     .help("remove it"),
             );
         }
-        if catch_all.is_none() && seen.len() < n && ok {
+        if catch_all.is_none() && seen.len() < n && ok && self.crashes_at(e.span) {
+            // `unhandled_fail = crash`: the failures nobody handles stop the program.
+            arms.push(self.crash_arm(fail_ty));
+        } else if catch_all.is_none() && seen.len() < n && ok {
             let missing: Vec<EnumId> = ids.iter().enumerate().filter(|(i, _)| !seen.contains(i)).map(|(_, &id)| id).collect();
             self.diags.push(
                 Diagnostic::at(self.unhandled_failure_code(), e.span, format!("`{}` can fail with {} here and nothing handles it", f.name, self.fail_names(&missing)))
@@ -1097,18 +1100,82 @@ impl Checker<'_> {
     }
 
     /// E0544: a call that can fail, with nothing after it.
-    pub(super) fn check_unhandled(&mut self, e: &ast::Expr, x: &hir::Expr) {
+    pub(super) fn check_unhandled(&mut self, e: &ast::Expr, x: hir::Expr) -> hir::Expr {
         if self.suffix_ok == Some(e as *const ast::Expr as usize) {
-            return;
+            return x;
         }
         // `a != b` with a failing `==` is the negation of the call.
         if let hir::ExprKind::Not(inner) = &x.kind
             && matches!(&inner.kind, hir::ExprKind::Call(fid, _) if !self.g.sigs[*fid].fails.is_empty())
         {
+            if self.crashes_at(e.span) {
+                return self.crash_on_failure(x);
+            }
             self.report_unhandled(e.span, inner);
-            return;
+            return x;
         }
-        self.report_unhandled(e.span, x);
+        let failing = match &x.kind {
+            hir::ExprKind::Call(fid, _) => !self.g.sigs[*fid].fails.is_empty(),
+            hir::ExprKind::System(_, _, fails) => !fails.is_empty(),
+            hir::ExprKind::TryParse { .. } => true,
+            _ => false,
+        };
+        if failing && self.crashes_at(e.span) {
+            return self.crash_on_failure(x);
+        }
+        self.report_unhandled(e.span, &x);
+        x
+    }
+
+    /// Is `unhandled_fail = crash` in force at `span`?
+    fn crashes_at(&self, span: Span) -> bool {
+        self.g.settings_at(span).unhandled_fail == crate::config::UnhandledFail::Crash
+    }
+
+    /// A handler for every failure that reports it and ends the program with
+    /// the failure's exit code, like a failure that leaves `main` (the message
+    /// comes from the failure's variant). Used for `unhandled_fail = crash`.
+    fn crash_arm(&mut self, fail_ty: Type) -> hir::HandlerArm {
+        let fen = fail_ty.enum_id().expect("a failure type");
+        let (mf, xf) = self.g.fail.fns[&fen];
+        let bind = self.hidden_named("crash", fail_ty);
+        let message = self.hidden_named("crash message", Type::Str);
+        let code = self.hidden_named("crash code", Type::U8);
+        let first = if self.g.enums[fen].kind == EnumKind::FailSet {
+            let inner = self.g.enums[fen].variants[0].fields[0].ty.unwrap();
+            payload(local(bind, fail_ty), 0, 0, inner)
+        } else {
+            local(bind, fail_ty)
+        };
+        let slot = payload(first, 0, 0, Type::U64);
+        let place = |local| hir::Place { local, proj: Vec::new(), span: NOWHERE };
+        let body = vec![
+            hir::Stmt::Decl(bind),
+            hir::Stmt::Decl(message),
+            hir::Stmt::Decl(code),
+            hir::Stmt::Assign(place(message), expr(hir::ExprKind::Call(mf, vec![local(bind, fail_ty)]), Type::Str)),
+            hir::Stmt::Assign(place(code), expr(hir::ExprKind::Call(xf, vec![local(bind, fail_ty)]), Type::U8)),
+            hir::Stmt::Expr(expr(
+                hir::ExprKind::Report { msg: Box::new(local(message, Type::Str)), slot: Box::new(slot), exit: Some(Box::new(local(code, Type::U8))) },
+                Type::None,
+            )),
+        ];
+        hir::HandlerArm { member: None, bind, body, end: NOWHERE }
+    }
+
+    /// The failing call `x` (not handled anywhere) under `unhandled_fail = crash`:
+    /// a call that, when it fails, reports and exits.
+    fn crash_on_failure(&mut self, x: hir::Expr) -> hir::Expr {
+        let span = x.span;
+        let negated = matches!(x.kind, hir::ExprKind::Not(_));
+        let ty = x.ty;
+        let Ok(f) = self.classify(x) else { unreachable!("a failing call") };
+        let n = f.fails.len();
+        let fail_ty = if n == 1 { self.g.enums[f.fails[0]].ty } else { failure_set(self.g, &f.fails) };
+        let arm = self.crash_arm(fail_ty);
+        let label = self.new_label();
+        let handled = expr(hir::ExprKind::Handled { call: Box::new(f.call), arms: vec![arm], label }, f.ok).at(span);
+        if negated { expr(hir::ExprKind::Not(Box::new(handled)), ty).at(span) } else { handled }
     }
 
     fn unhandled_failure_code(&self) -> &'static crate::diag::codes::Code {

@@ -1387,7 +1387,11 @@ impl<'a> Builder<'a> {
             }
             ExprKind::Report { msg, slot, exit: Some(code) } => {
                 let ops = self.operands(&[&**msg, &**slot, &**code], &|i| (i < 2).then_some((i == 1, false)));
-                self.call(Callee::ReportExit, ops, Type::None)
+                let done = self.call(Callee::ReportExit, ops, Type::None);
+                // The program ends in the call: nothing after it runs.
+                self.end(TerminatorKind::Unreachable);
+                self.cur = self.new_block();
+                done
             }
             ExprKind::Radix { value, base, upper } => {
                 let ops = self.operands(&[&**value], &|_| None);

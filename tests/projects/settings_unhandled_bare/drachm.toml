@@ -1,0 +1,5 @@
+[project]
+name = "bare"
+
+[behaviour]
+unhandled_fail = "crash"

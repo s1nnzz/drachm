@@ -132,14 +132,15 @@ unsigned_negate = "wrap"   # wrap | error | signed
 [Overflow](design-config.md#overflow).
 
 ### Other behaviour settings
-<!-- status: not-implemented -->
 
 `overflow` covers arithmetic, constants that do not fit, shifts and conversions.
 A project that values catching mistakes picks `panic`; one that wants the
 arithmetic of a hash function keeps `wrap`. `unhandled_fail = "crash"` lets a
 call to a failing function stand without saying what to do, and stops the
-program with a message if it fails; it is the default in scripts and a bad idea
-in a long-lived program (see [Error handling](guide-errors-handling.md)).
+program with the failure's message and exit code if it fails; it is the
+default in scripts and a bad idea in a long-lived program (see
+[Error handling](guide-errors-handling.md) and
+[Unhandled failures](design-config.md#unhandled-failures)).
 
 ## Warnings
 <!-- status: not-implemented -->

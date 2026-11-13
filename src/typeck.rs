@@ -3007,7 +3007,7 @@ impl<'a> Checker<'a> {
                 if x.span == Span::new(0, 0) {
                     x.span = e.span;
                 }
-                self.check_unhandled(e, &x);
+                let x = self.check_unhandled(e, x);
                 index::with(|ix| ix.types.push((e.span, index::demangle(&x.ty.to_string()))));
                 Some(Val::Expr(x))
             }
