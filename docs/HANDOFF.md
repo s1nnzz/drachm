@@ -101,5 +101,6 @@ For a new session with no memory of earlier conversations. Read this, then
 - VS Code: `~/.vscode/extensions/drachm-0.1.0` -> `editors/vscode` (run
   `npm run compile` there after TypeScript changes); vscode-icons custom icon in
   `~/.config/Code/User/vsicons-custom-icons/file_type_drachm.svg`.
-- `examples/stupid.drh` is the owner's untracked scratch file: never add,
-  edit or delete it (it makes three `examples` test cases fail; that's expected).
+- `examples/stupid.drh` is the owner's scratch file, now tracked as a real
+  example (`tests/examples/stupid.out`): all tests pass, no expected failures.
+  If the owner edits it, rebless its `.out` (ask first).
