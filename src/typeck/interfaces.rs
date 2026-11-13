@@ -470,6 +470,10 @@ pub(super) fn validate(g: &mut Globals, diags: &mut Vec<Diagnostic>) {
         if !g.ifaces.list[i].builtin && !generics::check_tparams(g, &decl.tparams, diags) {
             g.ifaces.list[i].usable = false;
         }
+        if let Some(p) = decl.tparams.iter().find(|p| p.value.is_some()) {
+            diags.push(Diagnostic::at(&codes::E0901, p.span, "a value parameter on an interface is not supported yet").help("value parameters work on functions, structs and enums"));
+            g.ifaces.list[i].usable = false;
+        }
     }
     for i in 0..n {
         if !g.ifaces.list[i].usable || !g.ifaces.list[i].decl.tparams.is_empty() {

@@ -281,6 +281,24 @@ public:
 
 X draw_from<X, Src with Source<X>>(&mut Src s) { return s::next(); }
 
+// A value parameter puts a number into the type: a rack has a fixed number of
+// slots, and `Rack<uint32, 3>` is not `Rack<uint32, 4>`.
+struct Rack<X, uint32 Slots> {
+public:
+    X[Slots] mounts;
+    static uint32 slots() { return Slots; }
+    X mounted(uint32 i) { return copy self.mounts[i]; }
+}
+
+// The length is worked out from the array that is passed in.
+float64 total_draw<uint32 Len>(&float64[Len] draws) {
+    mut float64 total = 0.0;
+    for (float64 d of draws) { total += d; }
+    return total;
+}
+
+uint32 count_of<X, uint32 Len>(&X[Len] items) { return Len; }
+
 none part3() {
     io::outln("== Part 3: ship systems ==");
     mut Reactor core = Reactor::standard();
@@ -305,6 +323,9 @@ none part3() {
     mut float64 convoy_power = 0.0;
     for (Drive d of convoy) { convoy_power += d::power(); }
     io::outln(f"convoy of ${convoy.size} draws ${convoy_power} kW");
+    Rack<uint32, 3> rack = new Rack<uint32, 3> of ([4, 8, 15]);
+    float64[3] draws = [core::power(), engine::power(), convoy_power];
+    io::outln(f"a rack of ${Rack<uint32, 3>::slots()} holds ${rack::mounted(2)} in its last slot; ${count_of(&draws)} draws total ${total_draw(&draws)} kW");
     io::outln("");
 }
 

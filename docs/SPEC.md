@@ -373,9 +373,21 @@ Type parameters always use `<>`. `with` constrains them.
   and `twice<unit m>(3.0<m>)`. A parameter may put `U` inside a bigger unit
   (`float64<U/s>`), and `U` is worked out from the argument (`dist(3.0<m/s>, 2.0<s>)`
   gives `U = m`). When no argument carries a unit, the call writes one (E0601).
-- Not built: a constraint on a unit parameter (`unit U with Shape`, E0901); an
-  array length as a value parameter, decided as `struct Buffer<T, uint32 N> { T[N]
-  items; }` (Q12, not built: a parse error today); methods with type parameters of
+- Built (Q12): value parameters. A generic takes a whole number written like a
+  variable, `struct Buffer<T, uint32 N> { T[N] items; }`; the type is any `uintN` or
+  `sintN`. The argument is a constant expression (`Buffer<sint32, 16>`,
+  `Buffer<sint32, 2 * 8>`) or a value parameter of the enclosing generic; the value
+  is part of the type, so `Buffer<sint32, 4>` is not `Buffer<sint32, 8>`. Functions
+  take them and work them out from arguments (`sint32 sum<uint32 N>(&sint32[N] a)`);
+  the body uses `N` as a constant of its type (`return N;`), also when it is not a
+  length (`struct Mod<uint64 P>`). Errors: E0634 (not a constant), E0635 (does not
+  fit the parameter's type), E0636 (length 0), E0602 (a type for a value or the
+  reverse), E0603 (two arguments disagree), E0609 (used as a type). E0901: a
+  calculation on a value parameter in a type (`T[N + 1]`, `Buffer<T, N * 2>`), a
+  constraint on a value parameter, a value parameter on an interface, a value above
+  the largest `sint128`. There are no named constants yet, so a name that is not a
+  value parameter is E0634.
+- Not built: a constraint on a unit parameter (`unit U with Shape`, E0901); methods with type parameters of
   their own, allowed only through interface methods (Q15: `interface Mappable<T>
   { U[?] map<U>((T) => U f); }`, E0901 today).
 

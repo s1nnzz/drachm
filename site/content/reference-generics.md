@@ -123,9 +123,9 @@ an argument too, written with `unit` in front: `Track<float64, unit m/s>`
 four (`uint8[4]`); they can be stacked (`uint32[?][?]`) and followed by `?`
 (`string[?]?`). A length of 0 is an error. Lists and arrays are described in
 [Arrays and lists](reference-collections.md); a generic function can take
-`&T[?]` and have `T` worked out from the list. An array length as a generic
-value parameter (`struct Buffer<T, uint32 N>`) is not built yet; see
-[Array lengths as parameters](design-generics.md#array-lengths-as-parameters).
+`&T[?]` and have `T` worked out from the list. An array length can be a
+generic value parameter (`struct Buffer<T, uint32 N>`); see
+[Value parameters](#value-parameters).
 
 ## Generic structs and enums
 
@@ -498,6 +498,45 @@ follows it. Using a private member in a plain block is E0212, and the help
 points at `trusted`.
 
 <!-- example: iface-trusted -->
+
+## Value parameters
+
+A generic can take a whole number as a parameter. It is written like a
+variable: the integer type, then the name. The classic use is an array length,
+`struct Buffer<T, uint32 N> { T[N] items; }`, but the type can be any integer
+type (`uintN` or `sintN`) and the number need not be a length: `struct Mod<uint64
+P>` is arithmetic modulo `P`.
+
+<!-- example: gen-values -->
+
+Where the type is used, the argument is any constant: a number, a calculation
+on numbers (`Buffer<sint32, 2 * 8>`), or a value parameter of the generic you
+are inside (`Wrap<M>` can hold a `Buffer<sint32, M>`). The values are part of
+the type, so `Buffer<sint32, 4>` and `Buffer<sint32, 8>` are different types,
+as `Cell<uint32>` and `Cell<sint32>` are. In the body, `N` is a constant of its
+declared type (`return N;` in a `uint32` method); in the fields and
+signatures it can also be an array length, `T[N]`. It is not a type: using it
+as one is E0609.
+
+A generic function can take them too, and works them out from the arguments:
+`sum<uint32 N>(&sint32[N] a)` called with a four-item array has `N` = 4. Two
+arguments that show the same `N` must agree (E0603). When no argument shows it,
+the call writes it, `explicit<21>()` (E0601 otherwise).
+
+The errors are short: a value that is not a constant, such as a variable, is
+E0634; one that does not fit the parameter's type (`300` for a `uint8`, `-1`
+for a `uint32`) is E0635; a length of 0 for `T[N]` is E0636; a type where a
+value goes, or a number where a type goes, is E0602.
+
+### Calculations on value parameters
+
+<!-- status: not-implemented -->
+
+A calculation on a value parameter inside a type, `T[N + 1]` or
+`Buffer<T, N * 2>`, is E0901 today, as is a constraint on a value parameter
+(`uint32 N with ...`). A value parameter on an interface is E0901 too. Named
+constants do not exist yet, so a value argument is a number, a calculation on
+numbers, or a value parameter.
 
 ## Generic over units
 

@@ -1,0 +1,38 @@
+in io;
+
+// A value parameter is a whole number given as a generic argument.
+// `Buffer<sint32, 4>` and `Buffer<sint32, 8>` are different types.
+struct Buffer<T, uint32 N> {
+    public:
+    T[N] items;
+    static uint32 capacity() { return N; }
+    T last() { return copy self.items[N - 1]; }
+}
+
+// Any whole-number type will do, and it need not be a length.
+struct Mod<uint64 P> {
+    public:
+    uint64 v;
+    Mod(uint64 x) { self.v = x % P; }
+    Mod<P> plus(&Mod<P> o) { return new Mod<P> of ((self.v + o.v) % P); }
+}
+
+// The length is worked out from the argument.
+sint32 sum<uint32 N>(&sint32[N] a) {
+    mut sint32 total = 0;
+    for (sint32 x of a) { total += x; }
+    return total;
+}
+
+none main() {
+    Buffer<sint32, 4> small = new Buffer<sint32, 4> of ([5, 6, 7, 8]);
+    io::outln(f"${Buffer<sint32, 4>::capacity()} items, last is ${small::last()}");
+    io::outln(f"${Buffer<sint32, 2 * 8>::capacity()} items");
+
+    Mod<7> a = new Mod<7> of (5);
+    Mod<7> b = new Mod<7> of (4);
+    io::outln(f"5 + 4 mod 7 = ${a::plus(&b).v}");
+
+    sint32[4] arr = [1, 2, 3, 4];
+    io::outln(f"sum = ${sum(&arr)}");
+}

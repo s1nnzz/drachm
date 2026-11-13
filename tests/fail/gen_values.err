@@ -9,3 +9,4 @@ error[E0635]: -1 does not fit `uint8`, the type of `P`
 error[E0602]: `Buffer` takes a value for `N`, not a type
 error[E0602]: `Pair` takes a type for `U`, not a number
 error[E0603]: `N` is `2` from the first argument, but `3` from the second
+error[E0901]: a value parameter on an interface is not supported yet

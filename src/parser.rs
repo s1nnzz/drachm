@@ -74,10 +74,9 @@ struct Parser<'a> {
 type Parsed<T> = Result<T, Diagnostic>;
 
 /// State of a type lookahead. `half`: the type just read ended on the first
-/// `>` of a `>>`. `nums`: an integer may be a type argument (types, not calls).
+/// `>` of a `>>`.
 struct Look {
     half: bool,
-    nums: bool,
 }
 
 /// `uint8`..`uint128`, `sint*`, `float*`: the types a `<` after them opens a unit for.
@@ -624,7 +623,7 @@ impl Parser<'_> {
     /// unit part (`<m/s>`) or type arguments (`<A, B>`) and its `[?]`/`[N]`
     /// if they are written there.
     fn name_end(&self, n: usize) -> usize {
-        let mut look = Look { half: false, nums: true };
+        let mut look = Look { half: false };
         match self.name_look(n, &mut look) {
             Some(end) if !look.half => end,
             _ => {
@@ -680,15 +679,10 @@ impl Parser<'_> {
         loop {
             let num = matches!(self.peek_at(j), Tok::Num(NumLit { value: Const::Int(_), suffix: None, .. }, None));
             let neg_num = self.peek_at(j) == &Tok::Sym("-") && matches!(self.peek_at(j + 1), Tok::Num(NumLit { value: Const::Int(_), suffix: None, .. }, None));
-            if num || neg_num || (look.nums && matches!(self.peek_at(j), Tok::Ident(_)) && self.value_op_at(j + 1)) {
-                if look.nums {
-                    // A constant expression: names, numbers, operators, parentheses.
-                    while matches!(self.peek_at(j), Tok::Ident(_) | Tok::Num(..) | Tok::Sym("+" | "-" | "*" | "/" | "%" | "~" | "(" | ")")) {
-                        j += 1;
-                    }
-                } else {
-                    // In a call only a lone number, so `a < 4 && ...` stays a comparison.
-                    j += if neg_num { 2 } else { 1 };
+            if num || neg_num || (matches!(self.peek_at(j), Tok::Ident(_)) && self.value_op_at(j + 1)) {
+                // A constant expression: names, numbers, operators, parentheses.
+                while matches!(self.peek_at(j), Tok::Ident(_) | Tok::Num(..) | Tok::Sym("+" | "-" | "*" | "/" | "%" | "~" | "(" | ")")) {
+                    j += 1;
                 }
             } else if self.unit_arg_at(j) {
                 j = self.unit_arg_end(j + 1)?;
@@ -737,7 +731,7 @@ impl Parser<'_> {
         if self.peek() != &Tok::Sym("<") || !self.type_start_at(1) {
             return false;
         }
-        let mut look = Look { half: false, nums: false };
+        let mut look = Look { half: false };
         match self.args_look(0, &mut look) {
             Some(end) if !look.half => matches!(self.peek_at(end), Tok::Sym("(" | "::")),
             _ => false,

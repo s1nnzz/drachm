@@ -53,3 +53,7 @@ none main() {
     wrong<4>(1);
     first(&x);
 }
+
+interface Sized<uint32 N> {
+    uint32 size();
+}

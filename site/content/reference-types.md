@@ -46,7 +46,7 @@ built too; see [Maps](reference-collections.md#maps). Type arguments work for ge
 functions, structs and enums today, and `Optional<T>` is `T?` spelled out; see
 [Generics](reference-generics.md). `List<X>` is `X[?]` spelled out, so a list of
 borrows is `List<&string>`; `T[N]` is an array whose length is a number (an
-array length as a generic parameter is [still to come](design-generics.md#array-lengths-as-parameters)).
+array length can be a generic [value parameter](reference-generics.md#value-parameters)).
 The collection types are on [Arrays and lists](reference-collections.md).
 
 ## Optional types
