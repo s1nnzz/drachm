@@ -1,0 +1,7 @@
+in io;
+in gravity from game.physics;
+in game.physics;
+
+none main() {
+    io::outln(physics::sqrt(1.0)->text());
+}

@@ -1,0 +1,5 @@
+in io;
+in Vector from game.a;
+in Vector from game.b;
+
+none main() { }

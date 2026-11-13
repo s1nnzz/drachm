@@ -1,0 +1,4 @@
+in io;
+in game.log;
+
+none main() { log::line("x"); io::outln("main"); }

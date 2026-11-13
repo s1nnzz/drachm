@@ -1,0 +1,1 @@
+out struct Vector { public: float64 y; }

@@ -1,0 +1,25 @@
+out uint32 LIMIT = 8;
+out fixed uint32 DOUBLE = LIMIT * 2;
+
+out failure PhysicsError {
+    TooBig(uint32 n) f"${n} is too big" exit 4,
+}
+
+out uint32 twice(uint32 n) { return n * 2; }
+
+out uint32 check(uint32 n) fails PhysicsError {
+    if (n > LIMIT) {
+        fail TooBig(n);
+    }
+    return n;
+}
+
+out struct Vector3 {
+    public:
+    float64 x;
+    float64 y;
+    float64 z;
+    static Vector3 up() { return new Vector3 of (0.0, 1.0, 0.0); }
+}
+out gravity;
+float64 gravity(float64 t) { return 9.8 * t; }

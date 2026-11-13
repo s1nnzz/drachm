@@ -65,7 +65,7 @@ pub fn parse(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>) -> Program {
         };
         if let (Some(out), Ok(())) = (out_span, &item) {
             let named = match before {
-                _ if program.consts.len() > consts_before => program.consts.last().map(|x| (x.name.clone(), x.name_span)),
+                _ if program.consts.len() > consts_before && program.consts.last().is_some_and(|c| c.value.is_some()) => program.consts.last().map(|x| (x.name.clone(), x.name_span)),
                 [f, ..] if program.funcs.len() > f => program.funcs.last().map(|x| (x.name.clone(), x.name_span)),
                 [_, s, ..] if program.structs.len() > s => program.structs.last().map(|x| (x.name.clone(), x.name_span)),
                 [_, _, e, ..] if program.enums.len() > e => program.enums.last().map(|x| (x.name.clone(), x.name_span)),
@@ -3675,6 +3675,30 @@ mod tests {
         let g = import_of("in * from game.audio;");
         assert!(g.glob && g.alias.is_none() && g.binding().is_none());
         assert_eq!(import_of("in * from game.audio as audio;").binding(), Some("audio"));
+    }
+
+    #[test]
+    fn import_file_paths_and_also_bare() {
+        let i = import_of("in \"../runtime/scheduler.drh\";");
+        assert_eq!((i.path.as_slice(), i.file.as_deref(), i.binding()), (&["scheduler".to_string()][..], Some("../runtime/scheduler.drh"), Some("scheduler")));
+        let g = import_of("in * from \"../runtime/scheduler.drh\" as sched;");
+        assert!(g.glob && g.file.is_some() && !g.also_bare && g.binding() == Some("sched"));
+        let g = import_of("in * from game.audio as snd also bare;");
+        assert!(g.glob && g.also_bare && g.binding() == Some("snd"));
+        let i = import_of("in tick from \"../runtime/scheduler.drh\";");
+        assert_eq!((i.items.len(), i.file.as_deref()), (1, Some("../runtime/scheduler.drh")));
+        assert!(!errors(&parse_src("in * from game.audio also bare;").1).is_empty());
+        assert!(!errors(&parse_src("in \"nothing\";").1).is_empty());
+    }
+
+    #[test]
+    fn qualified_names() {
+        assert_eq!(let_type("phys::Vector3 v = 1, 2;"), "phys::Vector3");
+        assert_eq!(let_type("phys::Stack<uint32> s;"), "phys::Stack<uint32>");
+        let (p, d) = parse_src("none f(a::B x) fails m::E, F { }\nout uint32 SIZE = 8;\nout fixed uint32 N = 2;");
+        assert!(d.is_empty(), "{:?}", errors(&d));
+        assert_eq!(p.funcs[0].fails.iter().map(|f| f.0.as_str()).collect::<Vec<_>>(), ["m::E", "F"]);
+        assert_eq!(p.exports.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(), ["SIZE", "N"]);
     }
 
     #[test]

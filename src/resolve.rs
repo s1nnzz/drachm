@@ -79,10 +79,6 @@ impl Info {
     fn find(&self, name: &str) -> Option<Item> {
         self.exported().into_iter().find(|(s, _)| s == name).map(|(_, i)| i)
     }
-
-    fn is_exported_shown(&self, name: &str) -> bool {
-        self.exports.iter().any(|(s, _)| s == name) || self.decls.iter().any(|d| d.name == name && d.def_of.is_some() && self.exports.iter().any(|(_, e)| Some(e) == d.def_of.as_ref()))
-    }
 }
 
 struct Ctx {
@@ -120,8 +116,9 @@ pub fn resolve(graph: &mut ModuleGraph, diags: &mut Vec<Diagnostic>) -> Program 
         edges.extend(std::mem::take(&mut w.edges));
         let extra = std::mem::take(&mut w.extra_generics);
         // Standard module imports stay, once each.
-        for imp in &prog.imports {
-            if imp.plain_name().is_some() && !merged.imports.iter().any(|x| x.path == imp.path) {
+        for (k, imp) in prog.imports.iter().enumerate() {
+            let std = matches!(graph.modules[i].targets.get(k), Some(Some(Target::Std(_))));
+            if std && imp.plain_name().is_some() && !merged.imports.iter().any(|x| x.path == imp.path) {
                 merged.imports.push(Import { path: imp.path.clone(), path_span: imp.path_span, word_form: false, items: Vec::new(), glob: false, alias: None, also_bare: false, file: None, span: imp.span });
             }
         }
@@ -234,7 +231,7 @@ fn build_scope(infos: &[Info], m: usize, graph: &ModuleGraph, diags: &mut Vec<Di
                     Some(existing) => {
                         let hidden_by = match existing {
                             Bind::Item { import: None, .. } => "your own declaration".to_string(),
-                            Bind::Item { import: Some(k), .. } => format!("the import on line {}", line_note(prog.imports[*k].span)),
+                            Bind::Item { import: Some(k), .. } => format!("the import on line {}", line_number(graph, prog.imports[*k].span)),
                             Bind::Module(_) => "a module of that name".to_string(),
                         };
                         diags.push(
@@ -292,8 +289,10 @@ fn cap(s: &str) -> String {
     c.next().map(|f| f.to_uppercase().collect::<String>() + c.as_str()).unwrap_or_default()
 }
 
-fn line_note(span: Span) -> String {
-    format!("at offset {}", span.start)
+/// The line of `span` in its file, counting from 1.
+fn line_number(graph: &ModuleGraph, span: Span) -> usize {
+    let (file, local) = graph.map.locate(span);
+    graph.map.source(file).line_of(local.start) + 1
 }
 
 fn clash(name: &str, at: Span, path: &[String]) -> Diagnostic {

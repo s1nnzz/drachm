@@ -399,6 +399,8 @@ fn borrowck() {
 ///
 /// - `expect.out` (with optional `expect.code`, `expect.in`): the project is
 ///   built both ways, run with the leak check, and must print exactly that;
+///   it must compile silently unless `expect.warn` lists the warnings (each
+///   line must appear in the compiler's output);
 /// - `expect.err` instead: `drachm check` must fail, each line of the file
 ///   must appear in the stderr. Diagnostics name their file relative to the
 ///   folder with `drachm.toml`, so the lines here are portable.
@@ -429,8 +431,18 @@ fn project_case(dir: &Path) -> Result<(), String> {
             let mut args = vec!["build", "-o", exe.to_str().unwrap()];
             args.extend(flags);
             let build = drachm(&args, dir);
-            if !build.status.success() || !build.stderr.is_empty() {
-                return Err(format!("did not compile cleanly with {flags:?}:\n{}", text(&build.stderr)));
+            let compiler_output = text(&build.stderr);
+            match read(&expect("warn")) {
+                Some(want) => {
+                    let missing = missing_lines(&want, &compiler_output);
+                    if !build.status.success() || !missing.is_empty() {
+                        return Err(format!("compiler output lacks:\n  {}\nactual output:\n{compiler_output}", missing.join("\n  ")));
+                    }
+                }
+                None if !build.status.success() || !build.stderr.is_empty() => {
+                    return Err(format!("did not compile cleanly with {flags:?}:\n{compiler_output}"));
+                }
+                None => {}
             }
             let run = run_program(&exe, stdin.exists().then_some(stdin.as_path()))?;
             let _ = fs::remove_file(&exe);

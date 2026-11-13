@@ -1,0 +1,17 @@
+out interface Named { string name(); }
+
+out struct Circle {
+    public:
+    float64 r;
+}
+
+out struct Square with Named {
+    public:
+    float64 w;
+    string name() { return "square"; }
+}
+
+out string describe(&Named n) { return n::name(); }
+
+// Not exported: other files cannot reach it.
+float64 secret() { return 1.0; }
