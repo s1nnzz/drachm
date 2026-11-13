@@ -188,3 +188,11 @@ Q5 interfaces as types: any interface can be used as `&I` (its `static` methods 
 - Q10 scripts: top-level variables are script-wide state that functions can read and change (`uint32 total = 0; none addTo(uint32 n) { total += n; }`). 10b (`main()` in a script) not asked: open.
 - Q11 a `//--!$` file flag may set only keys that change one function's code (`overflow`, `unsigned_negate`, `bounds`); the others are project-wide (a flag setting them is an error). A dependency obeys its own drachm.toml.
 - Q12 dependencies in step 7: path and git (cloned into a cache folder, tag pinned, a lock file): `sdl = { git = "https://...", tag = "v0.4" }`. Registry entries stay E0901.
+
+# Step 7 batch D (Q13-Q15) and Q12 follow-ups, 2026-11-13
+- Q13 first stdlib cut in PLAN order, including env and fs: io (files) -> string -> convert -> math -> env -> fs -> time -> process. 13b/13c not asked: open.
+- Q14 both spellings call the same function: `math::sqrt(2.0)` and `2.0::sqrt()`. 14b (`math::pi` vs bare `pi`): open.
+- Q15 a failed `assert(add(2, 3) == 5)` prints "assertion failed: add(2, 3) == 5" and the line. 15b/15c: open.
+- Named constants: a top-level non-`mut` value with a constant initializer is usable in types and array sizes (`uint32 SIZE = 8; uint8[SIZE] raw;`); `fixed` is optional and makes it a checked constant (an error if the value is not constant): `fixed uint32 MAX = SIZE * 2;` (owner: "fixed would just make it better"). Values from the run (`io::inln()`, function calls) are not usable in types.
+- Value-parameter functions keep the borrow at the call: `sum(&arr)` (E0321 rule).
+- Any constant arithmetic on value parameters inside types is allowed: `T[N + 1]`, `Buffer<T, N * 2>`, checked per instance.
