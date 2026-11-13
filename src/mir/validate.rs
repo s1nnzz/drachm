@@ -342,6 +342,7 @@ impl Validator<'_> {
             }
             Callee::Out { .. } => (Some(vec![shared(Type::Str)]), Type::None),
             Callee::InLine => (Some(Vec::new()), Type::Str),
+            Callee::Sleep => (Some(vec![Want::Exact(Type::F64)]), Type::None),
             Callee::InEnded => (Some(Vec::new()), Type::Bool),
             Callee::Parse(ty) => (Some(vec![shared(Type::Str)]), ty),
             Callee::ParseStatus(_) => (Some(vec![shared(Type::Str)]), Type::U8),

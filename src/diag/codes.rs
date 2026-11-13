@@ -265,7 +265,7 @@ codes! {
          other method is called on a value (`p::length()`). This call used the\n\
          wrong one.";
     E0230: "module not found",
-        "An `in` names a module that is neither a standard module (`io`, `si`)\n\
+        "An `in` names a module that is neither a standard module (`io`, `si`, `time`)\n\
          nor a file of the project. A path is relative to the folder of the file\n\
          that writes it: `in game.physics;` (or `in physics inside game;`) means\n\
          the file `game/physics.drh` beside this one. To start from the source\n\

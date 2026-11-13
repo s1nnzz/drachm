@@ -246,3 +246,27 @@ none main() {
     }
     assert_eq!(text(&plain.stderr), text(&optimized.stderr));
 }
+
+#[test]
+fn sleep_blocks_and_converts_time_units_on_both_backends() {
+    let s = Scratch::new("sleep");
+    fs::write(s.dir.join("main.drh"), r#"
+in si;
+in time;
+none main() {
+    time::sleep(0);
+    time::sleep(30<ms>);
+}
+"#).unwrap();
+    for flags in [&[][..], &["-O"][..]] {
+        let mut args = vec!["build", "main.drh"];
+        args.extend(flags);
+        let build = drachm(&s.dir, &args);
+        assert!(build.status.success(), "{}", text(&build.stderr));
+        let start = std::time::Instant::now();
+        let run = std::process::Command::new(s.dir.join(format!("main{}", std::env::consts::EXE_SUFFIX)))
+            .output().unwrap();
+        assert!(run.status.success(), "{}", text(&run.stderr));
+        assert!(start.elapsed() >= std::time::Duration::from_millis(30));
+    }
+}

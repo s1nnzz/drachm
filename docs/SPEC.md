@@ -1023,6 +1023,13 @@ warning[W0102]: converting `sint64` to `uint8` can lose information
 
 Standard library ("middle" size): core `io string collections math convert`;
 system `fs time env process`; concurrency/network `thread async net http`.
+
+- `in time;` gives `time::sleep(duration)`. It blocks the calling thread.
+  Bare numbers are seconds. Durations with compatible units, such as
+  `500<ms>` with `in si;`, convert to seconds. Zero returns immediately.
+  A negative, non-finite or unrepresentable duration stops with a runtime
+  error (exit 101).
+
 `json random regex crypto` are official optional packages from the Agora.
 `io::out` (no newline), `io::outln` (newline), `io::outf` (printf-style),
 `io::inln()` (the next line of standard input as a `string`, without its line

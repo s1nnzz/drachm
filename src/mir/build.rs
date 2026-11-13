@@ -1350,6 +1350,10 @@ impl<'a> Builder<'a> {
                 self.call(Callee::Text, ops, e.ty)
             }
             ExprKind::InLine => self.call(Callee::InLine, Vec::new(), Type::Str),
+            ExprKind::Sleep(duration) => {
+                let args = self.operands(&[&**duration], &|_| None);
+                self.call(Callee::Sleep, args, Type::None)
+            }
             ExprKind::InEnded => self.call(Callee::InEnded, Vec::new(), Type::Bool),
             ExprKind::TryParse { .. } => unreachable!("a text parse is always under `maybe` or `fails`"),
             ExprKind::FailMaybe { call, fallback } => self.maybe(e, call, fallback),
@@ -1993,6 +1997,7 @@ fn kind_name(k: &ExprKind) -> &'static str {
         ExprKind::Join(_) => "Join",
         ExprKind::Out { .. } => "Out",
         ExprKind::InLine => "InLine",
+        ExprKind::Sleep(_) => "Sleep",
         ExprKind::InEnded => "InEnded",
         ExprKind::TryParse { .. } => "TryParse",
         ExprKind::FailMaybe { .. } => "FailMaybe",

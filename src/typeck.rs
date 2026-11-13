@@ -133,6 +133,7 @@ struct Globals {
     ties: std::collections::BTreeMap<FuncId, Vec<Vec<(Option<usize>, usize)>>>,
     tie_jobs: Vec<ties::Job>,
     io_imported: bool,
+    time_imported: bool,
     /// The file flag `//--!$unsafe: true`.
     unsafe_allowed: bool,
     /// Memoised layout, ownership and copy answers (`layout`).
@@ -511,19 +512,20 @@ pub(crate) fn check_with_settings(
     for import in &prog.imports {
         match import.plain_name() {
             Some("io") => g.io_imported = true,
+            Some("time") => g.time_imported = true,
             Some("si") => si = true,
             // Project files are loaded by `modules`; checking names across
             // files is step 7's WP2.
             _ if import.path.len() > 1 || !import.items.is_empty() || import.glob || import.alias.is_some() => {
                 diags.push(
                     Diagnostic::at(&codes::E0901, import.span, "this form of `in` is not supported yet")
-                        .help("only `in io;` and `in si;` can be checked so far; imports of project files and items come with the name scopes of step 7"),
+                        .help("import standard modules whole, for example `in time;`"),
                 );
             }
             _ => {
                 diags.push(
                     Diagnostic::at(&codes::E0201, import.span, format!("unknown module `{}`", import.path.join(".")))
-                        .help("`io` and `si` are the only modules so far"),
+                        .help("standard modules include `io`, `si` and `time`"),
                 );
             }
         }
@@ -3037,6 +3039,9 @@ impl<'a> Checker<'a> {
                 if let ExprKind::Var(n) = &recv.kind
                     && self.lookup(n).is_none()
                 {
+                    if n == "time" {
+                        return self.time_call(name, *name_span, recv.span, targs, args, e.span);
+                    }
                     if n == "io" {
                         return self.io_call(name, *name_span, recv.span, targs, args, e.span);
                     }
@@ -3442,6 +3447,30 @@ impl<'a> Checker<'a> {
             d.help(format!("its methods are {}", list(&methods)))
         };
         self.diags.push(d);
+    }
+
+    fn time_call(&mut self, name: &str, name_span: Span, module_span: Span, targs: &[ast::TypeName], args: &[ast::Expr], span: Span) -> Option<Val> {
+        if !self.g.time_imported {
+            self.diags.push(
+                Diagnostic::at(&codes::E0206, module_span, "module `time` is used but not imported")
+                    .help("add `in time;` at the top of this file"),
+            );
+            self.g.time_imported = true;
+        }
+        if name != "sleep" {
+            self.diags.push(Diagnostic::at(&codes::E0201, name_span, format!("module `time` has no function `{name}`"))
+                .help("use `time::sleep(duration)` to pause"));
+            return None;
+        }
+        if let Some(arg) = targs.first() {
+            self.diags.push(Diagnostic::at(&codes::E0103, arg.span, "`time::sleep` takes no type arguments"));
+        }
+        let [duration] = args else {
+            self.diags.push(Diagnostic::at(&codes::E0103, span, "`time::sleep` takes one duration"));
+            return None;
+        };
+        let duration = self.coerce(duration, units::seconds_type())?;
+        Some(Val::Expr(hir::Expr::new(hir::ExprKind::Sleep(Box::new(duration)), Type::None).at(span)))
     }
 
     fn io_call(&mut self, name: &str, name_span: Span, module_span: Span, targs: &[ast::TypeName], args: &[ast::Expr], span: Span) -> Option<Val> {

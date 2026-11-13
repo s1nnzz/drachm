@@ -272,6 +272,7 @@ impl Cx<'_> {
             | ExprKind::Convert(inner)
             | ExprKind::PtrConv(inner)
             | ExprKind::Unsize(inner)
+            | ExprKind::Sleep(inner)
             | ExprKind::Text(inner)
             | ExprKind::DeepCopy(inner)
             | ExprKind::AddressOf(inner)

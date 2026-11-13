@@ -137,6 +137,9 @@ impl Analysis {
     fn members(&self, file: &Path, op: usize, recv: Option<&str>, dot: bool) -> Vec<Item> {
         let ix = &self.index;
         if let Some(r) = recv {
+            if r == "time" && !dot {
+                return vec![item("sleep", Kind::FUNCTION, "none sleep(float64<s> duration)", 0)];
+            }
             if r == "io" && !dot {
                 return IO_FUNCTIONS.iter().map(|n| item(*n, Kind::FUNCTION, "io", 0)).collect();
             }

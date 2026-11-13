@@ -21,6 +21,8 @@
 #ifndef DRACHM_STRINGS_H
 #define DRACHM_STRINGS_H
 
+void drachm_sleep(double seconds);
+
 typedef struct {
     uint8_t *ptr;
     uint64_t len; // bytes

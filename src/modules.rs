@@ -24,7 +24,7 @@ use crate::diag::{codes, Diagnostic, SourceMap, Span};
 use crate::{flags, lexer, parser};
 
 /// The modules the compiler carries inside it. WP6 grows this list.
-pub const STD_MODULES: &[&str] = &["io", "si"];
+pub const STD_MODULES: &[&str] = &["io", "si", "time"];
 
 /// Where a project's files are and what its root path starts with.
 #[derive(Debug, Clone)]

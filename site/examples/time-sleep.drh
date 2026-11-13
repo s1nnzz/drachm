@@ -1,0 +1,10 @@
+in io;
+in si;
+in time;
+
+none main() {
+    io::outln("Waiting");
+    float64<ms> pause = 20;
+    time::sleep(pause);
+    io::outln("Ready");
+}

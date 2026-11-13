@@ -46,6 +46,16 @@ pub fn si_unit_names() -> Vec<String> {
     prelude.units.into_iter().map(|u| u.name).collect()
 }
 
+/// The time module accepts durations expressed in seconds.
+pub(super) fn seconds_type() -> Type {
+    static SECONDS: std::sync::OnceLock<Unit> = std::sync::OnceLock::new();
+    Type::F64.with_unit(SECONDS.get_or_init(|| Unit {
+        dim: vec![("s", 1)],
+        scale: BigRational::one(),
+        offset: BigRational::zero(),
+    }))
+}
+
 /// Is `name` a declared unit?
 pub(super) fn is_unit_name(g: &Globals, name: &str) -> bool {
     g.units.borrow_mut().table.lookup(name).is_some()
@@ -1360,6 +1370,7 @@ fn children_mut(e: &mut hir::Expr) -> Vec<&mut hir::Expr> {
         | K::Convert(x)
         | K::PtrConv(x)
         | K::Unsize(x)
+        | K::Sleep(x)
         | K::Text(x)
         | K::DeepCopy(x)
         | K::Deref(x)

@@ -1375,6 +1375,10 @@ impl Cg<'_, '_> {
                 let out = self.dest_addr(dest);
                 self.rt("drachm_in_line", &[ptr], &[], &[out]);
             }
+            Callee::Sleep => {
+                let seconds = self.operand(&args[0].op);
+                self.rt("drachm_sleep", &[types::F64], &[], &[seconds]);
+            }
             Callee::InEnded => {
                 let r = self.rt("drachm_in_ended", &[], &[types::I8], &[]);
                 if let Some(d) = dest {

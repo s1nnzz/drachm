@@ -1,8 +1,11 @@
 #!/usr/bin/env drachm
 in io;
 in signals;
+in si;
+in time;
 
 io::outln("Drachma dispatch to harbour");
 for (uint32 relay of 1..3) {
+    time::sleep(2<ms>);
     io::outln(signals::packet(relay));
 }

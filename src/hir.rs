@@ -641,6 +641,7 @@ pub enum ExprKind {
     InLine,
     /// `io::ended()`: true when standard input has nothing left.
     InEnded,
+    Sleep(Box<Expr>),
     /// `&place` / `&mut place` (the place may also be a temporary value).
     Borrow { mutable: bool, place: Box<Expr> },
     /// Reads through a borrow or pointer; also a place.
@@ -742,6 +743,7 @@ impl Expr {
             | K::Convert(x)
             | K::PtrConv(x)
             | K::Unsize(x)
+            | K::Sleep(x)
             | K::Text(x)
             | K::DeepCopy(x)
             | K::Deref(x)

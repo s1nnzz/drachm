@@ -85,7 +85,7 @@ struct Ctx {
     infos: Vec<Info>,
     scopes: Vec<HashMap<String, Bind>>,
     /// Imports of each module that are the standard `io`.
-    io_imported: Vec<bool>,
+    std_imports: Vec<HashSet<&'static str>>,
     /// Imports of each module that are the standard `si` (its units are per file).
     si_imported: Vec<bool>,
     /// The names of the units `in si;` brings.
@@ -100,11 +100,11 @@ pub fn resolve(graph: &mut ModuleGraph, diags: &mut Vec<Diagnostic>) -> Program 
         infos.push(info_of(i, &m.name, &m.program));
     }
     let si_names = crate::typeck::si_unit_names().into_iter().collect();
-    let mut cx = Ctx { infos, scopes: Vec::new(), io_imported: Vec::new(), si_imported: Vec::new(), si_names };
+    let mut cx = Ctx { infos, scopes: Vec::new(), std_imports: Vec::new(), si_imported: Vec::new(), si_names };
     for i in 0..n {
-        let (scope, io, si) = build_scope(&cx.infos, i, graph, diags);
+        let (scope, std, si) = build_scope(&cx.infos, i, graph, diags);
         cx.scopes.push(scope);
-        cx.io_imported.push(io);
+        cx.std_imports.push(std);
         cx.si_imported.push(si);
     }
 
@@ -186,11 +186,11 @@ fn info_of(index: usize, name: &str, p: &Program) -> Info {
     Info { name: name.to_string(), prefix, decls, exports }
 }
 
-fn build_scope(infos: &[Info], m: usize, graph: &ModuleGraph, diags: &mut Vec<Diagnostic>) -> (HashMap<String, Bind>, bool, bool) {
+fn build_scope(infos: &[Info], m: usize, graph: &ModuleGraph, diags: &mut Vec<Diagnostic>) -> (HashMap<String, Bind>, HashSet<&'static str>, bool) {
     let info = &infos[m];
     let prog = &graph.modules[m].program;
     let mut scope: HashMap<String, Bind> = HashMap::new();
-    let mut io = false;
+    let mut std = HashSet::new();
     let mut si = false;
     for d in &info.decls {
         // Two declarations with one name are the checker's E0202.
@@ -202,7 +202,7 @@ fn build_scope(infos: &[Info], m: usize, graph: &ModuleGraph, diags: &mut Vec<Di
         let j = match target {
             Target::Std(name) => {
                 if imp.plain_name().is_some() || imp.binding().is_some() && imp.items.is_empty() && !imp.glob && imp.alias.is_none() {
-                    io |= *name == "io";
+                    std.insert(*name);
                     si |= *name == "si";
                 } else {
                     diags.push(
@@ -306,7 +306,7 @@ fn build_scope(infos: &[Info], m: usize, graph: &ModuleGraph, diags: &mut Vec<Di
             bind_module(&mut scope, name, at, diags);
         }
     }
-    (scope, io, si)
+    (scope, std, si)
 }
 
 fn cap(s: &str) -> String {
@@ -934,25 +934,19 @@ impl Walker<'_> {
                 }
             }
             ExprKind::Method { recv, targs, args, unit, name, .. } => {
-                // `io::outln` and friends: the standard module must be imported by this file.
-                if let ExprKind::Var(v) = &recv.kind
-                    && v == "io"
-                    && !self.locals.contains(v)
-                    && self.cx.io_imported[self.m]
+                if let ExprKind::Var(module) = &recv.kind
+                    && matches!(module.as_str(), "io" | "time")
+                    && !self.locals.contains(module)
                 {
-                    self.module_spans.push(recv.span);
-                }
-                if let ExprKind::Var(v) = &recv.kind
-                    && v == "io"
-                    && !self.locals.contains(v)
-                    && !self.cx.io_imported[self.m]
-                    && self.scope().get("io").is_none()
-                {
-                    self.diags.push(
-                        Diagnostic::at(&codes::E0206, recv.span, "module `io` is used but not imported")
-                            .note("not imported in this file")
-                            .help("add `in io;` at the top of this file: every file imports what it uses"),
-                    );
+                    if self.cx.std_imports[self.m].contains(module.as_str()) {
+                        self.module_spans.push(recv.span);
+                    } else if self.scope().get(module).is_none() {
+                        self.diags.push(
+                            Diagnostic::at(&codes::E0206, recv.span, format!("module `{module}` is used but not imported"))
+                                .note("not imported in this file")
+                                .help(format!("add `in {module};` at the top of this file: every file imports what it uses")),
+                        );
+                    }
                 }
                 let _ = name;
                 self.expr(recv);

@@ -52,6 +52,16 @@ fn panic_with(msg: &'static std::ffi::CStr) -> ! {
     unsafe { drachm_panic(msg.as_ptr()) }
 }
 
+#[unsafe(no_mangle)]
+pub extern "C-unwind" fn drachm_sleep(seconds: f64) {
+    let Ok(duration) = std::time::Duration::try_from_secs_f64(seconds) else {
+        panic_with(c"sleep duration must be finite, non-negative and representable");
+    };
+    if !duration.is_zero() {
+        std::thread::sleep(duration);
+    }
+}
+
 fn index_panic() -> ! {
     panic_with(c"string index out of range")
 }

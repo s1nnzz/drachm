@@ -847,6 +847,10 @@ impl Gen<'_> {
                 let dest = dest_lv.expect("a string result has a destination");
                 self.line(format!("drachm_in_line(&{dest});"));
             }
+            Callee::Sleep => {
+                let seconds = self.operand(&args[0].op);
+                self.line(format!("drachm_sleep({seconds});"));
+            }
             Callee::InEnded => {
                 let dest = dest_lv.expect("a bool result has a destination");
                 self.line(format!("{dest} = drachm_in_ended();"));

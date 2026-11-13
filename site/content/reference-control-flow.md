@@ -149,3 +149,13 @@ a repeated text, or a text that an earlier `globbed` case matches. Other overlap
 are not reported.
 
 <!-- example: match-text -->
+
+
+## Pausing a program
+
+Import `time` to use `time::sleep(duration)`. The call blocks the current
+thread. A bare number is in seconds. Import `si` to write a duration such as
+`20<ms>`. Zero returns immediately. A negative, non-finite or unrepresentable
+duration stops the program with exit code 101.
+
+<!-- example: time-sleep -->

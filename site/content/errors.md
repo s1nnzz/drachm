@@ -348,7 +348,7 @@ wrong one.
 
 ## E0230: module not found
 
-An `in` names a module that is neither a standard module (`io`, `si`)
+An `in` names a module that is neither a standard module (`io`, `si`, `time`)
 nor a file of the project. A path is relative to the folder of the file
 that writes it: `in game.physics;` (or `in physics inside game;`) means
 the file `game/physics.drh` beside this one. To start from the source
