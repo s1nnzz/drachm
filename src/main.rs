@@ -14,6 +14,7 @@ usage:
   drachm run   [file.drh | folder] [-O]                 compile and run
   drachm check [file.drh | folder] [--dump-mir | --dump-borrowck]  check for errors only (the dumps print the MIR or the borrow checker state)
   drachm new <name>                            make a project folder with drachm.toml and src/main.drh
+  drachm lsp                                   run the language server on stdin and stdout (for editors)
   drachm explain <code>                        describe an error code, e.g. E0101
 
 A file or a project folder (one with drachm.toml) is given; the default is the
@@ -99,6 +100,9 @@ fn parse(args: &[String]) -> Command {
     if cmd == "new" {
         let [_, name] = args else { die("new needs one name, e.g. `drachm new mygame`") };
         return Command::New(name.clone());
+    }
+    if cmd == "lsp" {
+        exit(drachm::lsp::run());
     }
     if cmd == "explain" {
         let Some(id) = args.get(1) else { die("explain needs a code, e.g. `drachm explain E0101`") };

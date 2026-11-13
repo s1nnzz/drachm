@@ -8,7 +8,7 @@
   "private": true,
   "main": "./out/extension.js",
   "engines": {
-    "vscode": "^1.75.0"
+    "vscode": "^1.82.0"
   },
   "categories": [
     "Programming Languages",
@@ -79,6 +79,11 @@
         "category": "Drachm"
       },
       {
+        "command": "drachm.restartServer",
+        "title": "Restart Language Server",
+        "category": "Drachm"
+      },
+      {
         "command": "drachm.explain",
         "title": "Explain Error Code",
         "category": "Drachm"
@@ -114,10 +119,15 @@
           "default": "drachm",
           "description": "The drachm compiler to run. A name on PATH, or a full path such as /usr/local/bin/drachm."
         },
+        "drachm.languageServer": {
+          "type": "boolean",
+          "default": true,
+          "description": "Start `drachm lsp`, the language server: diagnostics while you type, hover, go to definition and completion. Turn it off to fall back to `drachm check` on save."
+        },
         "drachm.checkOnSave": {
           "type": "boolean",
           "default": true,
-          "description": "Run `drachm check` on each save of a .drh file and show its errors in the Problems panel."
+          "description": "Only when the language server is off: run `drachm check` on each save of a .drh file and show its errors in the Problems panel."
         }
       }
     },
@@ -180,9 +190,12 @@
     "watch": "tsc -watch -p ./",
     "test": "npm run compile && vscode-tmgrammar-test -g syntaxes/drachm.tmLanguage.json \"tests/*.drh\" && node --test out/test/parse.test.js"
   },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
   "devDependencies": {
     "@types/node": "^20.19.43",
-    "@types/vscode": "1.75.0",
+    "@types/vscode": "1.82.0",
     "typescript": "^5.9.3",
     "vscode-tmgrammar-test": "^0.1.3"
   }

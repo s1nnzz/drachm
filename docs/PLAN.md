@@ -29,7 +29,7 @@ answers into `docs/SPEC.md` and the design doc, and note leftovers under that st
 | 7.1 | C header import (`in * from c."SDL2/SDL.h" as sdl;`), right after step 7 | not started; owner, 2026-11-13: scheduled next after step 7; not all calls `unsafe` if avoidable |
 | 7.6 | Package manager (`drachm add/remove/update`, git tags as versions, per-project `deps/`, later the Agora; ties into C header packages) | not started; owner answers "Package manager, 2026-11-13" |
 | 7.5 | MIR optimiser: SSA, inlining, scalar replacement, constant folding, loop opts, check elimination, alias info from borrows | not started |
-| 8 | Language server | not started |
+| 8 | Language server | partly done (pulled forward): `drachm lsp` (`src/lsp/`, `lsp-server`), diagnostics on change/save for files and projects, parser recovery for unclosed blocks, hover, go to definition and completion from a typeck side table (`src/typeck/index.rs`), VS Code client; left: inlay hint for the inferred `self` mode, imports completion, rename, references, formatting |
 | D | Documentation site (cross-cutting) | live locally: lessons 1-9, reference, design pages with status badges |
 | D2 | Site redesign | not started: a full visual re-look of the docs site to make everything look super duper sexy (owner, 2026-11-13); see "Site redesign" below |
 
@@ -858,6 +858,21 @@ Work:
 4. A VS Code extension with a TextMate grammar for highlighting `.drh`.
 
 VS Code first (decided).
+
+**Progress (pulled forward, 2026-11-13).** Built: `drachm lsp` (`src/lsp/`;
+`lsp-server` + `lsp-types`, a synchronous loop, no async runtime), diagnostics
+from the open buffers (debounced 250 ms on change, at once on save; a buffer
+overlay in `modules::with_overlay`, so no temp files) for single files and project
+folders (a file of a project is checked as part of the project); parser recovery
+(an unclosed `{` keeps the block and struct read so far, the CLI output is
+unchanged); hover, go to definition and completion from a side table that the
+checker fills while `typeck::index::collect` is running (`src/typeck/index.rs`,
+hooks are one-liners at the places names and types are resolved); the VS Code
+client. With syntax errors the checker still runs on the recovered tree, for the
+table only (its errors are dropped). Completion patches the buffer under the
+cursor (receiver kept with a placeholder member, or a placeholder name) and
+analyses that. Not built: the inferred-`self` inlay hint, imports completion,
+rename, references, formatting, builtin method signatures in completion.
 
 **Open (ask owner):** highlighting colours/theme, if they care.
 

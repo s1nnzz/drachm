@@ -10,6 +10,7 @@ mod dynamic;
 mod enums;
 mod failures;
 mod fill;
+pub mod index;
 mod generics;
 mod interfaces;
 mod iterable;
@@ -744,6 +745,7 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
     }
     let conformances = std::mem::take(&mut g.ifaces.records);
     let (dyn_ifaces, vtables) = dynamic::finish(&mut g, &structs);
+    index::finish(&g, src);
     let mut program = hir::Program { funcs: funcs.into_iter().map(|f| f.unwrap_or_else(placeholder)).collect(), structs, enums: enum_defs, main, collections, conformances, dyn_ifaces, vtables, closures: std::mem::take(&mut g.lambdas.closures), ties: std::mem::take(&mut g.ties) };
     if !diags.iter().any(Diagnostic::is_error) {
         lambdas::infer_captures(&mut program, diags);
@@ -1312,6 +1314,7 @@ struct MethodCtx {
 fn check_body(g: &mut Globals, src: &str, diags: &mut Vec<Diagnostic>, f: &ast::Func, method: Option<MethodCtx>, symbol: String) -> hir::Func {
     let ret = g.resolve_return(&f.ret, &mut Vec::new());
     let (fails, outcome) = failures::signature(g, f, ret, !method.is_some_and(|m| m.no_fails), &mut Vec::new());
+    let mark = index::mark();
     let mut cx = Checker::new(g, src, diags, &symbol, ret, method);
     cx.fails = fails;
     cx.outcome = outcome;
@@ -1346,6 +1349,7 @@ fn check_body(g: &mut Globals, src: &str, diags: &mut Vec<Diagnostic>, f: &ast::
         (id, ty)
     });
     let mut body = cx.block(&f.body);
+    index::close(mark, f.body.end.end);
     // A constructor that can fail leaves `self` half built on a `fail`: it owns what it has.
     if let Some((id, _)) = ctor_self
         && cx.outcome.is_some()
@@ -1558,6 +1562,11 @@ struct Checker<'a> {
     handlers: Vec<failures::HandlerCtx>,
 }
 
+/// How the hover shows a local: `mut uint32 count`.
+fn local_code(l: &index::LocalRec) -> String {
+    format!("{}{} {}", if l.mutable { "mut " } else { "" }, l.ty, l.name)
+}
+
 fn int_lit(bits: u128, ty: Type) -> hir::Expr {
     hir::Expr::new(hir::ExprKind::Int(bits), ty)
 }
@@ -1653,7 +1662,59 @@ impl<'a> Checker<'a> {
         let info = LocalInfo { name: name.to_string(), ty, mutable, is_param, is_self: false, open: false, span, written: None };
         self.locals.push(info);
         self.scopes.last_mut().unwrap().insert(name.to_string(), id);
+        self.note_declared(id);
         id
+    }
+
+    /// Tell the language server about the local `id` (see `index`).
+    pub(super) fn note_declared(&self, id: LocalId) {
+        let l = &self.locals[id];
+        index::with(|ix| {
+            let ty = l.ty.map_or("?".to_string(), |t| index::demangle(&t.to_string()));
+            let rec = index::LocalRec { name: l.name.clone(), ty, decl: l.span, mutable: l.mutable, is_param: l.is_param, end: usize::MAX };
+            if l.name != "self" {
+                ix.refs.push(index::Ref { at: l.span, def: Some(l.span), code: local_code(&rec), note: String::new() });
+            }
+            ix.locals.push(rec);
+        });
+    }
+
+    /// Tell the language server that a call at `span` names the function `name`.
+    pub(super) fn note_func(&self, name: &str, span: Span) {
+        let sig = self.g.funcs_by_name.get(name).map(|&id| self.g.sigs[id].span).or_else(|| self.g.mono.templates.get(name).map(|t| t.head.span));
+        let Some(sig) = sig else { return };
+        let at = Span::new(span.start, span.start + index::written_len(self.src, span.start));
+        let code = short(self.src, sig).to_string();
+        index::with(|ix| ix.refs.push(index::Ref { at, def: Some(index::name_in(self.src, sig, name)), code, note: String::new() }));
+    }
+
+    /// Tell the language server that `at` names method `m` of struct `s`.
+    pub(super) fn note_method(&self, s: StructId, m: &MethodInfo, at: Span) {
+        let sig = self.g.sigs[m.func].span;
+        let code = short(self.src, sig).to_string();
+        let note = format!("method of `{}`", index::demangle(&self.g.structs[s].name));
+        index::with(|ix| ix.refs.push(index::Ref { at, def: Some(index::name_in(self.src, sig, &m.name)), code, note }));
+    }
+
+    /// Tell the language server that a value of type `ty` is wanted at `at`.
+    pub(super) fn note_expected(&self, at: Span, ty: Type) {
+        if ty.enum_id().is_some() {
+            index::with(|ix| ix.expected.push((at, index::demangle(&ty.to_string()))));
+        }
+    }
+
+    /// Tell the language server that `at` names the local `id`.
+    pub(super) fn note_use(&self, id: LocalId, at: Span) {
+        let l = &self.locals[id];
+        if l.span == Span::new(0, 0) {
+            return;
+        }
+        index::with(|ix| {
+            let ty = l.ty.map_or("?".to_string(), |t| index::demangle(&t.to_string()));
+            let rec = index::LocalRec { name: l.name.clone(), ty: ty.clone(), decl: l.span, mutable: l.mutable, is_param: l.is_param, end: 0 };
+            ix.types.push((at, ty));
+            ix.refs.push(index::Ref { at, def: Some(l.span), code: local_code(&rec), note: String::new() });
+        });
     }
 
     /// A local the program cannot name, for a value the lowering needs to keep;
@@ -1694,11 +1755,13 @@ impl<'a> Checker<'a> {
 
     fn block(&mut self, b: &ast::Block) -> hir::Block {
         self.scopes.push(HashMap::new());
+        let mark = index::mark();
         let mut out = Vec::new();
         for s in b {
             self.stmt(s, &mut out);
         }
         self.scopes.pop();
+        index::close(mark, b.end.end);
         out
     }
 
@@ -1931,6 +1994,7 @@ impl<'a> Checker<'a> {
             self.expr(value);
             return;
         };
+        self.note_use(id, name_span);
         if self.filling.contains(&id) {
             self.diags.push(
                 Diagnostic::at(&codes::E0507, name_span, format!("`{name}` is still being filled, so it cannot be given a whole value"))
@@ -2050,6 +2114,7 @@ impl<'a> Checker<'a> {
                     self.diags.push(Diagnostic::at(&codes::E0201, e.span, format!("unknown binding `{name}`")));
                     return None;
                 };
+                self.note_use(id, e.span);
                 let ty = self.locals[id].ty?;
                 Some(PlaceInfo { local: id, proj: Vec::new(), ty, through_deref: false, mut_field: false, through_shared: false, through_fixed: false })
             }
@@ -2169,7 +2234,11 @@ impl<'a> Checker<'a> {
             }
             Some(m) => {
                 self.g.self_use[m.func].used = true;
-                self.lookup("self")
+                let id = self.lookup("self");
+                if let Some(id) = id {
+                    self.note_use(id, at);
+                }
+                id
             }
         }
     }
@@ -2217,6 +2286,11 @@ impl<'a> Checker<'a> {
             self.diags.push(d);
             return None;
         }
+        index::with(|ix| {
+            let ty = f.ty.map_or("?".to_string(), |t| index::demangle(&t.to_string()));
+            ix.types.push((recv_span.to(name_span), ty.clone()));
+            ix.refs.push(index::Ref { at: name_span, def: Some(f.span), code: format!("{ty} {name}"), note: format!("field of `{}`", index::demangle(&ty.to_string())) });
+        });
         Some((i, f.ty?))
     }
 
@@ -2251,6 +2325,7 @@ impl<'a> Checker<'a> {
 
     /// Check `e` and convert it to `to`, reporting a mismatch or a lossy conversion.
     fn coerce(&mut self, e: &ast::Expr, to: Type) -> Option<hir::Expr> {
+        self.note_expected(e.span, to);
         if let Type::Func(sig) = to {
             return self.coerce_func(e, to, sig);
         }
@@ -2780,6 +2855,7 @@ impl<'a> Checker<'a> {
                     x.span = e.span;
                 }
                 self.check_unhandled(e, &x);
+                index::with(|ix| ix.types.push((e.span, index::demangle(&x.ty.to_string()))));
                 Some(Val::Expr(x))
             }
             c => Some(c),
@@ -2800,7 +2876,10 @@ impl<'a> Checker<'a> {
             ExprKind::Str(parts) => self.string_literal(parts),
             ExprKind::Lambda { moves, params, body } => self.lambda_expr(*moves, params, body, e.span).map(Val::Expr),
             ExprKind::Var(name) => match self.lookup(name) {
-                Some(id) => self.read_local(id, e.span).map(Val::Expr),
+                Some(id) => {
+                    self.note_use(id, e.span);
+                    self.read_local(id, e.span).map(Val::Expr)
+                }
                 // A value parameter is a constant of its type.
                 None if let Some((ty, v)) = self.g.tenv.get(name).and_then(|t| t.as_val()) => {
                     let c = Const::Int(num_bigint::BigInt::from(v));
@@ -2899,8 +2978,10 @@ impl<'a> Checker<'a> {
             }
             ExprKind::Call { name, targs, args } => {
                 if let Some(id) = self.lookup(name) {
+                    self.note_use(id, Span::new(e.span.start, e.span.start + name.len()));
                     return self.call_value(id, name, targs, args, e.span);
                 }
+                self.note_func(name, e.span);
                 if !self.g.funcs_by_name.contains_key(name) && self.g.mono.templates.contains_key(name) {
                     return self.generic_call(name, targs, args, e.span);
                 }
@@ -3294,6 +3375,7 @@ impl<'a> Checker<'a> {
             }
             return None;
         };
+        self.note_method(s, &m, name_span);
         let func = m.func;
         if !m.is_static {
             self.diags.push(
@@ -3586,6 +3668,7 @@ impl<'a> Checker<'a> {
             }
             return None;
         };
+        self.note_method(s, &m, name_span);
         let sname = self.g.structs[s].name.clone();
         let same: Vec<FuncId> = self.g.structs[s].methods.iter().filter(|o| o.name == name && o.operator.is_none()).map(|o| o.func).collect();
         if same.len() > 1 {
