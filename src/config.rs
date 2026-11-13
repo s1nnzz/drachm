@@ -21,6 +21,7 @@ use std::path::{Path, PathBuf};
 
 use toml_edit::{ImDocument, Item, Table, Value};
 
+use crate::deps;
 use crate::diag::{codes, render_all_map, Diagnostic, SourceMap, Span};
 use crate::modules::ProjectInfo;
 
@@ -611,6 +612,9 @@ pub struct Opened {
     pub entry: PathBuf,
     pub info: ProjectInfo,
     pub config: Config,
+    /// Every dependency, transitively, each once (see `deps.rs`). Their
+    /// modules are not wired into `in` paths yet (WP2).
+    pub deps: Vec<deps::Root>,
 }
 
 /// Why `open` failed. The map holds every config file it read, so the
@@ -681,19 +685,26 @@ pub fn open(path: &Path) -> Result<Opened, Failure> {
                 path.to_path_buf()
             };
             let root = dir.join(entry_rel.parent().unwrap_or(Path::new("")));
-            let info = ProjectInfo { name: config.project.name.clone(), root, display_base: Some(dir) };
-            Ok(Opened { entry, info, config })
+            let info = ProjectInfo { name: config.project.name.clone(), root, display_base: Some(dir.clone()) };
+            let deps = dependencies_of(&dir, &config, &mut map)?;
+            Ok(Opened { entry, info, config, deps })
         }
         Home::Script(dir) => {
             let config = match load(&mut map, &dir.join(SCRIPT_FILE), SCRIPT_FILE, true) {
                 Ok(c) => c,
                 Err(diags) => return Err(Failure { map, diags }),
             };
-            let info = ProjectInfo { name: config.project.name.clone(), root: dir, display_base: None };
-            Ok(Opened { entry: path.to_path_buf(), info, config })
+            let info = ProjectInfo { name: config.project.name.clone(), root: dir.clone(), display_base: None };
+            let deps = dependencies_of(&dir, &config, &mut map)?;
+            Ok(Opened { entry: path.to_path_buf(), info, config, deps })
         }
-        Home::Bare => Ok(Opened { entry: path.to_path_buf(), info: ProjectInfo::script(path), config: Config::script() }),
+        Home::Bare => Ok(Opened { entry: path.to_path_buf(), info: ProjectInfo::script(path), config: Config::script(), deps: Vec::new() }),
     }
+}
+
+/// The folders of the dependencies of the project in `dir` (see `deps.rs`).
+fn dependencies_of(dir: &Path, config: &Config, map: &mut SourceMap) -> Result<Vec<deps::Root>, Failure> {
+    deps::resolve(dir, config, map).map_err(|diags| Failure { map: std::mem::take(map), diags })
 }
 
 fn locate(path: &Path) -> Result<Home, Diagnostic> {

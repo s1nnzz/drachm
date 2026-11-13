@@ -1366,18 +1366,20 @@ script). A folder is one or the other. Keep the one that fits.
 
 A `git` dependency could not be fetched: `git` is not installed, the
 address is wrong, or the tag does not exist. Dependencies are cloned
-into the compiler's cache folder. The message shows what git said.
+into `deps/NAME` in the project folder. The message shows what git said.
 
 ## E0809: git tag moved
 
-The tag of a git dependency now points at a different commit than
-`drachm.lock` records. The lock file pins the commit that was built
-before, so the compiler refuses the new one. If the change is wanted,
-delete `drachm.lock` and build again: the new commit is then recorded.
+A git dependency is built from the commit `drachm.lock` records, even when
+its tag moves later. When that commit is not in `deps/`, it has to be
+fetched from the tag, and the tag now names another commit: the compiler
+refuses rather than build something the lock file did not record. To take
+the new commit, delete `drachm.lock` and build again.
 
 ## E0810: dependency cycle
 
-A dependency depends on itself, directly or through other
+A dependency is part of a cycle: it depends on a project that depends on
+it, directly or through other
 dependencies. A project's dependencies must form a tree.
 
 ## E0811: library has no program

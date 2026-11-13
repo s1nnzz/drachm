@@ -15,6 +15,10 @@ The compiler uses the C compiler to link programs and to build `-O` programs.
   with the C++ workload, which Rust needs anyway. Use the MSVC Rust toolchain
   (the default). clang finds Visual Studio's linker and libraries by itself.
 
+For projects that use git dependencies, `git` must be on the `PATH` as well: the
+compiler clones each one into the project's `deps/` folder. Programs with only
+`path` dependencies or no dependencies do not need it.
+
 From the root of the repository, build in release mode.
 The compiler is then `target/release/drachm`, and the examples use that path.
 

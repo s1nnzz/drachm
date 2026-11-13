@@ -33,10 +33,11 @@ begins there. A library has no program to run: `drachm run` and `drachm build`
 say so (E0811), while `check` checks it.
 
 ## Dependencies
-<!-- status: not-implemented -->
 
-Dependencies come from a folder on this machine or a git tag. A registry version
-such as `json = "1.2"` is not supported yet (E0901): the Agora comes later.
+A dependency is a folder on this machine (`path`) or a git repository at a
+`tag`. Both are built: the compiler finds the folder, reads its own
+`drachm.toml` and resolves its dependencies in turn. A registry version such as
+`json = "1.2"` is not supported yet (E0901): the Agora comes later.
 
 ```toml
 [dependencies]
@@ -44,9 +45,16 @@ sdl = { git = "https://github.com/someone/sdl-drh", tag = "v0.4" }
 utils = { path = "../utils" }
 ```
 
-A git dependency is cloned at its tag into the compiler's cache and the commit
-is written to `drachm.lock`, so the same code is built next time. A dependency
-obeys its own `drachm.toml`.
+A git dependency is cloned at its exact tag with `git`, which must be on the
+`PATH`, into `deps/NAME` in the project's folder. Versions are tags, pinned
+exactly: there are no ranges yet. The commit it came from is written to
+`drachm.lock` beside `drachm.toml`, and the next build uses that commit even if
+the tag moves later. If the tag moved and the commit is not in `deps/`, the
+build stops (E0809); delete `drachm.lock` to take the new commit. Commit the
+lock file; whether `deps/` is committed is up to you.
+
+A dependency obeys its own `drachm.toml`. Its modules are not importable yet:
+naming them across files is the next part of step 7.
 
 ## Build settings
 <!-- status: not-implemented -->

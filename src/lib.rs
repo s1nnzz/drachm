@@ -8,6 +8,7 @@ pub mod codegen_common;
 pub mod codegen_mir;
 pub mod config;
 pub mod consts;
+pub mod deps;
 pub mod diag;
 pub mod flags;
 pub mod hir;

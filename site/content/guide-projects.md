@@ -75,9 +75,10 @@ setting below chooses whether that is a warning or an error.
 
 `drachm.toml` names the project. The `[project]` section is built: `name` is
 required, `kind = "library"` marks code that other projects use, and `entry`
-moves the start of the program (`src/main.drh` by default). The dependencies
-and the build settings below it are designed: they come from the Agora (the
-package registry), a git URL or a local path, and `drachm add json` will add one.
+moves the start of the program (`src/main.drh` by default). Dependencies from a
+local folder (`path`) or a git tag (`git` with `tag`) are read and fetched; a
+registry version such as `json = "1.2"` waits for the Agora. The build settings
+below it are designed.
 
 <!-- focus: 1-3,5-7,9,10 -->
 
