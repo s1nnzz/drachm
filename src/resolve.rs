@@ -119,7 +119,9 @@ pub fn resolve(graph: &mut ModuleGraph, diags: &mut Vec<Diagnostic>) -> Program 
     }
 
     let mut merged = Program::default();
-    merged.unsafe_allowed = graph.modules[0].program.unsafe_allowed;
+    // Each file's permission, by its base (the modules are in file order).
+    merged.unsafe_files = graph.modules.iter().flat_map(|m| m.program.unsafe_files.iter().copied()).collect();
+    merged.unsafe_files.sort_unstable();
     let mut edges: Vec<(String, String, Span)> = Vec::new();
     let mut func_module: HashMap<String, usize> = HashMap::new();
     for i in 0..n {

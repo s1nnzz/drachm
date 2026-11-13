@@ -83,7 +83,7 @@ fn a_dependency_brings_its_native_link_requirements() {
     let s = Scratch::new("inherit");
     s.put(
         "cdep/drachm.toml",
-        "[project]\nname = \"cdep\"\nkind = \"library\"\npublic_modules = [\"wrapped\"]\n\n[native]\ninclude = [\"inc\"]\nsources = [\"c/impl.c\"]\n",
+        "[project]\nname = \"cdep\"\nkind = \"library\"\npublic_modules = [\"wrapped\"]\n\n[native]\ninclude = [\"inc\"]\nsources = [\"c/impl.c\"]\nunsafe = true\n",
     );
     s.put("cdep/inc/dep.h", "#ifndef DEP_H\n#define DEP_H\nint dep_triple(int x);\n#endif\n");
     s.put("cdep/c/impl.c", "#include \"dep.h\"\nint dep_triple(int x) { return x * 3; }\n");
@@ -176,4 +176,115 @@ fn a_missing_libclang_is_reported_and_only_where_a_header_is_imported() {
         .output()
         .unwrap();
     assert!(out.status.success(), "{}", text(&out.stderr));
+}
+
+#[test]
+fn the_manifest_allows_unsafe_for_its_project_and_for_its_dependencies() {
+    // `[native] unsafe = true` in the dependency lets its wrapper use C with no
+    // file flag; the app needs nothing, and its own files have no flag either.
+    let s = Scratch::new("manifest_dep");
+    s.put(
+        "cdep/drachm.toml",
+        "[project]\nname = \"cdep\"\nkind = \"library\"\npublic_modules = [\"wrapped\"]\n\n[native]\ninclude = [\"inc\"]\nsources = [\"c/impl.c\"]\nunsafe = true\n",
+    );
+    s.put("cdep/inc/dep.h", "#ifndef DEP_H\n#define DEP_H\nint dep_triple(int x);\n#endif\n");
+    s.put("cdep/c/impl.c", "#include \"dep.h\"\nint dep_triple(int x) { return x * 3; }\n");
+    s.put("cdep/src/main.drh", "none unused() { }\n");
+    s.put(
+        "cdep/src/wrapped.drh",
+        "in * from c.\"dep.h\" as dep;\n\nout sint32 triple(sint32 x) {\n    unsafe {\n        return dep::dep_triple(x as c::int) as sint32;\n    }\n}\n",
+    );
+    s.put("app/drachm.toml", "[project]\nname = \"app\"\n\n[dependencies]\ncdep = { path = \"../cdep\" }\n");
+    s.put("app/src/main.drh", "in io;\nin cdep.wrapped as w;\n\nnone main() {\n    io::outln(f\"triple: ${w::triple(14)}\");\n}\n");
+    for flags in [&[][..], &["-O"][..]] {
+        let mut args = vec!["run", "app"];
+        args.extend(flags);
+        let run = drachm(&s.dir, &args);
+        assert!(run.status.success(), "{flags:?}: {}", text(&run.stderr));
+        assert_eq!(text(&run.stdout), "triple: 42\n", "{flags:?}");
+    }
+}
+
+#[test]
+fn the_manifest_allows_unsafe_in_every_file_of_the_project() {
+    let s = Scratch::new("manifest_own");
+    s.put("drachm.toml", &format!("[project]\nname = \"own\"\n\n[native]\ninclude = [\"{}\"]\nsources = [\"{}/drachm_fixture.c\"]\nunsafe = true\n", fixture_dir(), fixture_dir()));
+    s.put("src/main.drh", "in io;\nin other;\n\nnone main() {\n    io::outln(f\"${other::add(20, 22)}\");\n}\n");
+    s.put("src/other.drh", "in * from c.\"drachm_fixture.h\" as fx;\n\nout sint32 add(sint32 a, sint32 b) {\n    unsafe { return fx::fx_add(a as c::int, b as c::int) as sint32; }\n}\n");
+    let run = drachm(&s.dir, &["run", "."]);
+    assert!(run.status.success(), "{}", text(&run.stderr));
+    assert_eq!(text(&run.stdout), "42\n");
+}
+
+#[test]
+fn the_file_flag_is_per_file_and_a_file_without_it_is_refused() {
+    // A flag in one file does not allow `unsafe` in the others of the project.
+    let s = Scratch::new("perfile");
+    s.put("drachm.toml", &format!("[project]\nname = \"perfile\"\n\n[native]\ninclude = [\"{}\"]\nsources = [\"{}/drachm_fixture.c\"]\n", fixture_dir(), fixture_dir()));
+    s.put("src/main.drh", "//--!$unsafe: true\nin io;\nin other;\n\nnone main() {\n    io::outln(f\"${other::add(20, 22)}\");\n}\n");
+    s.put("src/other.drh", "in * from c.\"drachm_fixture.h\" as fx;\n\nout sint32 add(sint32 a, sint32 b) {\n    unsafe { return fx::fx_add(a as c::int, b as c::int) as sint32; }\n}\n");
+    let check = drachm(&s.dir, &["check", "."]);
+    assert!(!check.status.success());
+    let err = text(&check.stderr);
+    assert!(err.contains("E0317") && err.contains("other.drh"), "{err}");
+    assert!(err.contains("[native]"), "{err}");
+}
+
+#[test]
+fn a_dependency_file_may_carry_its_own_flag() {
+    // The flag is read for each file, so a dependency's file works without the app's flag.
+    let s = Scratch::new("depflag");
+    s.put(
+        "cdep/drachm.toml",
+        "[project]\nname = \"cdep\"\nkind = \"library\"\npublic_modules = [\"wrapped\"]\n\n[native]\ninclude = [\"inc\"]\nsources = [\"c/impl.c\"]\n",
+    );
+    s.put("cdep/inc/dep.h", "#ifndef DEP_H\n#define DEP_H\nint dep_triple(int x);\n#endif\n");
+    s.put("cdep/c/impl.c", "#include \"dep.h\"\nint dep_triple(int x) { return x * 3; }\n");
+    s.put("cdep/src/main.drh", "none unused() { }\n");
+    s.put(
+        "cdep/src/wrapped.drh",
+        "//--!$unsafe: true\nin * from c.\"dep.h\" as dep;\n\nout sint32 triple(sint32 x) {\n    unsafe {\n        return dep::dep_triple(x as c::int) as sint32;\n    }\n}\n",
+    );
+    s.put("app/drachm.toml", "[project]\nname = \"app\"\n\n[dependencies]\ncdep = { path = \"../cdep\" }\n");
+    s.put("app/src/main.drh", "in io;\nin cdep.wrapped as w;\n\nnone main() {\n    io::outln(f\"triple: ${w::triple(14)}\");\n}\n");
+    let run = drachm(&s.dir, &["run", "app"]);
+    assert!(run.status.success(), "{}", text(&run.stderr));
+    assert_eq!(text(&run.stdout), "triple: 42\n");
+}
+
+#[test]
+fn the_unsafe_key_must_be_true_or_false() {
+    let s = Scratch::new("badunsafe");
+    s.put("drachm.toml", "[project]\nname = \"bad\"\n\n[native]\nunsafe = \"yes\"\n");
+    s.put("src/main.drh", "none main() { }\n");
+    let check = drachm(&s.dir, &["check", "."]);
+    assert!(!check.status.success());
+    let err = text(&check.stderr);
+    assert!(err.contains("E0802") && err.contains("`unsafe` must be `true` or `false`"), "{err}");
+}
+
+#[test]
+fn foreign_pointers_copy_and_a_handover_takes_as() {
+    // A `foreign` pointer copies like a number: both names read the same text.
+    let s = Scratch::new("copy");
+    s.put("drachm.toml", &format!("[project]\nname = \"copy\"\n\n[native]\ninclude = [\"{}\"]\nsources = [\"{}/drachm_fixture.c\"]\n", fixture_dir(), fixture_dir()));
+    s.put(
+        "src/main.drh",
+        "//--!$unsafe: true\nin io;\nin * from c.\"drachm_fixture.h\" as fx;\n\nnone main() {\n    unsafe {\n        foreign *uint8 p = fx::fx_greeting();\n        foreign *uint8 q = p;\n        string? a = p::text() maybe none;\n        string? b = q::text() maybe none;\n        io::outln(a maybe \"?\");\n        io::outln(b maybe \"?\");\n    }\n}\n",
+    );
+    let run = drachm(&s.dir, &["run", "."]);
+    assert!(run.status.success(), "{}", text(&run.stderr));
+    assert_eq!(text(&run.stdout), "hello from C\nhello from C\n");
+
+    // A pointer is not a number: `as` takes a C pointer type only.
+    let s = Scratch::new("handover");
+    s.put("drachm.toml", &format!("[project]\nname = \"handover\"\n\n[native]\ninclude = [\"{}\"]\nsources = [\"{}/drachm_fixture.c\"]\n", fixture_dir(), fixture_dir()));
+    s.put(
+        "src/main.drh",
+        "//--!$unsafe: true\nin io;\nin * from c.\"drachm_fixture.h\" as fx;\n\nnone main() {\n    unsafe {\n        foreign *uint8 p = fx::fx_greeting();\n        uint64 n = p as uint64;\n        io::outln(f\"${n}\");\n    }\n}\n",
+    );
+    let check = drachm(&s.dir, &["check", "."]);
+    assert!(!check.status.success());
+    let err = text(&check.stderr);
+    assert!(err.contains("E0335") && err.contains("`as` turns a pointer into a C pointer"), "{err}");
 }

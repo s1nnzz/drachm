@@ -32,6 +32,7 @@ clash. Only the names a program uses are brought into it.
 | the name is not in the header | E0703 |
 | a C and a Drachm number mixed | E0704 |
 | `match` on a C enum without `case _` | E0705 |
+| a pointer given to C without `as foreign` | E0335 |
 | a declaration the compiler cannot use yet | E0901, with the reason |
 
 ## The `[native]` table
@@ -45,6 +46,7 @@ One table in `drachm.toml` (or `srachm.toml`):
 | `libraries` | libraries to link, like `-l` |
 | `library_dirs` | where to look for them, like `-L` |
 | `sources` | C files of the project, compiled and linked with it |
+| `unsafe` | `true` lets every file of the project use `unsafe` without the file flag |
 
 Relative paths are relative to the file that names them. Headers are read with
 the same `include` and `defines` that the program is built with. A project that
@@ -60,7 +62,10 @@ that does not have the C library installed, as long as the headers are there.
 ## Calls need `unsafe`
 
 A C function is declared `unsafe`: calling it needs an `unsafe { }` block
-(E0316), and `unsafe` needs the file flag (E0317). A wrapper function that
+(E0316), and `unsafe` needs the file flag `//--!$unsafe: true` or `unsafe = true`
+in the project's `[native]` table (E0317). The flag is read per file, and a
+dependency's files follow the dependency's own table, so an app sets nothing for
+its dependencies. A wrapper function that
 contains the block has an ordinary safe signature. Everything a wrapper's
 author must establish (valid pointers, lifetimes, who frees what) is theirs;
 a C declaration proves none of it.
@@ -102,10 +107,17 @@ not the natural one (packed or aligned fields), that has bit-fields, an
 anonymous member or a flexible array member cannot be used by value (E0901);
 pointers to it still work, as opaque handles.
 
-A `foreign` pointer copies freely, since C owns what it points at. A pointer
-made on the Drachm side (`address of p`) goes where C wants a pointer to the
-same type, and any pointer goes where C wants `void *`. The other direction,
-from a `foreign *none` to a typed pointer, is not implicit.
+A `foreign` pointer copies freely, since C owns what it points at. No pointer
+converts to a C pointer by itself (E0335). The hand-over is written with `as`,
+inside `unsafe`:
+
+- `p as foreign *T` for a `*T`, a `*fixed T` or a `foreign *T` of the same `T`
+  (`(address of n) as foreign *c::int`);
+- `p as foreign *none` for any pointer (`buf as foreign *none`, C's `void *`).
+
+The other direction, from a `foreign *none` to a typed pointer, is not
+converted at all. `as` takes no other pointer target: `p as uint64` is E0335
+too.
 
 A C enum has the type's name (`shape::shape_kind`), its named values are
 constants (`shape::SHAPE_WIDE`), and a number becomes one with `n as
@@ -127,8 +139,8 @@ shape::shape_kind`. A `match` on one needs `case _` (E0705).
 ## Text, memory and callbacks
 
 - `p::text()` on a `foreign *uint8`, in `unsafe`: the text up to the NUL as a
-  `string`. Fails with `InvalidText` for a null pointer or bytes that are not
-  UTF-8.
+  `string?`. A null pointer gives `none`. Bytes that are not UTF-8 fail with
+  `InvalidText` ("the C text is not valid UTF-8"); nothing else fails.
 - `&s as c string`, written as an argument of a C call: a `foreign *uint8` to a
   NUL-terminated copy of `s` that lives until the end of the statement. A NUL
   inside `s` is a run-time error (exit code 101).

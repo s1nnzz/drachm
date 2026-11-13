@@ -1,0 +1,12 @@
+//--!$unsafe: true
+in io;
+in * from c."drachm_fixture.h" as fx;
+
+none main() {
+    unsafe {
+        foreign *uint8 p = fx::fx_greeting();
+        fx::fx_free(p);
+        mut c::int n = 4;
+        fx::fx_divide(8, 2, address of n);
+    }
+}

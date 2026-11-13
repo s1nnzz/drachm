@@ -35,7 +35,8 @@ uint8_t drachm_fs_read(const drachm_str *path, drachm_str *out);
 uint8_t drachm_fs_write(const drachm_str *path, const drachm_str *value);
 void drachm_os_platform(drachm_str *out);
 // The text of a C string (up to its NUL), checked as UTF-8: zero on success,
-// 1 for a null pointer or bytes that are not UTF-8 (nothing is written).
+// 1 for a null pointer (`none`), 2 for bytes that are not UTF-8 (the failure).
+// Nothing is written unless the answer is zero.
 uint8_t drachm_c_text(const uint8_t *p, drachm_str *out);
 // The bytes of a string whose last byte is the terminating NUL (`&s as c
 // string`); a NUL anywhere else is a runtime error.

@@ -63,7 +63,7 @@ failure ConvertError {
 
 /// Declared when a program imports a C header (step 7.1).
 pub(super) const C_PRELUDE: &str = r#"
-failure InvalidText { Invalid "the C text is null or not valid UTF-8" }
+failure InvalidText { Invalid "the C text is not valid UTF-8" }
 "#;
 
 pub(super) const FS_PRELUDE: &str = r#"

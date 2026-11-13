@@ -25,7 +25,7 @@ pub unsafe extern "C-unwind" fn drachm_c_text(p: *const u8, out: *mut DrachmStr)
             unsafe { emit(out, text.as_bytes()) };
             0
         }
-        Err(_) => 1,
+        Err(_) => 2,
     }
 }
 

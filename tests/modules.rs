@@ -23,7 +23,7 @@ impl Tree {
             fs::create_dir_all(full.parent().unwrap()).unwrap();
             fs::write(full, text).unwrap();
         }
-        let info = ProjectInfo { name: name.map(String::from), root: dir.join("src"), display_base: Some(dir.clone()), script: false, requires_main: true, dependency_names: Vec::new(), native: Default::default() };
+        let info = ProjectInfo { name: name.map(String::from), root: dir.join("src"), display_base: Some(dir.clone()), script: false, requires_main: true, dependency_names: Vec::new(), native: Default::default(), unsafe_allowed: false };
         Tree { dir, info }
     }
 

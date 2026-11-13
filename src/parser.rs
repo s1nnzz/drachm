@@ -26,7 +26,7 @@ pub(crate) fn parse_file(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>, script
         failures: Vec::new(),
         defs: Vec::new(),
         consts: Vec::new(),
-        unsafe_allowed: false,
+        unsafe_files: Vec::new(),
         optionals: Vec::new(),
         generics: Vec::new(),
         chain_slips: Vec::new(),

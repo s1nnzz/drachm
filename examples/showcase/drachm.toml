@@ -11,3 +11,4 @@ missing_key = "panic"
 [native]
 include = ["c"]
 sources = ["c/harbour.c"]
+unsafe = true   # the project may call C and use raw pointers (no file flag)
