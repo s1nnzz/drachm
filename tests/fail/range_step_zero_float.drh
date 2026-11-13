@@ -1,0 +1,4 @@
+none main() {
+    for (float64 x of 0.0..1.0 by 0.0) { }
+    for (float64 x of 1.0..0.0 by -0.0) { }
+}

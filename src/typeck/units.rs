@@ -1322,7 +1322,7 @@ fn visit_stmt(s: &mut hir::Stmt, f: &mut dyn FnMut(&mut Type)) {
             }
         }
         hir::Stmt::Reraise(_) => {}
-        hir::Stmt::Jump(_) | hir::Stmt::Decl(_) | hir::Stmt::Destroy(_) | hir::Stmt::Forget(_) | hir::Stmt::Check { .. } => {}
+        hir::Stmt::Jump(_) | hir::Stmt::Decl(_) | hir::Stmt::Destroy(_) | hir::Stmt::Forget(_) | hir::Stmt::Check { .. } | hir::Stmt::Stop(_) => {}
     }
 }
 

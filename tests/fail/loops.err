@@ -1,6 +1,6 @@
-error[E0101]: a range loop counts in whole numbers, so its variable cannot be `float64`
-error[E0101]: a range loop counts in whole numbers, so its variable cannot be `bool`
-help: use an integer type such as `uint32` or `sint64`
+error[E0101]: a range over floats needs a `by` step
+error[E0101]: a range loop counts numbers, so its variable cannot be `bool`
+help: use a number type such as `uint32`, `sint64` or `float64`
 error[E0101]: cannot loop over a number
 help: to count, loop over a range: `for (uint32 i of 0..9) { }`
 error[E0101]: a loop over text needs a `string` or `&string` variable, not `uint32`

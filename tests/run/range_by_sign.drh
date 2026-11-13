@@ -1,0 +1,27 @@
+in io;
+
+// `by` sets the direction: a negative step counts down, and a step that points
+// away from the end gives an empty loop. The loop stops at the last value not
+// past the end, and the end itself counts when the steps land on it.
+none main() {
+    for (sint32 i of 10..0 by -2) { io::outln(i::text()); }
+    io::outln("--");
+    for (sint32 i of 0..10 by -2) { io::outln("never"); }
+    for (sint32 i of 10..0 by 2) { io::outln("never"); }
+    io::outln("--");
+
+    // A step known only at run time gives the direction at run time.
+    sint32 down = -3;
+    for (sint32 i of 9..0 by down) { io::outln(i::text()); }
+    sint32 up = 4;
+    for (sint32 i of -3..5 by up) { io::outln(i::text()); }
+    io::outln("--");
+
+    // Unsigned loops have no negative step: the direction comes from the step only.
+    uint32 two = 2;
+    for (uint32 i of 0..7 by two) { io::outln(i::text()); }
+    for (uint32 i of 7..0 by two) { io::outln("never"); }
+    uint32 near = 250;
+    for (uint8 i of 0..255 by 100) { io::outln(i::text()); }
+    io::outln(near::text());
+}

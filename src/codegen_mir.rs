@@ -1518,6 +1518,12 @@ impl Cg<'_, '_> {
                 }
                 self.rt(if unsigned { "drachm_index_panic_u" } else { "drachm_index_panic" }, &[i64t, i64t], &[], &[i, len]);
             }
+            Callee::Stop(crate::hir::StopKind::ZeroStep) => {
+                if let Some(cur) = self.b.current_block() {
+                    self.b.set_cold_block(cur);
+                }
+                self.rt("drachm_range_step_zero", &[], &[], &[]);
+            }
             Callee::Join => {
                 // The parts' values side by side, as the runtime's array.
                 let size = STR_SIZE * args.len() as u32;

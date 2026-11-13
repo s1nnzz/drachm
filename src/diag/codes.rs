@@ -142,6 +142,13 @@ codes! {
         "A value was shifted by a constant amount that is negative or not\n\
          smaller than its width. The amount wraps around the width: a `uint32`\n\
          shifted by 40 is shifted by 8.";
+    E0106: "a range step of zero",
+        "A range loop's `by` step is written as a constant zero, so the loop\n\
+         would never move on. It is rejected at compile time. A step that is\n\
+         zero only when the program runs stops the program at that point with\n\
+         the run-time error `range step is zero` (exit 101).\n\n\
+         \x20   for (uint32 i of 0..10 by 0) { }    // E0106\n\
+         \x20   for (uint32 i of 0..10 by n) { }    // a zero n stops the program";
     E0107: "constant division by zero",
         "A whole-number division or remainder has a constant zero on the right.\n\
          It would always panic, so it is rejected at compile time.";

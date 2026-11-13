@@ -1,0 +1,9 @@
+in io;
+
+// A float step that is zero at run time stops the program too, like an integer one.
+none main() {
+    io::outln("before");
+    float64 zero = 0.0;
+    for (float64 x of 0.0..1.0 by zero) { io::outln(x::text()); }
+    io::outln("never");
+}

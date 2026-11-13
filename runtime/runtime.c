@@ -70,6 +70,9 @@ _Noreturn void drachm_panic(const char *msg) {
 
 DRACHM_FN _Noreturn void drachm_div_zero(void) { drachm_panic("division by zero"); }
 
+// A range loop whose `by` step is zero at run time (the step never moves on).
+DRACHM_FN _Noreturn void drachm_range_step_zero(void) { drachm_panic("range step is zero"); }
+
 // ---- output ---------------------------------------------------------------
 
 DRACHM_FN void drachm_out_str(const char *s, uint64_t len, int newline) {

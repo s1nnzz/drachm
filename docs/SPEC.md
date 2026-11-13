@@ -126,9 +126,18 @@ match (x) {
 - `by` sets a range loop's step: `0..10 by 3` is 0, 3, 6, 9. The loop stops at
   the last value not past the end; it never clamps to the end. Integer ranges
   may omit `by` (step 1); float ranges must give it.
-  Built for integer ranges (the step is a value of the loop's type, overflow wraps).
-  A literal zero or negative step is E0901: the SPEC does not say what it does, and
-  a zero step given at run time is not checked yet (open question).
+  Built for integer and float ranges (the step is a value of the loop's type; integer
+  steps wrap on overflow).
+  - Sign: a negative step counts down (`10..0 by -2`); a step pointing away from the
+    end gives an empty loop. Unsigned loops have no negative step, so the direction
+    comes from the step alone. Built (owner, 2026-11-13). Open: the owner's note
+    gives `10..0 by -2` as 10, 8, 6, 4, 2, but the inclusive end and "the last value
+    not past the end" give 10, 8, 6, 4, 2, 0; the build follows the rule (0 included).
+  - A literal zero step is E0106 (compile error). A step that is zero at run time
+    stops the program with `range step is zero` (exit 101), like an out-of-range
+    index. Built.
+  - Floats: value k is `start + k * step` (whole-number k, no drift); the loop stops
+    at the last value not past the end. A float range without `by` is E0101. Built.
 - `match` arms are `case` blocks with no fallthrough. A missing case is a
   **warning** (config can make warnings errors).
 - Patterns: values, `case 1, 2`, inclusive ranges `case 13..19`, strings (a

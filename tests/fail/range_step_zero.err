@@ -1,1 +1,1 @@
-E0901
+error[E0106]: a range step of zero never moves on

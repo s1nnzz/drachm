@@ -382,6 +382,7 @@ impl Validator<'_> {
                 }
             }
             Callee::IndexPanic { .. } => (Some(vec![Want::Any, Want::Exact(Type::U64)]), Type::None),
+            Callee::Stop(_) => (Some(Vec::new()), Type::None),
         }
     }
 

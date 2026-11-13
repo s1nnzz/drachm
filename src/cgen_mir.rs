@@ -940,6 +940,7 @@ impl Gen<'_> {
                 let (f, t) = if unsigned { ("drachm_index_panic_u", "uint64_t") } else { ("drachm_index_panic", "int64_t") };
                 self.line(format!("{f}(({t}){i}, {len});"));
             }
+            Callee::Stop(crate::hir::StopKind::ZeroStep) => self.line("drachm_range_step_zero();"),
             Callee::Join => {
                 let dest = dest_lv.expect("a string result has a destination");
                 let parts: Vec<String> = args.iter().map(|a| format!("*{}", self.operand(&a.op))).collect();

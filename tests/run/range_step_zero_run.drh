@@ -1,0 +1,9 @@
+in io;
+
+// A step that is zero only when the program runs stops it when the loop starts.
+none main() {
+    io::outln("before");
+    sint32 zero = 0;
+    for (sint32 i of 0..10 by zero) { io::outln(i::text()); }
+    io::outln("never");
+}

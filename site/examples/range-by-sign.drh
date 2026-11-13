@@ -1,0 +1,25 @@
+in io;
+
+none main() {
+    // A negative step counts down from the start to the end.
+    for (sint32 i of 10..0 by -2) {
+        io::outln(i::text());
+    }
+    // A step that points away from the end gives an empty loop.
+    for (sint32 i of 0..10 by -2) {
+        io::outln("never");
+    }
+    // A step known only at run time sets the direction when the loop starts.
+    sint32 down = -3;
+    for (sint32 i of 9..0 by down) {
+        io::outln(i::text());
+    }
+    // A float range: value k is start + k * step, up to the last value not past the end.
+    for (float64 x of 0.0..1.0 by 0.25) {
+        io::outln(x::text());
+    }
+    for (float64 x of 1.0..0.0 by -0.5) {
+        io::outln(x::text());
+    }
+    io::outln("done");
+}

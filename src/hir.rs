@@ -468,6 +468,15 @@ pub enum Stmt {
     /// `fail e;` with `e` a failure the function caught: returns it (moved out
     /// of the place) as this function's failure.
     Reraise(Place),
+    /// Ends the program with a run-time error (`StopKind`); nothing after it runs.
+    Stop(StopKind),
+}
+
+/// Why a `Stop` statement ends the program.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StopKind {
+    /// A range loop's `by` step is zero when the loop starts.
+    ZeroStep,
 }
 
 /// One arm of a `Handled` call.

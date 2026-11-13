@@ -3,6 +3,8 @@ crew 200, deck -12, stars 1000000000000, hull 2.5, mask 255
 atoms in the cargo hold: 1267650600228229401496703205376
 overflow wraps: 250 + 10 = 4
 beats 0 to 20 by 5 sum to 50
+countdown: 10 8 6 4 2 0 
+gauge steps add up to 2.5
 force: 50000.0 N
 cruise: 20.0 m/s
 cabin: 294.15 K

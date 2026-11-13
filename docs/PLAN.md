@@ -676,6 +676,11 @@ Leftover follow-ups (owner, 2026-11-13, "Step 6 leftover follow-ups"):
 - A type parameter named like a unit is warning W0601 (was E0605); inside its
   scope the plain name is the type (E0402 where a unit is meant); `X as unit`
   names the unit anywhere (done).
+- Range `by` sign: a negative step counts down, a step pointing away gives an empty
+  loop, a run-time zero step stops with `range step is zero` (exit 101), a literal
+  zero is E0106 (done). Open: `10..0 by -2` (see SPEC: 0 is included by the rule).
+- Float ranges with `by`: value k is `start + k * step`, stop at the last value not
+  past the end; without `by` E0101 (done).
 
 Decided, in progress in another package (not built, and not described as built
 anywhere in this sweep): `maybe &T` (an optional that holds a borrow), `a same as b`

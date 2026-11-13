@@ -664,6 +664,14 @@ impl<'a> Builder<'a> {
                 self.return_failure(failure, ty);
                 self.frames.pop();
             }
+            Stmt::Stop(kind) => {
+                // The call never returns: the block after it is only there for code that follows.
+                let dead = self.new_block();
+                self.end(TerminatorKind::Call { callee: Callee::Stop(*kind), args: Vec::new(), dest: None, target: dead });
+                self.cur = dead;
+                self.end(TerminatorKind::Unreachable);
+                self.cur = self.new_block();
+            }
             Stmt::Decl(l) => {
                 let local = self.local(*l);
                 self.at(self.func.locals[*l].span);

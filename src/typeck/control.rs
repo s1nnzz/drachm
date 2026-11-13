@@ -17,6 +17,7 @@
 //!   `else`. In the last branch it is an error.
 //! - With no level at all (L = 0), every form of `skip` is an error.
 
+use std::cmp::Ordering;
 use std::collections::HashMap;
 
 use num_rational::BigRational;
@@ -90,13 +91,35 @@ fn binary(op: hir::BinOp, l: hir::Expr, r: hir::Expr) -> hir::Expr {
     hir::Expr::new(hir::ExprKind::Binary(op, Box::new(l), Box::new(r)), ty)
 }
 
-/// A range step the language does not settle yet: a literal zero or a negative literal.
-fn undecided_step(step: &ast::Expr) -> bool {
+/// The direction a range loop counts in.
+#[derive(Clone, Copy)]
+enum Dir {
+    Up,
+    Down,
+    /// A step known only at run time: its sign picks the way, at each round.
+    Either,
+}
+
+/// The sign of a step written as a literal (`2`, `-0.5`, `0`); `None` for any
+/// other step, whose sign is only known at run time.
+fn literal_sign(step: &ast::Expr) -> Option<Ordering> {
+    let value = |c: &crate::consts::Const| match c {
+        crate::consts::Const::Int(v) => v.cmp(&num_bigint::BigInt::from(0)),
+        crate::consts::Const::Dec(r) => r.cmp(&num_rational::BigRational::from_integer(num_bigint::BigInt::from(0))),
+        crate::consts::Const::NegZero => Ordering::Equal,
+    };
     match &step.kind {
-        ExprKind::Num(ast::NumLit { value: crate::consts::Const::Int(v), .. }) => *v <= num_bigint::BigInt::from(0),
-        ExprKind::Unary(ast::UnOp::Neg, inner) => matches!(inner.kind, ExprKind::Num(_)),
-        _ => false,
+        ExprKind::Num(n) => Some(value(&n.value)),
+        ExprKind::Unary(ast::UnOp::Neg, inner) => match &inner.kind {
+            ExprKind::Num(n) => Some(value(&n.value).reverse()),
+            _ => None,
+        },
+        _ => None,
     }
+}
+
+fn not(e: hir::Expr) -> hir::Expr {
+    hir::Expr::new(hir::ExprKind::Not(Box::new(e)), Type::Bool)
 }
 
 fn logic(and: bool, lhs: hir::Expr, rhs: hir::Expr) -> hir::Expr {
@@ -439,16 +462,22 @@ impl Checker<'_> {
     /// `for (T name of a..b) { }`. Lowered to
     ///
     /// ```text
-    /// start = a; end = b;
-    /// if (start <= end) {
+    /// start = a; end = b; step = by;            // `by` only when written
+    /// if (step is zero at run time) stop;       // only when the step is not a literal
+    /// if (start <= end) {                       // `start >= end` when counting down
     ///     counter = start;
-    ///     loop { name = counter; body; step: if (counter + by > end || counter + by < counter) break; counter += by; }
+    ///     loop { name = counter; body; step: if (counter + by > end || ...) break; counter += by; }
     /// }
     /// ```
     ///
-    /// `by` is 1 unless the loop says `by n`. The counter never steps past `end`:
-    /// the sum is tested for going over `end`, and for wrapping round at the
-    /// type's largest value (overflow wraps).
+    /// `by` is 1 unless the loop says `by n`. Its sign gives the direction: `10..0 by -2`
+    /// counts down, and a step that points away from the end gives an empty loop. The
+    /// counter never steps past `end`: the sum is tested for going over `end`, and for
+    /// wrapping round at the type's largest or smallest value (overflow wraps).
+    ///
+    /// A float range (`float64 x of 0.0..1.0 by 0.25`) has no counter of its own: value
+    /// `k` is `start + k * step`, with a whole-number `k`, so nothing drifts. The loop
+    /// stops at the last value not past `end`. Its `by` is required.
     pub(super) fn for_each(&mut self, s: &ast::Stmt, out: &mut hir::Block) {
         let ast::Stmt::ForEach { mutable, ty: ty_name, name, name_span, iter, step, body, span } = s else { unreachable!() };
         let ty = self.g.resolve_binding_type(ty_name, self.diags);
@@ -456,7 +485,7 @@ impl Checker<'_> {
             return self.for_text(s, ty, out);
         };
         let bounds = match ty {
-            Some(t) if t.is_int() => {
+            Some(t) if t.is_numeric() => {
                 let a = self.coerce(lo, t);
                 let b = self.coerce(hi, t);
                 a.zip(b)
@@ -465,47 +494,63 @@ impl Checker<'_> {
                 self.expr(lo);
                 self.expr(hi);
                 if let Some(t) = ty {
-                    // Open: whether float (or other) range loops exist, and how they would step.
                     self.diags.push(
-                        Diagnostic::at(&codes::E0101, ty_name.span, format!("a range loop counts in whole numbers, so its variable cannot be `{t}`"))
+                        Diagnostic::at(&codes::E0101, ty_name.span, format!("a range loop counts numbers, so its variable cannot be `{t}`"))
                             .note(format!("this is `{t}`"))
-                            .help("use an integer type such as `uint32` or `sint64`"),
+                            .help("use a number type such as `uint32`, `sint64` or `float64`"),
                     );
                 }
                 None
             }
         };
 
-        // `by n`: the step, of the loop's type. A literal zero or negative step is
-        // not decided yet (E0901); any other step is checked like a value.
+        // The sign of a literal step, when the step is written as one.
+        let sign = step.as_ref().and_then(|st| literal_sign(st));
+        // `by n`: the step, of the loop's type. A literal zero is an error; any other
+        // step is checked like a value.
         let by = match (step, &bounds) {
+            (None, Some((a, _))) if a.ty.is_float() => {
+                self.diags.push(
+                    Diagnostic::at(&codes::E0101, iter.span, "a range over floats needs a `by` step")
+                        .note("a float range has no step of its own")
+                        .help("say how far apart the values are: `for (float64 x of 0.0..1.0 by 0.25)`"),
+                );
+                None
+            }
             (None, _) => None,
+            (Some(st), _) if sign == Some(Ordering::Equal) => {
+                self.diags.push(
+                    Diagnostic::at(&codes::E0106, st.span, "a range step of zero never moves on")
+                        .note("the loop would never end")
+                        .help("write a step that is not zero, or leave out `by` for a step of 1"),
+                );
+                self.expr(st);
+                None
+            }
             (Some(st), Some((a, _))) => {
-                if undecided_step(st) {
-                    self.diags.push(
-                        Diagnostic::at(&codes::E0901, st.span, "a range step of zero or less is not supported yet")
-                            .note("what `by 0` and a negative step do is not decided yet")
-                            .help("write a step of 1 or more"),
-                    );
-                    self.expr(st);
-                    None
-                } else {
-                    let t = a.ty;
-                    self.coerce(st, t)
-                }
+                let t = a.ty;
+                self.coerce(st, t)
             }
             (Some(st), None) => {
                 self.expr(st);
                 None
             }
         };
+        // Which way the counter goes. A literal step says; a step known only at run time
+        // may point either way unless the type is unsigned (which has no negative step).
+        let dir = match (step, sign) {
+            (None, _) => Dir::Up,
+            (Some(_), Some(Ordering::Less)) => Dir::Down,
+            (Some(_), Some(_)) => Dir::Up,
+            (Some(_), None) => match &bounds {
+                Some((a, _)) if a.ty.is_float() || matches!(a.ty.bare(), Type::Int { signed: true, .. }) => Dir::Either,
+                _ => Dir::Up,
+            },
+        };
+        // A step only known at run time is checked before the loop starts.
+        let check_zero = step.is_some() && sign.is_none() && by.is_some();
 
         self.scopes.push(HashMap::new());
-        let hidden = bounds.map(|(a, b)| {
-            let t = a.ty;
-            let by = by.map(|e| (self.hidden_named("range step", t), e));
-            (self.hidden_named("range start", t), self.hidden_named("range end", t), self.hidden_named("range counter", t), a, b, t, by)
-        });
         // The variable belongs to the loop: it gets a new value each time round.
         let var = self.declare(name, ty, *mutable, *name_span, false);
         let label = self.new_label();
@@ -513,17 +558,114 @@ impl Checker<'_> {
         let (body, _) = self.looped(label, *span, body, None);
         self.scopes.pop();
 
-        let Some((start, end, counter, a, b, t, by)) = hidden else { return };
-        let mut inner = vec![hir::Stmt::Decl(var), hir::Stmt::Assign(hir::Place::local(var), local(counter, t))];
-        inner.extend(body);
+        let Some((a, b)) = bounds else { return };
+        let t = a.ty;
+        let by = by.map(|e| (self.hidden_named("range step", t), e));
+        let mut out_stmts = Vec::new();
+        let start = self.hidden_named("range start", t);
+        let end = self.hidden_named("range end", t);
+        out_stmts.push(hir::Stmt::Assign(hir::Place::local(start), a));
+        out_stmts.push(hir::Stmt::Assign(hir::Place::local(end), b));
+        if let Some((id, e)) = &by {
+            out_stmts.push(hir::Stmt::Assign(hir::Place::local(*id), e.clone()));
+        }
+        if check_zero && let Some((id, _)) = &by {
+            let is_zero = if t.is_float() {
+                // Zero, or not a number at all: neither is a step.
+                let zero = hir::Expr::new(hir::ExprKind::Float(0.0), t);
+                logic(true, not(binary(hir::BinOp::Gt, local(*id, t), zero.clone())), not(binary(hir::BinOp::Lt, local(*id, t), zero)))
+            } else {
+                binary(hir::BinOp::Eq, local(*id, t), int_lit(0, t))
+            };
+            out_stmts.push(hir::Stmt::If {
+                label: self.new_label(),
+                branches: vec![hir::Branch { test: Some(is_zero), body: vec![hir::Stmt::Stop(hir::StopKind::ZeroStep)], end: Span::new(0, 0) }],
+            });
+        }
+
+        if t.is_float() {
+            // Value k is start + k * step, from a whole-number counter.
+            let index = self.hidden_named("range index", Type::U64);
+            let value = self.hidden_named("range value", t);
+            let step_now = match &by {
+                Some((id, _)) => local(*id, t),
+                None => hir::Expr::new(hir::ExprKind::Float(1.0), t),
+            };
+            let counted = hir::Expr::new(hir::ExprKind::Convert(Box::new(local(index, Type::U64))), t);
+            let v = binary(hir::BinOp::Add, local(start, t), binary(hir::BinOp::Mul, counted, step_now.clone()));
+            out_stmts.push(hir::Stmt::Assign(hir::Place::local(index), int_lit(0, Type::U64)));
+            let up = binary(hir::BinOp::Le, local(value, t), local(end, t));
+            let down = binary(hir::BinOp::Ge, local(value, t), local(end, t));
+            // Still in range: not past the end in the direction of the step.
+            let in_range = match dir {
+                Dir::Up => up,
+                Dir::Down => down,
+                Dir::Either => {
+                    let zero = hir::Expr::new(hir::ExprKind::Float(0.0), t);
+                    logic(
+                        false,
+                        logic(true, binary(hir::BinOp::Gt, step_now.clone(), zero.clone()), up),
+                        logic(true, binary(hir::BinOp::Lt, step_now, zero), down),
+                    )
+                }
+            };
+            let mut inner = vec![
+                hir::Stmt::Assign(hir::Place::local(value), v),
+                hir::Stmt::If {
+                    label: self.new_label(),
+                    branches: vec![hir::Branch { test: Some(not(in_range)), body: vec![hir::Stmt::Jump(hir::Jump::Break(label))], end: Span::new(0, 0) }],
+                },
+                hir::Stmt::Decl(var),
+                hir::Stmt::Assign(hir::Place::local(var), local(value, t)),
+            ];
+            inner.extend(body);
+            let advance = vec![hir::Stmt::Assign(hir::Place::local(index), binary(hir::BinOp::Add, local(index, Type::U64), int_lit(1, Type::U64)))];
+            out_stmts.push(hir::Stmt::Loop { label, cond: None, body: inner, step: advance, end: body_end });
+            out.extend(out_stmts);
+            return;
+        }
+
+        let counter = self.hidden_named("range counter", t);
         // The next counter value; it is past `end` when it is above `end`, or when the
         // addition wrapped round (then it is below the counter).
         let by_now = match &by {
             Some((id, _)) => local(*id, t),
             None => int_lit(1, t),
         };
-        let next = binary(hir::BinOp::Add, local(counter, t), by_now);
-        let past_end = logic(false, binary(hir::BinOp::Gt, next.clone(), local(end, t)), binary(hir::BinOp::Lt, next.clone(), local(counter, t)));
+        let next = binary(hir::BinOp::Add, local(counter, t), by_now.clone());
+        let past_up = logic(false, binary(hir::BinOp::Gt, next.clone(), local(end, t)), binary(hir::BinOp::Lt, next.clone(), local(counter, t)));
+        let past_down = logic(false, binary(hir::BinOp::Lt, next.clone(), local(end, t)), binary(hir::BinOp::Gt, next.clone(), local(counter, t)));
+        let past_end = match dir {
+            Dir::Up => past_up,
+            Dir::Down => past_down,
+            Dir::Either => {
+                let zero = int_lit(0, t);
+                logic(
+                    false,
+                    logic(true, binary(hir::BinOp::Gt, by_now.clone(), zero.clone()), past_up),
+                    logic(true, binary(hir::BinOp::Lt, by_now, zero), past_down),
+                )
+            }
+        };
+        // Starts only when there is something to count: `start <= end`, or `start >= end`
+        // when counting down.
+        let up_ok = binary(hir::BinOp::Le, local(start, t), local(end, t));
+        let down_ok = binary(hir::BinOp::Ge, local(start, t), local(end, t));
+        let enter = match dir {
+            Dir::Up => up_ok,
+            Dir::Down => down_ok,
+            Dir::Either => {
+                let by_id = by.as_ref().map(|(id, _)| *id).expect("a run-time step has a local");
+                let zero = int_lit(0, t);
+                logic(
+                    false,
+                    logic(true, binary(hir::BinOp::Gt, local(by_id, t), zero.clone()), up_ok),
+                    logic(true, binary(hir::BinOp::Lt, local(by_id, t), zero), down_ok),
+                )
+            }
+        };
+        let mut inner = vec![hir::Stmt::Decl(var), hir::Stmt::Assign(hir::Place::local(var), local(counter, t))];
+        inner.extend(body);
         let advance = vec![
             hir::Stmt::If {
                 label: self.new_label(),
@@ -535,22 +677,16 @@ impl Checker<'_> {
             },
             hir::Stmt::Assign(hir::Place::local(counter), next),
         ];
-        out.push(hir::Stmt::Assign(hir::Place::local(start), a));
-        out.push(hir::Stmt::Assign(hir::Place::local(end), b));
-        if let Some((id, e)) = by {
-            out.push(hir::Stmt::Assign(hir::Place::local(id), e));
-        }
-        out.push(hir::Stmt::If {
+        out_stmts.push(hir::Stmt::Assign(hir::Place::local(counter), local(start, t)));
+        out_stmts.push(hir::Stmt::If {
             label: self.new_label(),
             branches: vec![hir::Branch {
-                test: Some(binary(hir::BinOp::Le, local(start, t), local(end, t))),
-                body: vec![
-                    hir::Stmt::Assign(hir::Place::local(counter), local(start, t)),
-                    hir::Stmt::Loop { label, cond: None, body: inner, step: advance, end: body_end },
-                ],
+                test: Some(enter),
+                body: vec![hir::Stmt::Loop { label, cond: None, body: inner, step: advance, end: body_end }],
                 end: Span::new(0, 0),
             }],
         });
+        out.extend(out_stmts);
     }
 
     /// `for (T name of text) { }` where `text` is not a range. `string`

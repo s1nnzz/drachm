@@ -267,6 +267,8 @@ pub enum Callee {
     /// `(index, length)` of a failed bounds check: stops the program. `unsigned`
     /// when the index was an unsigned number (a signed one prints as it is).
     IndexPanic { unsigned: bool },
+    /// Stops the program with a run-time error (no arguments, no result).
+    Stop(crate::hir::StopKind),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
