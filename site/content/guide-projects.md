@@ -32,8 +32,9 @@ mygame/
 ## Modules: what a file shows
 <!-- status: not-implemented -->
 
-Any file that exports something is a module. An `out` line lists what other
-files may use, and everything else stays private to the file. Export the
+Any file that exports something is a module. An `out` line (or `out` before a
+declaration) marks what other files may use, and everything else stays private
+to the file. Export the
 smallest set that other code needs, so you can change the rest without
 breaking anyone.
 
@@ -55,11 +56,11 @@ paths use dots, and names you call use `::`.
 <!-- focus: 1-5,7 -->
 
 ```drachm
-in io;                              // a whole module
-in physics from game as phys;       // renamed
-in Vector3 from phys as v3;         // one item, renamed
-in * from game.audio as audio;      // everything under one name
-in * from game.audio;               // everything straight into scope
+in io;                                   // a whole module
+in game.physics as phys;                 // renamed
+in Vector3 as V3, gravity from physics;  // items, each may be renamed
+in * from game.audio as audio;           // everything under one name
+in * from game.audio;                    // everything straight into scope
 
 phys::Vector3 v = 1, 2, 3;
 ```

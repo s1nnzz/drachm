@@ -17,7 +17,7 @@ Any file that exports something is a module. An `out` line lists the names that
 other files can use, and everything else stays private to the file.
 
 <!-- focus: 1 -->
-`Vector3` is visible to other files. The export list comes first in the file.
+`Vector3` is visible to other files. The list can go anywhere in the file, and you can also write `out` in front of a declaration: `out struct Vector3 { }`.
 
 Anything not listed, such as a helper function in the same file, is private.
 
@@ -37,21 +37,25 @@ use `::`.
 A whole module.
 
 <!-- focus: 2 -->
-The `physics` file of the `game` folder, under the name `phys`.
+The `physics` file of the `game` folder (next to this file), under the name `phys`.
+`in physics inside game as phys;` means the same.
 
 <!-- focus: 3 -->
-One item, renamed.
+Items, each one may be renamed.
 
 <!-- focus: 4-5 -->
 `*` takes everything: under one name, or straight into scope.
 
 ```drachm
 in io;
-in physics from game as phys;
-in Vector3 from phys as v3;
+in game.physics as phys;
+in Vector3 as V3, gravity from game.physics;
 in * from game.audio as audio;
 in * from game.audio;
 ```
+
+A path is relative to the folder of the file that writes it. To start from the
+project's `src/` folder, begin with the project's name: `in mygame.game.physics;`.
 
 When `in *` brings in a name that already exists, a setting in `drachm.toml`
 chooses whether that is a warning or an error.
@@ -87,7 +91,7 @@ none main() {
 
 ```drachm solution
 in io;
-in physics from game as phys;
+in game.physics as phys;
 
 none main() {
     phys::Vector3 v = 1, 2, 3;
