@@ -1,0 +1,12 @@
+struct Stack<T> {
+    public:
+    T[?] items;
+}
+
+struct App {
+    public:
+    Stack<&string> names;
+}
+
+none main() {
+}

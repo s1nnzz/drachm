@@ -3,7 +3,7 @@
 
 use std::ops::Range;
 
-use super::regions::{param_slots, region_slots, slot_variance, slots_of_place, struct_variance, universals, Universal, Variance};
+use super::regions::{enum_field_slots, param_slots, region_slots, slot_variance, slots_of_place, struct_field_slots, struct_variance, universals, Universal, Variance};
 use super::solve::{Constraint, ConstraintKind, Origin, RegionValue, RegionVid};
 use crate::diag::Span;
 use crate::hir;
@@ -146,19 +146,39 @@ impl Gen<'_> {
                 }
             }
             Rvalue::Aggregate(sid, ops) => {
-                let def = &self.hir.structs[*sid];
                 let variance = struct_variance(self.hir, *sid);
                 for (fi, op) in ops.iter().enumerate() {
-                    let Some(k) = def.lives.iter().position(|&x| x == fi) else { continue };
+                    let sub = struct_field_slots(self.hir, *sid, fi);
+                    if sub.is_empty() {
+                        continue;
+                    }
                     let Some((sv, _)) = self.operand_vids(op) else { continue };
-                    let (Some(x), Some(y)) = (sv.clone().next(), dv.clone().nth(k)) else { continue };
-                    self.push(x, y, loc, kind);
-                    if variance[k] == Variance::Invariant {
-                        self.push(y, x, loc, kind);
+                    for (j, x) in sv.enumerate() {
+                        let Some(y) = dv.clone().nth(sub.start + j) else { continue };
+                        self.push(x, y, loc, kind);
+                        if variance.get(sub.start + j) == Some(&Variance::Invariant) {
+                            self.push(y, x, loc, kind);
+                        }
                     }
                 }
             }
-            // Enum payloads hold no borrows (E0901 at the declaration), so there is nothing to relate.
+            // A payload's regions flow into the enum's.
+            Rvalue::Variant(eid, v, ops) => {
+                for (fi, op) in ops.iter().enumerate() {
+                    let sub = enum_field_slots(self.hir, *eid, *v, fi);
+                    let Some((sv, ty)) = self.operand_vids(op) else { continue };
+                    let start = dv.start + sub.start;
+                    self.relate(sv, ty, start..start + sub.len(), loc, kind);
+                }
+            }
+            // The items of an array share the array's slots.
+            Rvalue::Array(_, ops) => {
+                for op in ops {
+                    if let Some((sv, ty)) = self.operand_vids(op) {
+                        self.relate(sv, ty, dv.clone(), loc, kind);
+                    }
+                }
+            }
             Rvalue::MakeFn(_, _, Some(env)) => {
                 self.borrow(loc, s.span, dest, BorrowKind::Shared, env);
                 if let Some(y) = dv.clone().next() {
@@ -167,7 +187,7 @@ impl Gen<'_> {
                     }
                 }
             }
-            Rvalue::MakeFn(_, _, None) | Rvalue::Variant(..) | Rvalue::Len(_) | Rvalue::ListNew(..) | Rvalue::MapNew(_) | Rvalue::Array(..) | Rvalue::Discriminant(_) | Rvalue::RawRef(_) | Rvalue::Neg(_) | Rvalue::Not(_) | Rvalue::BitNot(_) | Rvalue::Binary(..) | Rvalue::Shift { .. } | Rvalue::IntPow(..) | Rvalue::Convert(..) => {}
+            Rvalue::MakeFn(_, _, None) | Rvalue::Len(_) | Rvalue::ListNew(..) | Rvalue::MapNew(_) | Rvalue::Discriminant(_) | Rvalue::RawRef(_) | Rvalue::Neg(_) | Rvalue::Not(_) | Rvalue::BitNot(_) | Rvalue::Binary(..) | Rvalue::Shift { .. } | Rvalue::IntPow(..) | Rvalue::Convert(..) => {}
         }
     }
 
@@ -213,6 +233,38 @@ impl Gen<'_> {
 
     /// C5.
     fn call(&mut self, loc: Location, callee: &Callee, args: &[Arg], dest: &Option<Place>) {
+        match callee {
+            Callee::Func(_) => {}
+            Callee::ListPush(elem) => {
+                // The pushed item's regions must cover the list's.
+                if let (Some(list), Some(value)) = (args.first().and_then(|a| self.operand_vids(&a.op)), args.get(1).and_then(|a| self.operand_vids(&a.op))) {
+                    let inner = (list.0.start + 1)..list.0.end;
+                    self.relate(value.0, *elem, inner, loc, ConstraintKind::Call);
+                }
+                return;
+            }
+            Callee::ListOp(op, elem) => {
+                use hir::ListOp;
+                let Some(list) = args.first().and_then(|a| self.operand_vids(&a.op)) else { return };
+                let inner = (list.0.start + 1)..list.0.end;
+                match op {
+                    ListOp::Insert => {
+                        if let Some(value) = args.get(2).and_then(|a| self.operand_vids(&a.op)) {
+                            self.relate(value.0, *elem, inner, loc, ConstraintKind::Call);
+                        }
+                    }
+                    ListOp::Get | ListOp::Remove | ListOp::SwapRemove | ListOp::Pop => {
+                        if let Some(d) = dest {
+                            let dv = self.place_vids(d);
+                            self.relate(inner, *elem, dv, loc, ConstraintKind::Call);
+                        }
+                    }
+                    ListOp::Clear | ListOp::Join | ListOp::View => {}
+                }
+                return;
+            }
+            _ => return,
+        }
         let Callee::Func(f) = *callee else { return };
         let func = &self.hir.funcs[f];
         // Fresh variables for every universal of the callee's signature.
@@ -231,6 +283,20 @@ impl Gen<'_> {
             self.fresh();
         }
         let ret = ret_start..ret_start + nret;
+        // Slots that come from one type parameter are one region.
+        if let Some(groups) = self.hir.ties.get(&f) {
+            for group in groups {
+                let at = |&(p, s): &(Option<usize>, usize)| match p {
+                    Some(p) => params.get(p).filter(|r| s < r.len()).map(|r| r.start + s),
+                    None => (s < ret.len()).then(|| ret.start + s),
+                };
+                let vids: Vec<usize> = group.iter().filter_map(at).collect();
+                for w in vids.windows(2) {
+                    self.push(w[0], w[1], loc, ConstraintKind::Call);
+                    self.push(w[1], w[0], loc, ConstraintKind::Call);
+                }
+            }
+        }
         for (i, a) in args.iter().enumerate() {
             if let (Some((sv, ty)), Some(p)) = (self.operand_vids(&a.op), params.get(i)) {
                 self.relate(sv, ty, p.clone(), loc, ConstraintKind::Call);
@@ -301,8 +367,27 @@ pub fn generate(hir: &hir::Program, sigs: &[LivesSig], body: &Body, live: &Liven
             g.call(loc, callee, args, dest);
         }
     }
-    // C6: a borrow cannot outlive what its target borrows.
     let start = Location { block: BlockId(0), index: 0 };
+    // Slots that come from one type parameter are one region.
+    if let Some(groups) = hir.ties.get(&body.func) {
+        for group in groups {
+            let vids: Vec<usize> = group
+                .iter()
+                .filter_map(|&(p, s)| match p {
+                    Some(p) if p < body.arg_count => {
+                        (s < region_slots(hir, body.locals[Local(p as u32 + 1)].ty)).then(|| param_start[p] + s)
+                    }
+                    Some(_) => None,
+                    None => (s < region_slots(hir, body.locals[Local(0)].ty)).then(|| ret_start + s),
+                })
+                .collect();
+            for w in vids.windows(2) {
+                g.push(w[0], w[1], start, ConstraintKind::Liveness);
+                g.push(w[1], w[0], start, ConstraintKind::Liveness);
+            }
+        }
+    }
+    // C6: a borrow cannot outlive what its target borrows.
     for (l, d) in body.locals.iter_enumerated() {
         if let Type::Ref { to, .. } = d.ty {
             let inner = region_slots(hir, *to);

@@ -54,14 +54,6 @@ impl Globals {
             diags.push(Diagnostic::at(&codes::E0104, at, format!("a {kind} cannot hold `none`")).note("`none` holds no value"));
             return None;
         }
-        if elem.is_borrow() || self.holds_borrow(elem) {
-            diags.push(
-                Diagnostic::at(&codes::E0901, at, format!("a {kind} of borrows is not supported yet"))
-                    .note(format!("this {kind} would hold a borrow"))
-                    .help("keep the values themselves in the collection, and borrow them where you use them"),
-            );
-            return None;
-        }
         match dim {
             ast::Dim::List(_) => Some(self.make_list(elem)),
             ast::Dim::Array(n, _) => {
@@ -445,20 +437,15 @@ impl Checker<'_> {
         }
         // `copy` is only meant for the call it wraps, not the calls in its arguments.
         let copying = std::mem::replace(&mut self.copying_item, false);
+        // Items that own memory are lent out, not copied: `get`, `first` and `last` give a
+        // view, an optional holding a borrow of the item (`copy` asks for an owned item).
+        let mut op = op;
         if op == ListOp::Get && !self.g.plain_copy(Some(elem)) && !copying {
-            for a in args {
-                self.expr(a);
-            }
-            self.diags.push(
-                Diagnostic::at(&codes::E0901, name_span, format!("`{name}` on a list of `{elem}` gives a view, which is not supported yet"))
-                    .note(format!("an item of type `{elem}` owns memory, so it is lent out, not copied"))
-                    .help(format!("write `copy {}::{name}({})` for an owned `{elem}?`", self.text(recv.span), args.first().map_or("", |a| self.text(a.span)))),
-            );
-            return None;
+            op = ListOp::View;
         }
         let mut all = vec![v];
         let result = match op {
-            ListOp::Pop | ListOp::Get => {
+            ListOp::Pop | ListOp::Get | ListOp::View => {
                 if name == "first" || name == "last" {
                     let at = if name == "first" { 0 } else { -1i64 as u64 as u128 };
                     let ty_i = if name == "first" { Type::U64 } else { Type::S64 };
@@ -467,7 +454,7 @@ impl Checker<'_> {
                     let idx = self.index_arg(arg, ty, recv.span)?;
                     all.push(idx);
                 }
-                optionals::optional_of(self.g, elem)?
+                optionals::optional_of(self.g, if op == ListOp::View { Type::borrow(false, elem) } else { elem })?
             }
             ListOp::Insert => {
                 let idx = self.index_arg(&args[0], ty, recv.span)?;

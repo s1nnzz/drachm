@@ -99,15 +99,20 @@ list usable.
 `none` when there is no such item, so they never stop the program. They copy
 the item, so for items that copy (numbers, `bool`, Copy structs) that is all
 there is to it. For items that own memory (`string`, structs with a `string`)
-the answer is meant to be a view of the item that borrows the list;
-`copy xs::first()` gives an owned `T?` copy of it and works today. The view
-itself is **not implemented yet**: `names::first()` on a list of `string`s is
-E0901 and its message points at the `copy` form. `xs::join(sep)` puts the items
+the answer is a view of the item: an optional that holds a borrow of the list
+(written `Optional<&string>`, and shown in messages as `&string?`). While the
+view is in use the list cannot change (`push` is E0302), exactly as for
+`&xs[0]`. `copy xs::first()` gives an owned `T?` copy of the item instead, and
+a view cannot be assigned to an owned `string?` (E0531, which points at
+`copy`). Read a view with `maybe &fallback`, `has value`, or `match` with a
+`&T` pattern: `case &string n { ... }`. `xs::join(sep)` puts the items
 of a `string[?]` together with `sep` between them (`""` for an empty list).
 
 <!-- example: list-methods -->
 
 <!-- example: list-owning-items -->
+
+<!-- example: list-views -->
 
 `xs::contains(item)` is true when some item is equal to `item`. Lists and
 arrays compare with `==` and `!=`: they are equal when they have the same

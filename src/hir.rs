@@ -47,6 +47,11 @@ pub struct Program {
     /// Environments of lifted functions which capture outer locals.
     pub closures: std::collections::BTreeMap<FuncId, Closure>,
     pub vtables: Vec<VTable>,
+    /// Instances of generic functions and methods whose type arguments hold
+    /// borrows: per function, groups of region slots that are one region
+    /// because they come from the same type parameter. A slot is
+    /// (parameter, slot within it), the parameter `None` for the result.
+    pub ties: std::collections::BTreeMap<FuncId, Vec<Vec<(Option<usize>, usize)>>>,
 }
 
 pub struct Closure {
@@ -798,6 +803,9 @@ pub enum ListOp {
     Pop,
     /// `list::get(i)`: the item at `i` (negative counts from the end), or none.
     Get,
+    /// `list::get(i)` of items that own memory: a view of the item, `&T?`
+    /// (the optional holds a borrow of the list).
+    View,
     /// `list::insert(i, value)`.
     Insert,
     /// `list::remove(i)`: the item at `i`, moved out; the rest move down.

@@ -956,7 +956,7 @@ impl Gen<'_> {
         let list = self.operand(&args[0].op);
         let c = c_type(elem);
         match op {
-            ListOp::Pop => unreachable!("`pop` is a test and a `Remove`, not a call"),
+            ListOp::Pop | ListOp::View => unreachable!("`pop` is a test and a `Remove`, a view is a borrow, not a call"),
             ListOp::Get => {
                 let (idx, dest) = (self.operand(&args[1].op), dest_lv.expect("an item has a destination"));
                 let copy = self.copy_entry(elem, dest, "g");

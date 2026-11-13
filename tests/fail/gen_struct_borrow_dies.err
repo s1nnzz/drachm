@@ -1,0 +1,2 @@
+error[E0306]: `name` does not live long enough
+`name` is borrowed here, and kept in `s.items`

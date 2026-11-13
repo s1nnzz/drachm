@@ -1,8 +1,0 @@
-struct Stack<T> {
-    public:
-    T top;
-}
-
-none main() {
-    Stack<&string> s;
-}

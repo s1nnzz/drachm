@@ -1,0 +1,13 @@
+in io;
+
+none main() {
+    string[?] names = ["Ann", "Bob"];
+    match (names::first()) {
+        case &string n { io::outln(n); }
+        case none { io::outln("nobody"); }
+    }
+    match (names::get(9)) {
+        case &string n { io::outln(n); }
+        case none { io::outln("nobody"); }
+    }
+}
