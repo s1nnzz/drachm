@@ -1882,12 +1882,15 @@ impl Parser<'_> {
     /// Precedence climbing. Higher number binds tighter.
     fn binary(&mut self, min_prec: u8) -> Parsed<Expr> {
         let mut lhs = self.unary()?;
-        while let Tok::Sym(sym) = self.peek() {
-            let Some((op, prec)) = binop(sym) else { break };
+        while let Some((op, prec, words)) = self.binary_op_here() {
             if prec < min_prec {
                 break;
             }
-            let op_span = self.bump().span;
+            let op_start = self.span();
+            for _ in 0..words {
+                self.bump();
+            }
+            let op_span = op_start.to(self.prev_span());
             // `**` chains from the right; everything else from the left.
             let rhs = self.binary(if op == BinOp::Pow { prec } else { prec + 1 })?;
             self.check_grouping(op, op_span, &lhs, &rhs);
@@ -1895,6 +1898,17 @@ impl Parser<'_> {
             lhs = Expr { kind: ExprKind::Binary(op, Box::new(lhs), Box::new(rhs)), span, paren: false };
         }
         Ok(lhs)
+    }
+
+    /// The binary operator at the current token, its precedence and how many
+    /// tokens it takes. `same as` is two context words: `same` is an ordinary
+    /// name everywhere else, and `as` a keyword.
+    fn binary_op_here(&self) -> Option<(BinOp, u8, usize)> {
+        match self.peek() {
+            Tok::Sym(sym) => binop(sym).map(|(op, prec)| (op, prec, 1)),
+            Tok::Ident(w) if w == "same" && self.peek_at(1) == &Tok::Kw("as") => Some((BinOp::Same, 3, 2)),
+            _ => None,
+        }
     }
 
     /// Bitwise operators have no memorable order against other operators, so
@@ -2840,6 +2854,17 @@ mod tests {
         let SubPat::Variant(inner) = &args[0] else { panic!() };
         let Pattern::Variant { args, .. } = &**inner else { panic!() };
         assert!(matches!(&args[0], SubPat::Value(_)) && matches!(&args[1], SubPat::Bind { .. }));
+    }
+
+    #[test]
+    fn same_as_is_a_comparison_and_same_is_still_a_name() {
+        let (s, d) = body("bool a = x same as y; bool b = !(x same as &y); uint32 same = 3; uint32 c = same + 1;");
+        assert!(d.is_empty(), "{:?}", errors(&d));
+        let Stmt::Let { value: Some(Init::Expr(e)), .. } = &s[0] else { panic!() };
+        assert!(matches!(e.kind, ExprKind::Binary(BinOp::Same, ..)));
+        assert_eq!(s.len(), 4);
+        let (_, d) = body("bool a = x same as;");
+        assert!(!d.is_empty());
     }
 
     #[test]

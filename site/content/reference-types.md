@@ -67,6 +67,15 @@ is passed on as it is.
 An optional that holds a borrow is `maybe &string` (see
 [Optional types](reference-generics.md#optional-types)).
 
+`a same as b` asks whether two borrows point at the same place (`same as` is
+two words; `!(a same as b)` is the opposite). Equal text in two places is two
+places, so `==` and `same as` can disagree. Lists, arrays and optionals that
+hold borrows compare item by item, in order, and with the same length for
+lists. On owned values it is E0633: borrow both sides with `&` to compare where
+they are. A struct that holds a borrow is E0901 for now.
+
+<!-- example: borrow-same-as -->
+
 A binding can hold a borrow: `&string first = &name;`. Put `mut` in front
 (`mut &string cur = &a;`) to point it somewhere else later with `cur = &b;`.
 A borrow lasts until its last use. The rules, and the errors E0302 to E0307 for

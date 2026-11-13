@@ -1,0 +1,30 @@
+in io;
+
+// `a same as b` asks whether two borrows point at the same place. Lists and
+// optionals of borrows are compared item by item, in order.
+none main() {
+    string ann = "ann";
+    string bob = "bob";
+    &string first = &ann;
+    &string again = &ann;
+    &string other = &bob;
+    io::outln(f"first same as again: ${first same as again}");
+    io::outln(f"first same as other: ${first same as other}");
+    io::outln(f"not the same: ${!(first same as other)}");
+
+    // Equal text in two places is two addresses: `==` compares the text instead.
+    string twin = "ann";
+    io::outln(f"same text: ${ann == twin}, same place: ${&ann same as &twin}");
+
+    List<&string> row = [&ann, &bob];
+    List<&string> same_row = [&ann, &bob];
+    List<&string> turned = [&bob, &ann];
+    io::outln(f"rows match: ${row same as same_row}, turned: ${row same as turned}");
+
+    mut string[?] names = ["ann"];
+    maybe &string head = names::first();
+    maybe &string again_head = names::first();
+    maybe &string nobody = none;
+    maybe &string nobody_too = none;
+    io::outln(f"heads match: ${head same as again_head}, two empty ones: ${nobody same as nobody_too}");
+}

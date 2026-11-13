@@ -539,6 +539,8 @@ pub enum BinOp {
     Ge,
     And,
     Or,
+    /// `a same as b`: two borrows (or values holding borrows) at the same address.
+    Same,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -573,6 +575,7 @@ impl BinOp {
             Ge => ">=",
             And => "&&",
             Or => "||",
+            Same => "same as",
         }
     }
 
@@ -582,7 +585,7 @@ impl BinOp {
             Add | Sub | Mul | Div | Rem | Pow => OpClass::Arithmetic,
             Shl | Shr => OpClass::Shift,
             BitAnd | BitOr | BitXor => OpClass::Bitwise,
-            Eq | Ne | Lt | Le | Gt | Ge => OpClass::Comparison,
+            Eq | Ne | Lt | Le | Gt | Ge | Same => OpClass::Comparison,
             And | Or => OpClass::Logic,
         }
     }

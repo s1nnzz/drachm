@@ -808,6 +808,13 @@ codes! {
          `Iterable` over several types (`Iterable<Node> and Iterable<Edge>`) is\n\
          walked once for each: the variable's type picks which. `&T` looks at\n\
          each item; `&mut T` is not available, because `at` hands out values.";
+    E0633: "address compare of an owned value",
+        "`same as` compares where two values are, so both sides must be borrows\n\
+         (or lists, optionals or maps that hold borrows). An owned value such as\n\
+         `string` or a number has no address to compare: borrow both sides with `&`\n\
+         to compare where they are, or use `==` to compare the values.\n\n\
+         \x20   &a same as &b            // the same place\n\
+         \x20   a == b                  // the same text or number";
     E0632: "same method name, several results",
         "A struct may have two methods with the same name and parameters when\n\
          only their results differ, so that it can be `Iterable` over two types\n\

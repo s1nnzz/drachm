@@ -1,0 +1,8 @@
+in io;
+
+none main() {
+    string ann = "ann";
+    &string p = &ann;
+    List<&string> refs = [&ann];
+    io::outln(f"${p same as refs}");
+}

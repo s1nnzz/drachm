@@ -532,6 +532,9 @@ none part5() {
     maybe &string first_port = ports::first();
     maybe &string ninth_port = ports::get(8);
     io::outln(f"first port ${first_port maybe &nowhere}, ninth port ${ninth_port maybe &nowhere}");
+    // `same as` asks whether two borrows are the same place, not the same text.
+    string twin_slogan = "per aspera ad astra";
+    io::outln(f"the longer one is the slogan itself: ${longer(&captain, &slogan) same as &slogan}; a copy of it is not: ${&slogan same as &twin_slogan}");
 
     mut string note = "mayday";
     shout_twice(&mut note);
