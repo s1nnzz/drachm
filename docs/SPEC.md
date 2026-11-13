@@ -927,6 +927,12 @@ phys::Vector3 v = 1, 2, 3;
 - Registry: **the Agora** (agora.drachm.dev); `drachm add json`. Deps may also be
   git URLs or local paths.
 - CLI: `new build run check test add fmt explain`, `-O` for optimised builds.
+- Built (step 7 WP3): `drachm.toml` `[project]` (name, kind `program`|`library`,
+  entry), `[dependencies]` by `path` or `git` with an exact `tag` (fetched into
+  `deps/NAME/` of the project, pinned by `drachm.lock`; owner, 2026-11-13), the
+  `[build]`, `[warnings]` and `[behaviour]` keys are read and checked (behaviour
+  is applied by WP4), `drachm new NAME`. Registry versions are E0901. Errors
+  E0800-E0814.
 
 ```toml
 [project]
