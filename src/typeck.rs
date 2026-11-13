@@ -773,7 +773,8 @@ pub(crate) fn check_with_settings(
     let conformances = std::mem::take(&mut g.ifaces.records);
     let (dyn_ifaces, vtables) = dynamic::finish(&mut g, &structs);
     index::finish(&g, src);
-    let mut program = hir::Program { settings: Vec::new(), funcs: funcs.into_iter().map(|f| f.unwrap_or_else(placeholder)).collect(), structs, enums: enum_defs, main, asserts: std::mem::take(&mut g.asserts), collections, conformances, dyn_ifaces, vtables, closures: std::mem::take(&mut g.lambdas.closures), ties: std::mem::take(&mut g.ties) };
+    let tests: Vec<hir::Test> = prog.funcs.iter().zip(&func_ids).filter_map(|(f, id)| Some(hir::Test { func: (*id)?, name: f.test.as_ref()?.0.clone() })).collect();
+    let mut program = hir::Program { settings: Vec::new(), funcs: funcs.into_iter().map(|f| f.unwrap_or_else(placeholder)).collect(), structs, enums: enum_defs, main, asserts: std::mem::take(&mut g.asserts), tests, collections, conformances, dyn_ifaces, vtables, closures: std::mem::take(&mut g.lambdas.closures), ties: std::mem::take(&mut g.ties) };
     program.settings = program.funcs.iter().map(|f| g.settings_at(f.name_span)).collect();
     if !diags.iter().any(Diagnostic::is_error) {
         lambdas::infer_captures(&mut program, diags);

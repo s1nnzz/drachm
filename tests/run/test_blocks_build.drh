@@ -1,0 +1,20 @@
+// Test blocks sit beside the code they check. A normal build compiles them
+// without running them: only `main` runs.
+in io;
+
+sint32 add(sint32 a, sint32 b) {
+    return a + b;
+}
+
+test "adds" {
+    assert(add(2, 3) == 5);
+    io::outln("this line belongs to a test, and a normal run never prints it");
+}
+
+test "a failing check" {
+    assert(add(2, 3) == 6);
+}
+
+none main() {
+    io::outln(f"add gives ${add(2, 3)}");
+}

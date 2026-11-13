@@ -37,6 +37,9 @@ pub struct Program {
     pub main: FuncId,
     /// Every `assert`, indexed by `StopKind::Assert`.
     pub asserts: Vec<Assertion>,
+    /// Every `test` block, in the order written: `drachm test` builds one
+    /// program per test, with that function as its `main`.
+    pub tests: Vec<Test>,
     /// Every list and array type the program uses (elements included), each
     /// once, an element before the types built from it. The backends make the
     /// drop and copy glue and the C array types from this list.
@@ -483,6 +486,13 @@ pub enum StopKind {
     ZeroStep,
     /// A failed `assert`: the index into `Program.asserts`, whose message is printed.
     Assert(usize),
+}
+
+/// One `test "name" { }` block of the program.
+#[derive(Debug, Clone)]
+pub struct Test {
+    pub func: FuncId,
+    pub name: String,
 }
 
 /// One `assert` of the program.

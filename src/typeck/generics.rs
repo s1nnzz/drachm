@@ -147,6 +147,7 @@ fn func_head(f: &ast::Func) -> ast::Func {
         fails: f.fails.clone(),
         fails_span: f.fails_span,
         span: f.span,
+        test: None,
     }
 }
 

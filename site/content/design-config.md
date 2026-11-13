@@ -146,9 +146,9 @@ is validated and awaits code generation. `missing_key`, `unhandled_fail` and `im
 file flag that sets one is an error (E0806).
 
 ## Tests
-<!-- status: not-implemented -->
 
-A `test` block in any file is a test, and `drachm test` runs them all.
+A `test` block in any file is a test, and `drachm test` runs them all. Built:
+see [The test keyword](guide-testing.md#the-test-keyword).
 
 ```drachm
 test "adds" {

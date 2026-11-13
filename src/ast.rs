@@ -479,6 +479,9 @@ pub struct Func {
     pub fails_span: Option<Span>,
     /// From the return type to the closing `)`.
     pub span: Span,
+    /// `test "name" { }`: the name and where it is written. A test takes
+    /// nothing, returns nothing, and is run by `drachm test`.
+    pub test: Option<(String, Span)>,
 }
 
 /// One variable of a `for` over map entries: `mut string name`.

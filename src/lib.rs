@@ -155,6 +155,13 @@ pub fn front_opened(opened: &config::Opened, ownership: bool) -> (Option<hir::Pr
     (checked, graph, diags)
 }
 
+/// Build an executable that runs one test: the test's function is its `main`,
+/// so the program does nothing else. `drachm test` builds one per test.
+pub fn build_test(program: &mut hir::Program, test: hir::FuncId, out: &std::path::Path, optimise: bool) -> Result<(), String> {
+    program.main = test;
+    build(program, out, optimise)
+}
+
 /// Build an executable at `out`. Plain builds go through Cranelift, which is
 /// fast to compile; optimised builds go through C, which is fast to run.
 ///

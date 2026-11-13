@@ -1,0 +1,7 @@
+in io;
+
+io::outln("a script runs its top-level statements");
+
+test "prints" {
+    assert(1 == 1);
+}
