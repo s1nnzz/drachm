@@ -1,0 +1,5 @@
+[project]
+name = "fail_unhandled_operators"
+
+[behaviour]
+unhandled_fail = "error"

@@ -83,7 +83,7 @@ uint32 c = parse(input) fails with (ParseError e) => {
 };
 ```
 
-A call with none of the three is a compile error by default (E0544).
+In a project, a call with none of the three is a compile error (E0544).
 
 ### Your turn: a fallback
 

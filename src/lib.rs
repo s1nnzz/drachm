@@ -42,7 +42,8 @@ pub fn front(src: &str) -> (Option<hir::Program>, Vec<Diagnostic>) {
     if diag::has_errors(&diags) {
         return (None, diags);
     }
-    let settings = config::Behaviour::default().for_file(&flags.behaviour);
+    // A source string is a lone file, which takes the script settings (see `config::open`).
+    let settings = config::Config::script().behaviour.for_file(&flags.behaviour);
     let mut checked = typeck::check_with_settings(&program, src, &mut diags, vec![(0, settings)], true);
     if diag::has_errors(&diags) {
         return (None, diags);

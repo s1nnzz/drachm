@@ -1,0 +1,35 @@
+//--!$overflow: saturate
+in io;
+in si;
+
+// Unit scaling follows `overflow` like any arithmetic: a scaled value that does
+// not fit stops at the end of the type.
+none main() {
+    sint64 x = 9000000000000000000;
+    sint64<km> a = x * 1<km>;
+    sint64<m> b = a::in<m>();
+    io::outln(f"sint64 ${b}");
+    sint64 negative = -9000000000000000000;
+    sint64<km> n = negative * 1<km>;
+    sint64<m> nb = n::in<m>();
+    io::outln(f"sint64 down ${nb}");
+    uint64 y = 18000000000000000000;
+    uint64<km> c = y * 1<km>;
+    uint64<m> d = c::in<m>();
+    io::outln(f"uint64 ${d}");
+
+    // Narrowing into the unit's type: 100 km is 100000 m, which a sint8 holds only up to 127.
+    sint8 small = 100;
+    sint8<km> s = small * 1<km>;
+    sint8<m> sm = s::in<m>();
+    io::outln(f"sint8 ${sm}");
+    sint8 low = -100;
+    sint8<km> sl = low * 1<km>;
+    sint8<m> slm = sl::in<m>();
+    io::outln(f"sint8 down ${slm}");
+
+    // A value that fits is unchanged.
+    sint32<km> three = 3<km>;
+    sint32<m> fits = three::in<m>();
+    io::outln(f"fits ${fits}");
+}

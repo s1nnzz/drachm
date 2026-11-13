@@ -1410,7 +1410,7 @@ impl<'a> Builder<'a> {
     fn checked_rvalue(&mut self, e: &Expr, mode: crate::config::Overflow) -> Rvalue {
         let none = |_: usize| None;
         let dummy = || Operand::Const(Constant::Bool(false));
-        let mut two = |this: &mut Self, a: &Expr, b: &Expr| {
+        let two = |this: &mut Self, a: &Expr, b: &Expr| {
             let mut o = this.operands(&[a, b], &none).into_iter();
             (o.next().unwrap().op, o.next().unwrap().op)
         };

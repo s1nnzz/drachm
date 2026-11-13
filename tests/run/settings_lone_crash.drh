@@ -1,0 +1,17 @@
+in io;
+
+failure LockError {
+    Held(string who) f"held by ${who}" exit 9,
+}
+
+// No `fails`, no `maybe`, no handler: a lone file crashes on it at run time.
+none touch(string name) fails LockError {
+    if (name == "locked") { fail Held("the other crew"); }
+    io::outln(f"touched ${name}");
+}
+
+none main() {
+    touch("hatch");
+    touch("locked");
+    io::outln("not reached");
+}

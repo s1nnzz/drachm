@@ -128,8 +128,9 @@ the program with exit status 101 if the key is missing. The default,
 
 `overflow` says what happens when a whole number does not fit its type. It
 covers `+ - *`, unary `-`, `/` (the smallest signed value divided by -1),
-`**`, `++` and `--`, shifts, constants that do not fit, and conversions
-(automatic ones and `::to<T>()`).
+`**`, `++` and `--`, shifts, constants that do not fit, conversions
+(automatic ones and `::to<T>()`), and the scaling of units: `x::in<km>()` and
+mixed-unit arithmetic ([Units](reference-units.md#scaled-units)).
 
 | Setting | Arithmetic | Shift outside the width | Conversion |
 |---|---|---|---|
@@ -137,10 +138,20 @@ covers `+ - *`, unary `-`, `/` (the smallest signed value divided by -1),
 | `saturate` | stops at the nearest end of the type | the bits fall off | clamps to the nearest end |
 | `panic` | stops the program (exit 101) | stops the program | stops the program |
 
-A float turned into a whole number drops its fraction first; NaN and the
-infinities become 0 (a panic under `panic`). A constant that does not fit is
-W0102 and is changed (`wrap` wraps it, `saturate` clamps it); under `panic`
-it is an error (E0116), since the program could never run it.
+Under `saturate`, a negative shift amount shifts the other way: `8 << -1` is 4
+and `8 >> -1` is 16. The exact result then clamps to the type like any other
+overflow, so `200 >> -1` in `uint8` is 255. Only the negative amount reverses;
+a shift by a positive amount that loses bits still lets them fall off.
+
+A float turned into a whole number drops its fraction first. NaN becomes 0
+under `wrap` and `saturate`, and the infinities become 0 under `wrap` but clamp
+to the type's largest or smallest value under `saturate` (`+inf` gives the
+maximum, `-inf` the minimum). Under `panic` NaN and the infinities stop the
+program.
+
+A constant that does not fit is W0102 and is changed (`wrap` wraps it,
+`saturate` clamps it); under `panic` it is an error (E0116), since the program
+could never run it.
 
 The setting applies per function: the project's `[behaviour]` merged with the
 `//--!$overflow:` flag of the file the function is written in. Generic
@@ -152,13 +163,16 @@ functions and methods use the setting of the file that defines them.
 
 ### Unhandled failures
 
-`unhandled_fail = "error"` (the default) makes a call to a failing function
-without `maybe`, `fails` or `fails with` a compile error (E0544). With
+`unhandled_fail = "error"` (the default in a project) makes a call to a failing
+function without `maybe`, `fails` or `fails with` a compile error (E0544). With
 `crash`, the call stands: if it fails, the program prints the failure's
 message, as a failure that leaves `main` would, and ends with the failure's
 exit code (the `exit` of its variant, or 1). A call that has handlers for only
 some of the failures it can raise crashes on the others. Nothing in the
 program is cleaned up on the way out, as with a failure that escapes `main`.
+
+A lone `.drh` file with no `drachm.toml` beside it, and a script, use `crash`
+by default.
 
 <!-- example: settings-unhandled-crash -->
 
