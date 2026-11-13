@@ -216,3 +216,7 @@ Q5 interfaces as types: any interface can be used as `&I` (its `static` methods 
 - Versions of git packages are git tags (`v0.4.1`); `@^0.4` picks the newest matching tag.
 - Built after step 7, as its own step (7.6). Step 7 keeps plain git dependencies + lock file (WP3).
 - Owner's note: "this can link into the C compat stuff" (my reading: a package can wrap a C library, i.e. carry C headers/sources for `in * from c."..." as x;` imports and the link flags, and the manager fetches/builds those too; to design with the C-header step).
+
+# C header import, 2026-11-13
+- Scheduled straight after step 7 (PLAN step 7.1), before the package manager (7.6) and the optimiser (7.5).
+- Owner on `unsafe`: "idk about making them always unsafe since that might be a pain in the ass to use unless there is no other way around it". SPEC said all C calls are unsafe; this is now open: offer designs where calls are safe when possible.

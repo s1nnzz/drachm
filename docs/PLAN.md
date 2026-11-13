@@ -26,14 +26,14 @@ answers into `docs/SPEC.md` and the design doc, and note leftovers under that st
 | 5 | Constructors, enums, `fails` / `maybe` | done (the `crash` setting of `unhandled_fail` waits for step 7): S5A.1 done (enums with data, `match` with bindings/`take`/`copy`/guards/nesting/alternatives/values, exhaustiveness, `Switch`; `==` for payload-free enums) and S5B done (constructors, overloads, `new ... of`, named values, `Person(auto);`, `fill`, `fill partial`, `def`, `defaults`, `now`); optionals done (S5A.2, below); failures done (S5C and S5D, below: `failure`, `fails`, `fail`, `maybe`/`fails` on calls, handlers, `because`, `ConvertError`, exit codes, failing constructors and `drop()`) |
 | 6 | Generics, interfaces, collections | done (S6Z sweep, 2026-11-13): generic functions, structs and enums (inferred and written type arguments, borrows as type arguments, units); interfaces (`with`, `and`, `extends`, `Self`, `changes self`, built-in `Zero`/`Equal`/`Ordered`/`Text`, `with trusted`, generic interfaces, `&Shape` with vtables, `Iterable<T>` with `at(i)`); arrays, lists and maps (indexing, the methods, `take xs[i] reorders`, views of owning items, scalar and composite keys with `key()`, two-variable walks, `each`); function types, lambdas with inferred captures. The interims still open are listed in the step 6 section, each with its question number |
 | 7 | Modules, config, scripts, stdlib | in progress: WP1 done (source map with global offsets, import/export grammar, `src/modules.rs` graph loader, project folders, E0230-E0235; a program of several files stops at E0901 until WP2 resolves names across files); spec `docs/impl/step7-modules.md` |
+| 7.1 | C header import (`in * from c."SDL2/SDL.h" as sdl;`), right after step 7 | not started; owner, 2026-11-13: scheduled next after step 7; not all calls `unsafe` if avoidable |
 | 7.6 | Package manager (`drachm add/remove/update`, git tags as versions, per-project `deps/`, later the Agora; ties into C header packages) | not started; owner answers "Package manager, 2026-11-13" |
 | 7.5 | MIR optimiser: SSA, inlining, scalar replacement, constant folding, loop opts, check elimination, alias info from borrows | not started |
 | 8 | Language server | not started |
 | D | Documentation site (cross-cutting) | live locally: lessons 1-9, reference, design pages with status badges |
 | D2 | Site redesign | not started: a full visual re-look of the docs site to make everything look super duper sexy (owner, 2026-11-13); see "Site redesign" below |
 
-Later, unscheduled: concurrency (threads and async),
-C header import, `drachm fmt`, the Agora registry.
+Later, unscheduled: concurrency (threads and async), `drachm fmt`, the Agora registry.
 
 ---
 
@@ -766,6 +766,21 @@ Tests: `config` and `flags` unit tests, `tests/deps.rs` (local `file://` repos),
 Also: should `check` on a library skip the `main` requirement (E0204)? A `deps/`
 folder in `.gitignore` or committed? Whether `drachm new` should write a
 `.gitignore`. Dependency names clash only per build (no module-level names yet).
+
+---
+
+## Step 7.1: C header import
+
+Owner, 2026-11-13: scheduled straight after step 7, before 7.6 and 7.5 ("that's
+when proper stuff can be done with the lang"). SPEC design: `in * from
+c."SDL2/SDL.h" as sdl;` read via libclang (`clang-sys`), C types mapped to
+Drachm types. Owner on `unsafe`: not "always unsafe" if there is any other
+way, since that is a pain to use; offer designs where most calls are safe
+(e.g. safe when the signature maps to safe Drachm types, unsafe only for raw
+pointers, or a per-function opt-in) and ask. Needs a spec (drachm-architect)
+and an owner round: pointers, structs, enums, unions, macros, callbacks,
+strings, ownership of returned memory, linking (toml key or on the import),
+which calls are safe.
 
 ---
 

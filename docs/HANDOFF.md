@@ -89,6 +89,9 @@ For a new session with no memory of earlier conversations. Read this, then
   step (a usage limit once wiped an uncommitted agent's work), and are merged
   into master by the main session, which runs the full suite once per merge.
   Start a dependent package as soon as the commit it needs exists.
+- **No watchers:** agent briefs say to run long test suites in the foreground
+  (with a timeout) and not to start Monitor watchers (they piled up, owner
+  noticed, 2026-11-13).
 - **CPU:** the owner uses the machine. Every agent prompt says
   `nice -n 19 env CARGO_BUILD_JOBS=2..3 DRACHM_TEST_JOBS=2`, targeted tests
   while working, the expensive targets (`--test run run`,
