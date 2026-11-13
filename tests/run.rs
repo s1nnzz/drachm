@@ -241,6 +241,7 @@ fn script_entries() {
             root().join("site/examples/script-entry.drh"),
             root().join("tests/scripts/configured/configured.drh"),
             root().join("tests/scripts/configured/status.drh"),
+            root().join("tests/scripts/unhandled_crash.drh"),
             root().join("examples/showcase/dispatch/dispatch.drh"),
         ].into(),
         |src| {
@@ -252,7 +253,12 @@ fn script_entries() {
             for flags in [&[][..], &["-O"][..]] {
                 let run = run_script(flags, src);
                 let stderr = text(&run.stderr);
-                if run.status.code() != Some(code) || !stderr.is_empty() || text(&run.stdout) != want {
+                // A script prints nothing on stderr, unless `NAME.err` lists the lines it must print (a crash).
+                let stderr_ok = match read(&src.with_extension("err")) {
+                    Some(want_err) => missing_lines(&want_err, &stderr).is_empty(),
+                    None => stderr.is_empty(),
+                };
+                if run.status.code() != Some(code) || !stderr_ok || text(&run.stdout) != want {
                     return Err(format!("run with {flags:?} exited {:?}\nstdout:\n{}\nstderr:\n{stderr}", run.status.code(), text(&run.stdout)));
                 }
             }
