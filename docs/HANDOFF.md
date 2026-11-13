@@ -4,18 +4,23 @@ For a new session with no memory of earlier conversations. Read this, then
 `CLAUDE.md`, `docs/PLAN.md` (Progress table) and the newest sections of
 `docs/impl/owner-answers.md`.
 
-## State (2026-11-12)
+## State (2026-11-13)
 
-- Steps 0-5 are done, plus 4.5 (units of measure) and 4.6 (input). See the
-  Progress table in `docs/PLAN.md`.
-- **Next: step 6** (generics, interfaces, collections, lambdas). The spec is
-  written and reviewed: `docs/impl/step6-overview.md` + `step6-*.md` briefs.
-  All 20 of its language questions are answered at the bottom of
-  `docs/impl/owner-answers.md` ("Step 6 questions"); the briefs were written
-  *before* the answers, so give implementers both and tell them the answers win.
-  Package order and lanes are in the overview (lane 1: S6A generics -> S6B
-  interfaces -> S6E vtables -> S6F lambdas; lane 2: S6R runtime -> S6C lists
-  -> S6D maps -> S6G Iterable -> S6Z sweep).
+- Steps 0-6 are done, plus 4.5 (units) and 4.6 (input). See the Progress
+  table in `docs/PLAN.md`. Every step 6 decision is in
+  `docs/impl/owner-answers.md` (sections from "Step 6 questions" down), in
+  `docs/SPEC.md`, and in the living design doc ("Generics, interfaces and
+  collections (step 6)" under Later decisions).
+- Step 6 leftovers being built (decided): `not same as`, `same as` errors on
+  maps/structs, `T as unit`, array length parameters (Q12), `take xs[i]
+  leaving v`, ranges `by` a step. Still undesigned: `exclusive &Shape`,
+  `unit U with X`. Not built: map-walk views, interface methods with their own
+  type parameters, borrowing a generic interface.
+- `examples/showcase.drh` shows everything that builds (CLAUDE.md "The
+  showcase"); its site page reads it at build time.
+- Site redesign is on the roadmap (PLAN row D2), unscheduled.
+- `AGENTS.md` and `docs/impl/agent-handoffs/` are untracked files from a Codex
+  trial run; leave them.
 - Then step 7 (modules, config, scripts, stdlib), 7.5 (MIR optimiser, own
   passes on the MIR, Cranelift stays for codegen), 8 (language server).
 - Small known leftovers (E0901 today): `e::cause()`; a handler after a failing
