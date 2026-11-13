@@ -241,10 +241,20 @@ fn build_scope(infos: &[Info], m: usize, graph: &ModuleGraph, diags: &mut Vec<Di
                             Bind::Item { import: Some(k), .. } => format!("the import on line {}", line_number(graph, prog.imports[*k].span)),
                             Bind::Module(_) => "a module of that name".to_string(),
                         };
+                        // The module of this import: the name it is given, or (without `as`) the
+                        // last part of its path, which `as` must name first.
+                        let module_hint = match &imp.alias {
+                            Some((alias, _)) => format!("write `{alias}::{shown}`"),
+                            None => {
+                                let last = imp.path.last().map(String::as_str).unwrap_or_default();
+                                format!("write `{last}::{shown}` after `in * from {} as {last} also bare;`", imp.path.join("."))
+                            }
+                        };
                         diags.push(
                             Diagnostic::at(&codes::W0240, imp.span, format!("`{shown}` from `{}` is hidden by {hidden_by}", imp.path.join(".")))
                                 .note("this import brings a name that is already taken")
-                                .help(format!("the first one wins; to use both, import by name with `as`: `in {shown} as other{} from {};`", cap(&shown), imp.path.join("."))),
+                                .note_line(format!("to use both, import by name with `as`: `in {shown} as other{} from {};`", cap(&shown), imp.path.join(".")))
+                                .help(format!("did you mean to use the module's `{shown}`? {module_hint}")),
                         );
                     }
                 }
