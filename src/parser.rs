@@ -30,6 +30,7 @@ pub fn parse(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>) -> Program {
         let start = p.pos;
         // `out` before a declaration (`out struct Vector3 { }`) exports it.
         let out_span = if p.peek() == &Tok::Kw("out") && !p.at_export_list() { Some(p.bump().span) } else { None };
+        let consts_before = program.consts.len();
         let before = [
             program.funcs.len(),
             program.structs.len(),
@@ -64,6 +65,7 @@ pub fn parse(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>) -> Program {
         };
         if let (Some(out), Ok(())) = (out_span, &item) {
             let named = match before {
+                _ if program.consts.len() > consts_before => program.consts.last().map(|x| (x.name.clone(), x.name_span)),
                 [f, ..] if program.funcs.len() > f => program.funcs.last().map(|x| (x.name.clone(), x.name_span)),
                 [_, s, ..] if program.structs.len() > s => program.structs.last().map(|x| (x.name.clone(), x.name_span)),
                 [_, _, e, ..] if program.enums.len() > e => program.enums.last().map(|x| (x.name.clone(), x.name_span)),
@@ -449,6 +451,13 @@ impl Parser<'_> {
         while self.dim_look(0) {
             let open = self.bump().span;
             let dim = match self.peek().clone() {
+                // `[module::SIZE]`
+                Tok::Ident(module) if self.peek_at(1) == &Tok::Sym("::") && matches!(self.peek_at(2), Tok::Ident(_)) && self.peek_at(3) == &Tok::Sym("]") => {
+                    let first = self.bump().span;
+                    self.bump();
+                    let (name, last) = self.ident("a constant")?;
+                    Dim::Param(types::intern(&format!("{module}::{name}")), first.to(last))
+                }
                 Tok::Ident(name) if self.peek_at(1) == &Tok::Sym("]") => {
                     let at = self.bump().span;
                     Dim::Param(types::intern(&name), at)
@@ -489,6 +498,7 @@ impl Parser<'_> {
         }
         let close = match self.peek_at(n + 1) {
             Tok::Sym("?") => n + 2,
+            Tok::Ident(_) if self.peek_at(n + 2) == &Tok::Sym("::") && matches!(self.peek_at(n + 3), Tok::Ident(_)) && self.peek_at(n + 4) == &Tok::Sym("]") => n + 4,
             Tok::Num(NumLit { value: Const::Int(_), suffix: None, .. }, None) if self.peek_at(n + 2) == &Tok::Sym("]") => n + 2,
             Tok::Ident(_) | Tok::Num(NumLit { value: Const::Int(_), suffix: None, .. }, None) => self.dim_param_end(n + 1)?,
             _ => return None,
@@ -881,6 +891,16 @@ impl Parser<'_> {
             Tok::Kw("out") => {
                 self.at_export_list()
                     || matches!(self.peek_at(1), Tok::Kw("struct" | "enum" | "failure" | "interface"))
+                    || {
+                        let mut from = 1;
+                        if matches!(self.peek_at(from), Tok::Ident(w) if w == "fixed") && !matches!(self.peek_at(from + 1), Tok::Sym("=" | ";" | "(" | "<")) {
+                            from += 1;
+                        }
+                        if self.peek_at(from) == &Tok::Kw("mut") {
+                            from += 1;
+                        }
+                        self.type_end(from).is_some_and(|n| matches!(self.peek_at(n), Tok::Ident(_)) && matches!(self.peek_at(n + 1), Tok::Sym("=" | ";")))
+                    }
                     || {
                         let from = 1 + (self.peek_at(1) == &Tok::Kw("unsafe")) as usize;
                         match self.type_end(from) {

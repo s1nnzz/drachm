@@ -281,7 +281,10 @@ codes! {
          example `game/audio.drh` and `engine/audio.drh` are both `audio`. Rename\n\
          one with `as`:\n\n\
          \x20   in game.audio;\n\
-         \x20   in engine.audio as engineAudio;";
+         \x20   in engine.audio as engineAudio;\n\n\
+         The same goes for names imported one by one (`in Vector3 from a;` and\n\
+         `in Vector3 from b;`, or an import with the name of a declaration in\n\
+         the file): rename with `as`: `in Vector3 as VectorB from b;`.";
     E0233: "exported twice",
         "A name is exported more than once from one file, with `out` before the\n\
          declaration and again in an `out` list, or in two lists. The name other\n\
@@ -293,6 +296,32 @@ codes! {
     E0235: "cannot read a module file",
         "The file an `in` points at exists but could not be read (permissions,\n\
          or it is not valid UTF-8 text).";
+
+    E0236: "name is private",
+        "A name was imported or used through its module (`in Vector3 from physics;`,\n\
+         `phys::gravity()`), but the module does not export it. Only what a file\n\
+         marks with `out` can be used from another file:\n\n\
+         \x20   out struct Vector3 { ... }      // exported\n\
+         \x20   out gravity, Vector3 as Vec3;   // a list, which may rename\n\n\
+         Everything else is private to its file.";
+    E0237: "no such name in the module",
+        "An import or a qualified name asks a module for a name it does not have.\n\
+         Check the spelling; the help lists what the module exports.";
+    E0238: "files call each other in a circle",
+        "A function of one file calls a function of another file that calls back\n\
+         into the first (directly or through more functions). Files may import\n\
+         each other, and types and constants may refer to each other across\n\
+         files, but code that calls itself around a circle through several files\n\
+         is rejected. The error shows the chain. Recursion inside one file is fine.";
+    W0240: "imported name is hidden",
+        "An `in * from m;` brings a name that this file already has: its own\n\
+         declaration wins over any import, and between two imports the first\n\
+         one wins. The warning is at the later import. Import the name on its\n\
+         own with `as` to use both: `in play as playAudio from audio;`.";
+    W0241: "name hides an imported module",
+        "A declaration in this file has the same name as a module this file\n\
+         imports. The declaration wins inside the file, so the module cannot\n\
+         be reached by that name. Rename the module with `as`.";
 
     E0308: "which parameter the result borrows from is ambiguous",
         "A function that returns a borrow gets its `lives` from its body when only\n\

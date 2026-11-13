@@ -371,6 +371,7 @@ impl Loader<'_> {
             .chain(prog.interfaces.iter().map(|i| i.name.as_str()))
             .chain(prog.failures.iter().map(|f| f.name.as_str()))
             .chain(prog.units.iter().map(|u| u.name.as_str()))
+            .chain(prog.consts.iter().map(|c| c.name.as_str()))
             .collect();
         let mut imported: Vec<&str> = Vec::new();
         for i in &prog.imports {
