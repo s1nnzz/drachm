@@ -708,6 +708,7 @@ pub fn open(path: &Path) -> Result<Opened, Failure> {
                 name: config.project.name.clone(),
                 root,
                 display_base: Some(dir.clone()),
+                script: false,
                 requires_main: config.project.kind != Kind::Library,
                 dependency_names: config.dependencies.iter().map(|dep| dep.name.clone()).collect(),
             };
@@ -723,6 +724,7 @@ pub fn open(path: &Path) -> Result<Opened, Failure> {
                 name: config.project.name.clone(),
                 root: dir.clone(),
                 display_base: None,
+                script: true,
                 requires_main: true,
                 dependency_names: config.dependencies.iter().map(|dep| dep.name.clone()).collect(),
             };

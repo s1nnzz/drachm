@@ -95,7 +95,8 @@ pub fn lex(src: &str, diags: &mut Vec<Diagnostic>) -> Vec<Token> {
 /// `lex` for a file that starts at global offset `base`: every span is shifted
 /// by it, so spans from several files can share one number space.
 pub fn lex_at(src: &str, base: usize, diags: &mut Vec<Diagnostic>) -> Vec<Token> {
-    let mut lx = Lexer { src, base, bytes: src.as_bytes(), i: 0, diags };
+    let start = if src.starts_with("#!") { src.find('\n').unwrap_or(src.len()) } else { 0 };
+    let mut lx = Lexer { src, base, bytes: src.as_bytes(), i: start, diags };
     let mut out = Vec::new();
     while let Some((tok, start)) = lx.next() {
         out.push(Token { tok, span: lx.span(start, lx.i) });
@@ -533,6 +534,16 @@ fn parse_decimal(text: &str) -> Option<BigRational> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shebang_preserves_file_offsets() {
+        let mut diags = Vec::new();
+        let src = "#!/usr/bin/env drachm\r\nnone";
+        let tokens = lex_at(src, 100, &mut diags);
+        assert!(diags.is_empty(), "{diags:?}");
+        assert_eq!(tokens[0].tok, Tok::Kw("none"));
+        assert_eq!(tokens[0].span.start, 100 + src.find("none").unwrap());
+    }
 
     fn nums(src: &str) -> Vec<String> {
         let mut diags = Vec::new();
