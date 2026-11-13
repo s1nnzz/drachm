@@ -779,6 +779,10 @@ file decides for all files. Each file using SI units needs its own `in si;`.
 A local declaration or item clashing with an explicit item import is E0232
 (only `*` clashes warn). Applying `import_clash = error` waits for WP4.
 
+**Step 7 progress (WP4):** `bounds` is applied in shared MIR lowering. File
+flags override the project default, negative indexes still count from the
+end, and constant array indexes are checked by the type checker.
+
 **Open (ask owner):** the full `[warnings]` name list (grows as warnings are added).
 Also: a `deps/`
 folder in `.gitignore` or committed? Whether `drachm new` should write a

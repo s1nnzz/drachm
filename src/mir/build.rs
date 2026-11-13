@@ -381,14 +381,9 @@ impl<'a> Builder<'a> {
     fn index_local_of(&mut self, base: &Place, ty: Type, iop: Operand, idx_ty: Type) -> Local {
         let span = self.span;
         let signed = matches!(idx_ty, Type::Int { signed: true, .. });
-        let len_op = match ty {
-            Type::Array { len, .. } => Operand::Const(Constant::Int(len as u128, Type::U64)),
-            _ => {
-                let l = self.decl(Type::U64, LocalKind::Temp);
-                self.assign_stmt(Place::local(l), Rvalue::Len(base.clone()));
-                Operand::Copy(Place::local(l))
-            }
-        };
+        let unchecked = self.hir.settings.get(self.id).is_some_and(|settings| {
+            settings.bounds == crate::config::Bounds::Unchecked
+        });
         let conv = |b: &mut Self, op: Operand, from: Type, to: Type| -> Operand {
             if from == to {
                 return op;
@@ -398,6 +393,19 @@ impl<'a> Builder<'a> {
             Operand::Copy(Place::local(t))
         };
         let a = self.decl(Type::U64, LocalKind::Temp);
+        if unchecked && !signed {
+            let u = conv(self, iop, idx_ty, Type::U64);
+            self.assign_stmt(Place::local(a), Rvalue::Use(u));
+            return a;
+        }
+        let len_op = match ty {
+            Type::Array { len, .. } => Operand::Const(Constant::Int(len as u128, Type::U64)),
+            _ => {
+                let l = self.decl(Type::U64, LocalKind::Temp);
+                self.assign_stmt(Place::local(l), Rvalue::Len(base.clone()));
+                Operand::Copy(Place::local(l))
+            }
+        };
         let shown;
         if signed {
             let i = conv(self, iop, idx_ty, Type::S64);
@@ -419,6 +427,9 @@ impl<'a> Builder<'a> {
             let u = conv(self, iop, idx_ty, Type::U64);
             shown = u.clone();
             self.assign_stmt(Place::local(a), Rvalue::Use(u));
+        }
+        if unchecked {
+            return a;
         }
         let ok_flag = self.decl(Type::Bool, LocalKind::Temp);
         self.assign_stmt(Place::local(ok_flag), Rvalue::Binary(hir::BinOp::Lt, Operand::Copy(Place::local(a)), len_op.clone()));

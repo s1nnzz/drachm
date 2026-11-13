@@ -75,11 +75,9 @@ opt = true
 the compiler runs on can be the target.
 
 ## Behaviour settings
-<!-- status: not-implemented -->
 
 Settings that change what a program does live in `[behaviour]`. Each has a
-default. The compiler reads and checks them today, but code generation does not
-use them yet: it always wraps.
+default.
 
 ```toml
 [behaviour]
@@ -90,6 +88,17 @@ unhandled_fail = "error"   # error | crash
 import_clash = "warn"      # warn | error
 unsigned_negate = "wrap"   # wrap | error | signed
 ```
+
+### Bounds
+
+`bounds = "panic"` checks collection indexes at runtime. With `unchecked`,
+the runtime check is omitted. A negative index still counts from the end.
+The compiler still checks constant array indexes.
+
+<!-- example: settings-bounds -->
+
+### Other behaviour settings
+<!-- status: not-implemented -->
 
 `overflow` covers arithmetic, constants that do not fit, shifts and automatic
 conversions. `unsigned_negate` decides what `-x` does on an unsigned value; with
@@ -109,17 +118,15 @@ as_errors = ["lossy-conversion", "missing-case"]
 ## File flags
 
 A line `//--!$key: value` at the very top of a file overrides the project
-setting for that file. The only flag the compiler reads today is
-`//--!$unsafe: true`, which is checked in a file.
+setting for that file. Use `//--!$unsafe: true` to allow unsafe code.
 
 ```drachm
 //--!$unsafe: true
 //--!$overflow: saturate
 ```
 
-`overflow`, `bounds` and `unsigned_negate` may be set per file (the value is
-checked now; the file's code uses it once code generation of the settings is
-built). `missing_key`, `unhandled_fail` and `import_clash` are project-wide: a
+`bounds` takes effect per file. File flags for `overflow` and
+`unsigned_negate` are accepted and await code generation. `missing_key`, `unhandled_fail` and `import_clash` are project-wide: a
 file flag that sets one is an error (E0806).
 
 ## Tests

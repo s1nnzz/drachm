@@ -1,0 +1,11 @@
+//--!$bounds: unchecked
+in io;
+
+uint32 last(sint64 index) {
+    uint32[3] readings = [12, 18, 24];
+    return readings[index];
+}
+
+none main() {
+    io::outln(f"${last(-1)}");
+}

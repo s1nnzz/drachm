@@ -29,6 +29,8 @@ pub type StructId = usize;
 pub type EnumId = usize;
 
 pub struct Program {
+    /// Effective settings keyed by function, including instantiated bodies.
+    pub settings: Vec<crate::config::Behaviour>,
     pub funcs: Vec<Func>,
     pub structs: Vec<StructDef>,
     pub enums: Vec<EnumDef>,

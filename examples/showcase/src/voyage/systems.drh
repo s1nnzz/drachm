@@ -1,3 +1,4 @@
+//--!$bounds: unchecked
 // Part 3 of the voyage, in its own file: ship systems.
 // The rack size lives in rules.drh, one folder up: a file path climbs with `..`.
 in io;

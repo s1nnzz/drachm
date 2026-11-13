@@ -81,7 +81,7 @@ impl Analysis {
                 return Some(Analysis { entry: at.to_path_buf(), files, map: f.map, graph: None, diags: f.diags, index: Index::default() });
             }
         };
-        let ((_, mut graph, diags), mut index) = index::collect(|| crate::check_project_with_dependencies(&opened.entry, &opened.info, &opened.deps));
+        let ((_, mut graph, diags), mut index) = index::collect(|| crate::front_opened(&opened, true));
         if !index.ran {
             // Syntax errors stopped the checker. Check what the parser could
             // keep, for the names and types only: its errors would be noise.

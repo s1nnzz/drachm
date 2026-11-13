@@ -40,7 +40,8 @@ pub fn front(src: &str) -> (Option<hir::Program>, Vec<Diagnostic>) {
     if diag::has_errors(&diags) {
         return (None, diags);
     }
-    let checked = typeck::check(&program, src, &mut diags);
+    let mut checked = typeck::check(&program, src, &mut diags);
+    checked.settings = vec![config::Behaviour::default().for_file(&flags.behaviour); checked.funcs.len()];
     if diag::has_errors(&diags) {
         return (None, diags);
     }
@@ -76,11 +77,10 @@ fn ownership_checks(checked: Option<hir::Program>, mut diags: Vec<Diagnostic>) -
 /// A project of several files has its names resolved by `resolve` and is then
 /// checked as one program.
 pub fn front_project(entry: &std::path::Path, info: &modules::ProjectInfo) -> (Option<hir::Program>, modules::ModuleGraph, Vec<Diagnostic>) {
-    front_project_with_dependencies(entry, info, &[])
+    front_project_with_settings(entry, info, config::Behaviour::default(), &[])
 }
 
-#[doc(hidden)]
-pub fn front_project_with_dependencies(entry: &std::path::Path, info: &modules::ProjectInfo, deps: &[deps::Root]) -> (Option<hir::Program>, modules::ModuleGraph, Vec<Diagnostic>) {
+fn front_project_with_settings(entry: &std::path::Path, info: &modules::ProjectInfo, behaviour: config::Behaviour, deps: &[deps::Root]) -> (Option<hir::Program>, modules::ModuleGraph, Vec<Diagnostic>) {
     let mut diags = Vec::new();
     let mut graph = modules::load_with_dependencies(entry, info, deps, &mut diags);
     if diag::has_errors(&diags) || graph.modules.is_empty() {
@@ -90,6 +90,20 @@ pub fn front_project_with_dependencies(entry: &std::path::Path, info: &modules::
         }
         return (None, graph, diags);
     }
+    let settings: Vec<_> = graph.modules.iter().map(|module| {
+        let path = module.path.canonicalize().unwrap_or_else(|_| module.path.clone());
+        let project = deps.iter().filter(|dep| path.starts_with(&dep.src))
+            .max_by_key(|dep| dep.src.components().count())
+            .map_or(behaviour, |dep| dep.config.behaviour);
+        // Loading has already validated the flags and reported their diagnostics.
+        let flags = flags::parse(&graph.map.source(module.file).text, &mut Vec::new());
+        project.for_file(&flags.behaviour)
+    }).collect();
+    let apply_settings = |program: &mut hir::Program, map: &diag::SourceMap| {
+        program.settings = program.funcs.iter()
+            .map(|func| settings[map.file_of(func.name_span.start)])
+            .collect();
+    };
     if graph.modules.len() > 1 {
         // Several files: give every name its program-wide meaning, join the
         // files into one program, and check that. The text is the files in
@@ -100,7 +114,8 @@ pub fn front_project_with_dependencies(entry: &std::path::Path, info: &modules::
             return (None, graph, diags);
         }
         let src = (0..graph.map.len()).map(|f| graph.map.source(f).text.as_str()).collect::<Vec<_>>().join("\n");
-        let checked = typeck::check_with_entry(&program, &src, &mut diags, info.requires_main);
+        let mut checked = typeck::check_with_entry(&program, &src, &mut diags, info.requires_main);
+        apply_settings(&mut checked, &graph.map);
         if diag::has_errors(&diags) {
             return (None, graph, diags);
         }
@@ -113,7 +128,8 @@ pub fn front_project_with_dependencies(entry: &std::path::Path, info: &modules::
     }
     let program = &graph.modules[0].program;
     let src = &graph.map.source(0).text;
-    let checked = typeck::check_with_entry(program, src, &mut diags, info.requires_main);
+    let mut checked = typeck::check_with_entry(program, src, &mut diags, info.requires_main);
+    apply_settings(&mut checked, &graph.map);
     if diag::has_errors(&diags) {
         return (None, graph, diags);
     }
@@ -122,13 +138,16 @@ pub fn front_project_with_dependencies(entry: &std::path::Path, info: &modules::
 
 /// `check` for a project: `front_project`, then the ownership checks.
 pub fn check_project(entry: &std::path::Path, info: &modules::ProjectInfo) -> (Option<hir::Program>, modules::ModuleGraph, Vec<Diagnostic>) {
-    check_project_with_dependencies(entry, info, &[])
+    { let (checked, graph, diags) = front_project(entry, info); let (checked, diags) = ownership_checks(checked, diags); (checked, graph, diags) }
 }
 
-#[doc(hidden)]
-pub fn check_project_with_dependencies(entry: &std::path::Path, info: &modules::ProjectInfo, deps: &[deps::Root]) -> (Option<hir::Program>, modules::ModuleGraph, Vec<Diagnostic>) {
-    let (checked, graph, diags) = front_project_with_dependencies(entry, info, deps);
-    let (checked, diags) = ownership_checks(checked, diags);
+
+/// Check an opened project with its configured behaviour.
+pub fn front_opened(opened: &config::Opened, ownership: bool) -> (Option<hir::Program>, modules::ModuleGraph, Vec<Diagnostic>) {
+    let (checked, graph, diags) = front_project_with_settings(
+        &opened.entry, &opened.info, opened.config.behaviour, &opened.deps,
+    );
+    let (checked, diags) = if ownership { ownership_checks(checked, diags) } else { (checked, diags) };
     (checked, graph, diags)
 }
 

@@ -750,7 +750,7 @@ pub(crate) fn check_with_entry(prog: &ast::Program, src: &str, diags: &mut Vec<D
     let conformances = std::mem::take(&mut g.ifaces.records);
     let (dyn_ifaces, vtables) = dynamic::finish(&mut g, &structs);
     index::finish(&g, src);
-    let mut program = hir::Program { funcs: funcs.into_iter().map(|f| f.unwrap_or_else(placeholder)).collect(), structs, enums: enum_defs, main, collections, conformances, dyn_ifaces, vtables, closures: std::mem::take(&mut g.lambdas.closures), ties: std::mem::take(&mut g.ties) };
+    let mut program = hir::Program { settings: Vec::new(), funcs: funcs.into_iter().map(|f| f.unwrap_or_else(placeholder)).collect(), structs, enums: enum_defs, main, collections, conformances, dyn_ifaces, vtables, closures: std::mem::take(&mut g.lambdas.closures), ties: std::mem::take(&mut g.ties) };
     if !diags.iter().any(Diagnostic::is_error) {
         lambdas::infer_captures(&mut program, diags);
     }

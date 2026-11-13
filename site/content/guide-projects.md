@@ -97,11 +97,9 @@ opt = true
 ```
 
 ## Behaviour settings
-<!-- status: not-implemented -->
 
 Settings that change what a program does live in `[behaviour]`, each with a
-default. They are decisions for the whole project, so make them once, here,
-and not file by file.
+default. File flags can override settings that apply to one file.
 
 <!-- focus: 2-7 -->
 
@@ -115,13 +113,17 @@ import_clash = "warn"      # warn | error
 unsigned_negate = "wrap"   # wrap | error | signed
 ```
 
+`bounds` controls runtime index checks. See [Bounds](design-config.md#bounds).
+
+### Other behaviour settings
+<!-- status: not-implemented -->
+
 `overflow` covers arithmetic, constants that do not fit, shifts and conversions.
 A project that values catching mistakes picks `panic`; one that wants the
 arithmetic of a hash function keeps `wrap`. `unhandled_fail = "crash"` lets a
 call to a failing function stand without saying what to do, and stops the
 program with a message if it fails; it is the default in scripts and a bad idea
-in a long-lived program (see [Error handling](guide-errors-handling.md)). The
-compiler does not read these settings yet: it always wraps.
+in a long-lived program (see [Error handling](guide-errors-handling.md)).
 
 ## Warnings
 <!-- status: not-implemented -->
@@ -165,9 +167,8 @@ pointer by accident. See [Unsafe](reference-unsafe.md).
 
 Use a flag for a file with one odd need, such as the file that wraps a C
 library. If most files need the same, change the project setting instead. The
-flags `overflow`, `bounds` and `unsigned_negate` are checked (a wrong word is
-E0318) and stored for the file, such as `//--!$overflow: saturate`; the code
-does not use them yet. `missing_key`, `unhandled_fail` and `import_clash` are
+flag `//--!$bounds: unchecked` disables runtime index checks for the file.
+The `overflow` and `unsigned_negate` flags are validated and await code generation. `missing_key`, `unhandled_fail` and `import_clash` are
 for the whole project, so a file flag that sets one is E0806.
 
 ## Scripts

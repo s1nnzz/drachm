@@ -13,9 +13,7 @@
 //!
 //! A project folder has a `drachm.toml`. A script may sit beside a
 //! `srachm.toml` (same settings, script defaults); with neither, a script
-//! has the script defaults. This module reads and checks the settings. Code
-//! generation of `[behaviour]` is WP4: until it lands the values are stored,
-//! not applied.
+//! has the script defaults. This module reads and checks the settings.
 
 use std::path::{Path, PathBuf};
 

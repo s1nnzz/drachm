@@ -24,10 +24,13 @@ insertion order. See [Walking a map](reference-collections.md#walking-a-map).
 
 ## Configuring lookups
 
+The `bounds` setting in [Config](design-config.md) controls runtime checks
+for array and list indexes.
+
+### Missing keys
 <!-- status: not-implemented -->
 
-The `bounds` setting in [Config](design-config.md) will control indexing
-outside an array or list. The `missing_key` setting will let a missing
+The `missing_key` setting will let a missing
 `map[key]` stop the program. The `map::get(key)` method will continue to
 return an optional.
 

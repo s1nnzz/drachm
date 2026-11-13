@@ -176,5 +176,34 @@ fn dependency_public_modules_gate_dotted_and_file_imports() {
         let out = drachm(&s.dir, &["check"]);
         assert!(!out.status.success());
         assert!(text(&out.stderr).contains("E0236"), "{}", text(&out.stderr));
+fn bounds_setting_is_applied_to_each_defining_file() {
+    let s = Scratch::new("bounds");
+    fs::create_dir(s.dir.join("src")).unwrap();
+    fs::write(s.dir.join("drachm.toml"), "[project]\nname = \"demo\"\n[behaviour]\nbounds = \"unchecked\"\n").unwrap();
+    fs::write(s.dir.join("src/main.drh"), r#"
+in io;
+in read from checked;
+uint32 local_read(sint64 i) {
+    uint32[2] values = [4, 8];
+    return values[i];
+}
+none main() {
+    io::outln(f"${local_read(-1)} ${read(-1)}");
+}
+"#).unwrap();
+    fs::write(s.dir.join("src/checked.drh"), r#"//--!$bounds: panic
+out uint32 read(sint64 i) {
+    uint32[2] values = [15, 16];
+    return values[i];
+}
+"#).unwrap();
+    let dump = drachm(&s.dir, &["check", "--dump-mir"]);
+    assert!(dump.status.success(), "{}", text(&dump.stderr));
+    let mir = text(&dump.stdout);
+    assert_eq!(mir.matches("IndexPanic").count(), 1, "{mir}");
+    for args in [&["run"][..], &["run", "-O"][..]] {
+        let out = drachm(&s.dir, args);
+        assert!(out.status.success(), "{}", text(&out.stderr));
+        assert_eq!(text(&out.stdout), "8 16\n");
     }
 }
