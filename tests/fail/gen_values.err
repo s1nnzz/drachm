@@ -1,0 +1,11 @@
+error[E0636]: `N` is 0, and an array needs at least one item
+error[E0605]: value parameter `X` has type `float64`, which is not a whole-number type
+error[E0901]: a calculation in an array length is not supported yet
+error[E0901]: a calculation on a value parameter in a type is not supported yet
+error[E0609]: `N` is a value, so it cannot be a type
+error[E0634]: `n` is not a constant
+error[E0635]: 300 does not fit `uint8`, the type of `P`
+error[E0635]: -1 does not fit `uint8`, the type of `P`
+error[E0602]: `Buffer` takes a value for `N`, not a type
+error[E0602]: `Pair` takes a type for `U`, not a number
+error[E0603]: `N` is `2` from the first argument, but `3` from the second

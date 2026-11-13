@@ -1,0 +1,55 @@
+in io;
+
+struct Buffer<T, uint32 N> {
+    public:
+    T[N] items;
+}
+
+struct Small<uint8 P> {
+    public:
+    uint8 v;
+}
+
+struct Pair<T, U> {
+    public:
+    T a;
+    U b;
+}
+
+struct Bad<float64 X> {
+    public:
+    uint32 v;
+}
+
+struct Wide<T, uint32 N> {
+    public:
+    T[N + 1] items;
+}
+
+struct Twice<uint32 N> {
+    public:
+    Buffer<uint32, N * 2> inner;
+}
+
+sint32 first<uint32 N>(&sint32[N] a) { return a[0]; }
+
+uint32 same<uint32 N>(&sint32[N] a, &sint32[N] b) { return N; }
+
+N wrong<uint32 N>(uint32 x) { return x; }
+
+none main() {
+    uint32 n = 4;
+    Buffer<sint32, n> a;
+    Small<300> b;
+    Small<-1> c;
+    Buffer<sint32, uint32> d;
+    Pair<uint32, 4> e;
+    Buffer<sint32, 0> f;
+    sint32[2] x = [1, 2];
+    sint32[3] y = [1, 2, 3];
+    same(&x, &y);
+    Wide<uint32, 2> w;
+    Twice<2> t;
+    wrong<4>(1);
+    first(&x);
+}

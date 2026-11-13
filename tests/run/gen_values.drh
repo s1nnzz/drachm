@@ -1,0 +1,48 @@
+in io;
+
+// Value parameters: a whole number as a generic argument.
+struct Buffer<T, uint32 N> {
+    public:
+    T[N] items;
+    static uint32 capacity() { return N; }
+    T at(uint32 i) { return copy self.items[i]; }
+}
+
+struct Mod<uint64 P> {
+    public:
+    uint64 v;
+    Mod(uint64 x) { self.v = x % P; }
+    Mod<P> plus(&Mod<P> o) { return new Mod<P> of ((self.v + o.v) % P); }
+}
+
+struct Ring<sint8 K> {
+    public:
+    static sint8 shift() { return K; }
+}
+
+sint32 sum<uint32 N>(&sint32[N] a) {
+    mut sint32 t = 0;
+    for (sint32 x of a) { t += x; }
+    return t;
+}
+
+uint32 lengthOf<T, uint32 N>(&T[N] a) { return N; }
+
+uint32 cap<uint32 N>(&Buffer<sint32, N> b) { return N; }
+
+uint32 explicit<uint32 N>() { return N * 2; }
+
+none main() {
+    Buffer<sint32, 4> b = new Buffer<sint32, 4> of ([5, 6, 7, 8]);
+    io::outln(f"${Buffer<sint32, 4>::capacity()} ${b::at(2)}");
+    Buffer<sint32, 2 * 8> c = new Buffer<sint32, 2 * 8> of ([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+    io::outln(f"${Buffer<sint32, 16>::capacity()} ${cap(&c)} ${c::at(15)}");
+    Mod<7> m = new Mod<7> of (5);
+    Mod<7> n = new Mod<7> of (4);
+    io::outln(f"${m::plus(&n).v}");
+    io::outln(f"${Ring<-3>::shift()}");
+    sint32[4] arr = [1, 2, 3, 4];
+    io::outln(f"${sum(&arr)} ${lengthOf(&arr)}");
+    string[3] names = ["a", "b", "c"];
+    io::outln(f"${lengthOf(&names)} ${explicit<21>()}");
+}
