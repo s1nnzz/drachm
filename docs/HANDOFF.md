@@ -40,6 +40,10 @@ For a new session with no memory of earlier conversations. Read this, then
   the free-text notes (they often change the pick), and append the answers to
   `docs/impl/owner-answers.md` with the date, marking anything that is my
   reading rather than their words.
+- **Agent types** (owner wants named agents, not "general-purpose"): `.claude/agents/`
+  defines `drachm-architect` (Sonnet: hard packages, specs), `drachm-builder`
+  (Haiku: standard packages) and `drachm-writer` (Sonnet: docs, lessons, the
+  showcase). `.claude/` is git-ignored, so these live only on this machine.
 - **Agents run in git worktrees** (`isolation: worktree`), commit after every
   step (a usage limit once wiped an uncommitted agent's work), and are merged
   into master by the main session, which runs the full suite once per merge.
