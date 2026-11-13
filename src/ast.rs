@@ -8,6 +8,9 @@ use crate::types::Type;
 #[derive(Debug)]
 pub struct Program {
     pub imports: Vec<Import>,
+    /// What the file shows to other files: `out A, B as C;` lists and `out`
+    /// written before a declaration, in the order written.
+    pub exports: Vec<Export>,
     /// `unit` declarations, in the order written (order does not matter to the checker).
     pub units: Vec<UnitDecl>,
     pub funcs: Vec<Func>,
@@ -189,11 +192,78 @@ pub struct Method {
     pub func: Func,
 }
 
-/// `in io;`
+/// One `in` item. The forms (owner, step 7 batches A and B):
+///
+/// ```text
+/// in io;                                  module            path ["io"]
+/// in game.physics;  in physics inside game;   the same module, dotted or in words
+/// in game.physics as phys;                module with a name of its own
+/// in Vector3 as V3, gravity from physics; items of a module (each may be renamed)
+/// in * from game.audio;                   every exported name
+/// ```
 #[derive(Debug)]
 pub struct Import {
-    pub module: String,
+    /// The module's path, outermost folder first: `game.physics` is
+    /// `["game", "physics"]`, whichever way it was written.
+    pub path: Vec<String>,
+    /// The words that name the module (the path, or the part after `from`).
+    pub path_span: Span,
+    /// Written in words (`physics inside game`) rather than with dots.
+    pub word_form: bool,
+    /// `in A, B as C from path`: the names taken from the module. Empty for
+    /// the module forms and for `*`.
+    pub items: Vec<ImportItem>,
+    /// `in * from path`.
+    pub glob: bool,
+    /// `in path as name` (or `in * from path as name`).
+    pub alias: Option<(String, Span)>,
     pub span: Span,
+}
+
+impl Import {
+    /// `Some("io")` for a bare `in io;`, the only form the checker takes today.
+    pub fn plain_name(&self) -> Option<&str> {
+        match self.path.as_slice() {
+            [one] if self.items.is_empty() && !self.glob && self.alias.is_none() => Some(one),
+            _ => None,
+        }
+    }
+
+    /// The name this import gives the module in the importing file: the alias,
+    /// or the last part of the path. `None` for item and `*` imports.
+    pub fn binding(&self) -> Option<&str> {
+        if !self.items.is_empty() || self.glob && self.alias.is_none() {
+            return None;
+        }
+        Some(self.alias.as_ref().map(|a| a.0.as_str()).unwrap_or_else(|| self.path.last().unwrap()))
+    }
+}
+
+/// `Vector3 as V3` in `in Vector3 as V3, gravity from physics;`
+#[derive(Debug)]
+pub struct ImportItem {
+    pub name: String,
+    pub alias: Option<String>,
+    pub span: Span,
+}
+
+/// One exported name: `out Vector3 as Vec3;` or the `out` before a declaration.
+#[derive(Debug)]
+pub struct Export {
+    /// The declared (or imported) name.
+    pub name: String,
+    /// The name other files see, when `as` renames it.
+    pub alias: Option<String>,
+    pub span: Span,
+    /// Written as `out` before the declaration itself, not in a list.
+    pub on_decl: bool,
+}
+
+impl Export {
+    /// The name other files use.
+    pub fn shown_as(&self) -> &str {
+        self.alias.as_deref().unwrap_or(&self.name)
+    }
 }
 
 /// A type as written in the source.
