@@ -32,26 +32,25 @@ For a new session with no memory of earlier conversations. Read this, then
 - **Early language server merged**: `drachm lsp` and the VS Code extension
   provide live diagnostics, hover, definition and completion. See PLAN step 8
   for remaining work and the extension README for setup.
-- **Step 7 WP1 merged 2026-11-13.** Step 7 spec: `docs/impl/step7-modules.md`; batches A-D answered
-  (owner-answers), batch E and some sub-questions (9b, 13b, 13c, 15c, re-export,
-  climbing a folder up) still open.
+- **Step 7**: modules, config and public dependency imports are built.
+  Libraries check without `main()`. The showcase uses source tabs.
+  Bounds, unsigned negation and missing-map-key settings work. Overflow,
+  unhandled failure and import-clash settings are pending. Stateless scripts
+  run top-level statements on both backends. Shared runtime state and JIT
+  are pending. See `docs/impl/step7-modules.md` and
+  `docs/impl/step7-scripts.md`. The C import draft is
+  `docs/impl/step7.1-c-imports.md`.
 - **Owner questions pending (constants)**: `uint8 BIG = 300;` wraps with W0102,
   hard error instead?; a local named like a constant hides it silently, warn
   like Q4?; inference solves `[N]`, `[N +- k]`, `[k - N]`, `[N * k]` only.
 - Still undesigned: `exclusive &Shape`, `unit U with X`. Not built: map-walk
   views, interface methods with their own type parameters, borrowing a generic
   interface.
-- **Step 7 started** (WP1 built, see PLAN "Step 7 progress"): the module graph
-  loads files; names across files are WP2. Spec: `docs/impl/step7-modules.md`.
-  Originally: modules, config, scripts, stdlib needed a spec
-  (drachm-architect) and an owner question round first. Today only `io` and
-  `si` exist (hardcoded in `src/typeck.rs` `check`; `si` is
-  `src/prelude/si.drh`).
 - Agent types: use `drachm-architect` / `drachm-builder` / `drachm-writer`
   (see How work is done). Haiku by default; owner watches usage.
 - `examples/showcase/` (a project folder: `drachm.toml`, `src/main.drh`,
   modules, `expect.out`) shows everything that builds (CLAUDE.md "The
-  showcase", whose file names are out of date); its site page reads all its
+  showcase"); its site page reads all its
   files at build time.
 - Site redesign is on the roadmap (PLAN row D2), unscheduled.
 - `AGENTS.md` and `docs/impl/agent-handoffs/` are untracked files from a Codex
