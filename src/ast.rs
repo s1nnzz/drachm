@@ -668,6 +668,8 @@ pub enum ExprKind {
     Maybe { value: Box<Expr>, fallback: Box<Expr> },
     /// `[a, b, c]`: a list or array, whichever the type wanted says.
     ListLit(Vec<Expr>),
+    /// `{ k: v, ... }`: a map (S6D); `{}` is the empty one.
+    MapLit(Vec<(Expr, Expr)>),
     /// `recv[index]`
     Index { recv: Box<Expr>, index: Box<Expr> },
     /// `value has value` (`has: true`) or `value is empty` (`has: false`) on an optional.

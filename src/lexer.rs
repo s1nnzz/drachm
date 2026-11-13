@@ -529,6 +529,7 @@ mod tests {
                 Tok::Num(NumLit { value: Const::Dec(v), suffix, .. }, unit) => {
                     format!("d{v}{}{}", suffix.map_or(String::new(), |s| format!(":{s}")), unit_text(unit))
                 }
+                Tok::Num(NumLit { value: Const::NegZero, .. }, _) => unreachable!("the lexer leaves negation to the parser"),
                 Tok::Ident(s) => s,
                 Tok::Sym(s) | Tok::Kw(s) => s.to_string(),
                 Tok::Str(pieces) => format!("{:?}", show(&pieces)),

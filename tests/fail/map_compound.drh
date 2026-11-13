@@ -1,0 +1,4 @@
+none main() {
+    mut Map<string, uint32> ages;
+    ages["x"] += 1;
+}

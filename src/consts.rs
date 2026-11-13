@@ -14,6 +14,8 @@ pub enum Const {
     Int(BigInt),
     /// A decimal constant. Stays decimal even when its value is whole (`2.0`).
     Dec(BigRational),
+    /// The sign of decimal zero survives conversion to a float.
+    NegZero,
 }
 
 pub enum Folded {
@@ -37,13 +39,14 @@ const MAX_BITS: u64 = 4096;
 
 impl Const {
     pub fn is_decimal(&self) -> bool {
-        matches!(self, Const::Dec(_))
+        matches!(self, Const::Dec(_) | Const::NegZero)
     }
 
     pub fn is_negative(&self) -> bool {
         match self {
             Const::Int(v) => v.is_negative(),
             Const::Dec(r) => r.is_negative(),
+            Const::NegZero => false,
         }
     }
 
@@ -51,6 +54,7 @@ impl Const {
         match self {
             Const::Int(v) => BigRational::from_integer(v.clone()),
             Const::Dec(r) => r.clone(),
+            Const::NegZero => BigRational::zero(),
         }
     }
 
@@ -58,6 +62,7 @@ impl Const {
         let bits = match &self {
             Const::Int(v) => v.bits(),
             Const::Dec(r) => r.numer().bits().max(r.denom().bits()),
+            Const::NegZero => 0,
         };
         if bits > MAX_BITS { Err(FoldError::TooLarge) } else { Ok(self) }
     }
@@ -65,7 +70,9 @@ impl Const {
     pub fn neg(&self) -> Const {
         match self {
             Const::Int(v) => Const::Int(-v),
+            Const::Dec(r) if r.is_zero() => Const::NegZero,
             Const::Dec(r) => Const::Dec(-r),
+            Const::NegZero => Const::Dec(BigRational::zero()),
         }
     }
 
@@ -73,7 +80,7 @@ impl Const {
     pub fn bit_not(&self) -> Result<Const, FoldError> {
         match self {
             Const::Int(v) => Ok(Const::Int(-v - 1)),
-            Const::Dec(_) => Err(FoldError::NeedsWhole),
+            Const::Dec(_) | Const::NegZero => Err(FoldError::NeedsWhole),
         }
     }
 
@@ -135,7 +142,7 @@ impl Const {
     /// `uint32`, `sint32` or `float64`, growing to 64 then 128 bits if it must.
     pub fn default_type(&self) -> Option<Type> {
         match self {
-            Const::Dec(_) => Some(Type::F64),
+            Const::Dec(_) | Const::NegZero => Some(Type::F64),
             Const::Int(v) => [32, 64, 128]
                 .into_iter()
                 .map(|bits| Type::Int { bits, signed: v.is_negative() })
@@ -146,6 +153,7 @@ impl Const {
     /// Is this value representable exactly in `ty`?
     pub fn fits(&self, ty: Type) -> bool {
         match (self, ty) {
+            (Const::NegZero, Type::Int { .. } | Type::Float(_)) => true,
             (Const::Int(v), Type::Int { .. }) => {
                 let (lo, hi) = ty.int_range().unwrap();
                 *v >= lo && *v <= hi
@@ -169,6 +177,7 @@ impl Const {
         let whole = match self {
             Const::Int(v) => v.clone(),
             Const::Dec(r) => r.trunc().to_integer(),
+            Const::NegZero => BigInt::zero(),
         };
         let modulus = BigInt::one() << bits;
         let wrapped = ((whole % &modulus) + &modulus) % &modulus;
@@ -177,7 +186,7 @@ impl Const {
 
     /// The nearest value in float type `ty`.
     pub fn to_float(&self, ty: Type) -> f64 {
-        let f = self.rational().to_f64().unwrap_or(f64::NAN);
+        let f = if matches!(self, Const::NegZero) { -0.0 } else { self.rational().to_f64().unwrap_or(f64::NAN) };
         if ty == Type::Float(32) { f as f32 as f64 } else { f }
     }
 
@@ -225,6 +234,7 @@ fn dec_pow(base: &BigRational, exp: &Const) -> Result<BigRational, FoldError> {
         Const::Int(e) => Some(e.clone()),
         Const::Dec(r) if r.is_integer() => Some(r.to_integer()),
         Const::Dec(_) => None,
+        Const::NegZero => Some(BigInt::zero()),
     };
     if let Some(e) = whole {
         let n = e.magnitude().to_u64().ok_or(FoldError::TooLarge)?;

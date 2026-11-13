@@ -178,6 +178,7 @@ fn roles(hir: &hir::Program, body: &Body) -> HashMap<Location, Role> {
             Callee::Dyn { iface, method } => Role::Dyn { iface: *iface, method: *method, span: *span },
             Callee::Str(StrFn::Append) | Callee::ListPush(_) => Role::Append,
             Callee::ListOp(op, _) if op.changes() => Role::Append,
+            Callee::MapOp(MapFn::Set | MapFn::Remove, _) => Role::Append,
             _ => continue,
         };
         out.insert(at, role);
@@ -193,7 +194,7 @@ fn reads_local(rv: &Rvalue, l: Local) -> bool {
         Rvalue::Binary(_, a, b) | Rvalue::IntPow(a, b) => vec![a, b],
         Rvalue::Shift { value, amount, .. } => vec![value, amount],
         Rvalue::Aggregate(_, ops) | Rvalue::Variant(_, _, ops) | Rvalue::Array(_, ops) => ops.iter().collect(),
-        Rvalue::Ref(..) | Rvalue::RawRef(_) | Rvalue::DeepCopy(_) | Rvalue::Discriminant(_) | Rvalue::Len(_) | Rvalue::ListNew(..) => Vec::new(),
+        Rvalue::Ref(..) | Rvalue::RawRef(_) | Rvalue::DeepCopy(_) | Rvalue::Discriminant(_) | Rvalue::Len(_) | Rvalue::ListNew(..) | Rvalue::MapNew(_) => Vec::new(),
     };
     ops.iter().any(|o| matches!(o, Operand::Copy(p) | Operand::Move(p) if p.local == l))
 }

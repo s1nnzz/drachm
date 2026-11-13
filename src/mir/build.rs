@@ -1149,6 +1149,8 @@ impl<'a> Builder<'a> {
                 Operand::Move(Place::local(list))
             }
             ExprKind::ListCall { op, args } => self.list_call(e, *op, args),
+            ExprKind::Map(pairs) => self.map_literal(e, pairs),
+            ExprKind::MapCall { op, args } => self.map_call(e, *op, args),
             ExprKind::ListPush { list, value } => {
                 let elem = value.ty;
                 let ops = self.operands(&[&**list, &**value], &|i| (i == 0).then_some((true, true)));
@@ -1965,6 +1967,8 @@ fn kind_name(k: &ExprKind) -> &'static str {
         ExprKind::List(_) => "List",
         ExprKind::Array(_) => "Array",
         ExprKind::ListPush { .. } => "ListPush",
+        ExprKind::Map(_) => "Map",
+        ExprKind::MapCall { .. } => "MapCall",
         ExprKind::ListCall { .. } => "ListCall",
     }
 }
@@ -1984,5 +1988,48 @@ fn map_targets(k: &mut TerminatorKind, f: &mut dyn FnMut(BlockId) -> BlockId) {
         }
         TerminatorKind::Call { target, .. } => *target = f(*target),
         TerminatorKind::Return | TerminatorKind::Panic(_) | TerminatorKind::Unreachable => {}
+    }
+}
+
+impl<'a> Builder<'a> {
+    /// `{ k: v, ... }`: a fresh map, then each pair inserted in order (a later
+    /// key that is already there replaces the value).
+    fn map_literal(&mut self, e: &Expr, pairs: &[(Expr, Expr)]) -> Operand {
+        let map_ty = e.ty;
+        let m = self.decl(map_ty, LocalKind::Temp);
+        self.assign_stmt(Place::local(m), Rvalue::MapNew(map_ty));
+        for (k, v) in pairs {
+            let r = self.new_ref_temp(map_ty, true);
+            self.assign_stmt(Place::local(r), Rvalue::Ref(BorrowKind::Mut { two_phase: false }, Place::local(m)));
+            let mut args = vec![Arg { op: Operand::Move(Place::local(r)), span: e.span }];
+            args.extend(self.operands(&[k, v], &|_| None));
+            self.call(Callee::MapOp(MapFn::Set, map_ty), args, Type::None);
+        }
+        self.read(Place::local(m), map_ty)
+    }
+
+    /// A map method (`hir::MapOp`). Lookup returns an owned optional.
+    fn map_call(&mut self, e: &Expr, op: hir::MapOp, args: &[Expr]) -> Operand {
+        use hir::MapOp;
+        let map_ty = args[0].ty;
+        let es: Vec<&Expr> = args.iter().collect();
+        match op {
+            MapOp::Get => {
+                let ops = self.operands(&es, &|_| Some((false, false)));
+                self.call(Callee::MapOp(MapFn::Get(e.ty), map_ty), ops, e.ty)
+            }
+            MapOp::Len => {
+                let ops = self.operands(&es, &|_| Some((false, false)));
+                self.call(Callee::MapOp(MapFn::Len, map_ty), ops, Type::U64)
+            }
+            MapOp::Set => {
+                let ops = self.operands(&es, &|i| if i == 0 { Some((true, true)) } else { None });
+                self.call(Callee::MapOp(MapFn::Set, map_ty), ops, Type::None)
+            }
+            MapOp::Remove => {
+                let ops = self.operands(&es, &|i| if i == 0 { Some((true, true)) } else { Some((false, false)) });
+                self.call(Callee::MapOp(MapFn::Remove, map_ty), ops, Type::None)
+            }
+        }
     }
 }

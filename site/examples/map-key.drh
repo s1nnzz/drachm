@@ -1,0 +1,11 @@
+in io;
+
+none main() {
+    Map<float64, string> zeros = { -0.0: "negative", 0.0: "positive" };
+    io::outln(zeros[-0.0] maybe "none");
+    io::outln(zeros[0.0] maybe "none");
+
+    Map<uint128, string> wide = { 1: "small", 18446744073709551617: "wide" };
+    io::outln(wide[1] maybe "none");
+    io::outln(wide[18446744073709551617] maybe "none");
+}

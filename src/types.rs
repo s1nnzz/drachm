@@ -40,6 +40,9 @@ pub enum Type {
     Dyn { id: usize, name: &'static str },
     /// A callable pair (code and environment) with an interned signature.
     Func(&'static FuncSig),
+    /// `Map<K, V>` (`ordered` false) or `OrderedMap<K, V>` (S6D): a hash table
+    /// of owned keys and values. Always owns its entries; 48 bytes (`runtime/lists.h`).
+    Map { key: &'static Type, val: &'static Type, ordered: bool },
     /// A number with a unit: `float64<m/s>`. `of` is always `Int` or `Float`.
     /// Units are checked by `typeck::units`; they are erased before the backends.
     Unit { of: &'static Type, unit: &'static Unit },
@@ -174,6 +177,23 @@ impl Type {
         Type::Array { elem: intern_type(elem), len }
     }
 
+    /// `Map<key, val>`, or `OrderedMap<key, val>` when `ordered`.
+    pub fn map(key: Type, val: Type, ordered: bool) -> Type {
+        Type::Map { key: intern_type(key), val: intern_type(val), ordered }
+    }
+
+    /// The key and value types of a map.
+    pub fn map_parts(self) -> Option<(Type, Type)> {
+        match self {
+            Type::Map { key, val, .. } => Some((*key, *val)),
+            _ => None,
+        }
+    }
+
+    pub fn is_map(self) -> bool {
+        matches!(self, Type::Map { .. })
+    }
+
     /// The element type of a list or array.
     pub fn elem(self) -> Option<Type> {
         match self {
@@ -225,6 +245,7 @@ impl Type {
             Type::List { elem } => Type::list(elem.bare()),
             Type::Array { elem, len } => Type::array(elem.bare(), len),
             Type::Func(sig) if self.mentions_unit() => Type::func(sig.params.iter().map(|t| t.bare()).collect(), sig.ret.bare()),
+            Type::Map { key, val, ordered } => Type::map(key.bare(), val.bare(), ordered),
             t => t,
         }
     }
@@ -244,6 +265,7 @@ impl Type {
             Type::Ref { to, .. } | Type::Ptr { to } | Type::FixedPtr { to } => to.mentions_unit(),
             Type::List { elem } | Type::Array { elem, .. } => elem.mentions_unit(),
             Type::Func(sig) => sig.ret.mentions_unit() || sig.params.iter().any(|t| t.mentions_unit()),
+            Type::Map { key, val, .. } => key.mentions_unit() || val.mentions_unit(),
             _ => false,
         }
     }
@@ -372,6 +394,7 @@ impl fmt::Display for Type {
                 write!(f, ") => {}", sig.ret)
             }
             Type::Array { elem, len } => write!(f, "{elem}[{len}]"),
+            Type::Map { key, val, ordered } => write!(f, "{}<{key}, {val}>", if *ordered { "OrderedMap" } else { "Map" }),
         }
     }
 }

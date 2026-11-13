@@ -1,0 +1,3 @@
+none main() {
+    Map<uint32[?], string> m;
+}

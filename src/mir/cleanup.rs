@@ -143,7 +143,7 @@ pub(crate) fn rvalue_places(rv: &Rvalue) -> Vec<&Place> {
         Rvalue::Binary(_, a, b) | Rvalue::IntPow(a, b) => vec![a, b],
         Rvalue::Shift { value, amount, .. } => vec![value, amount],
         Rvalue::Aggregate(_, ops) | Rvalue::Variant(_, _, ops) | Rvalue::Array(_, ops) => ops.iter().collect(),
-        Rvalue::ListNew(..) => Vec::new(),
+        Rvalue::ListNew(..) | Rvalue::MapNew(_) => Vec::new(),
         Rvalue::Ref(_, p) | Rvalue::RawRef(p) | Rvalue::DeepCopy(p) | Rvalue::Discriminant(p) | Rvalue::Len(p) => return vec![p],
     };
     ops.into_iter().filter_map(operand_place).collect()

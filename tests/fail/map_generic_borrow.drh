@@ -1,0 +1,8 @@
+struct Holder<T> {
+    public:
+    T value;
+}
+
+none main() {
+    Holder<Map<string, &uint32>> bad;
+}

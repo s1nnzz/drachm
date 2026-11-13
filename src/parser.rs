@@ -1527,11 +1527,26 @@ impl Parser<'_> {
         let name_at = self.type_end(m);
         if let Some(name_at) = name_at
             && matches!(self.peek_at(name_at), Tok::Ident(_))
-            && self.peek_at(name_at + 1) == &Tok::Kw("of")
+            && matches!(self.peek_at(name_at + 1), Tok::Kw("of") | Tok::Sym(","))
         {
             let mutable = self.eat_kw("mut");
             let ty = self.ty()?;
             let (name, name_span) = self.ident("a name for the loop variable")?;
+            if self.peek() == &Tok::Sym(",") {
+                // `for (K k, V v of map)`: walking a map (Q16) is not built yet.
+                let span = start.to(self.span());
+                self.bump();
+                let _ = self.ty()?;
+                let _ = self.ident("a name for the value")?;
+                if self.peek() != &Tok::Kw("of") {
+                    return Err(self.unexpected("`of`"));
+                }
+                self.bump();
+                let _ = self.expr()?;
+                self.expect(")")?;
+                return Err(Diagnostic::at(&codes::E0901, span, "walking a map with two loop variables is not supported yet")
+                    .note(format!("`{name}` is the key")));
+            }
             self.bump();
             let iter = self.expr()?;
             self.expect(")")?;
@@ -2320,6 +2335,20 @@ impl Parser<'_> {
                 self.lambda(true)?
             }
             Tok::Sym("(") if self.after_open_paren(0).is_some_and(|n| self.peek_at(n) == &Tok::Sym("=>")) => self.lambda(false)?,
+            Tok::Sym("{") => {
+                // In expression position `{` starts a map literal (a block is a statement).
+                let mut pairs = Vec::new();
+                while self.peek() != &Tok::Sym("}") {
+                    let k = self.expr()?;
+                    self.expect(":")?;
+                    pairs.push((k, self.expr()?));
+                    if !self.eat(",") {
+                        break;
+                    }
+                }
+                self.expect("}")?;
+                ExprKind::MapLit(pairs)
+            }
             Tok::Sym("(") => {
                 let mut e = self.expr()?;
                 self.expect(")")?;
@@ -2946,7 +2975,7 @@ mod tests {
                 Tok::Num(n, unit) => {
                     let text = match &n.value {
                         Const::Int(v) => v.to_string(),
-                        Const::Dec(_) => "dec".into(),
+                        Const::Dec(_) | Const::NegZero => "dec".into(),
                     };
                     unit.as_ref().map_or(text.clone(), |(u, _)| format!("{text}<{u}>"))
                 }

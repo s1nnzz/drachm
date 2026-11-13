@@ -303,6 +303,23 @@ impl Cx<'_> {
                     self.expr(a, out);
                 }
             }
+            ExprKind::MapCall { op, args } => {
+                // A map method that changes the map writes to it when it is part of `self`.
+                if op.changes()
+                    && let Some(place) = args.first().and_then(|map| self.place_of(map))
+                {
+                    self.place_write(&place, out);
+                }
+                for a in args {
+                    self.expr(a, out);
+                }
+            }
+            ExprKind::Map(pairs) => {
+                for (k, v) in pairs {
+                    self.expr(k, out);
+                    self.expr(v, out);
+                }
+            }
             ExprKind::ListPush { list, value } => {
                 // Pushing changes the list: a write to it when it is part of `self`.
                 if let Some(place) = self.place_of(list) {

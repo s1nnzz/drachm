@@ -770,12 +770,21 @@ codes! {
     E0623: "a list literal mixes types",
         "The items of `[a, b, c]` must all have one type. When the list is not\n\
          given a type, the first item decides it.";
-    E0624: "an empty list has no type",
+    E0624: "an empty list or map has no type",
         "`[]` holds nothing to take a type from, so something has to say what the\n\
-         list holds: `string[?] xs = [];`.";
+         list holds: `string[?] xs = [];`. A map literal `{}` needs a type the same\n\
+         way: `Map<string, uint32> ages = {};`.";
     E0625: "wrong number of items for an array",
         "An array has a fixed length, and its literal must give exactly that many\n\
          items: `uint8[4] a = [1, 2, 3, 4];`.";
+    E0626: "this type cannot be a map key",
+        "A map finds an entry by hashing its key, so a key must be hashable: a whole\n\
+         number, a float (compared by its bits), `bool` or `string`. Lists, maps,\n\
+         borrows and pointers cannot be keys.";
+    E0629: "a map literal gives the same key twice",
+        "Each key of a map literal is stored once: a second entry with the same\n\
+         constant key would replace the first, so the literal would not say what it\n\
+         means. Remove one of the two entries.";
     E0630: "the loop variable's type is not the items' type",
         "A loop over a list or array gives each item to the variable, so the\n\
          variable must have the items' type: `for (uint32 n of xs)` over a\n\

@@ -1,0 +1,7 @@
+in io;
+
+none main() {
+    Map<string, uint32> ages = { "Illy": 18 };
+    io::outln((ages["Illy"] maybe 0)::text());
+    io::outln((ages["Bob"] maybe 0)::text());
+}

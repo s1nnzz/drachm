@@ -167,7 +167,7 @@ impl Gen<'_> {
                     }
                 }
             }
-            Rvalue::MakeFn(_, _, None) | Rvalue::Variant(..) | Rvalue::Len(_) | Rvalue::ListNew(..) | Rvalue::Array(..) | Rvalue::Discriminant(_) | Rvalue::RawRef(_) | Rvalue::Neg(_) | Rvalue::Not(_) | Rvalue::BitNot(_) | Rvalue::Binary(..) | Rvalue::Shift { .. } | Rvalue::IntPow(..) | Rvalue::Convert(..) => {}
+            Rvalue::MakeFn(_, _, None) | Rvalue::Variant(..) | Rvalue::Len(_) | Rvalue::ListNew(..) | Rvalue::MapNew(_) | Rvalue::Array(..) | Rvalue::Discriminant(_) | Rvalue::RawRef(_) | Rvalue::Neg(_) | Rvalue::Not(_) | Rvalue::BitNot(_) | Rvalue::Binary(..) | Rvalue::Shift { .. } | Rvalue::IntPow(..) | Rvalue::Convert(..) => {}
         }
     }
 

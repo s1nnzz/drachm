@@ -1,0 +1,24 @@
+in io;
+
+none main() {
+    mut Map<string, uint32> ages = { "Illy": 18, "Sam": 20 };
+    io::outln(ages::len()->text());
+    io::outln((ages["Illy"] maybe 0)::text());
+    io::outln((ages["Bob"] maybe 0)::text());
+    ages["Bob"] = 21;
+    ages::set("Illy", 19);
+    io::outln(ages::len()->text());
+    io::outln((ages["Illy"] maybe 0)::text());
+    io::outln((ages::get("Bob") maybe 0)::text());
+    ages::remove("Sam");
+    io::outln(ages::len()->text());
+    io::outln((ages["Sam"] maybe 0)::text());
+    mut Map<uint32, string> names;
+    io::outln(names::len()->text());
+    names[7] = "seven";
+    io::outln(names[7] maybe "none");
+    mut Map<string, string> words = { "a": "x" };
+    words["a"] = "y";
+    io::outln(words["a"] maybe "none");
+    io::outln(words["b"] maybe "none");
+}

@@ -20,7 +20,7 @@ pub fn mark_in_memory(hir: &hir::Program, body: &mut Body) {
         }
     }
     for (l, d) in body.locals.iter_mut().enumerate() {
-        d.in_memory = borrowed[l] || matches!(d.ty, Type::Str | Type::Func(_) | Type::List { .. } | Type::Array { .. } | Type::Struct { .. } | Type::Enum { .. });
+        d.in_memory = borrowed[l] || matches!(d.ty, Type::Str | Type::Func(_) | Type::List { .. } | Type::Map { .. } | Type::Array { .. } | Type::Struct { .. } | Type::Enum { .. });
     }
 }
 

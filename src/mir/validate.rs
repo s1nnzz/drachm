@@ -129,7 +129,7 @@ impl Validator<'_> {
                     Rvalue::Binary(_, a, b) | Rvalue::IntPow(a, b) => operands.extend([a, b]),
                     Rvalue::Shift { value, amount, .. } => operands.extend([value, amount]),
                     Rvalue::Aggregate(_, ops) | Rvalue::Variant(_, _, ops) | Rvalue::Array(_, ops) => operands.extend(ops),
-                    Rvalue::ListNew(..) => {}
+                    Rvalue::ListNew(..) | Rvalue::MapNew(_) => {}
                     Rvalue::Ref(_, pl) | Rvalue::RawRef(pl) | Rvalue::DeepCopy(pl) | Rvalue::Discriminant(pl) | Rvalue::Len(pl) => {
                         let t = self.place(&at, pl);
                         if matches!(rv, Rvalue::Len(_)) && !t.is_some_and(|t| t.is_list() || t.is_array()) {
@@ -194,6 +194,11 @@ impl Validator<'_> {
                             }
                         } else {
                             self.err(&at, "Array of a type that is not an array");
+                        }
+                    }
+                    Rvalue::MapNew(t) => {
+                        if !t.is_map() {
+                            self.err(&at, "MapNew of a type that is not a map");
                         }
                     }
                     Rvalue::ListNew(t, _) => {
@@ -347,6 +352,17 @@ impl Validator<'_> {
             Callee::Join => (Some(Vec::new()), Type::Str),
             Callee::ListPush(elem) => (Some(vec![Want::Exact(Type::borrow(true, Type::list(elem))), Want::Exact(elem)]), Type::None),
             Callee::ListHas(elem) => (Some(vec![Want::Exact(Type::borrow(false, Type::list(elem))), Want::Any]), Type::Bool),
+            Callee::MapOp(f, map) => {
+                let (k, v) = map.map_parts().expect("a map call is on a map");
+                let (mut_map, shared_map) = (Want::Exact(Type::borrow(true, map)), Want::Exact(Type::borrow(false, map)));
+                let shared_key = Want::Exact(Type::borrow(false, k));
+                match f {
+                    MapFn::Get(result) => (Some(vec![shared_map, shared_key]), result),
+                    MapFn::Set => (Some(vec![mut_map, Want::Exact(k), Want::Exact(v)]), Type::None),
+                    MapFn::Remove => (Some(vec![mut_map, shared_key]), Type::None),
+                    MapFn::Len => (Some(vec![shared_map]), Type::U64),
+                }
+            }
             Callee::ListOp(op, elem) => {
                 let list = Type::list(elem);
                 let (mut_list, shared_list) = (Want::Exact(Type::borrow(true, list)), Want::Exact(Type::borrow(false, list)));
@@ -502,7 +518,7 @@ fn flow_statement(assigned: &mut [bool], k: &StatementKind, used: &mut dyn FnMut
                     operand_use(amount, used);
                 }
                 Rvalue::Aggregate(_, ops) | Rvalue::Variant(_, _, ops) | Rvalue::Array(_, ops) => ops.iter().for_each(|o| operand_use(o, used)),
-                Rvalue::ListNew(..) => {}
+                Rvalue::ListNew(..) | Rvalue::MapNew(_) => {}
                 Rvalue::Ref(_, pl) | Rvalue::RawRef(pl) | Rvalue::DeepCopy(pl) | Rvalue::Discriminant(pl) | Rvalue::Len(pl) => place_use(pl, used),
             }
             if dest.proj.is_empty() {

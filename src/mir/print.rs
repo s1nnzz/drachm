@@ -102,6 +102,7 @@ fn terminator(p: &Program, hir: &hir::Program, k: &TerminatorKind) -> String {
                 Callee::ListPush(ty) => format!("ListPush<{ty}>"),
                 Callee::ListOp(op, ty) => format!("List{op:?}<{ty}>"),
                 Callee::ListHas(ty) => format!("ListHas<{ty}>"),
+                Callee::MapOp(f, ty) => format!("Map{f:?}<{ty}>"),
                 Callee::IndexPanic { unsigned: true } => "IndexPanicU".to_string(),
                 Callee::IndexPanic { unsigned: false } => "IndexPanic".to_string(),
             };
@@ -196,6 +197,7 @@ fn rvalue(p: &Program, hir: &hir::Program, rv: &Rvalue) -> String {
         Rvalue::DeepCopy(pl) => format!("DeepCopy({})", place(pl)),
         Rvalue::Len(pl) => format!("Len({})", place(pl)),
         Rvalue::ListNew(t, cap) => format!("ListNew<{t}>({cap})"),
+        Rvalue::MapNew(t) => format!("MapNew<{t}>"),
         Rvalue::Array(t, ops) => {
             let ops: Vec<String> = ops.iter().map(o).collect();
             format!("Array<{t}>({})", ops.join(", "))

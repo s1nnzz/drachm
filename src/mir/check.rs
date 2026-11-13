@@ -459,7 +459,7 @@ fn operands_at(body: &Body, loc: Location) -> Vec<(&Operand, Span)> {
                     Rvalue::Binary(_, a, b) | Rvalue::IntPow(a, b) => v.extend([(a, s.span), (b, s.span)]),
                     Rvalue::Shift { value, amount, .. } => v.extend([(value, s.span), (amount, s.span)]),
                     Rvalue::Aggregate(_, ops) | Rvalue::Variant(_, _, ops) | Rvalue::Array(_, ops) => v.extend(ops.iter().map(|o| (o, s.span))),
-                    Rvalue::Ref(..) | Rvalue::RawRef(_) | Rvalue::DeepCopy(_) | Rvalue::Discriminant(_) | Rvalue::Len(_) | Rvalue::ListNew(..) => {}
+                    Rvalue::Ref(..) | Rvalue::RawRef(_) | Rvalue::DeepCopy(_) | Rvalue::Discriminant(_) | Rvalue::Len(_) | Rvalue::ListNew(..) | Rvalue::MapNew(_) => {}
                 }
             }
         }

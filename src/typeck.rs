@@ -13,6 +13,7 @@ mod interfaces;
 mod layout;
 mod lambdas;
 mod lists;
+mod maps;
 mod optionals;
 mod overload;
 mod strings;
@@ -175,6 +176,12 @@ impl Globals {
     fn instance_of(&self, t: &ast::TypeName) -> Option<Type> {
         let args: Option<Vec<Type>> = t.args.iter().map(|a| if a.is_number { None } else { self.resolve_quiet(a) }).collect();
         let args = args?;
+        if maps::is_map_name(&t.name) && t.args.len() == 2 {
+            let [key, val] = args[..] else { return None };
+            maps::check_key(key, t.args[0].span).ok()?;
+            self.check_map_value(val, t.args[1].span, &t.name).ok()?;
+            return Some(self.make_map(key, val, t.name == "OrderedMap"));
+        }
         if t.name == "Optional" {
             let [inner] = args[..] else { return None };
             return self.optional_ids.get(&inner).map(|&id| self.enums[id].ty);
@@ -222,6 +229,22 @@ impl Globals {
         }
         if !t.dims.is_empty() {
             return self.resolve_dims(t, diags);
+        }
+        if maps::is_map_name(&t.name) {
+            if t.args.len() != 2 {
+                diags.push(
+                    Diagnostic::at(&codes::E0602, t.span, format!("`{}` takes 2 type arguments, but {} given", t.name, t.args.len()))
+                        .help(format!("write `{}<string, uint32>`", t.name)),
+                );
+                return None;
+            }
+            let base = self.resolve_map(t, diags)?;
+            let base = optionals::wrap(self, t, base)?;
+            return Some(t.mods.iter().rev().fold(base, |ty, (m, _)| match m {
+                ast::TypeMod::Ref { mutable } => Type::borrow(*mutable, ty),
+                ast::TypeMod::Ptr => Type::ptr(ty),
+                ast::TypeMod::FixedPtr => Type::fixed_ptr(ty),
+            }));
         }
         if !t.args.is_empty() {
             match generics::check_type_args(self, t, diags) {
@@ -293,7 +316,7 @@ impl Globals {
                     .note("units go only on number types")
                     .help("for example `float64<m>`"),
             );
-        } else if matches!(t.name.as_str(), "List" | "Array" | "Map" | "OrderedMap" | "Iterable") {
+        } else if matches!(t.name.as_str(), "List" | "Array" | "Iterable") {
             diags.push(Diagnostic::at(&codes::E0901, t.span, format!("`{}` is not supported yet", t.name)));
         } else if self.tenv.contains_key(&t.name) {
             diags.push(
@@ -817,7 +840,7 @@ fn check_one_struct_lives(g: &mut Globals, id: StructId, s: &ast::Struct, diags:
 }
 
 fn declare_struct(g: &mut Globals, s: &ast::Struct, diags: &mut Vec<Diagnostic>) -> Option<StructId> {
-    if s.name == "none" || !matches!(Type::from_name(&s.name), Err(TypeError::Unknown)) {
+    if s.name == "none" || maps::is_map_name(&s.name) || !matches!(Type::from_name(&s.name), Err(TypeError::Unknown)) {
         diags.push(
             Diagnostic::at(&codes::E0202, s.name_span, format!("`{}` is the name of a built-in type", s.name))
                 .note("already a type")
@@ -1565,6 +1588,10 @@ impl<'a> Checker<'a> {
                 if value.is_none() && let Some(t) = ty && t.is_list() {
                     out.push(hir::Stmt::Assign(hir::Place::local(id), hir::Expr::new(hir::ExprKind::List(Vec::new()), t).at(*span)));
                 }
+                // A map declared without a value starts empty too (Q20).
+                if value.is_none() && let Some(t) = ty && t.is_map() {
+                    out.push(hir::Stmt::Assign(hir::Place::local(id), hir::Expr::new(hir::ExprKind::Map(Vec::new()), t).at(*span)));
+                }
                 // `uint32? x;` starts as `none`.
                 if value.is_none() && let Some(t) = ty && optionals::is_optional(self.g, t) {
                     out.push(hir::Stmt::Assign(hir::Place::local(id), optionals::none_value(t, *span)));
@@ -1818,6 +1845,9 @@ impl<'a> Checker<'a> {
 
     /// `p.x = v;` or `p.x op= v;`.
     fn assign_field(&mut self, target: &ast::Expr, op: Option<BinOp>, value: &ast::Expr, span: Span, out: &mut hir::Block) {
+        if let ExprKind::Index { recv, index } = &target.kind && self.map_assign(recv, index, op, value, span, out) {
+            return;
+        }
         let Some(place) = self.lvalue(target) else {
             self.expr(value);
             return;
@@ -2082,6 +2112,9 @@ impl<'a> Checker<'a> {
         }
         if to.is_borrow() {
             return self.coerce_borrow(e, to, None);
+        }
+        if let ExprKind::MapLit(pairs) = &e.kind {
+            return self.map_literal(pairs, Some(to), e.span);
         }
         if let ExprKind::ListLit(items) = &e.kind {
             return self.list_literal(items, Some(to), e.span);
@@ -2543,14 +2576,14 @@ impl<'a> Checker<'a> {
                 (hir::ExprKind::Int(bits), Const::Dec(r)) if !r.is_integer() => (
                     match Const::from_int_bits(*bits, to) {
                         Const::Int(v) => v.to_string(),
-                        Const::Dec(_) => unreachable!(),
+                        Const::Dec(_) | Const::NegZero => unreachable!(),
                     },
                     format!("`{to}` holds only whole numbers, from {}; the fraction is dropped", to.describe_range()),
                 ),
                 (hir::ExprKind::Int(bits), _) => (
                     match Const::from_int_bits(*bits, to) {
                         Const::Int(v) => v.to_string(),
-                        Const::Dec(_) => unreachable!(),
+                        Const::Dec(_) | Const::NegZero => unreachable!(),
                     },
                     format!("`{to}` holds {}; a constant outside that wraps around", to.describe_range()),
                 ),
@@ -2656,6 +2689,7 @@ impl<'a> Checker<'a> {
                 typed(hir::ExprKind::Field(Box::new(v), i), ty)
             }
             ExprKind::ListLit(items) => self.list_literal(items, None, e.span).map(Val::Expr),
+            ExprKind::MapLit(pairs) => self.map_literal(pairs, None, e.span).map(Val::Expr),
             ExprKind::Index { recv, index } => self.index_expr(recv, index),
             ExprKind::Unary(op, inner) => self.unary(*op, inner, e.span),
             ExprKind::Binary(op @ (BinOp::And | BinOp::Or), l, r) => {
@@ -3235,6 +3269,7 @@ impl<'a> Checker<'a> {
                 self.pointer_convert(v, recv.span, name, name_span, args)
             }
             Some(Val::Expr(v)) if v.ty == Type::Str => self.string_method(v, name, name_span, targs, args),
+            Some(Val::Expr(v)) if v.ty.is_map() => self.map_method(v, recv, name, name_span, args),
             Some(Val::Expr(v)) if v.ty.is_list() || v.ty.is_array() => self.list_method(v, recv, name, name_span, targs, args),
             Some(Val::Expr(v)) if self.is_failure_type(v.ty) => self.failure_method(v, recv.span, name, name_span, args),
             value => self.value_method(value, recv, name, name_span, targs, args),

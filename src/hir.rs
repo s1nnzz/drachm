@@ -266,6 +266,9 @@ impl Program {
         if t == Type::Str || t.is_list() {
             return (STR_SIZE, 8);
         }
+        if t.is_map() {
+            return (MAP_SIZE, 8);
+        }
         if let Type::Array { elem, len } = t {
             let (size, align) = self.size_align(*elem);
             return ((size as u64 * len) as u32, align);
@@ -294,7 +297,7 @@ impl Program {
     /// Is `t` an owning type (see the module comment)?
     pub fn owns(&self, t: Type) -> bool {
         match t {
-            Type::Str | Type::List { .. } => true,
+            Type::Str | Type::List { .. } | Type::Map { .. } => true,
             Type::Array { elem, .. } => self.owns(*elem),
             Type::Struct { id, .. } => self.structs[id].owns,
             Type::Enum { id, .. } => self.enums[id].owns,
@@ -309,6 +312,8 @@ impl Program {
 
 /// Size of a `string` value (`drachm_str`: pointer, length, capacity).
 pub const STR_SIZE: u32 = 24;
+/// Size of a map in memory: the runtime's `drachm_map` (48 bytes, `runtime/lists.h`).
+pub const MAP_SIZE: u32 = 48;
 
 /// Size (which is also the alignment) of a number or bool; `None` for the rest.
 pub fn scalar_size(t: Type) -> Option<u32> {
@@ -690,6 +695,10 @@ pub enum ExprKind {
     Array(Vec<Expr>),
     /// `list::push(value)`: `list` is a changeable list place; `value` is moved in.
     ListPush { list: Box<Expr>, value: Box<Expr> },
+    /// `{ k: v, ... }` of map type: a fresh map, the pairs inserted in order.
+    Map(Vec<(Expr, Expr)>),
+    /// A map method (`MapOp`): `args[0]` is the map, the rest its arguments.
+    MapCall { op: MapOp, args: Vec<Expr> },
     /// A list method with a runtime call (`ListOp`): `args[0]` is the list
     /// place, the rest are the method's arguments.
     ListCall { op: ListOp, args: Vec<Expr> },
@@ -725,6 +734,8 @@ impl Expr {
             K::Variant { args, .. } => args.iter().collect(),
             K::Len(x) => vec![&**x],
             K::Index(a, b) | K::ListPush { list: a, value: b } => vec![&**a, &**b],
+            K::Map(pairs) => pairs.iter().flat_map(|(k, v)| [k, v]).collect(),
+            K::MapCall { args, .. } => args.iter().collect(),
             K::ListCall { args, .. } => args.iter().collect(),
             K::List(items) | K::Array(items) => items.iter().collect(),
             K::Radix { value, .. } => vec![&**value],
@@ -743,6 +754,26 @@ impl Expr {
             K::Join(parts) => parts.iter().collect(),
             K::Take { leaving, .. } => leaving.as_deref().into_iter().collect(),
         }
+    }
+}
+
+/// The map methods (S6D). `Get` is `m[k]` and `m::get(k)`: a `V?`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MapOp {
+    /// `map[key]`: the value under `key`, or none (`V?`).
+    Get,
+    /// `map::len()`: the number of entries, a `uint64`.
+    Len,
+    /// `map::set(key, value)` and `map[key] = value`: adds or replaces.
+    Set,
+    /// `map::remove(key)`: the entry goes; its value is dropped.
+    Remove,
+}
+
+impl MapOp {
+    /// Does the call change the map (it needs a changeable map place)?
+    pub fn changes(self) -> bool {
+        matches!(self, MapOp::Set | MapOp::Remove)
     }
 }
 
