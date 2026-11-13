@@ -38,6 +38,14 @@ type Params<'a> = &'a HashMap<String, Type>;
 /// The SI units of `in si;` (`src/prelude/si.drh`): ordinary declarations.
 pub const SI_PRELUDE: &str = include_str!("../prelude/si.drh");
 
+/// The names the SI prelude declares: the units `in si;` brings into a file.
+pub fn si_unit_names() -> Vec<String> {
+    let mut diags = Vec::new();
+    let prelude = crate::parser::parse(crate::lexer::lex(SI_PRELUDE, &mut diags), &mut diags);
+    debug_assert!(diags.is_empty(), "the SI prelude must parse");
+    prelude.units.into_iter().map(|u| u.name).collect()
+}
+
 /// Is `name` a declared unit?
 pub(super) fn is_unit_name(g: &Globals, name: &str) -> bool {
     g.units.borrow_mut().table.lookup(name).is_some()

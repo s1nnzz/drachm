@@ -86,6 +86,10 @@ struct Ctx {
     scopes: Vec<HashMap<String, Bind>>,
     /// Imports of each module that are the standard `io`.
     io_imported: Vec<bool>,
+    /// Imports of each module that are the standard `si` (its units are per file).
+    si_imported: Vec<bool>,
+    /// The names of the units `in si;` brings.
+    si_names: HashSet<String>,
 }
 
 /// Resolve the names of every module and join them into one program.
@@ -95,11 +99,13 @@ pub fn resolve(graph: &mut ModuleGraph, diags: &mut Vec<Diagnostic>) -> Program 
     for (i, m) in graph.modules.iter().enumerate() {
         infos.push(info_of(i, &m.name, &m.program));
     }
-    let mut cx = Ctx { infos, scopes: Vec::new(), io_imported: Vec::new() };
+    let si_names = crate::typeck::si_unit_names().into_iter().collect();
+    let mut cx = Ctx { infos, scopes: Vec::new(), io_imported: Vec::new(), si_imported: Vec::new(), si_names };
     for i in 0..n {
-        let (scope, io) = build_scope(&cx.infos, i, graph, diags);
+        let (scope, io, si) = build_scope(&cx.infos, i, graph, diags);
         cx.scopes.push(scope);
         cx.io_imported.push(io);
+        cx.si_imported.push(si);
     }
 
     let mut merged = Program::default();
@@ -108,7 +114,7 @@ pub fn resolve(graph: &mut ModuleGraph, diags: &mut Vec<Diagnostic>) -> Program 
     let mut func_module: HashMap<String, usize> = HashMap::new();
     for i in 0..n {
         let mut prog = std::mem::take(&mut graph.modules[i].program);
-        let mut w = Walker { cx: &cx, m: i, diags, locals: Vec::new(), tparams: Vec::new(), calls: Vec::new(), extra_generics: Vec::new(), edges: Vec::new(), module_spans: Vec::new() };
+        let mut w = Walker { cx: &cx, m: i, diags, locals: Vec::new(), tparams: Vec::new(), calls: Vec::new(), extra_generics: Vec::new(), edges: Vec::new(), module_spans: Vec::new(), si_reported: HashSet::new() };
         w.program(&mut prog);
         // A `::` after a call on a module is the chain's first call (`m::f()::g()`);
         // on anything else it is the E0007 the parser held back.
@@ -180,11 +186,12 @@ fn info_of(index: usize, name: &str, p: &Program) -> Info {
     Info { name: name.to_string(), prefix, decls, exports }
 }
 
-fn build_scope(infos: &[Info], m: usize, graph: &ModuleGraph, diags: &mut Vec<Diagnostic>) -> (HashMap<String, Bind>, bool) {
+fn build_scope(infos: &[Info], m: usize, graph: &ModuleGraph, diags: &mut Vec<Diagnostic>) -> (HashMap<String, Bind>, bool, bool) {
     let info = &infos[m];
     let prog = &graph.modules[m].program;
     let mut scope: HashMap<String, Bind> = HashMap::new();
     let mut io = false;
+    let mut si = false;
     for d in &info.decls {
         // Two declarations with one name are the checker's E0202.
         scope.entry(d.name.clone()).or_insert(Bind::Item { item: Item { global: d.global.clone(), func: d.func }, import: None });
@@ -196,6 +203,7 @@ fn build_scope(infos: &[Info], m: usize, graph: &ModuleGraph, diags: &mut Vec<Di
             Target::Std(name) => {
                 if imp.plain_name().is_some() || imp.binding().is_some() && imp.items.is_empty() && !imp.glob && imp.alias.is_none() {
                     io |= *name == "io";
+                    si |= *name == "si";
                 } else {
                     diags.push(
                         Diagnostic::at(&codes::E0901, imp.span, format!("this form of `in` is not supported for the standard module `{name}` yet"))
@@ -298,7 +306,7 @@ fn build_scope(infos: &[Info], m: usize, graph: &ModuleGraph, diags: &mut Vec<Di
             bind_module(&mut scope, name, at, diags);
         }
     }
-    (scope, io)
+    (scope, io, si)
 }
 
 fn cap(s: &str) -> String {
@@ -350,6 +358,8 @@ struct Walker<'a> {
     /// The spans of names that are modules where they are used as a call's
     /// receiver (`physics` in `physics::gravity(2.0)`).
     module_spans: Vec<Span>,
+    /// SI units this file used without `in si;`, reported once each.
+    si_reported: HashSet<String>,
 }
 
 impl Walker<'_> {
@@ -475,18 +485,34 @@ impl Walker<'_> {
         self.unit_expr(&mut u.expr);
     }
 
+    /// `name` is not a unit of this file: if it is an SI unit and the file has
+    /// no `in si;`, that is the error (the SI units are joined into the
+    /// program for every file, so the checker alone would accept it).
+    fn si_unit(&mut self, name: &str, at: Span) {
+        if self.cx.si_imported[self.m] || !self.cx.si_names.contains(name) || !self.si_reported.insert(name.to_string()) {
+            return;
+        }
+        self.diags.push(
+            Diagnostic::at(&codes::E0402, at, format!("unknown unit `{name}`"))
+                .note("an SI unit, and this file does not import `si`")
+                .help("add `in si;` at the top of this file: every file imports what it uses"),
+        );
+    }
+
     fn unit_expr(&mut self, e: &mut UnitExpr) {
         match e {
-            UnitExpr::Name(n, _) => {
-                if !self.tparams.contains(n) && let Some(i) = self.global_of(n) {
-                    *n = i.global;
+            UnitExpr::Name(n, at) => {
+                if !self.tparams.contains(n) {
+                    match self.global_of(n) {
+                        Some(i) => *n = i.global,
+                        None => self.si_unit(n, *at),
+                    }
                 }
             }
-            UnitExpr::Explicit(n, _) => {
-                if let Some(i) = self.global_of(n) {
-                    *n = i.global;
-                }
-            }
+            UnitExpr::Explicit(n, at) => match self.global_of(n) {
+                Some(i) => *n = i.global,
+                None => self.si_unit(n, *at),
+            },
             UnitExpr::Mul(a, b) | UnitExpr::Div(a, b) => {
                 self.unit_expr(a);
                 self.unit_expr(b);

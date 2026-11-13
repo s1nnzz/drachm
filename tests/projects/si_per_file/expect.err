@@ -1,0 +1,2 @@
+error[E0402]: unknown unit `km`
+--> src/dist.drh:4:13

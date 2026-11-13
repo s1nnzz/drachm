@@ -70,7 +70,8 @@ error[E0402]: unknown unit `m`
  help: add `in si;` for the SI units, or declare it with `unit m;` (a base unit) or `unit m = ...;` (a size of other units)
 ```
 
-Put `in si;` next to `in io;` at the top of the file. A number gets a unit in
+Put `in si;` next to `in io;` at the top of the file. Each file that uses SI
+units needs its own `in si;`, as with every module. A number gets a unit in
 two places: after a type (`float64<m>`) and directly after a literal (`9.6<s>`),
 with no space. `9.6 < s` with spaces is a comparison.
 

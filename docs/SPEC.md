@@ -913,7 +913,8 @@ phys::Vector3 v = 1, 2, 3;
   one name is an error.
 - `in * from m as y` puts the names under `y::` only; `also bare` also brings
   them bare (`play()` and `y::play()` are the same).
-- Nothing is auto-imported in projects, not even `io`.
+- Nothing is auto-imported in projects, not even `io`. `in si;` is per file too: a
+  file that uses SI units needs its own (E0402 otherwise, with the help to add it).
 - Two modules of one file name in one file: an error at the second import, fix-it `as`.
 - A local declaration with a module's name shadows the module, with a warning.
 - `in *` name clashes (`import_clash` = warn | error): a local declaration wins,
