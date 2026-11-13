@@ -65,7 +65,7 @@ none part1() {
 enum Rank { Cadet, Pilot, Captain }
 
 // `def` names a bundle of default field values; `fill ... with` applies it.
-def Rookie of Member { hp = 100; rank = Rank::Cadet; missions = 0; }
+def Rookie of Member { hp = 100; rank = Cadet; missions = 0; }
 def Veteran of Member from Rookie { hp = 180; }
 
 struct Member defaults Rookie {
@@ -524,6 +524,20 @@ none part5() {
     mut Reader r = &slogan, 0;
     r::advance(4);
     io::outln(f"reader left ${r::left()} of ${slogan::len()}");
+
+    // `maybe &string` is an optional that holds a borrow: a view of a port name,
+    // or none when the list has no such item.
+    string[?] ports = ["Vega", "Sol"];
+    string nowhere = "deep space";
+    maybe &string first_port = ports::first();
+    maybe &string ninth_port = ports::get(8);
+    io::outln(f"first port ${first_port maybe &nowhere}, ninth port ${ninth_port maybe &nowhere}");
+    // `same as` asks whether two borrows are the same place, not the same text.
+    string twin_slogan = "per aspera ad astra";
+    io::outln(f"the longer one is the slogan itself: ${longer(&captain, &slogan) same as &slogan}; a copy of it is not: ${&slogan same as &twin_slogan}");
+    // `containsRef` asks the same of a list of borrows: is this exact place in it?
+    List<&string> banner = [&captain, &slogan];
+    io::outln(f"the banner holds the slogan: ${banner::containsRef(&slogan)}, its twin: ${banner::containsRef(&twin_slogan)}");
 
     mut string note = "mayday";
     shout_twice(&mut note);

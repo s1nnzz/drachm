@@ -1,0 +1,13 @@
+in io;
+
+struct Holder lives src {
+public:
+    &string src;
+}
+
+none main() {
+    string ann = "ann";
+    Holder a = &ann;
+    Holder b = &ann;
+    io::outln(f"${a same as b}");
+}

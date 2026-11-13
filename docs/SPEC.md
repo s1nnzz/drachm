@@ -342,6 +342,10 @@ uint32? age = ages["Bob"];                 // missing key -> none
   wraps to a `T?` wherever a `T?` is wanted. `x has value` / `x is empty` test it
   (`x == none` is E0533). The fallback of `maybe` is one value or a parenthesised
   expression (E0534). Matching: `case uint32 a` and `case none`.
+- Built (Q3 follow-ups, 2026-11-13): an optional that holds a borrow is `maybe &T`
+  (`maybe &string f = names::first();`), the same type as `Optional<&T>`; messages
+  print `maybe &string`. `&T?` stays a borrow of an optional. `maybe` after a value
+  is still the fallback operator.
 
 ### Generics
 
@@ -613,6 +617,10 @@ private:
   `&mut` you hold, the one allowed borrow of a borrow); bare `show(m)` is an error with the fix-it
   "write `&m`".
 - `&T` copies. `&mut T` moves: `&mut string r2 = r;` uses `r` up.
+- Built (Q3 follow-ups): `a same as b` compares addresses of two borrows (and of lists,
+  optionals of borrows, item by item in order); `!(a same as b)` negates it. Owned
+  values are E0633. `xs::containsRef(&p)` is true when a list of borrows holds a borrow
+  of exactly that place. Maps of borrows and structs holding borrows are E0901 for now.
 - Two-phase receivers: `s::append(s::len()::text())` is fine. Only borrows still
   alive when the receiver changes are errors: `xs::push(xs::first())`.
 - Borrowing a temporary in a declaration keeps the temporary alive to the end of

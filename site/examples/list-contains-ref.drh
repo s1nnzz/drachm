@@ -1,0 +1,19 @@
+in io;
+
+// `contains` asks about values; `containsRef` asks about places: is one of
+// the borrows in the list a borrow of exactly this place?
+none main() {
+    string ann = "ann";
+    string twin = "ann";
+    string bob = "bob";
+    List<&string> crew = [&ann, &bob];
+    io::outln(f"crew holds ann: ${crew::containsRef(&ann)}");
+    io::outln(f"crew holds the twin: ${crew::containsRef(&twin)}");
+    io::outln(f"by value, the twin is there: ${crew::contains(&twin)}");
+
+    // Optionals of borrows work the same way.
+    mut string[?] names = ["ann"];
+    maybe &string first = names::first();
+    List<maybe &string> views = [first, none];
+    io::outln(f"the first view is in the list: ${views::containsRef(first)}");
+}

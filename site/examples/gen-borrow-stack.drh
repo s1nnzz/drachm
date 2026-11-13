@@ -20,7 +20,7 @@ none main() {
     io::outln(f"${s::len()}");
 
     // `pop` gives the borrow back, as an optional that holds a borrow.
-    Optional<&string> top = s::pop();
+    maybe &string top = s::pop();
     string fallback = "none";
     io::outln(top maybe &fallback);
     match (top) {

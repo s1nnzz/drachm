@@ -2,6 +2,7 @@
 //! Turns the syntax tree into `hir`, reporting every problem it finds.
 //! Loops, jumps and `match` are in `control`; strings are in `strings`.
 
+mod addresses;
 mod construct;
 mod control;
 mod dynamic;
@@ -121,6 +122,10 @@ struct Globals {
     /// those whose bodies are not built yet.
     list_funcs: HashMap<(lists::ListFunc, Type), FuncId>,
     list_pending: Vec<(lists::ListFunc, Type, FuncId)>,
+    /// Address compare functions by kind and type (`addresses.rs`), and those
+    /// whose bodies are not built yet.
+    addr_funcs: HashMap<(addresses::AddrFunc, Type), FuncId>,
+    addr_pending: Vec<(addresses::AddrFunc, Type, FuncId)>,
     /// Region ties of instances whose type arguments hold borrows (`hir::Program::ties`).
     ties: std::collections::BTreeMap<FuncId, Vec<Vec<(Option<usize>, usize)>>>,
     tie_jobs: Vec<ties::Job>,
@@ -670,6 +675,9 @@ pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir
         } else if let Some((kind, list, id)) = g.list_pending.pop() {
             let f = lists::list_func_body(&mut g, kind, list, id);
             emit(&mut funcs, id, f);
+        } else if let Some((kind, ty, id)) = g.addr_pending.pop() {
+            let f = addresses::addr_func_body(&mut g, kind, ty, id);
+            emit(&mut funcs, id, f);
         } else if let Some((callback, map, id)) = g.keys.each_pending.pop() {
             let f = maps::map_each_body(&g, callback, map, id);
             emit(&mut funcs, id, f);
@@ -794,7 +802,7 @@ fn op_word(op: BinOp) -> &'static str {
         BinOp::Le => "le",
         BinOp::Gt => "gt",
         BinOp::Ge => "ge",
-        BinOp::Shl | BinOp::Shr | BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor | BinOp::And | BinOp::Or => {
+        BinOp::Shl | BinOp::Shr | BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor | BinOp::And | BinOp::Or | BinOp::Same => {
             unreachable!("not an operator method")
         }
     }
@@ -2816,6 +2824,7 @@ impl<'a> Checker<'a> {
             {
                 self.none_compare(*op, l, r, e.span)
             }
+            ExprKind::Binary(BinOp::Same, l, r) => self.same_as(l, r, e.span),
             ExprKind::Binary(op, l, r) => {
                 let lv = self.expr(l);
                 // `d == North`: a bare variant on the right takes its enum from the left.
@@ -3891,7 +3900,7 @@ impl<'a> Checker<'a> {
             BinOp::Le => hir::BinOp::Le,
             BinOp::Gt => hir::BinOp::Gt,
             BinOp::Ge => hir::BinOp::Ge,
-            BinOp::Shl | BinOp::Shr | BinOp::And | BinOp::Or => unreachable!(),
+            BinOp::Shl | BinOp::Shr | BinOp::And | BinOp::Or | BinOp::Same => unreachable!(),
         };
         let ty = if hop.is_comparison() { Type::Bool } else { lead };
         Some(Val::Expr(hir::Expr::new(hir::ExprKind::Binary(hop, Box::new(lhs), Box::new(rhs)), ty)))

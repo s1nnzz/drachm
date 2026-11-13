@@ -1,0 +1,7 @@
+in io;
+
+X biggest<X with Ordered>(X a, X b) { if (a > b) { return a; } return b; }
+
+none main() {
+    io::outln(f"${biggest("a", "b")}");
+}

@@ -1,0 +1,7 @@
+in io;
+
+none main() {
+    string ann = "ann";
+    string bob = "bob";
+    io::outln(f"${ann same as bob}");
+}

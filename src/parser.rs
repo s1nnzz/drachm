@@ -139,6 +139,18 @@ impl Parser<'_> {
 
     /// A type: `&`, `&mut` and `*` marks, then a name or the keyword `none`.
     fn ty(&mut self) -> Parsed<TypeName> {
+        // `maybe &T`: an optional that holds a borrow (the same type as `Optional<&T>`).
+        if self.peek() == &Tok::Kw("maybe") {
+            let start = self.bump().span;
+            if self.peek() != &Tok::Sym("&") {
+                return Err(self.unexpected("`&` after `maybe`").help("an optional that holds a borrow is written `maybe &string`; an optional value is `string?`"));
+            }
+            let inner = self.ty()?;
+            let span = start.to(inner.span);
+            let args = vec![inner];
+            self.generics.push(TypeName { args: args.clone(), ..TypeName::plain("Optional", span) });
+            return Ok(TypeName { args, ..TypeName::plain("Optional", span) });
+        }
         let mut mods = Vec::new();
         loop {
             let span = self.span();
@@ -218,6 +230,7 @@ impl Parser<'_> {
     fn type_start_at(&self, n: usize) -> bool {
         match self.peek_at(n) {
             Tok::Sym("(") => self.after_open_paren(n + 1).is_some_and(|i| self.peek_at(i) == &Tok::Sym("=>")),
+            Tok::Kw("maybe") => self.peek_at(n + 1) == &Tok::Sym("&"),
             tok => matches!(tok, Tok::Ident(_) | Tok::Kw("none") | Tok::Sym("&" | "*" | "**" | ">") | Tok::Num(..)),
         }
     }
@@ -454,6 +467,8 @@ impl Parser<'_> {
             match self.peek_at(n) {
                 Tok::Sym("&" | "&&" | "*" | "**") => n += 1,
                 Tok::Kw("mut") if n > 0 && matches!(self.peek_at(n - 1), Tok::Sym("&")) => n += 1,
+                // `maybe &T`: the word is part of the type only before a borrow.
+                Tok::Kw("maybe") if matches!(self.peek_at(n + 1), Tok::Sym("&")) => n += 1,
                 Tok::Sym("(") => {
                     let after = self.after_open_paren(n + 1)?;
                     if self.peek_at(after) != &Tok::Sym("=>") {
@@ -555,6 +570,7 @@ impl Parser<'_> {
                     match self.peek_at(j) {
                         Tok::Sym("&" | "*" | "**") => j += 1,
                         Tok::Kw("mut") if j > 0 && self.peek_at(j - 1) == &Tok::Sym("&") => j += 1,
+                        Tok::Kw("maybe") if self.peek_at(j + 1) == &Tok::Sym("&") => j += 1,
                         Tok::Sym("(") => {
                             let after = self.after_open_paren(j + 1)?;
                             if self.peek_at(after) != &Tok::Sym("=>") {
@@ -720,7 +736,9 @@ impl Parser<'_> {
 
     fn func(&mut self) -> Parsed<Func> {
         let is_unsafe = if self.peek() == &Tok::Kw("unsafe") { Some(self.bump().span) } else { None };
-        if !matches!(self.peek(), Tok::Ident(_) | Tok::Kw("none") | Tok::Sym("&" | "&&" | "*" | "**" | "(")) {
+        let starts_type = matches!(self.peek(), Tok::Ident(_) | Tok::Kw("none") | Tok::Sym("&" | "&&" | "*" | "**" | "("))
+            || (self.peek() == &Tok::Kw("maybe") && self.peek_at(1) == &Tok::Sym("&"));
+        if !starts_type {
             return Err(self
                 .unexpected("a function, `struct` or `in`")
                 .help("a function starts with its return type: `none main() { }`"));
@@ -1356,6 +1374,10 @@ impl Parser<'_> {
             Tok::Ident(_) | Tok::Kw("none") => matches!(self.peek_at(self.name_end(0)), Tok::Ident(_) | Tok::Kw(_)),
             Tok::Sym("(") => self.type_end(0).is_some_and(|n| matches!(self.peek_at(n), Tok::Ident(_)) && matches!(self.peek_at(n + 1), Tok::Sym("=" | ";"))),
             Tok::Sym("&" | "&&") => true,
+            // `maybe &T name` declares; a `maybe` with a name after it is a
+            // misspelt borrow type, reported by `ty`.
+            Tok::Kw("maybe") if self.peek_at(1) == &Tok::Sym("&") => self.type_end(0).is_some_and(|n| matches!(self.peek_at(n), Tok::Ident(_))),
+            Tok::Kw("maybe") => matches!(self.peek_at(1), Tok::Ident(_)) && matches!(self.peek_at(self.name_end(1)), Tok::Ident(_)),
             // `*uint32 p = ..` declares; `*p = 7;` and `*p.f = 7;` assign.
             Tok::Sym("*" | "**") => {
                 let mut n = 0;
@@ -1862,12 +1884,15 @@ impl Parser<'_> {
     /// Precedence climbing. Higher number binds tighter.
     fn binary(&mut self, min_prec: u8) -> Parsed<Expr> {
         let mut lhs = self.unary()?;
-        while let Tok::Sym(sym) = self.peek() {
-            let Some((op, prec)) = binop(sym) else { break };
+        while let Some((op, prec, words)) = self.binary_op_here() {
             if prec < min_prec {
                 break;
             }
-            let op_span = self.bump().span;
+            let op_start = self.span();
+            for _ in 0..words {
+                self.bump();
+            }
+            let op_span = op_start.to(self.prev_span());
             // `**` chains from the right; everything else from the left.
             let rhs = self.binary(if op == BinOp::Pow { prec } else { prec + 1 })?;
             self.check_grouping(op, op_span, &lhs, &rhs);
@@ -1875,6 +1900,17 @@ impl Parser<'_> {
             lhs = Expr { kind: ExprKind::Binary(op, Box::new(lhs), Box::new(rhs)), span, paren: false };
         }
         Ok(lhs)
+    }
+
+    /// The binary operator at the current token, its precedence and how many
+    /// tokens it takes. `same as` is two context words: `same` is an ordinary
+    /// name everywhere else, and `as` a keyword.
+    fn binary_op_here(&self) -> Option<(BinOp, u8, usize)> {
+        match self.peek() {
+            Tok::Sym(sym) => binop(sym).map(|(op, prec)| (op, prec, 1)),
+            Tok::Ident(w) if w == "same" && self.peek_at(1) == &Tok::Kw("as") => Some((BinOp::Same, 3, 2)),
+            _ => None,
+        }
     }
 
     /// Bitwise operators have no memorable order against other operators, so
@@ -2578,6 +2614,45 @@ mod tests {
     }
 
     #[test]
+    fn maybe_borrow_type() {
+        // `maybe &T` is the optional of a borrow, written as `Optional<&T>`.
+        assert_eq!(let_type("maybe &string f = g();"), "Optional<&string>");
+        assert_eq!(let_type("maybe &mut string f;"), "Optional<&mut string>");
+        assert_eq!(let_type("List<maybe &string> xs;"), "List<Optional<&string>>");
+        assert_eq!(let_type("Optional<&string> f;"), "Optional<&string>");
+        let (s, d) = body("maybe &string f = names::first(); mut maybe &string g = none;");
+        assert!(d.is_empty(), "{:?}", errors(&d));
+        assert!(matches!(s[0], Stmt::Let { mutable: false, .. }));
+        assert!(matches!(s[1], Stmt::Let { mutable: true, .. }));
+        // A function may return one, and take one as a parameter.
+        let (p, d) = parse_src("maybe &string first(maybe &string fallback) { }");
+        assert!(d.is_empty(), "{:?}", errors(&d));
+        assert_eq!(show_ty(&p.funcs[0].ret), "Optional<&string>");
+        assert_eq!(show_ty(&p.funcs[0].params[0].ty), "Optional<&string>");
+    }
+
+    #[test]
+    fn maybe_keeps_its_operator_and_resume_meanings() {
+        // `maybe` after a value is the fallback operator, and at a statement
+        // start it resumes a failure: neither reads as a type.
+        let (s, d) = body("uint32 a = b maybe 1; uint32 c = d maybe &e;");
+        assert!(d.is_empty(), "{:?}", errors(&d));
+        assert!(matches!(s[0], Stmt::Let { .. }));
+        let (s, d) = body("maybe &x;");
+        assert!(d.is_empty(), "{:?}", errors(&d));
+        assert!(matches!(s[0], Stmt::Resume { value: Some(_), .. }));
+        let (s, d) = body("maybe 3;");
+        assert!(d.is_empty(), "{:?}", errors(&d));
+        assert!(matches!(s[0], Stmt::Resume { value: Some(_), .. }));
+    }
+
+    #[test]
+    fn maybe_needs_a_borrow() {
+        let (_, d) = body("maybe string f = g();");
+        assert_eq!(errors(&d), ["expected `&` after `maybe`, found name `string`"]);
+    }
+
+    #[test]
     fn generic_type_arguments() {
         assert_eq!(let_type("Vec<uint32> v;"), "Vec<uint32>");
         assert_eq!(let_type("Map<string, uint32> m;"), "Map<string, uint32>");
@@ -2786,6 +2861,17 @@ mod tests {
         let SubPat::Variant(inner) = &args[0] else { panic!() };
         let Pattern::Variant { args, .. } = &**inner else { panic!() };
         assert!(matches!(&args[0], SubPat::Value(_)) && matches!(&args[1], SubPat::Bind { .. }));
+    }
+
+    #[test]
+    fn same_as_is_a_comparison_and_same_is_still_a_name() {
+        let (s, d) = body("bool a = x same as y; bool b = !(x same as &y); uint32 same = 3; uint32 c = same + 1;");
+        assert!(d.is_empty(), "{:?}", errors(&d));
+        let Stmt::Let { value: Some(Init::Expr(e)), .. } = &s[0] else { panic!() };
+        assert!(matches!(e.kind, ExprKind::Binary(BinOp::Same, ..)));
+        assert_eq!(s.len(), 4);
+        let (_, d) = body("bool a = x same as;");
+        assert!(!d.is_empty());
     }
 
     #[test]

@@ -1,0 +1,29 @@
+in io;
+
+enum Rank { Cadet, Pilot, Captain }
+
+// A field of enum type takes a bare variant in a `def`, as it does in an
+// assignment: `rank = Cadet` is `rank = Rank::Cadet`.
+def Rookie of Member { hp = 100; rank = Cadet; }
+def Veteran of Member from Rookie { hp = 200; rank = Captain; }
+
+struct Member defaults Rookie {
+public:
+    string name;
+    uint32 hp;
+    Rank rank;
+}
+
+sint32 main() {
+    Member a;
+    fill a with defaults {
+        a.name = "Illy";
+    }
+    Member b;
+    fill b with Veteran {
+        b.name = "Sam";
+    }
+    if (a.rank == Cadet) { io::outln(a.name + " starts as a cadet"); }
+    if (b.rank == Captain) { io::outln(b.name + " starts as a captain"); }
+    return 0;
+}

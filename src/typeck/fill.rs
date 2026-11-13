@@ -166,9 +166,8 @@ impl Checker<'_> {
             }
             seen.push((i, a.name_span));
             let Some(fty) = fields[i].1 else { continue };
-            if let Some(v) = self.expr(&a.value)
-                && let Some(e) = self.into(v, fty, origin(&a.value))
-            {
+            // As in an assignment: a bare variant takes the field's enum (`rank = Cadet`).
+            if let Some(e) = self.coerce(&a.value, fty) {
                 out.push((i, e));
             }
         }

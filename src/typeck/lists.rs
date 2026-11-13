@@ -359,6 +359,7 @@ impl Checker<'_> {
             }
             "pop" | "get" | "first" | "last" | "insert" | "remove" | "clear" | "join" => self.list_runtime_method(v, recv, name, name_span, args),
             "contains" => self.list_contains(v, recv, name_span, args),
+            "containsRef" if ty.is_list() => self.list_contains_ref(v, name_span, args),
             _ => {
                 for a in args {
                     self.expr(a);

@@ -13,9 +13,9 @@
 //! A generic instance is checked when it is made, or, if it is made while the
 //! declarations are still being read, as soon as they are all read.
 //!
-//! The interfaces `Zero`, `Equal`, `Ordered` and `Text` are built in for
-//! numbers and `string` (`PRELUDE`): a program that declares a type or
-//! interface of the same name uses its own instead.
+//! The interfaces `Zero`, `Equal`, `Ordered` and `Text` are built in for some
+//! types (`builtin_has`: `Ordered` for numbers only): a program that declares
+//! a type or interface of the same name uses its own instead.
 //!
 //! A constrained type parameter is checked once where it is declared (the
 //! definition pass, `definition.rs` below): the body is checked with the
@@ -751,6 +751,18 @@ pub(super) fn conforms(g: &Globals, ty: Type, k: usize) -> bool {
     info.builtin && builtin_has(ty, &info.name)
 }
 
+/// The types a built-in interface is given to, for messages: the same answers
+/// as `builtin_has`.
+fn builtin_types(interface: &str) -> &'static str {
+    match interface {
+        "Zero" => "numbers and `string`",
+        "Equal" => "numbers, `bool` and `string`",
+        "Ordered" => "numbers",
+        "Text" => "numbers and `bool`",
+        _ => "",
+    }
+}
+
 fn builtin_has(ty: Type, interface: &str) -> bool {
     let num = ty.is_numeric();
     match interface {
@@ -799,7 +811,7 @@ pub(super) fn check_bounds(g: &mut Globals, tname: &str, tparams: &[ast::TypePar
             let help = if ty.struct_id().is_some() {
                 format!("write `struct {ty} with {iname}` and give it what `{iname}` lists")
             } else if g.ifaces.list[k].builtin {
-                format!("`{iname}` is built in for some number types and `string`; others can say `{ty} with {iname} {{ ... }}`")
+                format!("`{iname}` is built in for {}; `{ty}` can say `{ty} with {iname} {{ ... }}`", builtin_types(iname))
             } else {
                 format!("say it with a separate declaration: `{ty} with {iname} {{ ... }}`")
             };

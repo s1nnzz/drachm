@@ -100,7 +100,7 @@ list usable.
 the item, so for items that copy (numbers, `bool`, Copy structs) that is all
 there is to it. For items that own memory (`string`, structs with a `string`)
 the answer is a view of the item: an optional that holds a borrow of the list
-(written `Optional<&string>`). While the
+(written `maybe &string`). While the
 view is in use the list cannot change (`push` is E0302), exactly as for
 `&xs[0]`. `copy xs::first()` gives an owned `T?` copy of the item instead, and
 a view cannot be assigned to an owned `string?` (E0531, which points at
@@ -125,6 +125,13 @@ value written with `&`, `names::contains(&name)`, so the search does not move
 it; without the `&` it is E0101.
 
 <!-- example: list-compare -->
+
+`xs::containsRef(&p)` is the address version of `contains`: true when some item
+is a borrow of exactly the place `p`, even if another place holds equal text.
+It works on lists of borrows (and optionals of them), and on owned items it is
+E0633, which says to use `contains`.
+
+<!-- example: list-contains-ref -->
 
 ## Walking a list
 

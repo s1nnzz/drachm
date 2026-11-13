@@ -47,7 +47,7 @@ pub(super) fn declare_optionals(g: &mut Globals, written: &[ast::TypeName]) {
 /// Makes the optional of `inner` (`T?`) and returns its type.
 fn make_optional(g: &mut Globals, inner: Type, span: Span) -> Type {
     let id = g.enums.len();
-    let name = if inner.is_borrow() { format!("Optional<{inner}>") } else { format!("{inner}?") };
+    let name = if inner.is_borrow() { format!("maybe {inner}") } else { format!("{inner}?") };
     let ty = Type::Enum { id, name: types::intern(&name) };
     let none = VariantInfo { name: "none".to_string(), name_span: span, fields: Vec::new() };
     let some = VariantInfo {
