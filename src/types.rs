@@ -57,6 +57,9 @@ pub enum Type {
     /// `foreign *T`: a pointer the C side owns. Only `unsafe` code opens it.
     /// Unlike a `*T` it copies freely: C owns what it points at.
     Foreign { to: &'static Type },
+    /// A C enum (step 7.1): an integer of its own type that may hold values the
+    /// header does not list. Erased to its integer type by `bare`.
+    CEnum { name: &'static str, kind: CKind },
 }
 
 /// The C scalar types (step 7.1). Width and signedness follow the target's
@@ -350,7 +353,7 @@ impl Type {
             Type::Array { elem, len } => Type::array(elem.bare(), len),
             Type::Func(sig) if self.mentions_unit() => Type::func(sig.params.iter().map(|t| t.bare()).collect(), sig.ret.bare()),
             Type::Map { key, val, ordered } => Type::map(key.bare(), val.bare(), ordered),
-            Type::C(k) => k.underlying(),
+            Type::C(k) | Type::CEnum { kind: k, .. } => k.underlying(),
             Type::Foreign { to } => Type::foreign(to.bare()),
             t => t,
         }
@@ -444,13 +447,17 @@ impl Type {
 
     /// A C scalar type.
     pub fn is_c(self) -> bool {
-        matches!(self, Type::C(_))
+        matches!(self, Type::C(_) | Type::CEnum { .. })
+    }
+
+    pub fn is_c_enum(self) -> bool {
+        matches!(self, Type::CEnum { .. })
     }
 
     /// Does this type (or what it points at) mention a C scalar or a foreign pointer?
     pub fn mentions_c(self) -> bool {
         match self {
-            Type::C(_) | Type::Foreign { .. } => true,
+            Type::C(_) | Type::CEnum { .. } | Type::Foreign { .. } => true,
             Type::Ref { to, .. } | Type::Ptr { to } | Type::FixedPtr { to } => to.mentions_c(),
             Type::List { elem } | Type::Array { elem, .. } => elem.mentions_c(),
             _ => false,
@@ -543,6 +550,7 @@ impl fmt::Display for Type {
             Type::Ptr { to } => write!(f, "*{to}"),
             Type::FixedPtr { to } => write!(f, "*fixed {to}"),
             Type::C(k) => write!(f, "c::{}", k.word()),
+            Type::CEnum { name, .. } => f.write_str(name),
             Type::Foreign { to } => write!(f, "foreign *{to}"),
             Type::Unit { of, unit } => write!(f, "{of}<{}>", unit_name(unit)),
             Type::List { elem } if elem.is_borrow() => write!(f, "List<{elem}>"),

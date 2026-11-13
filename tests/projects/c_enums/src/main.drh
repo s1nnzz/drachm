@@ -1,0 +1,33 @@
+//--!$unsafe: true
+in io;
+in * from c."drachm_fixture.h" as fx;
+
+string describe(fx::fx_color c) {
+    match (c) {
+        case fx::FX_RED { return "red"; }
+        case fx::FX_GREEN { return "green"; }
+        case _ { return "something else"; }
+    }
+}
+
+fx::fx_color next(fx::fx_color c) {
+    unsafe { return fx::fx_next_color(c); }
+}
+
+none main() {
+    mut fx::fx_color c = fx::FX_RED;
+    io::outln(describe(c));
+    c = next(c);
+    io::outln(describe(c));
+    c = next(c);
+    io::outln(f"${describe(c)} ${c::to<sint32>()}");
+    // C can send a value the header does not list.
+    fx::fx_color odd = 42::to<fx::fx_color>();
+    io::outln(f"${describe(odd)} ${odd::to<sint32>()}");
+    io::outln(f"same: ${c == fx::FX_BLUE} ${c == fx::FX_RED}");
+    io::outln(f"mode: ${fx::FX_MODE_B::to<sint32>()}");
+    unsafe {
+        foreign *uint8 name = fx::fx_color_name(fx::FX_GREEN);
+        io::outln(name::text() maybe "?");
+    }
+}

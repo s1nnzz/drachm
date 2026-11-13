@@ -134,6 +134,8 @@ struct Globals {
     tie_jobs: Vec<ties::Job>,
     /// C functions from header imports.
     foreign_funcs: std::collections::HashSet<FuncId>,
+    /// C enums from header imports, by their name in the program.
+    c_enums: HashMap<String, Type>,
     io_imported: bool,
     time_imported: bool,
     fs_imported: bool,
@@ -199,6 +201,7 @@ impl Globals {
             .ok()
             .or_else(|| self.structs_by_name.get(&t.name).map(|&id| self.structs[id].ty))
             .or_else(|| self.enums_by_name.get(&t.name).map(|&id| self.enums[id].ty))
+            .or_else(|| self.c_enums.get(&t.name).copied())
     }
 
     /// Is `t` the built-in `List<X>` (no struct, enum or template of that name)?
@@ -538,6 +541,10 @@ pub(crate) fn check_with_settings(
                 );
             }
         }
+    }
+
+    for (name, kind) in &prog.c_enums {
+        g.c_enums.insert(name.clone(), Type::CEnum { name: types::intern(name), kind: *kind });
     }
 
     // Units first: a type may name any unit, and a unit may name none.
@@ -3146,6 +3153,15 @@ impl<'a> Checker<'a> {
             ExprKind::CopyOf(inner) => self.copy_expr(e, inner),
             ExprKind::Take { place, leaving, reorders } => self.take_expr(e, place, leaving.as_deref(), *reorders),
             ExprKind::Lend(inner) => self.lend_expr(e, inner),
+            ExprKind::CConst { enum_name, value } => {
+                let ty = *self.g.c_enums.get(enum_name)?;
+                let raw = (*value as u128)
+                    & match ty.bare() {
+                        Type::Int { bits, .. } if bits < 128 => (1u128 << bits) - 1,
+                        _ => u128::MAX,
+                    };
+                Some(Val::Expr(int_lit(raw, ty).at(e.span)))
+            }
             ExprKind::CString(_) => {
                 self.diags.push(
                     Diagnostic::at(&codes::E0901, e.span, "`as c string` is only allowed as an argument of a C function")

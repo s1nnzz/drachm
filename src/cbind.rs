@@ -25,6 +25,8 @@ pub enum Member {
     Item { global: String, func: bool },
     /// A constant macro: the value itself.
     Value(CValue),
+    /// A named value of a C enum.
+    Enumerator { enum_name: String, value: i128 },
 }
 
 #[derive(Default)]
@@ -100,9 +102,15 @@ impl CCtx {
                 Some(Member::Item { global: self.global(k, name), func: false })
             }
             Decl::Alias(_) => Some(Member::Item { global: self.global(k, name), func: false }),
-            Decl::Enum(_) | Decl::Enumerator { .. } => {
-                diags.push(self.unusable(k, name, "C enums are not supported yet", at));
-                None
+            Decl::Enum(_) => {
+                self.want(k, name);
+                Some(Member::Item { global: self.global(k, name), func: false })
+            }
+            // The values of an enum with no name are plain numbers.
+            Decl::Enumerator { value, of } if of.is_empty() => Some(Member::Value(CValue::Int(*value))),
+            Decl::Enumerator { value, of } => {
+                self.want(k, of);
+                Some(Member::Enumerator { enum_name: self.global(k, of), value: *value })
             }
             Decl::Macro(m) => {
                 if m.function_like {
@@ -189,7 +197,13 @@ impl CCtx {
                 },
                 _ => Err(format!("`{name}` is not a struct the compiler could read")),
             },
-            CType::Enum(_) => Err("C enums are not supported yet".into()),
+            CType::Enum(name) => match self.units[k].decls.get(name) {
+                Some(Decl::Enum(_)) => {
+                    found.push(name.clone());
+                    Ok(self.plain(self.global(k, name), synthetic))
+                }
+                _ => Err(format!("`{name}` is not an enum the compiler could read")),
+            },
             CType::Array(elem, n) => {
                 let mut e = self.lower_type(k, elem, at, found)?;
                 if !e.mods.is_empty() || !e.dims.is_empty() {
@@ -275,6 +289,7 @@ impl CCtx {
                     }
                     program.structs.push(record_struct(r, global, fields, synthetic));
                 }
+                Some(Decl::Enum(e)) => program.c_enums.push((self.global(k, &name), e.underlying)),
                 _ => {}
             }
         }

@@ -43,6 +43,8 @@ pub struct Program {
     /// It is an error unless the name is a module, which only the resolver
     /// (or the single-file check) knows: it decides and reports these.
     pub chain_slips: Vec<ChainSlip>,
+    /// The C enums a header import brings (step 7.1): name and integer type.
+    pub c_enums: Vec<(String, crate::types::CKind)>,
 }
 
 /// A `::` where `->` is wanted, after the first call on `owner`: the E0007
@@ -822,6 +824,9 @@ pub enum ExprKind {
     Take { place: Box<Expr>, leaving: Option<Box<Expr>>, reorders: bool },
     /// `lend e`
     Lend(Box<Expr>),
+    /// A named constant of a C enum, made by the resolver for `alias::NAME`
+    /// (step 7.1): the enum's name in the program, and the value.
+    CConst { enum_name: String, value: i128 },
     /// `&s as c string`: a NUL-terminated copy of the string for one C call (step 7.1).
     CString(Box<Expr>),
     /// `address of e`

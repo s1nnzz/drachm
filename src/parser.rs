@@ -30,6 +30,7 @@ pub(crate) fn parse_file(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>, script
         optionals: Vec::new(),
         generics: Vec::new(),
         chain_slips: Vec::new(),
+        c_enums: Vec::new(),
     };
     let mut script_stmts = Vec::new();
     let mut first_script_stmt = None;

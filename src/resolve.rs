@@ -933,9 +933,7 @@ impl Walker<'_> {
                         }
                         None => e.kind = ExprKind::NoneValue,
                     }
-                    return;
-                }
-                if let Some(j) = module {
+                } else if let Some(j) = module {
                     self.module_spans.push(recv.span);
                     let (name_span, targs_taken, args_taken) = (*name_span, std::mem::take(targs), std::mem::take(args));
                     let Some(item) = self.member(j, name, name_span) else {
@@ -957,6 +955,7 @@ impl Walker<'_> {
                     let name = name.clone();
                     match self.cx.c.member(k, &name, ns, self.diags) {
                         Some(crate::cbind::Member::Value(v)) => e.kind = crate::cbind::value_expr(&v, span).kind,
+                        Some(crate::cbind::Member::Enumerator { enum_name, value }) => e.kind = ExprKind::CConst { enum_name, value },
                         Some(crate::cbind::Member::Item { global, .. }) => e.kind = ExprKind::Var(global),
                         None => e.kind = ExprKind::NoneValue,
                     }
@@ -982,7 +981,7 @@ impl Walker<'_> {
                     self.unit_spec(u);
                 }
             }
-            ExprKind::Bool(_) | ExprKind::SelfValue | ExprKind::NoneValue | ExprKind::Path { .. } => {}
+            ExprKind::Bool(_) | ExprKind::SelfValue | ExprKind::NoneValue | ExprKind::Path { .. } | ExprKind::CConst { .. } => {}
             ExprKind::Str(parts) => {
                 for p in parts {
                     if let StrPart::Interp(x) = p {

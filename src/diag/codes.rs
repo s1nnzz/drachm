@@ -1036,6 +1036,14 @@ codes! {
          types of their own, not synonyms of `sint32` or `uint64`. A value of one\n\
          does not become another number type by itself; convert it explicitly:\n\
          `n::to<sint32>()`. A plain constant (`5`, `FLAG_A`) fits any of them.";
+    E0705: "a match on a C enum needs a catch-all",
+        "C code can send a value the header does not name, so a `match` on a C enum\n\
+         type (for example `fx::fx_color`) always needs a `case _`, even when every\n\
+         named value has a case:\n\n\
+         \x20   match (color) {\n\
+         \x20       case sdl::RED { }\n\
+         \x20       case _ { }\n\
+         \x20   }";
     E0901: "not supported yet",
         "This is part of Drachm's design, but this version of the compiler does\n\
          not implement it yet.";

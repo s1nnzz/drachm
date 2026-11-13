@@ -1250,6 +1250,15 @@ impl Checker<'_> {
     /// get the missing values listed.
     fn warn_missing(&mut self, ty: Type, cover: &Coverage, value: &ast::Expr, span: Span) {
         let what = self.quote(value.span, "the value");
+        // C can send a value its header does not list, so a C enum always needs a catch-all.
+        if ty.is_c_enum() {
+            self.diags.push(
+                Diagnostic::at(&codes::E0705, span, format!("this `match` on `{ty}` needs a `case _`"))
+                    .note(format!("{what} may hold a value the C header does not list"))
+                    .help("add `case _ { }` for the values no case names"),
+            );
+            return;
+        }
         let small = match ty {
             Type::Bool => true,
             Type::Int { bits, .. } => bits <= 16,

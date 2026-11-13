@@ -1,0 +1,4 @@
+E0705
+this `match` on `fx::fx_color` needs a `case _`
+E0704
+`fx::fx_color` does not become `sint32` by itself
