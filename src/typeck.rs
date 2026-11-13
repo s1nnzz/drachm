@@ -107,6 +107,8 @@ struct SelfUse {
 #[derive(Default)]
 struct Globals {
     settings: Vec<(usize, crate::config::Behaviour)>,
+    /// Every `assert` checked so far; `StopKind::Assert` indexes it.
+    asserts: Vec<hir::Assertion>,
     sigs: Vec<Sig>,
     funcs_by_name: HashMap<String, FuncId>,
     structs: Vec<StructInfo>,
@@ -795,7 +797,8 @@ pub(crate) fn check_with_settings(
         .filter_map(|(f, id)| Some(((*id)?, f.foreign.clone()?)))
         .collect();
     index::finish(&g, src);
-    let mut program = hir::Program { settings: Vec::new(), funcs: funcs.into_iter().map(|f| f.unwrap_or_else(placeholder)).collect(), structs, enums: enum_defs, main, collections, conformances, dyn_ifaces, vtables, closures: std::mem::take(&mut g.lambdas.closures), ties: std::mem::take(&mut g.ties), foreign, link: Default::default(), shim: prog.c_shim.clone() };
+    let tests: Vec<hir::Test> = prog.funcs.iter().zip(&func_ids).filter_map(|(f, id)| Some(hir::Test { func: (*id)?, name: f.test.as_ref()?.0.clone() })).collect();
+    let mut program = hir::Program { settings: Vec::new(), funcs: funcs.into_iter().map(|f| f.unwrap_or_else(placeholder)).collect(), structs, enums: enum_defs, main, asserts: std::mem::take(&mut g.asserts), tests, collections, conformances, dyn_ifaces, vtables, closures: std::mem::take(&mut g.lambdas.closures), ties: std::mem::take(&mut g.ties), foreign, link: Default::default(), shim: prog.c_shim.clone() };
     program.settings = program.funcs.iter().map(|f| g.settings_at(f.name_span)).collect();
     if !diags.iter().any(Diagnostic::is_error) {
         lambdas::infer_captures(&mut program, diags);
@@ -1989,6 +1992,20 @@ impl<'a> Checker<'a> {
             }
             Stmt::Resume { value, span } => self.resume_stmt(value.as_ref(), *span, out),
             Stmt::Fail { value, because, span } => self.fail_stmt(value, because.as_ref(), *span, out),
+            Stmt::Assert { cond, message, span } => {
+                let Some(test) = self.cond(cond) else { return };
+                let text = self.src.get(cond.span.start..cond.span.end).unwrap_or("");
+                let heading = match message {
+                    Some((msg, _)) => format!("assertion failed: {text}: {msg}"),
+                    None => format!("assertion failed: {text}"),
+                };
+                let index = self.g.asserts.len();
+                self.g.asserts.push(hir::Assertion { heading, span: cond.span, message: String::new() });
+                let fails = hir::Expr::new(hir::ExprKind::Not(Box::new(test)), Type::Bool);
+                let body = vec![hir::Stmt::Stop(hir::StopKind::Assert(index))];
+                out.push(hir::Stmt::If { label: self.new_label(), branches: vec![hir::Branch { test: Some(fails), body, end: *span }] });
+            }
+            Stmt::ExpectFailure { failure, call, span } => self.expect_failure(failure, call, *span, out),
             Stmt::Unsafe { body, span } => {
                 if !self.g.unsafe_allowed {
                     self.diags.push(unsafe_disabled(Span::new(span.start, span.start + 6), "needs the file flag"));

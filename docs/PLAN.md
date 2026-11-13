@@ -25,7 +25,7 @@ answers into `docs/SPEC.md` and the design doc, and note leftovers under that st
 | 4.6 | Input: `io::inln()`, `io::ended()`, text `::to<T>()` | done (interim: bad text stops the program with exit 101; forgiving number text (spaces, `+`, `.5`); `\r\n` lines; invalid UTF-8 becomes U+FFFD) |
 | 5 | Constructors, enums, `fails` / `maybe` | done (the `crash` setting of `unhandled_fail` waits for step 7): S5A.1 done (enums with data, `match` with bindings/`take`/`copy`/guards/nesting/alternatives/values, exhaustiveness, `Switch`; `==` for payload-free enums) and S5B done (constructors, overloads, `new ... of`, named values, `Person(auto);`, `fill`, `fill partial`, `def`, `defaults`, `now`); optionals done (S5A.2, below); failures done (S5C and S5D, below: `failure`, `fails`, `fail`, `maybe`/`fails` on calls, handlers, `because`, `ConvertError`, exit codes, failing constructors and `drop()`) |
 | 6 | Generics, interfaces, collections | done (S6Z sweep, 2026-11-13): generic functions, structs and enums (inferred and written type arguments, borrows as type arguments, units); interfaces (`with`, `and`, `extends`, `Self`, `changes self`, built-in `Zero`/`Equal`/`Ordered`/`Text`, `with trusted`, generic interfaces, `&Shape` with vtables, `Iterable<T>` with `at(i)`); arrays, lists and maps (indexing, the methods, `take xs[i] reorders`, views of owning items, scalar and composite keys with `key()`, two-variable walks, `each`); function types, lambdas with inferred captures. The interims still open are listed in the step 6 section, each with its question number |
-| 7 | Modules, config, scripts, stdlib | in progress: WP1 done (source map with global offsets, import/export grammar, `src/modules.rs` graph loader, project folders, E0230-E0235); WP2 done (names across files, `src/resolve.rs`); follow-ups 2026-11-13: a call through a module chains with `::` or `->` (done); W0240's help asks whether the module's name was meant (done); `in si;` is per file (done, E0402 in a file without it); spec `docs/impl/step7-modules.md` |
+| 7 | Modules, config, scripts, stdlib | in progress: WP1 done (source map with global offsets, import/export grammar, `src/modules.rs` graph loader, project folders, E0230-E0235); WP2 done (names across files, `src/resolve.rs`); WP9 done (`test` blocks, `assert`, `drachm test`; see the WP9 paragraph); follow-ups 2026-11-13: a call through a module chains with `::` or `->` (done); W0240's help asks whether the module's name was meant (done); `in si;` is per file (done, E0402 in a file without it); spec `docs/impl/step7-modules.md` |
 | 7.1 | C header import (`in * from c."SDL2/SDL.h" as sdl;`), right after step 7 | built (2026-11-13): discovery (`src/cimport.rs`, libclang through `clang-sys`), `[native]` table, scalars, `foreign *T`, text both ways, structs, enums, macros, callbacks, linking, docs and showcase; interims and open questions in the step 7.1 section below |
 | 7.6 | Package manager (`drachm add/remove/update`, git tags as versions, per-project `deps/`, later the Agora; ties into C header packages) | not started; owner answers "Package manager, 2026-11-13" |
 | 7.5 | MIR optimiser: SSA, inlining, scalar replacement, constant folding, loop opts, check elimination, alias info from borrows | not started |
@@ -790,6 +790,51 @@ end, and constant array indexes are checked by the type checker.
 `unsigned_negate` is applied during type checking. Signed negation of
 `uint128` is E0901 until `sint256` is supported. `missing_key = "panic"`
 uses the same checked map lookup as a compound assignment.
+
+**Step 7 progress (WP9, built):** `assert(cond);` is a statement (`Stmt::Assert`,
+lowered to an `if` that stops with `StopKind::Assert`). It runs in every build,
+`-O` included. A failure prints `drachm: panic: assertion failed: TEXT` and
+`  --> FILE:LINE` on stderr and exits 101; the text is the condition as written,
+the place is filled in when the files are loaded (`hir::Assertion`, `lib.rs`
+`locate_asserts`). `assert(cond, "text");` (owner, 2026-11-13) prints
+`assertion failed: COND: text`; the text is a plain string literal (E0003). `test "name" { }` is a function that takes nothing and returns
+nothing (`ast::Func.test`), named `test "name"` in the program, listed in
+`hir::Program.tests`. Test names are unique per file (E0239). A test in a file
+with top-level statements is E0901. `drachm test FILE|FOLDER [-O]` builds one
+program per test (its function as `main`, `lib::build_test`) and runs each with
+its output captured: a failing test does not stop the others, and only a failing
+test's output is shown. Exit 1 if any test failed. Libraries have tests too.
+Tests: `assert` golden cases in `tests/run` and `tests/fail`, `test` blocks in
+`tests/run/test_blocks_build.drh`, the showcase's `rules` tests, `tests/cli.rs`.
+Interims (narrowest readings, owner to decide; Q15): a failing test does not stop the others; the
+lambdas written inside a test are still built into normal builds (only the test
+function itself is left out); `drachm test` builds once per test, so a large suite builds slowly; the
+`[warnings] as_errors` names (Q15c) are unchanged.
+
+**Step 7 progress (WP9 follow-ups, 2026-11-13, built):** `assert(cond, "text")`
+(see above). `expect failure F from call;` is a statement of a `test` block
+(`Stmt::ExpectFailure`, E0014 outside a test). Typeck lowers it to a labelled
+`if` with no test: a `Handled` call whose arm for `F` does `Leave` (the test
+goes on) and whose other arm stops with `Assertion`s for "did not fail" and
+"a different failure"; the `Stop` after the call is reached only when the call
+did not fail. E0545 when the call can never raise `F`, E0003 when it cannot
+fail, E0540 when `F` is not a failure. Shared MIR fix found on the way: the
+result temp of a `Handled` call is owned only from the join on, so a `return`
+or `Leave` in a handler no longer drops an unassigned value (it was a MIR
+validation error before, for any `return` in a handler of a value call).
+Test bodies (owner, 2026-11-13, built): `lib::build` drops the MIR body of every
+test except `program.main`; the backends skip a function with no body (Cranelift
+declares it `Import`, since a `Local` function must be defined); the C backend
+has no prototype or definition for it. Normal builds and `drachm test` builds
+therefore differ only in which test is `main`.
+`drachm test PATH NAME` (built, owner 2026-11-13): NAME is a substring of the
+test name; the other tests are not built; the summary adds `N filtered out`
+(only when NAME is given). Interim: a NAME that matches nothing runs zero tests
+and exits 0.
+Tests: `tests/fail/expect_*.drh`, `tests/run/handler_early_leave.drh`,
+`tests/run/expect_failure_build.drh`, `tests/cli.rs`
+(`test_expect_failure_passes_or_stops_the_test_with_a_message`), the showcase's
+`rules` tests, `site/examples/test-blocks.drh`.
 
 **Open (ask owner):** the full `[warnings]` name list (grows as warnings are added).
 Also: a `deps/`

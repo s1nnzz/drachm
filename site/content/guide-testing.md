@@ -1,6 +1,6 @@
 ---
 title: Testing your programs
-description: Using check, run and build, exit codes, writing expected-output tests the way the compiler's own repo does, and the planned test keyword.
+description: Using check, run and build, exit codes, writing expected-output tests the way the compiler's own repo does, and the test keyword with drachm test.
 ---
 
 # Testing your programs
@@ -8,7 +8,7 @@ description: Using check, run and build, exit codes, writing expected-output tes
 Today you test a Drachm program by running it and comparing what it prints. This
 guide shows the commands, what the exit codes mean, and the expected-output
 technique the compiler's own repository uses for over two hundred programs. At
-the end is the `test` keyword, which is designed and not built yet.
+the end is the `test` keyword, which runs with `drachm test`.
 
 ## Three commands
 
@@ -173,27 +173,106 @@ the pages say "run this" only where it works.
 
 ## The `test` keyword
 
-<!-- status: not-implemented -->
+A `test` block can sit in any file, next to the code it checks. Its body is
+ordinary code, and `assert(condition);` stops the test when the condition is
+false (see [assert](reference-control-flow.md#checking-a-condition-assert)):
 
-A `test` block in any file is a test, and `drachm test` will run them all.
-Nothing here is accepted by the compiler today.
+<!-- example: test-blocks -->
+
+`drachm test` runs every test of a file, or of a project folder. Run on the
+file above it prints:
+
+```text title="terminal"
+$ drachm test test-blocks.drh
+running 3 tests
+test adds small numbers ... ok
+test negative sums ... ok
+test a text that is not a number ... ok
+
+test result: ok. 3 passed; 0 failed
+$ echo $?
+0
+```
+
+A failing `assert` shows its condition and line, and the other tests still run:
+
+```text title="terminal"
+$ drachm test tests-demo.drh
+running 3 tests
+test adds small numbers ... ok
+test a wrong sum ... FAILED
+    this line prints before the check fails
+    drachm: panic: assertion failed: add(2, 3) == 6
+      --> tests-demo.drh:13
+    exit code 101
+test negative sums ... ok
+
+test result: FAILED. 2 passed; 1 failed
+$ echo $?
+1
+```
+
+What the rules are:
+
+- Each test is built and run as a program of its own. A test passes when its
+  program exits with 0. The output of a test is shown only when it fails.
+- Test names are unique within a file (E0239).
+- `expect failure` checks a failing call inside a test (see below).
+- A normal `build` or `run` checks the test blocks too, so a broken test is an
+  error in every build. It leaves their code out of the executable: only `main`
+  is built. `drachm test` builds each test.
+- `drachm test` works on a library as well as a program, and `-O` runs the
+  tests on the optimised build.
+- The exit code is 0 when every test passes and 1 otherwise.
+- A test block in a script that also has top-level statements is not supported
+  yet (E0901). Put the tests in a file with `main`, or in a project.
+
+An `assert` can name what it checks, after the condition:
+`assert(add(2, 3) == 6, "the sum of two and three");`. The message is plain text,
+and a failing check prints it after the condition, for example
+`assertion failed: add(2, 3) == 6: the sum of two and three`.
+
+### Expecting a failure
+
+Some code must fail, and a test should check that it does. `expect failure`
+names the failure a call must end with:
 
 ```drachm
-test "adds" {
-    assert(add(2, 3) == 5);
+test "a text that is not a number" {
+    expect failure ConvertError from "x"::to<uint32>();
 }
 ```
 
-What the design says so far:
+The test passes when the call fails with `ConvertError`. Three other outcomes
+stop the test with a message:
 
-- `test "name" { ... }` can sit in any file, next to the code it checks.
-- `assert(condition)` is the check.
-- `drachm test` is a new command beside `new build run check add fmt explain`.
-- `drachm new mygame` makes a `tests/` folder next to `src/`.
+- the call does not fail at all;
+- the call fails with another failure of the same call;
+- the call can never fail with the named failure (a compile error, E0545).
 
-What it does not say yet, and the language's owner has not decided: what the
-failure message looks like, whether a test sees private items of its file,
-whether tests are compiled out of normal builds, and the exact exit code of
-`drachm test`. Treat the details as open. Until then, the expected-output technique above
-works with any compiler version and tests a program the way a user runs it.
-See [Projects and config](design-config.md#tests).
+```text title="terminal"
+$ drachm test expect.drh
+running 2 tests
+test a text that is not a number ... ok
+test no failure ... FAILED
+    drachm: panic: expected a `ConvertError` failure from `"7"::to<uint32>()`, but the call did not fail
+      --> expect.drh:6
+    exit code 101
+
+test result: FAILED. 1 passed; 1 failed
+```
+
+`expect failure` is only allowed in a `test` block (E0014). The call must be
+one that can fail (E0003 otherwise), and the failure must be a `failure` type
+(E0540).
+
+To run some tests, give a name after the file. Only the tests whose name
+contains it run, and the summary says how many were filtered out:
+
+```text title="terminal"
+$ drachm test test-blocks.drh negative
+running 1 test
+test negative sums ... ok
+
+test result: ok. 1 passed; 0 failed; 2 filtered out
+```

@@ -114,6 +114,14 @@ codes! {
         "The step of a `for (init; condition; step)` loop must be an assignment,\n\
          a compound assignment, `++` / `--`, or a call:\n\n\
          \x20   for (mut uint32 i = 0; i < 10; i += 2) { }";
+    E0014: "`expect failure` outside a test",
+        "`expect failure` checks that a call fails with a given failure. It only\n\
+         means something in a `test` block, where a wrong outcome fails the test,\n\
+         so anywhere else it is an error:\n\n\
+         \x20   test \"bad text\" {\n\
+         \x20       expect failure ConvertError from \"x\"::to<uint32>();\n\
+         \x20   }\n\n\
+         Outside a test, handle the failure with `fails with` instead.";
 
     E0101: "type mismatch",
         "A value of one type was used where another is required.\n\n\
@@ -310,6 +318,12 @@ codes! {
     E0237: "no such name in the module",
         "An import or a qualified name asks a module for a name it does not have.\n\
          Check the spelling; the help lists what the module exports.";
+    E0239: "two tests have the same name",
+        "Each `test` block needs its own name, because `drachm test` reports\n\
+         a test by its name. Two blocks in one file with the same name are an\n\
+         error; the second one is the one reported.\n\n\
+         \x20   test \"adds\" { assert(add(2, 3) == 5); }\n\
+         \x20   test \"adds\" { assert(add(1, 1) == 2); }   // E0239\n";
     E0238: "files call each other in a circle",
         "A function of one file calls a function of another file that calls back\n\
          into the first (directly or through more functions). Files may import\n\

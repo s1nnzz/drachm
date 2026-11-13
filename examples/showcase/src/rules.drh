@@ -14,3 +14,20 @@ out string hull(uint32 n) { return "Drachma-" + n::text(); }
 out sint16 downward_correction(uint8 magnitude) {
     return -magnitude;
 }
+
+// Tests sit beside the rules they check. `drachm test examples/showcase` runs
+// them, one program each; a normal run compiles them and never runs them.
+test "the hull is named from its number" {
+    assert(hull(7) == "Drachma-7");
+}
+
+// `expect failure` passes when the call fails with the named failure, and
+// stops the test with a message when it does not.
+test "a sensor reading that is not a number is refused" {
+    expect failure ConvertError from "n/a"::to<uint32>();
+}
+
+test "a downward correction is negative" {
+    assert(downward_correction(240) == -240);
+    assert(downward_correction(0) == 0, "no sensor reading means no correction");
+}

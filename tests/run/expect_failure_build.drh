@@ -1,0 +1,24 @@
+// `expect failure` lives in test blocks. A normal build checks them and runs only `main`.
+in io;
+
+failure Boom { Bang "it went bang" }
+
+string named(uint32 n) fails Boom {
+    if (n == 0) {
+        fail Boom::Bang;
+    }
+    return "ok";
+}
+
+test "a call that fails as expected" {
+    expect failure Boom from named(0);
+}
+
+test "a text that is not a number" {
+    expect failure ConvertError from "x"::to<uint32>();
+}
+
+none main() {
+    io::outln(named(1) fails with (Boom e) => { return; });
+    io::outln("main runs, the tests do not");
+}

@@ -12,6 +12,7 @@ Drachm compiler
 usage:
   drachm build [file.drh | folder] [-o <output>] [-O]   compile to a native executable
   drachm run   [file.drh | folder] [-O]                 compile and run
+  drachm test  [file.drh | folder] [NAME] [-O]          run the `test` blocks, each on its own (NAME: only those whose name contains it)
   drachm check [file.drh | folder] [--dump-mir | --dump-borrowck]  check for errors only (the dumps print the MIR or the borrow checker state)
   drachm new <name>                            make a project folder with drachm.toml and src/main.drh
   drachm lsp                                   run the language server on stdin and stdout (for editors)
@@ -29,6 +30,7 @@ enum Command {
     Check { input: PathBuf, dump_mir: bool, dump_borrowck: bool },
     Build { input: PathBuf, out: Option<PathBuf>, opt: bool },
     Run { input: PathBuf, opt: bool },
+    Test { input: PathBuf, opt: bool, filter: Option<String> },
 }
 
 fn main() {
@@ -78,6 +80,16 @@ fn main() {
             let out = out.unwrap_or_else(|| default_output(&input));
             build(&opened, &out, opt || opened.config.build.opt);
         }
+        Command::Test { input, opt, filter } => {
+            // A library has tests too, so this is `open`, not `program`.
+            let opened = open(&input);
+            let (_, mut program) = front_end(&opened, true);
+            let all: Vec<(usize, String)> = program.tests.iter().map(|t| (t.func, t.name.clone())).collect();
+            // A NAME keeps the tests whose name contains it; the others are not built.
+            let tests: Vec<(usize, String)> = all.iter().filter(|(_, name)| filter.as_deref().map_or(true, |f| name.contains(f))).cloned().collect();
+            let filtered_out = filter.is_some().then(|| all.len() - tests.len());
+            run_tests(&mut program, &tests, opt || opened.config.build.opt, filtered_out);
+        }
         Command::Run { input, opt } => {
             let opened = program(&input, "run");
             let dir = std::env::temp_dir().join(format!("drachm-run-{}", std::process::id()));
@@ -113,14 +125,17 @@ fn parse(args: &[String]) -> Command {
     let mut opt = false;
     let mut dump_mir = false;
     let mut dump_borrowck = false;
+    let mut filter = None;
     let mut rest = args[1..].iter();
     while let Some(a) = rest.next() {
         match (a.as_str(), cmd.as_str()) {
             ("-o", "build") => output = Some(PathBuf::from(rest.next().unwrap_or_else(|| die("-o needs a path")))),
-            ("-O", "build" | "run") => opt = true,
+            ("-O", "build" | "run" | "test") => opt = true,
             ("--dump-mir", "check") => dump_mir = true,
             ("--dump-borrowck", "check") => dump_borrowck = true,
             _ if input.is_none() && !a.starts_with('-') => input = Some(PathBuf::from(a)),
+            // `drachm test PATH NAME`: the second name is a filter on the test names.
+            _ if cmd == "test" && input.is_some() && filter.is_none() && !a.starts_with('-') => filter = Some(a.clone()),
             _ => die(&format!("unexpected argument '{a}'\n\n{USAGE}")),
         }
     }
@@ -129,6 +144,7 @@ fn parse(args: &[String]) -> Command {
         "check" => Command::Check { input, dump_mir, dump_borrowck },
         "build" => Command::Build { input, out: output, opt },
         "run" => Command::Run { input, opt },
+        "test" => Command::Test { input, opt, filter },
         _ => die(USAGE),
     }
 }
@@ -182,6 +198,59 @@ fn front_end(opened: &Opened, ownership: bool) -> (PathBuf, drachm::hir::Program
         }
     }
     (entry, checked.unwrap_or_else(|| exit(1)))
+}
+
+/// `drachm test`: each test is built as a program of its own and run, so a
+/// test that fails does not stop the others. A test passes when its program
+/// exits with 0. A test's output is shown only when it fails.
+/// `filtered_out` is the number of tests a NAME left out, if one was given.
+fn run_tests(program: &mut drachm::hir::Program, tests: &[(usize, String)], opt: bool, filtered_out: Option<usize>) {
+    let plural = if tests.len() == 1 { "" } else { "s" };
+    println!("running {} test{plural}", tests.len());
+    let dir = std::env::temp_dir().join(format!("drachm-test-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap_or_else(|e| die(&e.to_string()));
+    let (mut passed, mut failed) = (0, 0);
+    for (i, (func, name)) in tests.iter().enumerate() {
+        let exe = dir.join(format!("test{i}")).with_extension(EXE_EXTENSION);
+        if let Err(e) = drachm::build_test(program, *func, &exe, opt) {
+            let _ = std::fs::remove_dir_all(&dir);
+            die(&format!("drachm: {e}"));
+        }
+        print!("test {name} ... ");
+        match Process::new(&exe).output() {
+            Ok(run) if run.status.success() => {
+                passed += 1;
+                println!("ok");
+            }
+            Ok(run) => {
+                failed += 1;
+                println!("FAILED");
+                let shown = format!("{}{}", String::from_utf8_lossy(&run.stdout), String::from_utf8_lossy(&run.stderr));
+                for line in shown.lines() {
+                    println!("    {line}");
+                }
+                match run.status.code() {
+                    Some(code) => println!("    exit code {code}"),
+                    None => println!("    stopped by a signal"),
+                }
+            }
+            Err(e) => {
+                failed += 1;
+                println!("FAILED");
+                println!("    could not run it: {e}");
+            }
+        }
+        let _ = std::fs::remove_file(&exe);
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+    let verdict = if failed == 0 { "ok" } else { "FAILED" };
+    match filtered_out {
+        Some(n) => println!("\ntest result: {verdict}. {passed} passed; {failed} failed; {n} filtered out"),
+        None => println!("\ntest result: {verdict}. {passed} passed; {failed} failed"),
+    }
+    if failed > 0 {
+        exit(1);
+    }
 }
 
 fn build(opened: &Opened, out: &Path, opt: bool) {

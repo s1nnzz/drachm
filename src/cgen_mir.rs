@@ -33,7 +33,8 @@ pub fn generate(hir: &hir::Program, mir: &Program) -> String {
         let params = if params.is_empty() { "void".to_string() } else { params.join(", ") };
         let _ = writeln!(out, "extern {} {}({params}) __asm__(\"{symbol}\");", c_type(func.ret), func.symbol);
     }
-    let bodies: Vec<&Body> = (0..hir.funcs.len()).filter(|f| !hir.foreign.contains_key(f)).map(|f| mir.bodies[f].as_ref().expect("a MIR body for every function")).collect();
+    // A function without a body is a test block that this build leaves out (see `lib::build`).
+    let bodies: Vec<&Body> = mir.bodies.iter().take(hir.funcs.len()).flatten().collect();
     for &body in &bodies {
         let _ = writeln!(out, "{};", signature(hir, body));
     }
@@ -964,6 +965,10 @@ impl Gen<'_> {
                 self.line(format!("{f}(({t}){i}, {len});"));
             }
             Callee::Stop(crate::hir::StopKind::ZeroStep) => self.line("drachm_range_step_zero();"),
+            Callee::Stop(crate::hir::StopKind::Assert(_)) => {
+                let message = self.operand(&args[0].op);
+                self.line(format!("drachm_assert_failed({message}.ptr, {message}.len);"));
+            }
             Callee::Join => {
                 let dest = dest_lv.expect("a string result has a destination");
                 let parts: Vec<String> = args.iter().map(|a| format!("*{}", self.operand(&a.op))).collect();

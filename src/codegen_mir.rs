@@ -48,15 +48,17 @@ pub fn compile(hir: &hir::Program, mir: &Program) -> Result<Vec<u8>, String> {
 
     let ptr = module.target_config().pointer_type();
     let mut ids = Vec::new();
-    for (i, f) in hir.funcs.iter().enumerate() {
+    for (i, func) in hir.funcs.iter().enumerate() {
         if let Some(symbol) = hir.foreign.get(&i) {
             // A C function: the real symbol, found by the linker.
-            let s = foreign_signature(&module, hir, f);
+            let s = foreign_signature(&module, hir, func);
             ids.push(module.declare_function(symbol, Linkage::Import, &s).map_err(err)?);
             continue;
         }
-        let s = signature(&module, f);
-        ids.push(module.declare_function(&f.symbol, Linkage::Local, &s).map_err(err)?);
+        let s = signature(&module, func);
+        // A function with no body is a test block that this build leaves out: declared, never defined.
+        let linkage = if mir.bodies[i].is_some() { Linkage::Local } else { Linkage::Import };
+        ids.push(module.declare_function(&func.symbol, linkage, &s).map_err(err)?);
     }
 
     // Glue functions: declared up front so any function can call them.
@@ -103,7 +105,8 @@ pub fn compile(hir: &hir::Program, mir: &Program) -> Result<Vec<u8>, String> {
             continue;
         }
         let hf = &hir.funcs[f];
-        let body = mir.bodies[f].as_ref().ok_or_else(|| format!("`{}` has no MIR body", hf.symbol))?;
+        // No body: a test block that this build leaves out (see `lib::build`).
+        let Some(body) = mir.bodies[f].as_ref() else { continue };
         ctx.func.signature = module.declarations().get_function_decl(id).signature.clone();
         ctx.func.name = UserFuncName::user(0, id.as_u32());
         let cfg = module.isa().frontend_config();
@@ -1602,6 +1605,15 @@ impl Cg<'_, '_> {
                     self.b.set_cold_block(cur);
                 }
                 self.rt("drachm_range_step_zero", &[], &[], &[]);
+            }
+            Callee::Stop(crate::hir::StopKind::Assert(_)) => {
+                if let Some(cur) = self.b.current_block() {
+                    self.b.set_cold_block(cur);
+                }
+                let at = self.operand_addr(&args[0].op);
+                let text = self.b.ins().load(ptr, MEM, at, 0);
+                let len = self.b.ins().load(i64t, MEM, at, STR_LEN);
+                self.rt("drachm_assert_failed", &[ptr, i64t], &[], &[text, len]);
             }
             Callee::Join => {
                 // The parts' values side by side, as the runtime's array.

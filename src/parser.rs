@@ -13,7 +13,7 @@ pub fn parse(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>) -> Program {
 }
 
 pub(crate) fn parse_file(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>, script_entry: bool) -> Program {
-    let mut p = Parser { tokens, pos: 0, diags, optionals: Vec::new(), generics: Vec::new(), chain_slips: Vec::new(), c_header: None };
+    let mut p = Parser { tokens, pos: 0, diags, optionals: Vec::new(), generics: Vec::new(), chain_slips: Vec::new(), in_test: false, c_header: None };
     let mut program = Program {
         imports: Vec::new(),
         exports: Vec::new(),
@@ -36,6 +36,8 @@ pub(crate) fn parse_file(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>, script
     };
     let mut script_stmts = Vec::new();
     let mut first_script_stmt = None;
+    // The first test of a file that is a script; an error only if the file has top-level statements.
+    let mut script_test = None;
     while p.peek() != &Tok::Eof {
         let start = p.pos;
         // `out` before a declaration (`out struct Vector3 { }`) exports it.
@@ -66,6 +68,20 @@ pub(crate) fn parse_file(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>, script
             p.enum_decl().map(|e| program.enums.push(e))
         } else if p.peek() == &Tok::Kw("failure") {
             p.failure_decl().map(|f| program.failures.push(f))
+        } else if p.peek() == &Tok::Kw("test") {
+            p.test_decl().map(|f| {
+                let (name, name_span) = f.test.clone().expect("a test has a name");
+                let again = program.funcs.iter().filter_map(|g| g.test.as_ref()).find(|(n, _)| *n == name).map(|(_, s)| *s);
+                if script_entry {
+                    script_test.get_or_insert(name_span);
+                }
+                if let Some(first) = again {
+                    p.diags.push(Diagnostic::at(&codes::E0239, name_span, format!("a test named \"{name}\" is written twice")).label(first, "first written here"));
+                } else if out_span.is_none() {
+                    // With `out` before it, the usual `out` error is reported.
+                    program.funcs.push(f);
+                }
+            })
         } else if p.at_unit_item() {
             p.unit_decl().map(|u| program.units.push(u))
         } else if p.at_def_item() {
@@ -122,6 +138,9 @@ pub(crate) fn parse_file(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>, script
         }
     }
     if let Some(first) = first_script_stmt {
+        if let Some(t) = script_test {
+            p.diags.push(Diagnostic::at(&codes::E0901, t, "a test in a script with top-level statements is not supported yet").help("put the test in a file that has `main`, or in a project file"));
+        }
         if let Some(main) = program.funcs.iter().find(|f| f.name == "main") {
             p.diags.push(
                 Diagnostic::new(&codes::E0204, "a script cannot mix top-level statements with `main`")
@@ -144,6 +163,7 @@ pub(crate) fn parse_file(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>, script
                 fails_span: None,
                 span: first,
                 foreign: None,
+                test: None,
             });
         }
     }
@@ -165,6 +185,8 @@ struct Parser<'a> {
     chain_slips: Vec<ChainSlip>,
     /// The C header of the import being read (see `ast::Import::c_header`).
     c_header: Option<(String, Span)>,
+    /// Inside a `test` block, where `expect failure` is allowed.
+    in_test: bool,
 }
 
 type Parsed<T> = Result<T, Diagnostic>;
@@ -176,6 +198,19 @@ struct Look {
 }
 
 /// `uint8`..`uint128`, `sint*`, `float*`: the types a `<` after them opens a unit for.
+/// The text of a string literal with no `${}` in it, or `None` if it has one.
+fn plain_text(pieces: &[StrPiece]) -> Option<String> {
+    let mut text = String::new();
+    for piece in pieces {
+        match piece {
+            StrPiece::Raw(raw, _) => text.push_str(raw),
+            StrPiece::Escape(c, _) => text.push(*c),
+            StrPiece::Interp(..) => return None,
+        }
+    }
+    Some(text)
+}
+
 fn is_number_name(name: &str) -> bool {
     ["uint", "sint", "float"].iter().any(|k| name.strip_prefix(k).is_some_and(|d| !d.is_empty() && d.bytes().all(|b| b.is_ascii_digit())))
 }
@@ -952,7 +987,7 @@ impl Parser<'_> {
             return true;
         }
         match self.peek() {
-            Tok::Kw("in" | "struct" | "enum" | "failure" | "interface") => true,
+            Tok::Kw("in" | "struct" | "enum" | "failure" | "interface" | "test") => true,
             Tok::Kw("from") => self.at_c_macro(),
             // `out` is also a parameter word: only an export list or `out`
             // before a whole declaration counts.
@@ -1304,6 +1339,39 @@ impl Parser<'_> {
         Ok(params)
     }
 
+    /// `test "name" { }`: the block as a function that takes nothing and returns nothing.
+    fn test_decl(&mut self) -> Parsed<Func> {
+        let start = self.bump().span;
+        let Tok::Str(pieces) = self.peek().clone() else {
+            return Err(self.unexpected("a test name in quotes").help("a test is named with a string: `test \"adds\" { }`"));
+        };
+        let name_span = self.bump().span;
+        let Some(name) = plain_text(&pieces) else {
+            return Err(Diagnostic::at(&codes::E0003, name_span, "a test name is plain text").help("write the name without `${}`: `test \"adds\" { }`"));
+        };
+        let was_in_test = std::mem::replace(&mut self.in_test, true);
+        let body = self.block();
+        self.in_test = was_in_test;
+        let body = body?;
+        Ok(Func {
+            ret: TypeName::plain("none", start),
+            name: format!("test \"{name}\""),
+            name_span,
+            tparams: Vec::new(),
+            params: Vec::new(),
+            body,
+            is_unsafe: None,
+            lives: Vec::new(),
+            lives_span: None,
+            lives_from: false,
+            fails: Vec::new(),
+            fails_span: None,
+            span: start.to(self.prev_span()),
+            test: Some((name, name_span)),
+            foreign: None,
+        })
+    }
+
     /// A function's parameters and body, after its return type and name.
     fn func_rest(&mut self, ret: TypeName, name: String, name_span: Span, is_unsafe: Option<Span>) -> Parsed<Func> {
         let tparams = self.type_params()?;
@@ -1357,7 +1425,7 @@ impl Parser<'_> {
             }
         }
         let body = self.block()?;
-        Ok(Func { ret, name, name_span, tparams, params, body, is_unsafe, lives, lives_span, lives_from, fails, fails_span, span, foreign: None })
+        Ok(Func { ret, name, name_span, tparams, params, body, is_unsafe, lives, lives_span, lives_from, fails, fails_span, span, test: None, foreign: None })
     }
 
     /// `self or key or other`, after `lives from`.
@@ -1954,6 +2022,23 @@ impl Parser<'_> {
     fn stmt(&mut self) -> Parsed<Stmt> {
         let start = self.span();
         match self.peek() {
+            // `expect failure` is read before a binding: `expect` could be a type name.
+            Tok::Ident(w) if w == "expect" && self.peek_at(1) == &Tok::Kw("failure") => {
+                self.bump();
+                self.bump();
+                if !self.in_test {
+                    return Err(Diagnostic::at(&codes::E0014, start.to(self.prev_span()), "`expect failure` is only in a `test` block")
+                        .help("write the check in `test \"name\" { }`, where a test that does not fail as expected fails"));
+                }
+                let failure = self.qual_ident("a failure type after `expect failure`")?;
+                if self.peek() != &Tok::Kw("from") {
+                    return Err(self.unexpected("`from`").help("write `expect failure ConvertError from \"x\"::to<uint32>();`"));
+                }
+                self.bump();
+                let call = self.expr()?;
+                self.expect(";")?;
+                Ok(Stmt::ExpectFailure { failure, call, span: start.to(self.prev_span()) })
+            }
             _ if self.at_fill() => self.fill_stmt(),
             _ if self.at_binding() => {
                 let (mutable, open) = self.binding_words();
@@ -2031,6 +2116,27 @@ impl Parser<'_> {
                 let value = if self.peek() == &Tok::Sym(";") { None } else { Some(self.expr()?) };
                 self.expect(";")?;
                 Ok(Stmt::Return { value, span: start.to(self.prev_span()) })
+            }
+            Tok::Ident(w) if w == "assert" && self.peek_at(1) == &Tok::Sym("(") => {
+                self.bump();
+                self.bump();
+                let cond = self.expr()?;
+                let message = if self.peek() == &Tok::Sym(",") {
+                    self.bump();
+                    let Tok::Str(pieces) = self.peek().clone() else {
+                        return Err(self.unexpected("a message in quotes").help("write `assert(condition, \"message\");`"));
+                    };
+                    let at = self.bump().span;
+                    let text = plain_text(&pieces).ok_or_else(|| {
+                        Diagnostic::at(&codes::E0003, at, "an `assert` message is plain text").help("write the message without `${}`")
+                    })?;
+                    Some((text, at))
+                } else {
+                    None
+                };
+                self.expect(")")?;
+                self.expect(";")?;
+                Ok(Stmt::Assert { cond, message, span: start.to(self.prev_span()) })
             }
             _ => {
                 let s = self.simple()?;
@@ -2891,7 +2997,7 @@ impl Parser<'_> {
             tokens.push(Token { tok, span: Span::new(span.start + from, span.start + i) });
         }
         tokens.push(Token { tok: Tok::Eof, span: Span::new(span.end, span.end) });
-        let mut inner = Parser { tokens, pos: 0, diags: &mut *self.diags, optionals: Vec::new(), generics: Vec::new(), chain_slips: Vec::new(), c_header: None };
+        let mut inner = Parser { tokens, pos: 0, diags: &mut *self.diags, optionals: Vec::new(), generics: Vec::new(), chain_slips: Vec::new(), in_test: self.in_test, c_header: None };
         let spec = inner.unit_spec()?;
         if inner.peek() != &Tok::Eof {
             return Err(inner.unexpected("the end of the unit"));
@@ -3105,7 +3211,7 @@ impl Parser<'_> {
                 .note("empty")
                 .help("for example `${name}`; write `\\$` for a plain dollar sign"));
         }
-        let mut inner = Parser { tokens, pos: 0, diags: &mut *self.diags, optionals: Vec::new(), generics: Vec::new(), chain_slips: Vec::new(), c_header: None };
+        let mut inner = Parser { tokens, pos: 0, diags: &mut *self.diags, optionals: Vec::new(), generics: Vec::new(), chain_slips: Vec::new(), in_test: self.in_test, c_header: None };
         let e = inner.expr()?;
         let found = std::mem::take(&mut inner.optionals);
         self.optionals.extend(found);

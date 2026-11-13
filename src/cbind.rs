@@ -424,6 +424,7 @@ impl CCtx {
                         fails_span: None,
                         span: synthetic,
                         foreign: Some(name.clone()),
+                        test: None,
                     });
                 }
                 Some(Decl::Record(r)) => {
@@ -490,6 +491,7 @@ impl CCtx {
                 fails_span: None,
                 span: synthetic,
                 foreign: Some(symbol),
+                test: None,
             });
         }
         let mut shim = String::new();

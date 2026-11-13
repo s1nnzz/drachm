@@ -43,6 +43,15 @@ For a new session with no memory of earlier conversations. Read this, then
   Interims and open questions: PLAN step 7.1. Needs libclang at run time
   (`LIBCLANG_PATH`) and, for `-resource-dir`, `clang` or
   `DRACHM_CLANG_RESOURCE_DIR`.
+- **Step 7 WP9 built** (2026-11-13): `assert(cond);` in every build, `test "name" { }`
+  blocks in project files (E0239 for a repeated name; E0901 in a script with
+  top-level statements), `drachm test FILE|FOLDER [NAME] [-O]` (one program per
+  test). Follow-ups built (owner answers, 2026-11-13): `assert(cond, "text")`,
+  `expect failure F from call;` in tests (E0014 outside), the NAME filter, and
+  test bodies left out of normal builds. A shared MIR fix came with
+  `expect failure`: a handler's `return` no longer drops an unassigned call
+  value. Open: a NAME that matches nothing exits 0; lambdas inside a test are
+  still built. See `docs/PLAN.md` step 7 WP9.
 - **Step 7**: modules, config and public dependency imports are built.
   Libraries check without `main()`. The showcase uses source tabs.
   Bounds, unsigned negation and missing-map-key settings work. Overflow,

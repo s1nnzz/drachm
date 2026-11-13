@@ -159,3 +159,36 @@ thread. A bare number is in seconds. Import `si` to write a duration such as
 duration stops the program with exit code 101.
 
 <!-- example: time-sleep -->
+
+## Checking a condition: assert
+
+`assert(condition);` is a statement that checks a `bool`. It works in any
+function, and it runs in every build, optimised `-O` builds included. A true
+condition does nothing. A false one stops the program at once with exit code
+101, and prints the condition as you wrote it and the line it is on:
+
+<!-- example: assert-check -->
+
+```text title="terminal"
+$ drachm run check.drh
+drachm: panic: assertion failed: add(2, 3) == 6
+  --> check.drh:11
+$ echo $?
+101
+```
+
+A message can follow the condition, after a comma. It is plain text (no `${}`),
+and a false check prints it after the condition, then the line:
+
+<!-- example: assert-message -->
+
+```text title="terminal"
+$ drachm run seats.drh
+drachm: panic: assertion failed: seats == 5: the crew has five seats
+  --> seats.drh:7
+$ echo $?
+101
+```
+
+The `test` blocks that run assertions are
+[the testing guide](guide-testing.md#the-test-keyword).

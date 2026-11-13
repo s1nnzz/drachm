@@ -1,0 +1,7 @@
+failure Boom { Bang "it went bang" }
+
+test "the call never fails with this" {
+    expect failure Boom from "x"::to<uint32>();
+}
+
+none main() { }

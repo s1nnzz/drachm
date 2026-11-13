@@ -43,11 +43,21 @@ pub fn front(src: &str) -> (Option<hir::Program>, Vec<Diagnostic>) {
         return (None, diags);
     }
     let settings = config::Behaviour::default().for_file(&flags.behaviour);
-    let checked = typeck::check_with_settings(&program, src, &mut diags, vec![(0, settings)], true);
+    let mut checked = typeck::check_with_settings(&program, src, &mut diags, vec![(0, settings)], true);
     if diag::has_errors(&diags) {
         return (None, diags);
     }
+    locate_asserts(&mut checked, &diag::SourceMap::single("input", src));
     (Some(checked), diags)
+}
+
+/// Writes the message of each `assert`: its heading (the condition and the
+/// message) and its place, which needs the files' names, so it is done once
+/// the files are known.
+fn locate_asserts(program: &mut hir::Program, map: &diag::SourceMap) {
+    for a in &mut program.asserts {
+        a.message = format!("{}\n  --> {}", a.heading, map.file_line(a.span.start));
+    }
 }
 
 /// Lex, parse, type-check and ownership-check `src`. Returns every diagnostic
@@ -111,10 +121,11 @@ fn front_project_with_settings(entry: &std::path::Path, info: &modules::ProjectI
             return (None, graph, diags);
         }
         let src = (0..graph.map.len()).map(|f| graph.map.source(f).text.as_str()).collect::<Vec<_>>().join("\n");
-        let checked = typeck::check_with_settings(&program, &src, &mut diags, settings, info.requires_main);
+        let mut checked = typeck::check_with_settings(&program, &src, &mut diags, settings, info.requires_main);
         if diag::has_errors(&diags) {
             return (None, graph, diags);
         }
+        locate_asserts(&mut checked, &graph.map);
         return (Some(checked), graph, diags);
     }
     let mut graph = graph;
@@ -124,10 +135,11 @@ fn front_project_with_settings(entry: &std::path::Path, info: &modules::ProjectI
     }
     let program = &graph.modules[0].program;
     let src = &graph.map.source(0).text;
-    let checked = typeck::check_with_settings(program, src, &mut diags, settings, info.requires_main);
+    let mut checked = typeck::check_with_settings(program, src, &mut diags, settings, info.requires_main);
     if diag::has_errors(&diags) {
         return (None, graph, diags);
     }
+    locate_asserts(&mut checked, &graph.map);
     (Some(checked), graph, diags)
 }
 
@@ -164,6 +176,13 @@ fn link_plan(opened: &config::Opened, graph: &modules::ModuleGraph) -> hir::Link
     plan
 }
 
+/// Build an executable that runs one test: the test's function is its `main`,
+/// so the program does nothing else. `drachm test` builds one per test.
+pub fn build_test(program: &mut hir::Program, test: hir::FuncId, out: &std::path::Path, optimise: bool) -> Result<(), String> {
+    program.main = test;
+    build(program, out, optimise)
+}
+
 /// Build an executable at `out`. Plain builds go through Cranelift, which is
 /// fast to compile; optimised builds go through C, which is fast to run.
 ///
@@ -178,6 +197,13 @@ pub fn build(program: &hir::Program, out: &std::path::Path, optimise: bool) -> R
     mir::cleanup::cleanup_program(program, &mut mir);
     mir::drops::elaborate_program(program, &mut mir);
     mir::cleanup::cleanup_program(program, &mut mir);
+    // Test blocks are checked but not built: only the test that `drachm test`
+    // makes `main` has a body here.
+    for t in &program.tests {
+        if t.func != program.main {
+            mir.bodies[t.func] = None;
+        }
+    }
     if optimise {
         link::compile_c(&cgen_mir::generate(program, &mir), out, &program.link, &program.shim)
     } else {

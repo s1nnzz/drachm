@@ -1,0 +1,9 @@
+uint32 double(uint32 n) {
+    return n * 2;
+}
+
+test "a call that cannot fail" {
+    expect failure ConvertError from double(4);
+}
+
+none main() { }

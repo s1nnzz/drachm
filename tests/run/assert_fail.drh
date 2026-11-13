@@ -1,0 +1,13 @@
+// A false `assert` stops the program with the condition and its line.
+in io;
+
+sint32 add(sint32 a, sint32 b) {
+    return a + b;
+}
+
+none main() {
+    assert(add(2, 3) == 5);
+    io::outln("before the bad check");
+    assert(add(2, 3) == 6);
+    io::outln("never printed");
+}

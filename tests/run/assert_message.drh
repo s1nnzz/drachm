@@ -1,0 +1,11 @@
+// An `assert` with a message: a false one prints the condition, then the message.
+in io;
+
+none main() {
+    uint32 n = 3;
+    assert(n == 3, "three is right");
+    assert(n > 0);
+    io::outln("two checks held");
+    assert(n == 4, "four \"quoted\" is wanted");
+    io::outln("never printed");
+}

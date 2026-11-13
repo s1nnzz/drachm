@@ -188,6 +188,13 @@ impl SourceMap {
         (f, Span::new(start, span.end.saturating_sub(b).max(start)))
     }
 
+    /// `name:line` of a global offset (run-time messages, which print no column).
+    pub fn file_line(&self, offset: usize) -> String {
+        let f = self.file_of(offset);
+        let src = self.source(f);
+        format!("{}:{}", src.name, src.line_of(offset - self.base(f)) + 1)
+    }
+
     /// `name:line:column` of a global offset.
     pub fn position(&self, offset: usize) -> String {
         let f = self.file_of(offset);

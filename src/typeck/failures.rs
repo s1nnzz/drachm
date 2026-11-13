@@ -950,6 +950,54 @@ impl Checker<'_> {
         Some(Val::Expr(expr(hir::ExprKind::Handled { call: Box::new(f.call), arms, label }, f.ok)))
     }
 
+    /// `expect failure F from call;` in a test. The statement is an `if` with no
+    /// test, labelled so that the handler for `F` can leave it: the test goes on.
+    /// When the call does not fail, the check after it stops the test. Another
+    /// failure stops the test too. A call's value is dropped, as for any call
+    /// statement.
+    pub(super) fn expect_failure(&mut self, failure: &(String, Span), call: &ast::Expr, span: Span, out: &mut hir::Block) {
+        let Some(f) = self.failing_call(call, "expect failure") else { return };
+        let (name, name_span) = (failure.0.as_str(), failure.1);
+        let id = self.g.enums_by_name.get(name).copied().filter(|&id| self.g.enums[id].kind == EnumKind::Failure);
+        let Some(id) = id else {
+            self.diags.push(Diagnostic::at(&codes::E0540, name_span, format!("`{name}` is not a failure type")).note("not a failure").help("`expect failure` names a `failure` type"));
+            return;
+        };
+        let ids = f.fails.clone();
+        let Some(idx) = ids.iter().position(|&x| x == id) else {
+            self.diags.push(
+                Diagnostic::at(&codes::E0545, name_span, format!("`{}` cannot fail with `{name}`", f.name))
+                    .note("this call never fails with this")
+                    .help(format!("it can fail with {}", self.fail_names(&ids))),
+            );
+            return;
+        };
+        let n = ids.len();
+        let fail_ty = if n == 1 { self.g.enums[ids[0]].ty } else { failure_set(self.g, &ids) };
+        let shown = self.src.get(call.span.start..call.span.end).unwrap_or("");
+        let heading = format!("expected a `{name}` failure from `{shown}`");
+        let no_failure = self.g.asserts.len();
+        self.g.asserts.push(hir::Assertion { heading: format!("{heading}, but the call did not fail"), span: call.span, message: String::new() });
+        let other = self.g.asserts.len();
+        self.g.asserts.push(hir::Assertion { heading: format!("{heading}, but the call failed with a different failure"), span: call.span, message: String::new() });
+        let leave = self.new_label();
+        let label = self.new_label();
+        let bind = self.hidden_named("ignored", self.g.enums[id].ty);
+        let mut arms = vec![hir::HandlerArm {
+            member: (n > 1).then_some(idx),
+            bind,
+            body: vec![hir::Stmt::Decl(bind), hir::Stmt::Jump(hir::Jump::Leave(leave))],
+            end: span,
+        }];
+        if n > 1 {
+            let bind = self.hidden_named("ignored", fail_ty);
+            arms.push(hir::HandlerArm { member: None, bind, body: vec![hir::Stmt::Decl(bind), hir::Stmt::Stop(hir::StopKind::Assert(other))], end: span });
+        }
+        let handled = expr(hir::ExprKind::Handled { call: Box::new(f.call), arms, label }, f.ok);
+        let body = vec![hir::Stmt::Expr(handled), hir::Stmt::Stop(hir::StopKind::Assert(no_failure))];
+        out.push(hir::Stmt::If { label: leave, branches: vec![hir::Branch { test: None, body, end: span }] });
+    }
+
     /// `maybe v;` inside a handler.
     pub(super) fn resume_stmt(&mut self, value: Option<&ast::Expr>, span: Span, out: &mut hir::Block) {
         let Some(&HandlerCtx { label, ok }) = self.handlers.last() else {

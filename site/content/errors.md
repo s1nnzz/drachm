@@ -123,6 +123,18 @@ a compound assignment, `++` / `--`, or a call:
 
     for (mut uint32 i = 0; i < 10; i += 2) { }
 
+## E0014: `expect failure` outside a test
+
+`expect failure` checks that a call fails with a given failure. It only
+means something in a `test` block, where a wrong outcome fails the test,
+so anywhere else it is an error:
+
+    test "bad text" {
+        expect failure ConvertError from "x"::to<uint32>();
+    }
+
+Outside a test, handle the failure with `fails with` instead.
+
 ## E0101: type mismatch
 
 A value of one type was used where another is required.
@@ -411,6 +423,16 @@ Everything else is private to its file.
 
 An import or a qualified name asks a module for a name it does not have.
 Check the spelling; the help lists what the module exports.
+
+## E0239: two tests have the same name
+
+Each `test` block needs its own name, because `drachm test` reports
+a test by its name. Two blocks in one file with the same name are an
+error; the second one is the one reported.
+
+    test "adds" { assert(add(2, 3) == 5); }
+    test "adds" { assert(add(1, 1) == 2); }   // E0239
+
 
 ## E0238: files call each other in a circle
 

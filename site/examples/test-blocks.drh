@@ -1,0 +1,23 @@
+// A `test` block sits beside the code it checks. `drachm run` compiles the
+// tests and runs only `main`; `drachm test` runs the tests.
+in io;
+
+sint32 add(sint32 a, sint32 b) {
+    return a + b;
+}
+
+test "adds small numbers" {
+    assert(add(2, 3) == 5);
+}
+
+test "negative sums" {
+    assert(add(-2, -3) == -5);
+}
+
+test "a text that is not a number" {
+    expect failure ConvertError from "x"::to<uint32>();
+}
+
+none main() {
+    io::outln(f"add gives ${add(2, 3)}");
+}
