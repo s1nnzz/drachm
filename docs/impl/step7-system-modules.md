@@ -8,7 +8,9 @@ selected this split:
 - `fs` reads, writes and creates files. Write replaces the contents. Create is
   exclusive and fails if the destination exists. It takes a path and optional
   initial text and returns the shared `File` used by reader and writer APIs
-  for line reads and writes. Cursor and opening modes are pending.
+  for line reads and writes. Create resets the cursor to the beginning after
+  writing initial text. Open an existing path with `fs::open(path, mode)`
+  using `Read`, `Write` or `ReadWrite` and receive the same `File` type.
 - Failures are typed by cause, such as `FileMissing` and `AccessDenied`.
 - `os` exposes platform, current working directory and environment lookup.
   `os::getEnv` returns `string?` with `none` for a missing variable.
@@ -76,8 +78,8 @@ once their public behavior is decided.
 ## Owner questions for main
 
 - Does write create a missing file? Is replacing contents a truncating write,
-  or must replacement be atomic? Decide the shared File cursor and opening
-  modes before exposing create or the line APIs.
+  or must replacement be atomic? Confirm the effect of opening an existing
+  file in `Write` mode on its contents.
 - Confirm text and path encoding and the public cause names for existing
   destinations, invalid paths, invalid file text and other host errors. Should
   failure values include the path or a platform error detail?
