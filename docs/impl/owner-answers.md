@@ -242,3 +242,8 @@ Q5 interfaces as types: any interface can be used as `&I` (its `static` methods 
 # Script state follow-ups, 2026-11-13
 - Writes to script-wide variables require `mut`.
 - Initialize all top-level declarations before the first top-level statement.
+
+# Filesystem and OS modules
+- Report filesystem failures by cause using separate failure types, such as `FileMissing` and `AccessDenied`.
+- Start `os` with platform, current directory and environment lookup. Process commands remain separate.
+- `fs::write` replaces an existing file. `fs::create` fails if the file already exists.
