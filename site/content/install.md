@@ -52,6 +52,19 @@ target/release/drachm run hello.drh -O
 target/release/drachm build hello.drh -O -o hello
 ```
 
+## Start a project
+
+For more than one file, make a project folder. `drachm new` writes
+`drachm.toml`, a `src/main.drh` with a greeting and an empty `tests/` folder:
+
+```sh
+target/release/drachm new mygame
+target/release/drachm run mygame
+```
+
+`run` and `check` also take the folder itself, or nothing at all from inside
+it. The [project settings](design-config.md) say what else `drachm.toml` holds.
+
 ## Check without building
 
 `check` prints errors and warnings and creates no program. The lessons use it to

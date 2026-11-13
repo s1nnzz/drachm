@@ -5,13 +5,15 @@ description: build, run, check and explain, the -O flag, and exit codes.
 
 # Command line
 
-The compiler has four commands. `-O` works with `build` and `run`, and nothing
+The compiler has five commands: `new` makes a project, and the others work on a
+file or project folder. `-O` works with `build` and `run`, and nothing
 else takes a flag.
 
 ```text
 drachm build [file.drh | folder] [-o <output>] [-O]   compile to a native executable
 drachm run   [file.drh | folder] [-O]                 compile and run
 drachm check [file.drh | folder]                      check for errors only
+drachm new <name>                            make a project folder
 drachm explain <code>                        describe an error code, e.g. E0101
 
   -O   optimised build: slower to compile, much faster to run
@@ -40,6 +42,18 @@ the lessons do, because it is the fastest way to see whether a change compiles.
 
 ```sh
 drachm check hello.drh
+```
+
+## new
+
+`new` makes a project folder in the current folder: `drachm.toml`, `src/main.drh`
+with a greeting, and an empty `tests/` folder. The name must be a plain name
+(letters, digits and `_`, not starting with a digit), and the folder must not
+exist yet. Then `drachm run NAME` runs it.
+
+```sh
+drachm new mygame
+drachm run mygame
 ```
 
 ## explain

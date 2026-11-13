@@ -13,6 +13,7 @@ usage:
   drachm build [file.drh | folder] [-o <output>] [-O]   compile to a native executable
   drachm run   [file.drh | folder] [-O]                 compile and run
   drachm check [file.drh | folder] [--dump-mir | --dump-borrowck]  check for errors only (the dumps print the MIR or the borrow checker state)
+  drachm new <name>                            make a project folder with drachm.toml and src/main.drh
   drachm explain <code>                        describe an error code, e.g. E0101
 
 A file or a project folder (one with drachm.toml) is given; the default is the
@@ -23,6 +24,7 @@ current folder.
 /// One parsed command line.
 enum Command {
     Explain(String),
+    New(String),
     Check { input: PathBuf, dump_mir: bool, dump_borrowck: bool },
     Build { input: PathBuf, out: Option<PathBuf>, opt: bool },
     Run { input: PathBuf, opt: bool },
@@ -31,6 +33,13 @@ enum Command {
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match parse(&args) {
+        Command::New(name) => {
+            let parent = Path::new(".");
+            match drachm::config::new_project(parent, &name) {
+                Ok(dir) => println!("made {} with drachm.toml, src/main.drh and tests/; run it with `drachm run {}`", dir.display(), name),
+                Err(f) => die(f.render(color()).trim_end()),
+            }
+        }
         Command::Explain(id) => match diag::codes::lookup(&id) {
             Some(c) => println!("{}: {}\n\n{}", c.id, c.title, c.explain),
             None => die(&format!("there is no code `{id}`")),
@@ -87,6 +96,10 @@ fn main() {
 /// Reads the arguments. Each flag is accepted only by the commands it is for.
 fn parse(args: &[String]) -> Command {
     let Some(cmd) = args.first() else { die(USAGE) };
+    if cmd == "new" {
+        let [_, name] = args else { die("new needs one name, e.g. `drachm new mygame`") };
+        return Command::New(name.clone());
+    }
     if cmd == "explain" {
         let Some(id) = args.get(1) else { die("explain needs a code, e.g. `drachm explain E0101`") };
         return Command::Explain(id.clone());

@@ -765,6 +765,42 @@ pub fn check_target(config: &Config) -> Result<(), Failure> {
     Err(Failure::plain(d))
 }
 
+/// Whether `s` is a plain name (letters, digits and `_`, not starting with a
+/// digit): a project's name, a dependency's name.
+pub fn valid_name(s: &str) -> bool {
+    is_identifier(s)
+}
+
+/// The `drachm.toml` that `drachm new` writes. The commented lines show the
+/// defaults and the forms that are available.
+const NEW_PROJECT_TOML: &str = "[project]\nname = \"NAME\"\nversion = \"0.1.0\"\n# kind = \"program\"          # or \"library\": code other projects use\n# entry = \"src/main.drh\"    # where the program starts\n\n[dependencies]\n# sdl = { git = \"https://example.org/sdl.git\", tag = \"v0.4\" }\n# utils = { path = \"../utils\" }\n";
+
+/// The `src/main.drh` that `drachm new` writes.
+const NEW_PROJECT_MAIN: &str = "// The program starts here.\nin io;\n\nnone main() {\n    io::outln(\"Hello, world!\");\n}\n";
+
+/// `drachm new NAME`: makes the folder `parent/NAME` with a `drachm.toml`, a
+/// `src/main.drh` that prints a greeting, and an empty `tests/` folder. Returns
+/// the folder. The name must be a plain name and the folder must not exist.
+pub fn new_project(parent: &Path, name: &str) -> Result<PathBuf, Failure> {
+    if !valid_name(name) {
+        let d = Diagnostic::new(&codes::E0805, format!("`{name}` is not a valid project name"))
+            .note_line("a name is letters, digits and `_`, starting with a letter or `_`")
+            .help("the name starts paths like `in mygame.game.physics;`");
+        return Err(Failure::plain(d));
+    }
+    let dir = parent.join(name);
+    if dir.exists() {
+        let d = Diagnostic::new(&codes::E0813, format!("`{}` already exists", dir.display())).help("choose another name, or remove the folder first");
+        return Err(Failure::plain(d));
+    }
+    let cannot = |e: std::io::Error| Failure::plain(Diagnostic::new(&codes::E0813, format!("cannot make `{}`", dir.display())).note_line(e.to_string()));
+    std::fs::create_dir_all(dir.join("src")).map_err(cannot)?;
+    std::fs::create_dir_all(dir.join("tests")).map_err(cannot)?;
+    std::fs::write(dir.join(PROJECT_FILE), NEW_PROJECT_TOML.replace("NAME", name)).map_err(cannot)?;
+    std::fs::write(dir.join(DEFAULT_ENTRY), NEW_PROJECT_MAIN).map_err(cannot)?;
+    Ok(dir)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

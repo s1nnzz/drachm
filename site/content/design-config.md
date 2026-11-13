@@ -11,7 +11,6 @@ built; the other sections are the design, and each one is marked until it
 builds.
 
 ## A new project
-<!-- status: not-implemented -->
 
 `drachm new mygame` makes `drachm.toml`, `src/main.drh` and a `tests/` folder.
 
