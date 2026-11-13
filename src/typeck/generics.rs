@@ -150,7 +150,7 @@ fn func_head(f: &ast::Func) -> ast::Func {
 }
 
 /// E0605 and E0901 for a type parameter list; false if the template cannot be used.
-fn check_tparams(g: &Globals, tparams: &[ast::TypeParam], diags: &mut Vec<Diagnostic>) -> bool {
+pub(super) fn check_tparams(g: &Globals, tparams: &[ast::TypeParam], diags: &mut Vec<Diagnostic>) -> bool {
     let mut usable = true;
     let mut seen: Vec<(&str, Span)> = Vec::new();
     for p in tparams {
@@ -845,6 +845,18 @@ pub(super) fn missing_instance(g: &Globals, t: &ast::TypeName, diags: &mut Vec<D
     diags.push(Diagnostic::at(&codes::E0901, t.span, format!("`{}` cannot be made here yet", t.name)));
 }
 
+/// Prepare a type written outside the ordinary parsed type scopes.
+pub(super) fn prepare_type(g: &mut Globals, t: &ast::TypeName, diags: &mut Vec<Diagnostic>) {
+    for arg in &t.args {
+        prepare_type(g, arg, diags);
+    }
+    ensure_type(g, t, diags);
+    if t.optional.is_some() {
+        let inner = ast::TypeName { optional: None, mods: Vec::new(), ..t.clone() };
+        optionals::declare_optionals(g, &[inner]);
+    }
+}
+
 /// Makes the instance a type written with arguments names, and the ones
 /// inside its arguments.
 fn ensure_type(g: &mut Globals, t: &ast::TypeName, diags: &mut Vec<Diagnostic>) {
@@ -937,10 +949,10 @@ pub(super) fn instantiate_type(g: &mut Globals, name: &str, types: Vec<Type>, at
             super::declare_fields(g, id, s, &mut local);
             check_one_struct_lives(g, id, s, &mut local);
             let ids = declare_methods(g, id, s, &mut local);
+            interfaces::on_instance(g, ty, &s.with, &display, at, &mut local);
             g.mono.type_depth -= 1;
             g.tenv = saved;
             g.mono.scope = saved_scope;
-            interfaces::on_instance(g, ty, &s.with, &display, at, &mut local);
             for (j, mid) in ids.into_iter().enumerate() {
                 let Some(mid) = mid else { continue };
                 let m = &s.methods[j];
@@ -1059,6 +1071,7 @@ struct Mark {
     enums: usize,
     wrappers: usize,
     records: usize,
+    interfaces: usize,
     pending: VecDeque<Pending>,
     counts: Vec<(String, usize)>,
     type_counts: Vec<(String, usize)>,
@@ -1071,6 +1084,7 @@ fn mark(g: &mut Globals) -> Mark {
         enums: g.enums.len(),
         wrappers: g.fail.drop_wrappers.len(),
         records: g.ifaces.records.len(),
+        interfaces: g.ifaces.list.len(),
         pending: std::mem::take(&mut g.mono.pending),
         counts: g.mono.templates.iter().map(|(n, t)| (n.clone(), t.instances)).collect(),
         type_counts: g.mono.type_templates.iter().map(|(n, t)| (n.clone(), t.instances)).collect(),
@@ -1093,7 +1107,9 @@ fn rollback(g: &mut Globals, m: Mark) {
     g.fail.outcomes.retain(|(t, list), v| !is_new(*t, ns, ne) && list.iter().all(|&e| e < ne) && !is_new(*v, ns, ne));
     g.fail.sets.retain(|list, v| list.iter().all(|&e| e < ne) && !is_new(*v, ns, ne));
     g.fail.drop_wrappers.truncate(m.wrappers);
-    g.ifaces.conforms.retain(|(t, _)| !is_new(*t, ns, ne));
+    g.ifaces.conforms.retain(|(t, k)| *k < m.interfaces && !is_new(*t, ns, ne));
+    g.ifaces.instances.retain(|_, id| *id < m.interfaces);
+    g.ifaces.list.truncate(m.interfaces);
     g.ifaces.records.truncate(m.records);
     g.ifaces.implementing.retain(|&f| f < nf);
     g.ifaces.changing.retain(|&f| f < nf);
@@ -1119,7 +1135,12 @@ fn rollback(g: &mut Globals, m: Mark) {
 
 fn mentions_name(d: &Diagnostic, name: &str) -> bool {
     let quoted = format!("`{name}`");
-    d.message.contains(&quoted) || d.labels.iter().any(|(_, t)| t.contains(&quoted))
+    let mentions = |text: &str| {
+        text.contains(&quoted) || text.split('`').skip(1).step_by(2).any(|part| {
+            part.contains('<') && part.split(|c: char| !(c.is_alphanumeric() || c == '_')).any(|word| word == name)
+        })
+    };
+    mentions(&d.message) || d.labels.iter().any(|(_, t)| mentions(t))
 }
 
 /// Checks each generic that has a constrained type parameter once, where it is
@@ -1154,6 +1175,12 @@ pub(super) fn definition_pass(g: &mut Globals, src: &str, prog: &ast::Program, d
         let loose: Vec<&str> = tparams.iter().filter(|tp| tp.bounds.is_empty()).map(|tp| tp.name.as_str()).collect();
         g.mono.defn = Some(name.clone());
         let mut local = Vec::new();
+        let env = tparams.iter().zip(&types).map(|(p, &ty)| (p.name.clone(), ty)).collect();
+        let saved = std::mem::replace(&mut g.tenv, env);
+        for (tp, &ty) in tparams.iter().zip(&types) {
+            interfaces::populate_placeholder(g, ty, tp, &mut local);
+        }
+        g.tenv = saved;
         if is_fn {
             make_fn_instance(g, &mut local, &name, types, at);
         } else {

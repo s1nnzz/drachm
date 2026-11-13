@@ -44,6 +44,8 @@ pub(super) struct IfaceInfo {
     pub name: String,
     pub name_span: Span,
     pub decl: Rc<ast::Interface>,
+    /// Type arguments of this instance, in declaration order.
+    args: Vec<Type>,
     /// One of `PRELUDE`: its spans are not in the file.
     pub builtin: bool,
     /// False after an error in its declaration.
@@ -66,7 +68,7 @@ pub(super) struct Flat {
 }
 
 enum Deferred {
-    Conform { ty: Type, with: Vec<ast::TypeName>, display: String, at: Span },
+    Conform { ty: Type, with: Vec<(usize, Span)>, display: String, at: Span },
     Bound { tname: String, tparams: Vec<ast::TypeParam>, types: Vec<Type>, at: Span, display: String },
 }
 
@@ -74,6 +76,7 @@ enum Deferred {
 pub(super) struct State {
     pub list: Vec<IfaceInfo>,
     pub by_name: HashMap<String, usize>,
+    pub instances: HashMap<(usize, Vec<Type>), usize>,
     /// The types that implement an interface (each with its ancestors).
     pub conforms: HashSet<(Type, usize)>,
     /// The struct methods whose `self` mode is compared with the interface.
@@ -112,7 +115,9 @@ pub(super) fn declare(g: &mut Globals, src: &str, user: &[ast::Interface], diags
             add(g, i, true, &mut Vec::new());
         }
     }
-    link(g, diags);
+    // Check the declaration graph before expanding any arguments. An inheritance
+    // cycle remains a cycle even if each edge changes the arguments.
+    link_declarations(g, diags);
 }
 
 fn add(g: &mut Globals, i: &ast::Interface, builtin: bool, diags: &mut Vec<Diagnostic>) {
@@ -136,22 +141,15 @@ fn add(g: &mut Globals, i: &ast::Interface, builtin: bool, diags: &mut Vec<Diagn
         diags.push(Diagnostic::at(&codes::E0202, i.name_span, format!("`{}` is defined twice", i.name)).note("defined again here").label(first, "first defined here"));
         return;
     }
-    let mut usable = true;
-    if let Some(tp) = i.tparams.first() {
-        diags.push(
-            Diagnostic::at(&codes::E0901, tp.span, "generic interfaces are not supported yet")
-                .help("write the interface for one type for now"),
-        );
-        usable = false;
-    }
     let k = g.ifaces.list.len();
     g.ifaces.by_name.insert(i.name.clone(), k);
     g.ifaces.list.push(IfaceInfo {
         name: i.name.clone(),
         name_span: i.name_span,
         decl: Rc::new(i.clone()),
+        args: Vec::new(),
         builtin,
-        usable,
+        usable: true,
         parents: Vec::new(),
         ancestors: Vec::new(),
         methods: Vec::new(),
@@ -160,7 +158,7 @@ fn add(g: &mut Globals, i: &ast::Interface, builtin: bool, diags: &mut Vec<Diagn
 }
 
 /// The text of a written type, ignoring where it is written: equal text, equal type.
-fn tkey(t: &ast::TypeName) -> String {
+fn tkey(t: &ast::TypeName, env: &HashMap<String, Type>) -> String {
     let mut s = String::new();
     for (m, _) in &t.mods {
         s.push_str(match m {
@@ -170,13 +168,17 @@ fn tkey(t: &ast::TypeName) -> String {
             ast::TypeMod::FixedPtr => "*fixed ",
         });
     }
-    s.push_str(&t.name);
+    if let Some(ty) = env.get(&t.name).filter(|_| t.args.is_empty()) {
+        s.push_str(&ty.to_string());
+    } else {
+        s.push_str(&t.name);
+    }
     if t.unit.is_some() {
         s.push_str("<unit>");
     }
     if !t.args.is_empty() {
         s.push('<');
-        s.push_str(&t.args.iter().map(tkey).collect::<Vec<_>>().join(","));
+        s.push_str(&t.args.iter().map(|a| tkey(a, env)).collect::<Vec<_>>().join(","));
         s.push('>');
     }
     for d in &t.dims {
@@ -191,48 +193,55 @@ fn tkey(t: &ast::TypeName) -> String {
     s
 }
 
-fn mkey(m: &ast::IMethod) -> String {
-    let params: Vec<String> = m.params.iter().map(|p| tkey(&p.ty)).collect();
-    format!("{}({}){}", m.is_static.is_some(), params.join(","), tkey(&m.ret))
+fn mkey(m: &ast::IMethod, env: &HashMap<String, Type>) -> String {
+    let params: Vec<String> = m.params.iter().map(|p| tkey(&p.ty, env)).collect();
+    format!("{}({}){}", m.is_static.is_some(), params.join(","), tkey(&m.ret, env))
 }
 
-/// Resolves each `extends`, rejects cycles, and flattens the members.
-fn link(g: &mut Globals, diags: &mut Vec<Diagnostic>) {
+/// Checks names, arity and cycles in the declaration graph.
+fn link_declarations(g: &mut Globals, diags: &mut Vec<Diagnostic>) {
     let n = g.ifaces.list.len();
     for i in 0..n {
         let decl = g.ifaces.list[i].decl.clone();
-        for e in &decl.extends {
-            if !e.args.is_empty() {
-                diags.push(Diagnostic::at(&codes::E0901, e.span, "generic interfaces are not supported yet"));
-                continue;
-            }
-            match g.ifaces.by_name.get(&e.name) {
-                Some(&p) => {
-                    if !g.ifaces.list[i].parents.contains(&p) {
-                        g.ifaces.list[i].parents.push(p)
-                    }
-                }
-                None => not_an_interface(g, e, diags),
+        for parent in &decl.extends {
+            if let Some(p) = interface_head(g, parent, diags) {
+                g.ifaces.list[i].parents.push(p);
+            } else {
+                g.ifaces.list[i].usable = false;
             }
         }
     }
-    // Cycles: walk from each interface; an edge back to one on the path closes a cycle.
-    let mut cut: Vec<(usize, usize)> = Vec::new();
     let mut done = vec![false; n];
     for start in 0..n {
-        let mut path = Vec::new();
-        find_cycles(g, start, &mut path, &mut done, &mut cut, diags);
+        find_cycles(g, start, &mut Vec::new(), &mut done, diags);
     }
-    for (a, b) in cut {
-        g.ifaces.list[a].parents.retain(|&p| p != b);
-    }
-    let mut flat = vec![false; n];
-    for i in 0..n {
-        flatten(g, i, &mut flat, diags);
+    for i in &mut g.ifaces.list {
+        i.parents.clear();
     }
 }
 
-fn find_cycles(g: &mut Globals, at: usize, path: &mut Vec<usize>, done: &mut [bool], cut: &mut Vec<(usize, usize)>, diags: &mut Vec<Diagnostic>) {
+fn link_instance(g: &mut Globals, id: usize, diags: &mut Vec<Diagnostic>) {
+    let decl = g.ifaces.list[id].decl.clone();
+    let env = member_env(g, id, None);
+    let saved = std::mem::replace(&mut g.tenv, env);
+    let mut parents = Vec::new();
+    for written in &decl.extends {
+        if let Some(parent) = lookup(g, written, diags) {
+            if !parents.contains(&parent) {
+                parents.push(parent);
+            }
+        } else {
+            g.ifaces.list[id].usable = false;
+        }
+    }
+    g.tenv = saved;
+    g.ifaces.list[id].parents = parents;
+    if g.ifaces.list[id].usable {
+        flatten(g, id, diags);
+    }
+}
+
+fn find_cycles(g: &mut Globals, at: usize, path: &mut Vec<usize>, done: &mut [bool], diags: &mut Vec<Diagnostic>) {
     if done[at] {
         return;
     }
@@ -254,27 +263,21 @@ fn find_cycles(g: &mut Globals, at: usize, path: &mut Vec<usize>, done: &mut [bo
                     .label(head.name_span, format!("`{}` is declared here", head.name))
                     .help("an interface can only extend ones that do not extend it back"),
             );
-            cut.push((at, p));
             for &k in &path[pos..] {
                 g.ifaces.list[k].usable = false;
             }
         } else if !done[p] {
-            find_cycles(g, p, path, done, cut, diags);
+            find_cycles(g, p, path, done, diags);
         }
     }
     path.pop();
     done[at] = true;
 }
 
-fn flatten(g: &mut Globals, i: usize, flat: &mut [bool], diags: &mut Vec<Diagnostic>) {
-    if flat[i] {
-        return;
-    }
-    flat[i] = true;
+fn flatten(g: &mut Globals, i: usize, diags: &mut Vec<Diagnostic>) {
     let parents = g.ifaces.list[i].parents.clone();
     let mut ancestors: Vec<usize> = Vec::new();
     for &p in &parents {
-        flatten(g, p, flat, diags);
         if !g.ifaces.list[p].usable {
             g.ifaces.list[i].usable = false;
         }
@@ -303,7 +306,7 @@ fn flatten(g: &mut Globals, i: usize, flat: &mut [bool], diags: &mut Vec<Diagnos
                                 .note("listed again here")
                                 .label(other.name_span, "first listed here"),
                         );
-                    } else if mkey(other) != mkey(m) {
+                    } else if mkey(other, &member_env(g, first.owner, None)) != mkey(m, &member_env(g, a, None)) {
                         diags.push(
                             Diagnostic::at(&codes::E0615, name_span, format!("`{name}` gets two different `{}` methods", m.name))
                                 .note("clashes here")
@@ -334,7 +337,7 @@ fn flatten(g: &mut Globals, i: usize, flat: &mut [bool], diags: &mut Vec<Diagnos
                                 .note("listed again here")
                                 .label(other.name_span, "first listed here"),
                         );
-                    } else if tkey(&other.ty) != tkey(&f.ty) {
+                    } else if tkey(&other.ty, &member_env(g, first.owner, None)) != tkey(&f.ty, &member_env(g, a, None)) {
                         diags.push(
                             Diagnostic::at(&codes::E0615, name_span, format!("`{name}` gets two different fields named `{}`", f.name))
                                 .note("clashes here")
@@ -368,59 +371,134 @@ fn not_an_interface(g: &Globals, t: &ast::TypeName, diags: &mut Vec<Diagnostic>)
     diags.push(d);
 }
 
-/// The interface a name after `with` or `bounds` names, if it is a usable one.
-pub(super) fn lookup(g: &Globals, t: &ast::TypeName, diags: &mut Vec<Diagnostic>) -> Option<usize> {
-    if !t.args.is_empty() {
-        diags.push(Diagnostic::at(&codes::E0901, t.span, "generic interfaces are not supported yet"));
+/// The declaration named in a promise, bound or parent list.
+fn interface_head(g: &Globals, t: &ast::TypeName, diags: &mut Vec<Diagnostic>) -> Option<usize> {
+    let Some(&id) = g.ifaces.by_name.get(&t.name) else {
+        not_an_interface(g, t, diags);
+        return None;
+    };
+    let expected = g.ifaces.list[id].decl.tparams.len();
+    if expected != t.args.len() {
+        let code = if t.args.is_empty() { &codes::E0604 } else { &codes::E0602 };
+        diags.push(Diagnostic::at(code, t.span, format!("`{}` takes {expected} type arguments, but {} given", t.name, t.args.len()))
+            .note("type arguments expected here"));
         return None;
     }
-    match g.ifaces.by_name.get(&t.name) {
-        Some(&k) if g.ifaces.list[k].usable => Some(k),
-        Some(_) => None,
-        None => {
-            not_an_interface(g, t, diags);
-            None
+    Some(id)
+}
+
+fn member_env(g: &Globals, id: usize, self_ty: Option<Type>) -> HashMap<String, Type> {
+    let iface = &g.ifaces.list[id];
+    let mut env: HashMap<_, _> = iface.decl.tparams.iter().zip(&iface.args).map(|(p, &ty)| (p.name.clone(), ty)).collect();
+    env.extend(self_ty.map(|ty| ("Self".to_string(), ty)));
+    env
+}
+
+pub(super) fn lookup(g: &mut Globals, t: &ast::TypeName, diags: &mut Vec<Diagnostic>) -> Option<usize> {
+    let head = interface_head(g, t, diags)?;
+    if !g.ifaces.list[head].usable {
+        return None;
+    }
+    if t.args.is_empty() {
+        if g.ifaces.list[head].ancestors.is_empty() {
+            link_instance(g, head, diags);
+        }
+        return g.ifaces.list[head].usable.then_some(head);
+    }
+    let mut args = Vec::with_capacity(t.args.len());
+    for arg in &t.args {
+        if arg.is_number {
+            diags.push(Diagnostic::at(&codes::E0901, arg.span, "a number as a type argument is not supported yet"));
+            return None;
+        }
+        generics::prepare_type(g, arg, diags);
+        let ty = g.resolve(arg, diags)?;
+        if ty.is_borrow() || g.holds_borrow(ty) {
+            diags.push(Diagnostic::at(&codes::E0901, arg.span, "a type argument cannot be a borrow yet"));
+            return None;
+        }
+        args.push(ty);
+    }
+    let key = (head, args.clone());
+    if let Some(&id) = g.ifaces.instances.get(&key) {
+        return g.ifaces.list[id].usable.then_some(id);
+    }
+    let template = &g.ifaces.list[head];
+    let name = format!("{}<{}>", template.name, args.iter().map(Type::to_string).collect::<Vec<_>>().join(", "));
+    let id = g.ifaces.list.len();
+    g.ifaces.list.push(IfaceInfo {
+        name,
+        name_span: template.name_span,
+        decl: template.decl.clone(),
+        args,
+        builtin: template.builtin,
+        usable: true,
+        parents: Vec::new(),
+        ancestors: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+    });
+    g.ifaces.instances.insert(key, id);
+    link_instance(g, id, diags);
+    g.ifaces.list[id].usable.then_some(id)
+}
+
+/// Validates declarations and prepares the members of ordinary interfaces.
+pub(super) fn validate(g: &mut Globals, diags: &mut Vec<Diagnostic>) {
+    let n = g.ifaces.list.len();
+    for i in 0..n {
+        let decl = g.ifaces.list[i].decl.clone();
+        if !generics::check_tparams(g, &decl.tparams, diags) {
+            g.ifaces.list[i].usable = false;
+        }
+    }
+    for i in 0..n {
+        if !g.ifaces.list[i].usable || !g.ifaces.list[i].decl.tparams.is_empty() {
+            continue;
+        }
+        if g.ifaces.list[i].ancestors.is_empty() {
+            link_instance(g, i, diags);
+        }
+        if !g.ifaces.list[i].builtin {
+            prepare_members(g, i, Type::Bool, diags);
         }
     }
 }
 
-/// Checks that the types in the interfaces' signatures exist (once per interface).
-pub(super) fn validate(g: &mut Globals, diags: &mut Vec<Diagnostic>) {
-    let n = g.ifaces.list.len();
-    for i in 0..n {
-        if g.ifaces.list[i].builtin {
-            continue;
+fn prepare_members(g: &mut Globals, id: usize, self_ty: Type, diags: &mut Vec<Diagnostic>) {
+    let decl = g.ifaces.list[id].decl.clone();
+    let env = member_env(g, id, Some(self_ty));
+    let saved = std::mem::replace(&mut g.tenv, env);
+    for m in &decl.methods {
+        for p in &m.params {
+            generics::prepare_type(g, &p.ty, diags);
+            g.resolve_binding_type(&p.ty, diags);
         }
-        let decl = g.ifaces.list[i].decl.clone();
-        let saved = std::mem::replace(&mut g.tenv, HashMap::from([("Self".to_string(), Type::Bool)]));
-        for m in &decl.methods {
-            for p in &m.params {
-                g.resolve_binding_type(&p.ty, diags);
-            }
-            if m.ret.name != "none" || !m.ret.mods.is_empty() {
-                g.resolve(&m.ret, diags);
-            }
-        }
-        for f in &decl.fields {
-            g.resolve_binding_type(&f.ty, diags);
-        }
-        g.tenv = saved;
+        generics::prepare_type(g, &m.ret, diags);
+        g.resolve(&m.ret, diags);
     }
+    for f in &decl.fields {
+        generics::prepare_type(g, &f.ty, diags);
+        g.resolve_binding_type(&f.ty, diags);
+    }
+    g.tenv = saved;
 }
 
 // ---- signatures and conformance ------------------------------------------
 
 /// An interface method's parameter and result types for implementing type `self_ty`.
-pub(super) fn sig_for(g: &mut Globals, m: &ast::IMethod, self_ty: Type) -> (Vec<Option<Type>>, Option<Type>) {
-    let saved = std::mem::replace(&mut g.tenv, HashMap::from([("Self".to_string(), self_ty)]));
+pub(super) fn sig_for(g: &mut Globals, owner: usize, m: &ast::IMethod, self_ty: Type) -> (Vec<Option<Type>>, Option<Type>) {
+    let env = member_env(g, owner, Some(self_ty));
+    let saved = std::mem::replace(&mut g.tenv, env);
     let params = m.params.iter().map(|p| g.resolve_quiet(&p.ty)).collect();
     let ret = g.resolve_quiet(&m.ret);
     g.tenv = saved;
     (params, ret)
 }
 
-pub(super) fn field_for(g: &mut Globals, f: &ast::IField, self_ty: Type) -> Option<Type> {
-    let saved = std::mem::replace(&mut g.tenv, HashMap::from([("Self".to_string(), self_ty)]));
+pub(super) fn field_for(g: &mut Globals, owner: usize, f: &ast::IField, self_ty: Type) -> Option<Type> {
+    let env = member_env(g, owner, Some(self_ty));
+    let saved = std::mem::replace(&mut g.tenv, env);
     let t = g.resolve_quiet(&f.ty);
     g.tenv = saved;
     t
@@ -438,13 +516,21 @@ fn promised(g: &Globals, owner: usize, what: &str) -> String {
 
 /// Checks that the methods and fields of `ty` (struct `sid`) are what the
 /// interfaces in `with` list, and records that it implements them.
-pub(super) fn check_conformance(g: &mut Globals, ty: Type, with: &[ast::TypeName], diags: &mut Vec<Diagnostic>) {
+fn resolve_interfaces(g: &mut Globals, with: &[ast::TypeName], diags: &mut Vec<Diagnostic>) -> Vec<(usize, Span)> {
+    with.iter().filter_map(|w| lookup(g, w, diags).map(|k| (k, w.span))).collect()
+}
+
+fn check_conformance(g: &mut Globals, ty: Type, with: &[(usize, Span)], diags: &mut Vec<Diagnostic>) {
     let sname = ty.to_string();
-    for w in with {
-        let Some(k) = lookup(g, w, diags) else { continue };
+    for &(k, at) in with {
+        for owner in g.ifaces.list[k].ancestors.clone() {
+            if !g.ifaces.list[owner].args.is_empty() {
+                prepare_members(g, owner, ty, diags);
+            }
+        }
         if g.ifaces.list[k].builtin && builtin_has(ty, &g.ifaces.list[k].name) {
             diags.push(
-                Diagnostic::at(&codes::E0202, w.span, format!("`{sname}` already implements `{}`", g.ifaces.list[k].name))
+                Diagnostic::at(&codes::E0202, at, format!("`{sname}` already implements `{}`", g.ifaces.list[k].name))
                     .note("it is built in for this type")
                     .help("leave this one out"),
             );
@@ -457,7 +543,7 @@ pub(super) fn check_conformance(g: &mut Globals, ty: Type, with: &[ast::TypeName
             let decl = g.ifaces.list[fm.owner].decl.clone();
             let m = &decl.methods[fm.idx];
             let builtin = g.ifaces.list[fm.owner].builtin;
-            let owner_name = decl.name.clone();
+            let owner_name = g.ifaces.list[fm.owner].name.clone();
             let secondary = |d: Diagnostic, what: String| if builtin { d } else { d.label(m.span, what) };
             let found = methods_of(g, ty).into_iter().find(|x| x.name == m.name);
             let Some(found) = found else {
@@ -466,14 +552,14 @@ pub(super) fn check_conformance(g: &mut Globals, ty: Type, with: &[ast::TypeName
                     continue;
                 }
                 let sig = if m.is_static.is_some() { "a `static` method" } else { "a method" };
-                let d = Diagnostic::at(&codes::E0610, w.span, format!("`{sname}` says `with {iname}`, but has no method `{}`", m.name)).note(format!("`{iname}` needs {sig} `{}`", m.name));
+                let d = Diagnostic::at(&codes::E0610, at, format!("`{sname}` says `with {iname}`, but has no method `{}`", m.name)).note(format!("`{iname}` needs {sig} `{}`", m.name));
                 let d = secondary(d, promised(g, fm.owner, &format!("`{}`", m.name)));
                 diags.push(d.help(format!("add `{}` to `{sname}`", signature_help(g, m, &sname))));
                 continue;
             };
             g.ifaces.implementing.insert(found.func);
             if !found.public {
-                let d = Diagnostic::at(&codes::E0610, w.span, format!("`{sname}` says `with {iname}`, but `{}` is private", m.name)).note("an interface's methods are public");
+                let d = Diagnostic::at(&codes::E0610, at, format!("`{sname}` says `with {iname}`, but `{}` is private", m.name)).note("an interface's methods are public");
                 let d = secondary(d, promised(g, fm.owner, &format!("`{}`", m.name))).label(g.sigs[found.func].span, "declared in a private section");
                 diags.push(d.help(format!("move `{}` above the `private:` label, or under `public:`", m.name)));
                 continue;
@@ -485,7 +571,7 @@ pub(super) fn check_conformance(g: &mut Globals, ty: Type, with: &[ast::TypeName
                 diags.push(secondary(d, format!("{wants} here")).help(if found.is_static { "remove `static`".to_string() } else { "add `static`: it is called on the type, like `Type::name()`".to_string() }));
                 continue;
             }
-            let (ips, iret) = sig_for(g, m, ty);
+            let (ips, iret) = sig_for(g, fm.owner, m, ty);
             let (sps, sret) = {
                 let s = &g.sigs[found.func];
                 (s.params.clone(), s.ret)
@@ -521,14 +607,14 @@ pub(super) fn check_conformance(g: &mut Globals, ty: Type, with: &[ast::TypeName
             let decl = g.ifaces.list[ff.owner].decl.clone();
             let f = &decl.fields[ff.idx];
             let builtin = g.ifaces.list[ff.owner].builtin;
-            let want = field_for(g, f, ty);
+            let want = field_for(g, ff.owner, f, ty);
             let want_text = want.map_or_else(|| f.ty.name.clone(), |t| t.to_string());
             let have = ty.struct_id().and_then(|sid| g.structs[sid].fields.iter().find(|x| x.name == f.name).map(|x| (x.ty, x.public, x.span)));
-            let owner_name = decl.name.clone();
+            let owner_name = g.ifaces.list[ff.owner].name.clone();
             let secondary = |d: Diagnostic, what: String| if builtin { d } else { d.label(f.name_span, what) };
             match have {
                 None => {
-                    let d = Diagnostic::at(&codes::E0614, w.span, format!("`{sname}` says `with {iname}`, but has no field `{}` of type `{want_text}`", f.name)).note(format!("`{iname}` needs `{}`", f.name));
+                    let d = Diagnostic::at(&codes::E0614, at, format!("`{sname}` says `with {iname}`, but has no field `{}` of type `{want_text}`", f.name)).note(format!("`{iname}` needs `{}`", f.name));
                     diags.push(secondary(d, format!("`{owner_name}` requires `{}` here", f.name)).help(format!("add `public {want_text} {};` to `{sname}`", f.name)));
                 }
                 Some((fty, public, fspan)) => {
@@ -564,7 +650,7 @@ fn signature_help(g: &mut Globals, m: &ast::IMethod, sname: &str) -> String {
 }
 
 fn written(t: &ast::TypeName, sname: &str) -> String {
-    let k = tkey(t);
+    let k = tkey(t, &HashMap::new());
     if t.name == "Self" { k.replace("Self", sname) } else { k }
 }
 
@@ -578,12 +664,14 @@ pub(super) fn finish(g: &mut Globals, prog: &ast::Program, struct_ids: &[Option<
             && !s.with.is_empty()
         {
             let ty = g.structs[id].ty;
-            check_conformance(g, ty, &s.with, diags);
+            let with = resolve_interfaces(g, &s.with, diags);
+            check_conformance(g, ty, &with, diags);
         }
     }
     for (decl, target) in prog.impls.iter().zip(impls) {
         if let Some(t) = target {
-            check_conformance(g, t.ty, &decl.with, diags);
+            let with = resolve_interfaces(g, &decl.with, diags);
+            check_conformance(g, t.ty, &with, diags);
         }
     }
     g.ifaces.ready = true;
@@ -612,10 +700,11 @@ pub(super) fn on_instance(g: &mut Globals, ty: Type, with: &[ast::TypeName], dis
     if with.is_empty() {
         return;
     }
+    let with = resolve_interfaces(g, with, diags);
     if g.ifaces.ready {
-        check_conformance(g, ty, with, diags);
+        check_conformance(g, ty, &with, diags);
     } else {
-        g.ifaces.deferred.push(Deferred::Conform { ty, with: with.to_vec(), display: display.to_string(), at });
+        g.ifaces.deferred.push(Deferred::Conform { ty, with, display: display.to_string(), at });
     }
 }
 
@@ -640,16 +729,18 @@ fn builtin_has(ty: Type, interface: &str) -> bool {
 }
 
 /// The bounds a type parameter lists, as interface indexes with their spans.
-pub(super) fn bounds_of(g: &Globals, tp: &ast::TypeParam) -> Vec<(usize, Span)> {
-    tp.bounds.iter().filter_map(|b| g.ifaces.by_name.get(&b.name).map(|&k| (k, b.span))).collect()
-}
+
 
 /// E0607 for each type argument that lacks an interface its parameter asks for.
 /// Returns false if there was one.
-pub(super) fn check_bounds(g: &Globals, tname: &str, tparams: &[ast::TypeParam], types: &[Type], at: Span, diags: &mut Vec<Diagnostic>) -> bool {
+pub(super) fn check_bounds(g: &mut Globals, tname: &str, tparams: &[ast::TypeParam], types: &[Type], at: Span, diags: &mut Vec<Diagnostic>) -> bool {
+    let env = tparams.iter().zip(types).map(|(p, &ty)| (p.name.clone(), ty)).collect();
+    let saved = std::mem::replace(&mut g.tenv, env);
     let mut ok = true;
     for (tp, &ty) in tparams.iter().zip(types) {
-        for (k, bspan) in bounds_of(g, tp) {
+        let bounds = resolve_interfaces(g, &tp.bounds, diags);
+        ok &= bounds.len() == tp.bounds.len();
+        for (k, bspan) in bounds {
             if conforms(g, ty, k) {
                 continue;
             }
@@ -686,6 +777,7 @@ pub(super) fn check_bounds(g: &Globals, tname: &str, tparams: &[ast::TypeParam],
             );
         }
     }
+    g.tenv = saved;
     ok
 }
 
@@ -717,7 +809,7 @@ pub(super) fn check_param_bounds(g: &Globals, tparams: &[ast::TypeParam], diags:
             if !b.mods.is_empty() || !b.dims.is_empty() || b.optional.is_some() || b.unit.is_some() {
                 diags.push(Diagnostic::at(&codes::E0003, b.span, "a constraint is the name of an interface").help("write `T with Shape`"));
                 ok = false;
-            } else if lookup(g, b, diags).is_none() {
+            } else if interface_head(g, b, diags).is_none() {
                 ok = false;
             }
         }
@@ -740,6 +832,12 @@ pub(super) fn as_value_type(g: &Globals, t: &ast::TypeName, diags: &mut Vec<Diag
     let name = &g.ifaces.list[k].name;
     let borrowed = matches!(t.mods.first(), Some((ast::TypeMod::Ref { .. }, _)));
     if borrowed && t.mods.len() == 1 && t.dims.is_empty() && t.optional.is_none() && t.unit.is_none() {
+        if !g.ifaces.list[k].decl.tparams.is_empty() || !t.args.is_empty() {
+            if interface_head(g, t, diags).is_some() {
+                diags.push(Diagnostic::at(&codes::E0901, t.span, "borrowing a generic interface is not supported yet"));
+            }
+            return true;
+        }
         // `&Shape`: a borrow of an interface (`dynamic.rs`), unless its declaration was wrong.
         return !g.ifaces.list[k].usable;
     }
@@ -809,7 +907,6 @@ pub(super) struct Placeholder {
 /// A struct that has only what the constraints of `tp` promise: its required
 /// fields, its methods (as signatures), and the interfaces themselves.
 pub(super) fn placeholder(g: &mut Globals, tp: &ast::TypeParam) -> Type {
-    let bounds = bounds_of(g, tp);
     let id = g.structs.len();
     let ty = Type::Struct { id, name: crate::types::intern(&tp.name) };
     g.structs.push(StructInfo {
@@ -826,9 +923,21 @@ pub(super) fn placeholder(g: &mut Globals, tp: &ast::TypeParam) -> Type {
         auto_ctor: false,
         default_def: None,
         declared_lives: false,
-        placeholder: Some(Placeholder { constrained: !bounds.is_empty(), bounds: bounds.clone() }),
+        placeholder: Some(Placeholder { constrained: !tp.bounds.is_empty(), bounds: Vec::new() }),
     });
-    for &(k, _) in &bounds {
+    ty
+}
+
+pub(super) fn populate_placeholder(g: &mut Globals, ty: Type, tp: &ast::TypeParam, diags: &mut Vec<Diagnostic>) {
+    let id = ty.struct_id().expect("placeholder struct");
+    let bounds = resolve_interfaces(g, &tp.bounds, diags);
+    g.structs[id].placeholder.as_mut().unwrap().bounds = bounds.clone();
+    for (k, _) in bounds {
+        for owner in g.ifaces.list[k].ancestors.clone() {
+            if !g.ifaces.list[owner].args.is_empty() {
+                prepare_members(g, owner, ty, diags);
+            }
+        }
         let methods = g.ifaces.list[k].methods.clone();
         let fields = g.ifaces.list[k].fields.clone();
         for fm in methods {
@@ -837,7 +946,7 @@ pub(super) fn placeholder(g: &mut Globals, tp: &ast::TypeParam) -> Type {
             if g.structs[id].methods.iter().any(|x| x.name == m.name) {
                 continue;
             }
-            let (params, ret) = sig_for(g, m, ty);
+            let (params, ret) = sig_for(g, fm.owner, m, ty);
             let func = g.add_sig(Sig { name: format!("{}::{}", tp.name, m.name), params, ret, span: m.span, fails: Vec::new(), outcome: None });
             if fm.changes {
                 g.ifaces.changing.insert(func);
@@ -850,7 +959,7 @@ pub(super) fn placeholder(g: &mut Globals, tp: &ast::TypeParam) -> Type {
             if g.structs[id].fields.iter().any(|x| x.name == f.name) {
                 continue;
             }
-            let fty = field_for(g, f, ty);
+            let fty = field_for(g, ff.owner, f, ty);
             g.structs[id].fields.push(FieldInfo { name: f.name.clone(), ty: fty, mutable: true, public: true, span: f.name_span });
         }
         let ancestors = g.ifaces.list[k].ancestors.clone();
@@ -858,7 +967,6 @@ pub(super) fn placeholder(g: &mut Globals, tp: &ast::TypeParam) -> Type {
             g.ifaces.conforms.insert((ty, a));
         }
     }
-    ty
 }
 
 impl Checker<'_> {
@@ -869,7 +977,7 @@ impl Checker<'_> {
         let Some(p) = info.placeholder.as_ref().filter(|p| p.constrained) else { return false };
         let name = info.name.clone();
         let names: Vec<String> = p.bounds.iter().map(|(k, _)| format!("`{}`", self.g.ifaces.list[*k].name)).collect();
-        let first = p.bounds[0].1;
+        let first = p.bounds.first().map_or(at, |b| b.1);
         let all = names.join(" and ");
         let (message, help) = if what.ends_with("operator") {
             let sym = what.trim_end_matches(" operator").trim_matches('`');

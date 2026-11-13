@@ -37,7 +37,7 @@ pub(super) fn dyn_borrow(g: &Globals, t: &ast::TypeName) -> Option<Type> {
         return None;
     }
     let &k = g.ifaces.by_name.get(&t.name)?;
-    g.ifaces.list[k].usable.then(|| Type::borrow(mutable, dyn_of(g, k)))
+    (g.ifaces.list[k].usable && g.ifaces.list[k].decl.tparams.is_empty()).then(|| Type::borrow(mutable, dyn_of(g, k)))
 }
 
 /// `Type::Dyn` for interface `k`.
@@ -87,7 +87,7 @@ pub(super) fn finish(g: &mut Globals, structs: &[hir::StructDef]) -> (Vec<hir::D
         let mut methods = Vec::new();
         for (fm, decl) in dyn_methods(g, k) {
             let m = &decl.methods[fm.idx];
-            let (params, ret) = sig_for(g, m, Type::Bool);
+            let (params, ret) = sig_for(g, fm.owner, m, Type::Bool);
             let ok = callable_shape(m) && params.iter().all(Option::is_some) && ret.is_some_and(|r| !g.holds_borrow(r));
             methods.push(hir::DynMethod {
                 name: m.name.clone(),
@@ -100,7 +100,7 @@ pub(super) fn finish(g: &mut Globals, structs: &[hir::StructDef]) -> (Vec<hir::D
         let mut fields = Vec::new();
         for ff in g.ifaces.list[k].fields.clone() {
             let f = g.ifaces.list[ff.owner].decl.fields[ff.idx].clone();
-            fields.push(hir::DynField { name: f.name.clone(), ty: field_for(g, &f, Type::Bool).unwrap_or(Type::Bool) });
+            fields.push(hir::DynField { name: f.name.clone(), ty: field_for(g, ff.owner, &f, Type::Bool).unwrap_or(Type::Bool) });
         }
         let ancestors = g.ifaces.list[k].ancestors.iter().copied().filter(|&a| a != k).collect();
         ifaces.push(hir::DynIface { name: g.ifaces.list[k].name.clone(), ancestors, methods, fields });
@@ -260,7 +260,7 @@ impl Checker<'_> {
             );
             return None;
         }
-        let (params, ret) = sig_for(self.g, m, Type::Bool);
+        let (params, ret) = sig_for(self.g, fm.owner, m, Type::Bool);
         let (Some(ret), true) = (ret, params.iter().all(Option::is_some)) else {
             for a in args {
                 self.expr(a);
@@ -328,7 +328,7 @@ impl Checker<'_> {
         };
         let ff = fields[i];
         let f = self.g.ifaces.list[ff.owner].decl.fields[ff.idx].clone();
-        let ty = field_for(self.g, &f, Type::Bool)?;
+        let ty = field_for(self.g, ff.owner, &f, Type::Bool)?;
         Some((i, ty))
     }
 
