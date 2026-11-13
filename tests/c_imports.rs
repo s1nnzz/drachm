@@ -262,3 +262,29 @@ fn the_unsafe_key_must_be_true_or_false() {
     let err = text(&check.stderr);
     assert!(err.contains("E0802") && err.contains("`unsafe` must be `true` or `false`"), "{err}");
 }
+
+#[test]
+fn foreign_pointers_copy_and_a_handover_takes_as() {
+    // A `foreign` pointer copies like a number: both names read the same text.
+    let s = Scratch::new("copy");
+    s.put("drachm.toml", &format!("[project]\nname = \"copy\"\n\n[native]\ninclude = [\"{}\"]\nsources = [\"{}/drachm_fixture.c\"]\n", fixture_dir(), fixture_dir()));
+    s.put(
+        "src/main.drh",
+        "//--!$unsafe: true\nin io;\nin * from c.\"drachm_fixture.h\" as fx;\n\nnone main() {\n    unsafe {\n        foreign *uint8 p = fx::fx_greeting();\n        foreign *uint8 q = p;\n        string? a = p::text() maybe none;\n        string? b = q::text() maybe none;\n        io::outln(a maybe \"?\");\n        io::outln(b maybe \"?\");\n    }\n}\n",
+    );
+    let run = drachm(&s.dir, &["run", "."]);
+    assert!(run.status.success(), "{}", text(&run.stderr));
+    assert_eq!(text(&run.stdout), "hello from C\nhello from C\n");
+
+    // A pointer is not a number: `as` takes a C pointer type only.
+    let s = Scratch::new("handover");
+    s.put("drachm.toml", &format!("[project]\nname = \"handover\"\n\n[native]\ninclude = [\"{}\"]\nsources = [\"{}/drachm_fixture.c\"]\n", fixture_dir(), fixture_dir()));
+    s.put(
+        "src/main.drh",
+        "//--!$unsafe: true\nin io;\nin * from c.\"drachm_fixture.h\" as fx;\n\nnone main() {\n    unsafe {\n        foreign *uint8 p = fx::fx_greeting();\n        uint64 n = p as uint64;\n        io::outln(f\"${n}\");\n    }\n}\n",
+    );
+    let check = drachm(&s.dir, &["check", "."]);
+    assert!(!check.status.success());
+    let err = text(&check.stderr);
+    assert!(err.contains("E0335") && err.contains("`as` turns a pointer into a C pointer"), "{err}");
+}
