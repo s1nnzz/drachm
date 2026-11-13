@@ -176,6 +176,10 @@ fn dependency_public_modules_gate_dotted_and_file_imports() {
         let out = drachm(&s.dir, &["check"]);
         assert!(!out.status.success());
         assert!(text(&out.stderr).contains("E0236"), "{}", text(&out.stderr));
+    }
+}
+
+#[test]
 fn bounds_setting_is_applied_to_each_defining_file() {
     let s = Scratch::new("bounds");
     fs::create_dir(s.dir.join("src")).unwrap();
