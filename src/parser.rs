@@ -9,7 +9,7 @@ use crate::lexer::{StrPiece, Tok, Token};
 /// Never fails: syntax errors are reported to `diags` and the parser carries
 /// on at the next statement or function, so several can be found in one go.
 pub fn parse(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>) -> Program {
-    let mut p = Parser { tokens, pos: 0, diags, optionals: Vec::new(), generics: Vec::new() };
+    let mut p = Parser { tokens, pos: 0, diags, optionals: Vec::new(), generics: Vec::new(), chain_slips: Vec::new() };
     let mut program = Program {
         imports: Vec::new(),
         exports: Vec::new(),
@@ -25,6 +25,7 @@ pub fn parse(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>) -> Program {
         unsafe_allowed: false,
         optionals: Vec::new(),
         generics: Vec::new(),
+        chain_slips: Vec::new(),
     };
     while p.peek() != &Tok::Eof {
         let start = p.pos;
@@ -95,6 +96,7 @@ pub fn parse(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>) -> Program {
     }
     program.optionals = p.optionals;
     program.generics = p.generics;
+    program.chain_slips = p.chain_slips;
     program
 }
 
@@ -106,6 +108,8 @@ struct Parser<'a> {
     optionals: Vec<TypeName>,
     /// Every type with type arguments seen so far (`ast::Program::generics`).
     generics: Vec<TypeName>,
+    /// `::` after a first call on a name (see `ast::ChainSlip`).
+    chain_slips: Vec<ChainSlip>,
 }
 
 type Parsed<T> = Result<T, Diagnostic>;
@@ -2553,11 +2557,17 @@ impl Parser<'_> {
                 } else {
                     "after the first call, each further call in the chain uses `->`"
                 };
-                self.diags.push(
-                    Diagnostic::at(&codes::E0007, op_span, format!("expected `{want}` here, found `{sym}`"))
-                        .note(format!("write `{want}`"))
-                        .help(format!("{why}: `value::first()->second()`")),
-                );
+                let diag = Diagnostic::at(&codes::E0007, op_span, format!("expected `{want}` here, found `{sym}`"))
+                    .note(format!("write `{want}`"))
+                    .help(format!("{why}: `value::first()->second()`"));
+                // `physics::gravity(2.0)::text()` is fine when `physics` is a
+                // module: only the resolver knows which names are modules.
+                match &e.kind {
+                    ExprKind::Method { recv, .. } if calls == 1 && let ExprKind::Var(owner) = &recv.kind => {
+                        self.chain_slips.push(ChainSlip { owner: owner.clone(), owner_span: recv.span, diag });
+                    }
+                    _ => self.diags.push(diag),
+                }
             }
             calls += 1;
             // After `::` a reserved word cannot be anything but a name (`io::out`).
@@ -2738,7 +2748,7 @@ impl Parser<'_> {
             tokens.push(Token { tok, span: Span::new(span.start + from, span.start + i) });
         }
         tokens.push(Token { tok: Tok::Eof, span: Span::new(span.end, span.end) });
-        let mut inner = Parser { tokens, pos: 0, diags: &mut *self.diags, optionals: Vec::new(), generics: Vec::new() };
+        let mut inner = Parser { tokens, pos: 0, diags: &mut *self.diags, optionals: Vec::new(), generics: Vec::new(), chain_slips: Vec::new() };
         let spec = inner.unit_spec()?;
         if inner.peek() != &Tok::Eof {
             return Err(inner.unexpected("the end of the unit"));
@@ -2952,12 +2962,14 @@ impl Parser<'_> {
                 .note("empty")
                 .help("for example `${name}`; write `\\$` for a plain dollar sign"));
         }
-        let mut inner = Parser { tokens, pos: 0, diags: &mut *self.diags, optionals: Vec::new(), generics: Vec::new() };
+        let mut inner = Parser { tokens, pos: 0, diags: &mut *self.diags, optionals: Vec::new(), generics: Vec::new(), chain_slips: Vec::new() };
         let e = inner.expr()?;
         let found = std::mem::take(&mut inner.optionals);
         self.optionals.extend(found);
         let found = std::mem::take(&mut inner.generics);
         self.generics.extend(found);
+        let found = std::mem::take(&mut inner.chain_slips);
+        self.chain_slips.extend(found);
         if inner.peek() != &Tok::Sym("}") {
             return Err(inner.unexpected("`}` to end the `${`"));
         }
@@ -3645,6 +3657,15 @@ mod tests {
         assert!(d.is_empty(), "{src}: {:?}", errors(&d));
         assert_eq!(p.imports.len(), 1);
         p.imports.remove(0)
+    }
+
+    #[test]
+    fn second_call_operator_on_a_name_is_held_back() {
+        // `::` after the first call on a name is decided by the resolver, not here.
+        let (p, d) = parse_src("none main() { f(a::g()::h()); a::g()->h(); }");
+        assert!(d.is_empty(), "{:?}", errors(&d));
+        assert_eq!(p.chain_slips.len(), 1);
+        assert_eq!(p.chain_slips[0].owner, "a");
     }
 
     #[test]

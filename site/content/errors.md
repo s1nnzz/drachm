@@ -59,6 +59,9 @@ or `<<` with `>>`, need parentheses.
 
     x::to<uint8>()->text()
 
+A call through a module is not a value's first call, so either operator
+may follow it: `physics::gravity(2.0)::text()` and `physics::gravity(2.0)->text()`.
+
 ## E0008: invalid escape
 
 A string contains a `\` followed by something that is not an escape.

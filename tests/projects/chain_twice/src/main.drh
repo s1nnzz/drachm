@@ -1,0 +1,7 @@
+in io;
+in physics;
+
+none main() {
+    // After a module call, the first call uses `::` and each later one `->`.
+    io::outln(physics::gravity(2.0)::text()::text());
+}

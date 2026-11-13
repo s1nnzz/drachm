@@ -1,0 +1,8 @@
+in io;
+in physics;
+
+none main() {
+    // A local named like the module shadows it: this is a value, so its chain uses `->`.
+    float64 physics = 1.0;
+    io::outln(physics::text()::text());
+}

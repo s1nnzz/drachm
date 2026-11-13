@@ -30,6 +30,16 @@ on (re-exporting) is not supported yet.
 interface is visible, so are the `with` blocks written for it, and importing a
 struct brings the `def`s that fill it.
 
+## Chains after a module call
+
+A call through a module can be followed by either operator, because the module
+call is not the first call on a value: `physics::gravity(2.0)::text()` and
+`physics::gravity(2.0)->text()` are the same. A name that is a value, even one
+named like a module, keeps the rule: `::` for the first call, `->` for each
+call after it.
+
+<!-- example: modules-chain -->
+
 ## Paths
 
 A module is a file, and a path says where it is. Dots or words, the same thing:

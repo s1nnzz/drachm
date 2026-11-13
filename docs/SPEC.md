@@ -920,6 +920,9 @@ phys::Vector3 v = 1, 2, 3;
   then the first import; the warning is at the later import.
 - `X with I { }` blocks and `def`s follow the type.
 - Import cycles are allowed; cross-file mutual recursion is an error.
+- A call through a module may be followed by `::` or `->`: `physics::gravity(2.0)::text()`
+  and `physics::gravity(2.0)->text()` both work. Only there: the module call is not
+  a value's first call, and a name bound by a local declaration is a value.
 - Built (step 7 WP1, WP2): paths, loading, the graph, `out` lists and `out` on
   declarations (functions, structs, enums, interfaces, failures, units, named
   constants), names across files (item and module imports, `*`, aliases,

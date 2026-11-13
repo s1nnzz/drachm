@@ -108,8 +108,15 @@ pub fn resolve(graph: &mut ModuleGraph, diags: &mut Vec<Diagnostic>) -> Program 
     let mut func_module: HashMap<String, usize> = HashMap::new();
     for i in 0..n {
         let mut prog = std::mem::take(&mut graph.modules[i].program);
-        let mut w = Walker { cx: &cx, m: i, diags, locals: Vec::new(), tparams: Vec::new(), calls: Vec::new(), extra_generics: Vec::new(), edges: Vec::new() };
+        let mut w = Walker { cx: &cx, m: i, diags, locals: Vec::new(), tparams: Vec::new(), calls: Vec::new(), extra_generics: Vec::new(), edges: Vec::new(), module_spans: Vec::new() };
         w.program(&mut prog);
+        // A `::` after a call on a module is the chain's first call (`m::f()::g()`);
+        // on anything else it is the E0007 the parser held back.
+        for slip in std::mem::take(&mut prog.chain_slips) {
+            if !w.module_spans.contains(&slip.owner_span) {
+                w.diags.push(slip.diag);
+            }
+        }
         for f in &prog.funcs {
             func_module.insert(f.name.clone(), i);
         }
@@ -330,6 +337,9 @@ struct Walker<'a> {
     extra_generics: Vec<TypeName>,
     /// `(function, function it calls, where)` for every free function walked.
     edges: Vec<(String, String, Span)>,
+    /// The spans of names that are modules where they are used as a call's
+    /// receiver (`physics` in `physics::gravity(2.0)`).
+    module_spans: Vec<Span>,
 }
 
 impl Walker<'_> {
@@ -802,6 +812,7 @@ impl Walker<'_> {
                     _ => None,
                 };
                 if let Some(j) = module {
+                    self.module_spans.push(recv.span);
                     let (name_span, targs_taken, args_taken) = (*name_span, std::mem::take(targs), std::mem::take(args));
                     let Some(item) = self.member(j, name, name_span) else {
                         e.kind = ExprKind::NoneValue;
@@ -891,6 +902,13 @@ impl Walker<'_> {
                 if let ExprKind::Var(v) = &recv.kind
                     && v == "io"
                     && !self.locals.contains(v)
+                    && self.cx.io_imported[self.m]
+                {
+                    self.module_spans.push(recv.span);
+                }
+                if let ExprKind::Var(v) = &recv.kind
+                    && v == "io"
+                    && !self.locals.contains(v)
                     && !self.cx.io_imported[self.m]
                     && self.scope().get("io").is_none()
                 {
@@ -961,6 +979,18 @@ impl Walker<'_> {
                 self.expr(index);
             }
             ExprKind::OptionalTest { value, .. } => self.expr(value),
+        }
+    }
+}
+
+/// The chain slips (`ast::ChainSlip`) of a file, decided by its own `in`
+/// lines: a name one of them binds is a module, anything else is the E0007.
+/// Used for one-file programs and wherever the names are not resolved (a
+/// program with errors already); `resolve` decides exactly, with the scopes.
+pub fn chain_slips_by_imports(prog: &mut Program, diags: &mut Vec<Diagnostic>) {
+    for slip in std::mem::take(&mut prog.chain_slips) {
+        if !prog.imports.iter().any(|i| i.binding() == Some(slip.owner.as_str())) {
+            diags.push(slip.diag);
         }
     }
 }
