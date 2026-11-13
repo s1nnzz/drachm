@@ -75,7 +75,9 @@ two words; `a not same as b` is the opposite, as is `!(a same as b)`). Equal tex
 places, so `==` and `same as` can disagree. Lists, arrays and optionals that
 hold borrows compare item by item, in order, and with the same length for
 lists. On owned values it is E0633: borrow both sides with `&` to compare where
-they are. A struct that holds a borrow is E0901 for now.
+they are. A map of borrows, or a struct or enum that holds a borrow, has no
+single address, so `same as` on it is E0633 too: compare the borrows inside it
+one at a time. A borrow of an interface (`&Shape`) is E0901 for now.
 
 <!-- example: borrow-same-as -->
 

@@ -618,7 +618,10 @@ private:
 - Built (Q3 follow-ups): `a same as b` compares addresses of two borrows (and of lists,
   optionals of borrows, item by item in order); `!(a same as b)` negates it, and so does `a not same as b` (built). Owned
   values are E0633. `xs::containsRef(&p)` is true when a list of borrows holds a borrow
-  of exactly that place. Maps of borrows and structs holding borrows are E0901 for now.
+  of exactly that place. Maps of borrows and structs or enums holding borrows are E0633
+  (no single address; the borrows inside are compared one at a time). Address compare of
+  `&Shape` (a borrow of an interface) is E0901 for now: compare the data address (owner's
+  rule: two borrows are the same when they point at the same address).
 - Two-phase receivers: `s::append(s::len()::text())` is fine. Only borrows still
   alive when the receiver changes are errors: `xs::push(xs::first())`.
 - Borrowing a temporary in a declaration keeps the temporary alive to the end of

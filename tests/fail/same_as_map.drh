@@ -1,0 +1,9 @@
+in io;
+
+none main() {
+    string ann = "ann";
+    mut Map<string, &string> names = {};
+    names["a"] = &ann;
+    Map<string, &string> other = {};
+    io::outln(f"${names same as other}");
+}

@@ -30,6 +30,9 @@ pub(super) enum AddrFunc {
 pub(super) enum Refusal {
     /// No borrow inside: the value is owned, so it has no address to compare.
     Owned,
+    /// A map, or a struct or enum, that holds borrows: it has no single address
+    /// (the borrows inside are compared one at a time). Names what it is.
+    Holds(String),
     /// Holds borrows in a form that is not built yet.
     Later(&'static str),
 }
@@ -57,9 +60,9 @@ pub(super) fn refusal(g: &Globals, ty: Type) -> Option<Refusal> {
         Type::Ref { to: Type::Dyn { .. }, .. } => Some(Refusal::Later("a borrow of an interface")),
         Type::Ref { .. } => None,
         Type::List { elem } | Type::Array { elem, .. } => refusal(g, *elem),
-        Type::Map { .. } if holds_borrow(g, ty, 0) => Some(Refusal::Later("a map of borrows")),
+        Type::Map { .. } if holds_borrow(g, ty, 0) => Some(Refusal::Holds("a map of borrows".to_string())),
         Type::Struct { .. } | Type::Enum { .. } if holds_borrow(g, ty, 0) && optionals::inner_of(g, ty).is_none() => {
-            Some(Refusal::Later("a struct or enum that holds a borrow"))
+            Some(Refusal::Holds(format!("`{ty}`")))
         }
         _ => match optionals::inner_of(g, ty) {
             Some(inner) => refusal(g, inner),
@@ -251,6 +254,18 @@ impl Checker<'_> {
                 self.diags.push(
                     Diagnostic::at(&codes::E0633, span, format!("{shown} compares addresses, and `{ty}` is not a borrow"))
                         .note(format!("`{ty}` is an owned value, so it has no address to compare"))
+                        .help(help),
+                );
+            }
+            Refusal::Holds(what) => {
+                let help = if shown.ends_with("same as`") {
+                    "compare the borrows inside it one at a time, with `same as` on each".to_string()
+                } else {
+                    "`containsRef` takes a borrow to look for, not a value that holds borrows".to_string()
+                };
+                self.diags.push(
+                    Diagnostic::at(&codes::E0633, span, format!("{shown} compares addresses, and {what} has no single address"))
+                        .note("it is not compared as one address; `==` compares the values")
                         .help(help),
                 );
             }
