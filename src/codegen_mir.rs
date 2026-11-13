@@ -2294,6 +2294,44 @@ impl Cg<'_, '_> {
                 let ops = self.map_ops(mt);
                 self.rt("drachm_map_remove", &[ptr, ptr, ptr, ptr], &[types::I8], &[map, key, null, ops]);
             }
+            MapFn::Expect => {
+                let key = self.operand(&args[1].op);
+                let ops = self.map_ops(mt);
+                let p = self.rt("drachm_map_find", &[ptr, ptr, ptr], &[ptr], &[map, key, ops])[0];
+                let found = self.b.ins().icmp_imm_u(IntCC::NotEqual, p, 0);
+                let (present, missing) = (self.b.create_block(), self.b.create_block());
+                self.b.ins().brif(found, present, &[], missing, &[]);
+                self.b.switch_to_block(missing);
+                self.b.set_cold_block(missing);
+                self.rt("drachm_map_key_panic", &[], &[], &[]);
+                self.b.ins().trap(TrapCode::unwrap_user(2));
+                self.b.switch_to_block(present);
+                let (tmp, out) = self.item_out(v, dest);
+                self.copy_item(v, out, p);
+                self.item_done(v, dest, tmp);
+            }
+            MapFn::More | MapFn::KeyAt | MapFn::ValAt | MapFn::After => {
+                // `drachm_map_next` moves a cursor; it is given a copy, so the cursor value stays.
+                let cursor = self.operand(&args[1].op);
+                let ops = self.map_ops(mt);
+                let slots: Vec<Value> = (0..3).map(|_| self.mem(Type::U64)).collect();
+                self.b.ins().store(MEM, cursor, slots[0], 0);
+                let found = self.rt("drachm_map_next", &[ptr, ptr, ptr, ptr, ptr], &[types::I8], &[map, slots[0], slots[1], slots[2], ops])[0];
+                match f {
+                    MapFn::More => self.set_dest(dest, found),
+                    MapFn::After => {
+                        let after = self.b.ins().load(i64t, MEM, slots[0], 0);
+                        self.set_dest(dest, after);
+                    }
+                    _ => {
+                        let (ty, slot) = if f == MapFn::KeyAt { (k, slots[1]) } else { (v, slots[2]) };
+                        let at = self.b.ins().load(ptr, MEM, slot, 0);
+                        let (tmp, out) = self.item_out(ty, dest);
+                        self.copy_item(ty, out, at);
+                        self.item_done(ty, dest, tmp);
+                    }
+                }
+            }
         }
     }
 }

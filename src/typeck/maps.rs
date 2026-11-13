@@ -5,7 +5,7 @@
 //! a whole number, a float (hashed and compared by its bits, Q14), a `bool` or
 //! a `string`. Other key types wait (E0901) until their hashing is built.
 
-use super::{Checker, Globals, MethodInfo, StructInfo, Val, optionals};
+use super::{Checker, Globals, MethodInfo, PlaceInfo, StructInfo, Val, optionals};
 use crate::ast::{self, BinOp};
 use crate::diag::{Diagnostic, Span, codes};
 use crate::hir;
@@ -366,8 +366,45 @@ impl Checker<'_> {
                 all.push(self.coerce(&args[1], vt)?);
             }
             MapOp::Get | MapOp::Remove => all.push(self.coerce(&args[0], kt)?),
+            MapOp::Expect | MapOp::More | MapOp::KeyAt | MapOp::ValAt | MapOp::After => unreachable!("made by the compiler, not named"),
         }
         Some(Val::Expr(hir::Expr::new(hir::ExprKind::MapCall { op, args: all }, result).at(name_span)))
+    }
+
+    /// `map[key] op= value;`: the value under `key` is read (the program stops
+    /// when there is none), combined with `value` and put back. The map place
+    /// and the key are evaluated once, the new value before the map is changed:
+    ///
+    /// ```text
+    /// r = &mut map;  k = key;
+    /// n = (*r)[k] op value;       // MapOp::Expect, not an optional
+    /// (*r)::set(k, n);
+    /// ```
+    fn map_update(&mut self, p: &PlaceInfo, op: BinOp, index: &ast::Expr, value: &ast::Expr, span: Span, out: &mut hir::Block) {
+        use hir::ExprKind as K;
+        let map_ty = p.ty;
+        let (kt, vt) = map_ty.map_parts().expect("a map");
+        let Some(key_value) = self.coerce(index, kt) else {
+            self.expr(value);
+            return;
+        };
+        let place = self.place_expr(p);
+        let ref_ty = Type::borrow(true, map_ty);
+        let r = self.hidden_named("map update borrow", ref_ty);
+        let key = self.hidden_named("map update key", kt);
+        let new = self.hidden_named("map update value", vt);
+        let local = |id, ty| hir::Expr::new(K::Local(id), ty);
+        let whole = || hir::Expr::new(K::Deref(Box::new(local(r, ref_ty))), map_ty);
+        out.push(hir::Stmt::Decl(r));
+        out.push(hir::Stmt::Assign(hir::Place::local(r), hir::Expr::new(K::Borrow { mutable: true, place: Box::new(place) }, ref_ty)));
+        out.push(hir::Stmt::Decl(key));
+        out.push(hir::Stmt::Assign(hir::Place::local(key), key_value));
+        let current = hir::Expr::new(K::MapCall { op: hir::MapOp::Expect, args: vec![whole(), local(key, kt)] }, vt).at(span);
+        let Some(updated) = self.compound(op, Some(current), index.span, value, span) else { return };
+        out.push(hir::Stmt::Decl(new));
+        out.push(hir::Stmt::Assign(hir::Place::local(new), updated));
+        let set = hir::Expr::new(K::MapCall { op: hir::MapOp::Set, args: vec![whole(), local(key, kt), local(new, vt)] }, Type::None).at(span);
+        out.push(hir::Stmt::Expr(set));
     }
 
     /// `map[key] = value;` (`value` as a statement): adds or replaces the entry.
@@ -385,14 +422,8 @@ impl Checker<'_> {
             return false;
         }
         let (kt, vt) = p.ty.map_parts().expect("a map");
-        if op.is_some() {
-            self.expr(index);
-            self.expr(value);
-            self.diags.push(
-                Diagnostic::at(&codes::E0901, span, "changing a map item with `op=` is not supported yet")
-                    .note("a missing key would have no value to add to")
-                    .help("write `map[key] = value;` with the whole new value"),
-            );
+        if let Some(op) = op {
+            self.map_update(&p, op, index, value, span, out);
             return true;
         }
         let map = self.place_expr(&p);

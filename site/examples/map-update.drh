@@ -1,0 +1,17 @@
+in io;
+
+none main() {
+    mut Map<string, uint32> votes = { "tea": 3, "coffee": 5 };
+    votes["tea"] += 1;
+    votes["coffee"] *= 2;
+    io::outln((votes["tea"] maybe 0)::text());
+    io::outln((votes["coffee"] maybe 0)::text());
+
+    // `+=` needs a value to change: a missing key stops the program,
+    // so add the first entry with `=`.
+    if (votes["cocoa"] is empty) {
+        votes["cocoa"] = 1;
+    }
+    votes["cocoa"] += 1;
+    io::outln((votes["cocoa"] maybe 0)::text());
+}

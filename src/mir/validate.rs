@@ -361,6 +361,11 @@ impl Validator<'_> {
                     MapFn::Set => (Some(vec![mut_map, Want::Exact(k), Want::Exact(v)]), Type::None),
                     MapFn::Remove => (Some(vec![mut_map, shared_key]), Type::None),
                     MapFn::Len => (Some(vec![shared_map]), Type::U64),
+                    MapFn::Expect => (Some(vec![shared_map, shared_key]), v),
+                    MapFn::More => (Some(vec![shared_map, Want::Exact(Type::U64)]), Type::Bool),
+                    MapFn::KeyAt => (Some(vec![shared_map, Want::Exact(Type::U64)]), k),
+                    MapFn::ValAt => (Some(vec![shared_map, Want::Exact(Type::U64)]), v),
+                    MapFn::After => (Some(vec![shared_map, Want::Exact(Type::U64)]), Type::U64),
                 }
             }
             Callee::ListOp(op, elem) => {

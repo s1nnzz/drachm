@@ -201,10 +201,17 @@ An empty `{}` needs a type to take, as an empty list does (E0624).
 
 ### Updating an entry with an operator
 
-<!-- status: not-implemented -->
+`m[k] += v;` (and `-=`, `*=` and the other compound operators) reads the
+value under `k`, combines it with `v` and puts the result back. The map and
+the key are evaluated once. A key that is not in the map stops the program
+(exit code 101): there is no value to change, so add the first entry with
+`m[k] = v;`.
 
-`m[k] += v;` will update the existing value and stop the program if the key is
-missing. Compound assignments through a map index currently give E0901.
+<!-- example: map-update -->
+
+```text
+drachm: panic: the key is not in the map, so there is no value to change
+```
 
 ### Walking a map
 

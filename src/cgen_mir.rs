@@ -1289,6 +1289,43 @@ impl Gen<'_> {
                 let key = self.operand(&args[1].op);
                 self.line(format!("drachm_map_remove({map}, {key}, NULL, {ops});"));
             }
+            MapFn::Expect => {
+                let key = self.operand(&args[1].op);
+                let dst = dest_lv.expect("a lookup has a destination");
+                let copy = self.copy_entry(v, dst, "at");
+                self.line(format!("{{ const void *at = drachm_map_find({map}, {key}, {ops}); if (!at) drachm_map_key_panic(); {copy} }}"));
+            }
+            MapFn::More | MapFn::KeyAt | MapFn::ValAt | MapFn::After => {
+                let cursor = self.operand(&args[1].op);
+                let next = format!("uint64_t c = {cursor}; void *kp = NULL, *vp = NULL; uint8_t found = drachm_map_next({map}, &c, &kp, &vp, {ops}); (void)found; (void)kp; (void)vp;");
+                match f {
+                    MapFn::More => {
+                        let d = self.decl(dest.expect("a test has a destination"), Type::Bool);
+                        self.line(format!("{d} = ({{ {next} found; }});"));
+                    }
+                    MapFn::After => {
+                        let d = self.decl(dest.expect("a cursor has a destination"), Type::U64);
+                        self.line(format!("{d} = ({{ {next} c; }});"));
+                    }
+                    _ => {
+                        let (ty, at) = if f == MapFn::KeyAt { (k, "kp") } else { (v, "vp") };
+                        let dst = dest_lv.expect("an entry part has a destination");
+                        let copy = self.copy_entry(ty, dst, at);
+                        self.line(format!("{{ {next} {copy} }}"));
+                    }
+                }
+            }
+        }
+    }
+
+    /// A statement that copies the entry part of type `ty` that `at` points to into the lvalue `dst`.
+    fn copy_entry(&self, ty: Type, dst: &str, at: &str) -> String {
+        if !self.hir_holds_string(ty) {
+            return format!("memcpy(&{dst}, {at}, sizeof {dst});");
+        }
+        match ty {
+            Type::Str => format!("drachm_str_copy(&{dst}, (const drachm_str *){at});"),
+            _ => format!("drachm_copy_{}(&{dst}, (const {} *){at});", glue_name(ty), c_type(ty)),
         }
     }
 

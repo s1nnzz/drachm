@@ -770,6 +770,18 @@ pub enum MapOp {
     Set,
     /// `map::remove(key)`: the entry goes; its value is dropped.
     Remove,
+    /// `map[key] += x` reads the value under `key` (a `V`, not an optional)
+    /// and stops the program when there is none.
+    Expect,
+    /// Walking a map by a cursor (a `uint64`, 0 to start): is there an entry
+    /// at or after the cursor (`bool`)?
+    More,
+    /// The key of that entry (`K`, a copy).
+    KeyAt,
+    /// The value of that entry (`V`, a copy).
+    ValAt,
+    /// The cursor just after that entry (`uint64`).
+    After,
 }
 
 impl MapOp {
