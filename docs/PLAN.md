@@ -737,6 +737,25 @@ no way to climb a folder up; re-exporting an imported name and `out` on a
 covers module imports, item clashes wait for WP2; cross-file mutual recursion
 (Q8) is a WP2 check. Next: WP2 (scoped names), then the rest.
 
+**Step 7 progress (WP2, built):** `src/resolve.rs` resolves every name of the
+module graph (scope per file: own declarations, module bindings, imported
+items, `*`) and joins the files into one `ast::Program` that `typeck::check`
+takes unchanged; the entry file keeps bare names, other files' declarations are
+`MODULE::name`. Parser: `module::Name` in types, `new`, `fails`, handlers,
+patterns, array lengths and paths; `out` before a named constant; string file
+paths (`in "../x/y.drh"`, may climb) and `in * from m as y also bare`.
+Owner's rulings applied: `in * ... as y` is under `y::` only, `also bare`
+for both. New codes E0236 (private name), E0237 (no such name), E0238 (files
+call each other in a circle), W0240 (imported name hidden), W0241 (name hides a
+module); E0232 also covers clashing item imports. The showcase is a project
+folder `examples/showcase/` (expectations in its `expect.out`); site examples
+may be folders (`site/examples/NAME/`, `expect.out`). Interims: calls through
+methods are not followed by the recursion check; `//--!$unsafe` of the entry
+file decides for all files; a file that uses a unit of `si` is not checked for
+its own `in si;`; a local declaration or item clashing with an explicit item
+import is E0232 (only `*` clashes warn); `import_clash = error` waits for the
+config (WP3).
+
 **Open (ask owner):** the full `[warnings]` name list (grows as warnings are added).
 
 ---

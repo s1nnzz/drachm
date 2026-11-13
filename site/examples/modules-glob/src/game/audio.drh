@@ -1,0 +1,2 @@
+out string play() { return "playing a sound"; }
+out uint32 LEVEL = 3;

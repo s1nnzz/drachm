@@ -234,6 +234,22 @@ fn site_examples() {
     run_all(sources("site/examples"), site_example);
 }
 
+/// Site examples of several files: a folder `site/examples/NAME/` that is a
+/// project (see `projects`), with `expect.out` beside `drachm.toml`.
+#[test]
+fn site_example_projects() {
+    let mut dirs: Vec<PathBuf> = fs::read_dir(root().join("site/examples"))
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .filter(|p| p.is_dir())
+        .collect();
+    dirs.sort();
+    if dirs.is_empty() {
+        return;
+    }
+    run_all(dirs, project_case);
+}
+
 fn site_example(src: &Path) -> Result<(), String> {
     let stem = src.file_stem().unwrap().to_str().unwrap();
     let out_file = src.with_extension("out");

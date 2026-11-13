@@ -1,0 +1,1 @@
+out uint32 now() { return 42; }

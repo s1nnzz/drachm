@@ -49,8 +49,10 @@ For a new session with no memory of earlier conversations. Read this, then
   `src/prelude/si.drh`).
 - Agent types: use `drachm-architect` / `drachm-builder` / `drachm-writer`
   (see How work is done). Haiku by default; owner watches usage.
-- `examples/showcase.drh` shows everything that builds (CLAUDE.md "The
-  showcase"); its site page reads it at build time.
+- `examples/showcase/` (a project folder: `drachm.toml`, `src/main.drh`,
+  modules, `expect.out`) shows everything that builds (CLAUDE.md "The
+  showcase", whose file names are out of date); its site page reads all its
+  files at build time.
 - Site redesign is on the roadmap (PLAN row D2), unscheduled.
 - `AGENTS.md` and `docs/impl/agent-handoffs/` are untracked files from a Codex
   trial run; leave them.

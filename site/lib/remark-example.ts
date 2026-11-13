@@ -24,7 +24,8 @@ function projectFiles(dir: string, base: string): string[] {
 
 /**
  * Replaces `<!-- example: NAME -->` with the contents of examples/NAME.drh as a
- * ```drachm block. If examples/NAME.in exists, it follows as a ```text
+ * ```drachm block (or, for a folder examples/NAME/ that is a project, one block
+ * per file and its expect.out). If examples/NAME.in exists, it follows as a ```text
  * title="input" block (the program's standard input), and then examples/NAME.out
  * as a ```text title="output" block.
  */
@@ -63,6 +64,19 @@ export function remarkExample() {
         continue;
       }
       const name = m[1];
+      // A folder is a project of several files: one block per file, then the output.
+      const folder = path.join(examplesDir, name);
+      if (existsSync(folder) && statSync(folder).isDirectory()) {
+        const files = projectFiles(folder, folder).sort((a, b) => (a === 'src/main.drh' ? -1 : b === 'src/main.drh' ? 1 : a < b ? -1 : 1));
+        for (const f of files) {
+          out.push({ type: 'code', lang: 'drachm', meta: `title="${f}"`, value: readFileSync(path.join(folder, f), 'utf8').replace(/\n+$/, '') });
+        }
+        const expected = path.join(folder, 'expect.out');
+        if (existsSync(expected)) {
+          out.push({ type: 'code', lang: 'text', meta: 'title="output"', value: readFileSync(expected, 'utf8').replace(/\n+$/, '') });
+        }
+        continue;
+      }
       const drh = path.join(examplesDir, `${name}.drh`);
       if (!existsSync(drh)) throw new Error(`example "${name}": ${drh} not found`);
       out.push({ type: 'code', lang: 'drachm', meta: `title="${name}.drh"`, value: readFileSync(drh, 'utf8').replace(/\n+$/, '') });
