@@ -184,3 +184,22 @@ pre[data-focus-on] .line:not([data-hl])::before { opacity: 0.3; }
 }
 .drh-status-tentative { border-style: dashed; }
 .drh-status-side { margin-left: 0.5rem; padding: 0 0.4rem; font-size: 0.625rem; }
+
+/* The showcase page: the whole program beside its output (stacked when narrow). */
+.drh-showcase {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+.drh-showcase > .drh-code-col { min-width: 0; }
+@media (min-width: 1100px) {
+  .drh-showcase { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 1.5rem; align-items: start; }
+  .drh-showcase > .drh-code-col:last-child {
+    position: sticky;
+    top: calc(var(--fd-docs-row-2, 3.5rem) + 1.5rem);
+    max-height: calc(100dvh - var(--fd-docs-row-2, 3.5rem) - 3rem);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+}

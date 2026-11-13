@@ -4,7 +4,8 @@
       "title": "Start",
       "pages": [
         "index",
-        "install"
+        "install",
+        "showcase"
       ]
     },
     {
