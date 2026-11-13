@@ -179,8 +179,8 @@ pub fn build(program: &hir::Program, out: &std::path::Path, optimise: bool) -> R
     mir::drops::elaborate_program(program, &mut mir);
     mir::cleanup::cleanup_program(program, &mut mir);
     if optimise {
-        link::compile_c(&cgen_mir::generate(program, &mir), out, &program.link)
+        link::compile_c(&cgen_mir::generate(program, &mir), out, &program.link, &program.shim)
     } else {
-        link::link_object(&codegen_mir::compile(program, &mir)?, out, &program.link)
+        link::link_object(&codegen_mir::compile(program, &mir)?, out, &program.link, &program.shim)
     }
 }

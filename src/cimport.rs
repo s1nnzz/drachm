@@ -74,6 +74,8 @@ pub struct CField {
 pub struct CRecord {
     pub name: String,
     pub is_union: bool,
+    /// Declared with a tag (`struct name`): spelled `struct name` in C.
+    pub tagged: bool,
     /// An incomplete type (`struct SDL_Window;`): only pointers to it exist.
     pub opaque: bool,
     pub fields: Vec<CField>,
@@ -353,7 +355,7 @@ unsafe fn declare(cursor: CXCursor, decls: &mut BTreeMap<String, Decl>) {
                 if name.is_empty() {
                     return;
                 }
-                let rec = record(cursor, &name, kind == CXCursor_UnionDecl);
+                let rec = record(cursor, &name, kind == CXCursor_UnionDecl, true);
                 match decls.get(&name) {
                     // A complete definition replaces an earlier forward declaration.
                     Some(Decl::Record(old)) if !old.opaque => {}
@@ -380,7 +382,7 @@ unsafe fn declare(cursor: CXCursor, decls: &mut BTreeMap<String, Decl>) {
                 let anonymous = text(clang_getCursorSpelling(decl)).is_empty() || clang_Cursor_isAnonymous(decl) != 0;
                 if dk == CXCursor_StructDecl || dk == CXCursor_UnionDecl {
                     if anonymous {
-                        let rec = record(decl, &name, dk == CXCursor_UnionDecl);
+                        let rec = record(decl, &name, dk == CXCursor_UnionDecl, false);
                         decls.insert(name, Decl::Record(rec));
                     } else {
                         let target = text(clang_getCursorSpelling(decl));
@@ -493,12 +495,12 @@ unsafe fn signature(cursor: CXCursor, ty: CXType) -> CSig {
     }
 }
 
-unsafe fn record(cursor: CXCursor, name: &str, is_union: bool) -> CRecord {
+unsafe fn record(cursor: CXCursor, name: &str, is_union: bool, tagged: bool) -> CRecord {
     unsafe {
         let ty = clang_getCursorType(cursor);
         let size = clang_Type_getSizeOf(ty);
         if size == CXTypeLayoutError_Incomplete as i64 || clang_isCursorDefinition(cursor) == 0 {
-            return CRecord { name: name.to_string(), is_union, opaque: true, fields: Vec::new(), size: 0, unsupported: None };
+            return CRecord { name: name.to_string(), is_union, tagged, opaque: true, fields: Vec::new(), size: 0, unsupported: None };
         }
         struct Collect {
             fields: Vec<CField>,
@@ -562,7 +564,7 @@ unsafe fn record(cursor: CXCursor, name: &str, is_union: bool) -> CRecord {
                 problem = Some("its size is not the natural one".into());
             }
         }
-        CRecord { name: name.to_string(), is_union, opaque: false, fields: ctx.fields, size: size.max(0) as u64, unsupported: problem }
+        CRecord { name: name.to_string(), is_union, tagged, opaque: false, fields: ctx.fields, size: size.max(0) as u64, unsupported: problem }
     }
 }
 

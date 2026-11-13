@@ -31,6 +31,8 @@ pub(crate) fn parse_file(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>, script
         generics: Vec::new(),
         chain_slips: Vec::new(),
         c_enums: Vec::new(),
+        c_macros: Vec::new(),
+        c_shim: String::new(),
     };
     let mut script_stmts = Vec::new();
     let mut first_script_stmt = None;
@@ -50,6 +52,8 @@ pub(crate) fn parse_file(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>, script
         ];
         let item = if p.peek() == &Tok::Kw("in") {
             p.import().map(|i| program.imports.push(i))
+        } else if p.at_c_macro() {
+            p.c_macro_decl().map(|m| program.c_macros.push(m))
         } else if p.peek() == &Tok::Kw("out") {
             p.export_list().map(|e| program.exports.extend(e))
         } else if p.peek() == &Tok::Kw("struct") {
@@ -949,6 +953,7 @@ impl Parser<'_> {
         }
         match self.peek() {
             Tok::Kw("in" | "struct" | "enum" | "failure" | "interface") => true,
+            Tok::Kw("from") => self.at_c_macro(),
             // `out` is also a parameter word: only an export list or `out`
             // before a whole declaration counts.
             Tok::Kw("out") => {
@@ -1129,6 +1134,30 @@ impl Parser<'_> {
         }
         let (path, span, word) = self.module_path()?;
         Ok((path, span, word, None))
+    }
+
+    /// Does `from c macro` start here?
+    fn at_c_macro(&self) -> bool {
+        self.peek() == &Tok::Kw("from")
+            && matches!(self.peek_at(1), Tok::Ident(w) if w == "c")
+            && matches!(self.peek_at(2), Tok::Ident(w) if w == "macro")
+    }
+
+    /// `from c macro NAME(Type name, ...) gives Type;` (step 7.1).
+    fn c_macro_decl(&mut self) -> Parsed<CMacroDecl> {
+        let start = self.bump().span;
+        self.bump();
+        self.bump();
+        let (name, name_span) = self.ident("the name of a C macro")?;
+        self.expect("(")?;
+        let params = self.params()?;
+        if !matches!(self.peek(), Tok::Ident(w) if w == "gives") {
+            return Err(self.unexpected("`gives` and the result type").help("write `from c macro NAME(Type name) gives Type;`"));
+        }
+        self.bump();
+        let ret = self.ty()?;
+        self.expect(";")?;
+        Ok(CMacroDecl { name, name_span, params, ret, span: start.to(self.prev_span()) })
     }
 
     /// `in` items; see `ast::Import` for the forms.

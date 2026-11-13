@@ -111,6 +111,13 @@ pub fn resolve(graph: &mut ModuleGraph, diags: &mut Vec<Diagnostic>) -> Program 
         cx.si_imported.push(si);
     }
 
+    // `from c macro` declarations first: any file may call what another declares.
+    for i in 0..n {
+        let mut decls = std::mem::take(&mut graph.modules[i].program.c_macros);
+        let mut w = Walker { cx: &cx, m: i, diags, locals: Vec::new(), tparams: Vec::new(), calls: Vec::new(), extra_generics: Vec::new(), edges: Vec::new(), module_spans: Vec::new(), si_reported: HashSet::new() };
+        w.c_macros(&mut decls);
+    }
+
     let mut merged = Program::default();
     merged.unsafe_allowed = graph.modules[0].program.unsafe_allowed;
     let mut edges: Vec<(String, String, Span)> = Vec::new();
@@ -433,6 +440,30 @@ impl Walker<'_> {
         match self.scope().get(name) {
             Some(Bind::Module(Target::File(j))) => Some(*j),
             _ => None,
+        }
+    }
+
+    /// `from c macro NAME(...) gives T;`: find the header that defines the macro
+    /// among the C headers this file imports, and give it its types.
+    fn c_macros(&mut self, decls: &mut Vec<CMacroDecl>) {
+        let mut units: Vec<usize> = self.scope().values().filter_map(|b| if let Bind::Module(Target::C(k)) = b { Some(*k) } else { None }).collect();
+        units.sort();
+        units.dedup();
+        for d in decls.iter_mut() {
+            let found: Vec<usize> = units.iter().copied().filter(|&k| self.cx.c.is_function_macro(k, &d.name)).collect();
+            for p in &mut d.params {
+                self.ty(&mut p.ty);
+            }
+            self.ty(&mut d.ret);
+            match found[..] {
+                [k] => self.cx.c.declare_macro(k, d, self.diags),
+                [] => self.diags.push(
+                    Diagnostic::at(&codes::E0703, d.name_span, format!("no C header imported by this file defines a function-like macro `{}`", d.name))
+                        .note("no such macro")
+                        .help("import the header that defines it: `in * from c.\"header.h\" as name;`"),
+                ),
+                _ => self.diags.push(Diagnostic::at(&codes::E0901, d.name_span, format!("`{}` is defined by more than one imported header", d.name))),
+            }
         }
     }
 

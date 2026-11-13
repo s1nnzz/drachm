@@ -45,6 +45,20 @@ pub struct Program {
     pub chain_slips: Vec<ChainSlip>,
     /// The C enums a header import brings (step 7.1): name and integer type.
     pub c_enums: Vec<(String, crate::types::CKind)>,
+    /// `from c macro NAME(...) gives T;` declarations.
+    pub c_macros: Vec<CMacroDecl>,
+    /// The C source of the shims that call macros; filled by the resolver.
+    pub c_shim: String,
+}
+
+/// `from c macro SDL_MUSTLOCK(foreign *sdl::SDL_Surface s) gives bool;`
+#[derive(Debug)]
+pub struct CMacroDecl {
+    pub name: String,
+    pub name_span: Span,
+    pub params: Vec<Param>,
+    pub ret: TypeName,
+    pub span: Span,
 }
 
 /// A `::` where `->` is wanted, after the first call on `owner`: the E0007

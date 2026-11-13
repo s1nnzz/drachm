@@ -143,9 +143,15 @@ fn runtime_object(scratch: &Path) -> Result<PathBuf, String> {
 /// The C sources of `plan` compiled to objects in `scratch`, and the flags
 /// that follow every object on the link line: library folders, then libraries
 /// (after the objects that need them).
-fn native_inputs(plan: &LinkPlan, scratch: &Path) -> Result<(Vec<PathBuf>, Vec<String>), String> {
+fn native_inputs(plan: &LinkPlan, shim: &str, scratch: &Path) -> Result<(Vec<PathBuf>, Vec<String>), String> {
     let mut objects = Vec::new();
-    for (i, src) in plan.sources.iter().enumerate() {
+    let mut sources = plan.sources.clone();
+    if !shim.is_empty() {
+        let path = scratch.join("macro-shims.c");
+        std::fs::write(&path, shim).map_err(|e| e.to_string())?;
+        sources.push(path);
+    }
+    for (i, src) in sources.iter().enumerate() {
         let obj = scratch.join(format!("native{i}.o"));
         let mut args: Vec<std::ffi::OsString> = vec!["-O2".into(), "-c".into()];
         for d in &plan.include_dirs {
@@ -181,14 +187,14 @@ fn explain_link_failure(message: String, plan: &LinkPlan) -> String {
 }
 
 /// Link an object file from the Cranelift backend with the runtime.
-pub fn link_object(obj: &[u8], out: &Path, plan: &LinkPlan) -> Result<(), String> {
+pub fn link_object(obj: &[u8], out: &Path, plan: &LinkPlan, shim: &str) -> Result<(), String> {
     let scratch = scratch_dir()?;
     let result = (|| {
         let obj_path = scratch.join("prog.o");
         std::fs::write(&obj_path, obj).map_err(|e| e.to_string())?;
         let runtime = runtime_object(&scratch)?;
         let strings = strings_archive(&scratch)?;
-        let (native, native_flags) = native_inputs(plan, &scratch)?;
+        let (native, native_flags) = native_inputs(plan, shim, &scratch)?;
         let out = exe_path(out);
         let mut args: Vec<&OsStr> = vec![obj_path.as_ref(), runtime.as_ref(), strings.as_ref()];
         args.extend(native.iter().map(|o| o.as_os_str()));
@@ -203,13 +209,13 @@ pub fn link_object(obj: &[u8], out: &Path, plan: &LinkPlan) -> Result<(), String
 
 /// Compile C from the optimising backend. Floating point stays strict IEEE:
 /// no fast-math, and no fusing of multiply-add, so results match plain builds.
-pub fn compile_c(source: &str, out: &Path, plan: &LinkPlan) -> Result<(), String> {
+pub fn compile_c(source: &str, out: &Path, plan: &LinkPlan, shim: &str) -> Result<(), String> {
     let scratch = scratch_dir()?;
     let result = (|| {
         let src = scratch.join("prog.c");
         std::fs::write(&src, source).map_err(|e| e.to_string())?;
         let strings = strings_archive(&scratch)?;
-        let (native, native_flags) = native_inputs(plan, &scratch)?;
+        let (native, native_flags) = native_inputs(plan, shim, &scratch)?;
         let out = exe_path(out);
         let mut args: Vec<&OsStr> = ["-O3", "-ffp-contract=off", "-w"].iter().map(OsStr::new).collect();
         args.extend([src.as_os_str(), strings.as_os_str()]);

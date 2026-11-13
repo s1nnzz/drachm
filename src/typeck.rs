@@ -795,7 +795,7 @@ pub(crate) fn check_with_settings(
         .filter_map(|(f, id)| Some(((*id)?, f.foreign.clone()?)))
         .collect();
     index::finish(&g, src);
-    let mut program = hir::Program { settings: Vec::new(), funcs: funcs.into_iter().map(|f| f.unwrap_or_else(placeholder)).collect(), structs, enums: enum_defs, main, collections, conformances, dyn_ifaces, vtables, closures: std::mem::take(&mut g.lambdas.closures), ties: std::mem::take(&mut g.ties), foreign, link: Default::default() };
+    let mut program = hir::Program { settings: Vec::new(), funcs: funcs.into_iter().map(|f| f.unwrap_or_else(placeholder)).collect(), structs, enums: enum_defs, main, collections, conformances, dyn_ifaces, vtables, closures: std::mem::take(&mut g.lambdas.closures), ties: std::mem::take(&mut g.ties), foreign, link: Default::default(), shim: prog.c_shim.clone() };
     program.settings = program.funcs.iter().map(|f| g.settings_at(f.name_span)).collect();
     if !diags.iter().any(Diagnostic::is_error) {
         lambdas::infer_captures(&mut program, diags);

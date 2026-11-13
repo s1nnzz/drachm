@@ -1,0 +1,6 @@
+[project]
+name = "c_macros"
+
+[native]
+include = ["../../c"]
+sources = ["../../c/drachm_fixture.c"]

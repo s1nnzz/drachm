@@ -60,6 +60,8 @@ pub struct Program {
     /// What linking needs besides the runtime: the `[native]` tables of the
     /// project and of the dependencies it uses (set after checking).
     pub link: LinkPlan,
+    /// C source compiled with the program: the functions that call C macros.
+    pub shim: String,
 }
 
 /// The native inputs of a link (step 7.1), with absolute paths.

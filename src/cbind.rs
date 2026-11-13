@@ -29,11 +29,21 @@ pub enum Member {
     Enumerator { enum_name: String, value: i128 },
 }
 
+/// A function-like macro the program declared types for.
+struct DeclaredMacro {
+    unit: usize,
+    name: String,
+    params: Vec<ast::Param>,
+    ret: TypeName,
+    span: Span,
+}
+
 #[derive(Default)]
 struct State {
     wanted: Vec<(usize, String)>,
     seen: HashSet<(usize, String)>,
     macros: HashMap<(usize, String), Option<CValue>>,
+    declared: Vec<DeclaredMacro>,
 }
 
 pub struct CCtx {
@@ -113,6 +123,9 @@ impl CCtx {
                 Some(Member::Enumerator { enum_name: self.global(k, of), value: *value })
             }
             Decl::Macro(m) => {
+                if m.function_like && self.state.borrow().declared.iter().any(|d| d.unit == k && d.name == name) {
+                    return Some(Member::Item { global: self.global(k, name), func: true });
+                }
                 if m.function_like {
                     diags.push(
                         self.unusable(k, name, "it is a function-like macro", at)
@@ -136,6 +149,89 @@ impl CCtx {
                 None
             }
         }
+    }
+
+    /// Is `name` a function-like macro of unit `k`?
+    pub fn is_function_macro(&self, k: usize, name: &str) -> bool {
+        matches!(self.units[k].decls.get(name), Some(Decl::Macro(m)) if m.function_like)
+    }
+
+    /// Record `from c macro NAME(...) gives T;` for unit `k`; its types are resolved.
+    pub fn declare_macro(&self, k: usize, d: &ast::CMacroDecl, diags: &mut Vec<Diagnostic>) {
+        let mut st = self.state.borrow_mut();
+        if st.declared.iter().any(|m| m.unit == k && m.name == d.name) {
+            diags.push(Diagnostic::at(&codes::E0202, d.name_span, format!("the macro `{}` is declared twice", d.name)));
+            return;
+        }
+        st.declared.push(DeclaredMacro { unit: k, name: d.name.clone(), params: d.params.clone(), ret: d.ret.clone(), span: d.span });
+    }
+
+    /// How C spells the type `t` of a declared macro, for the shim that calls it.
+    fn spell(&self, k: usize, t: &TypeName) -> Result<String, String> {
+        if t.func.is_some() || !t.dims.is_empty() || t.optional.is_some() {
+            return Err("only numbers, pointers and structs can cross a macro call".into());
+        }
+        let mut out = match t.name.as_str() {
+            "none" => "void".to_string(),
+            name if name.starts_with("c::") => match CKind::from_word(&name[3..]) {
+                Some(CKind::Char) => "char",
+                Some(CKind::SChar) => "signed char",
+                Some(CKind::UChar) => "unsigned char",
+                Some(CKind::Short) => "short",
+                Some(CKind::UShort) => "unsigned short",
+                Some(CKind::Int) => "int",
+                Some(CKind::UInt) => "unsigned int",
+                Some(CKind::Long) => "long",
+                Some(CKind::ULong) => "unsigned long",
+                Some(CKind::LongLong) => "long long",
+                Some(CKind::ULongLong) => "unsigned long long",
+                Some(CKind::SizeT) => "__SIZE_TYPE__",
+                Some(CKind::SSizeT) => "__PTRDIFF_TYPE__",
+                Some(CKind::Float) => "float",
+                Some(CKind::Double) => "double",
+                Some(CKind::Bool) => "_Bool",
+                None => return Err(format!("`{name}` is not a C type")),
+            }
+            .to_string(),
+            "bool" => "_Bool".to_string(),
+            "uint8" => "unsigned char".to_string(),
+            "sint8" => "signed char".to_string(),
+            "uint16" => "unsigned short".to_string(),
+            "sint16" => "short".to_string(),
+            "uint32" => "unsigned int".to_string(),
+            "sint32" => "int".to_string(),
+            "uint64" => "unsigned long long".to_string(),
+            "sint64" => "long long".to_string(),
+            "float32" => "float".to_string(),
+            "float64" => "double".to_string(),
+            name => {
+                let local = name.strip_prefix(&format!("{}::", self.prefix[k])).ok_or_else(|| format!("`{name}` is not a C type of this header"))?;
+                match self.units[k].decls.get(local) {
+                    Some(Decl::Record(r)) if r.tagged => format!("struct {local}"),
+                    Some(Decl::Record(_)) => local.to_string(),
+                    Some(Decl::Enum(e)) => Self::spell_kind(e.underlying),
+                    _ => return Err(format!("`{name}` is not a struct or enum of this header")),
+                }
+            }
+        };
+        for (m, _) in &t.mods {
+            match m {
+                TypeMod::ForeignPtr => out.push('*'),
+                _ => return Err("only `foreign *` pointers can cross a macro call".into()),
+            }
+        }
+        Ok(out)
+    }
+
+    fn spell_kind(k: CKind) -> String {
+        let t = k.underlying();
+        match t {
+            crate::types::Type::Int { bits: 8, signed } => if signed { "signed char" } else { "unsigned char" },
+            crate::types::Type::Int { bits: 16, signed } => if signed { "short" } else { "unsigned short" },
+            crate::types::Type::Int { bits: 32, signed } => if signed { "int" } else { "unsigned int" },
+            _ => "long long",
+        }
+        .to_string()
     }
 
     fn macro_value(&self, k: usize, name: &str) -> Option<CValue> {
@@ -306,6 +402,59 @@ impl CCtx {
                 _ => {}
             }
         }
+        self.synthesize_macros(program);
+    }
+
+    /// The shims that call declared macros, and the functions that stand for them.
+    fn synthesize_macros(&self, program: &mut ast::Program) {
+        let declared = self.state.borrow();
+        let mut headers: Vec<usize> = Vec::new();
+        let mut body = String::new();
+        for m in &declared.declared {
+            let k = m.unit;
+            let synthetic = Span::new(m.span.start, m.span.start);
+            let symbol = format!("drachm_macro_{}_{}", self.prefix[k].replace(|c: char| !c.is_ascii_alphanumeric(), "_"), m.name);
+            let spelled: Result<(String, Vec<String>), String> = (|| {
+                let ret = self.spell(k, &m.ret)?;
+                let params = m.params.iter().map(|p| self.spell(k, &p.ty)).collect::<Result<Vec<_>, _>>()?;
+                Ok((ret, params))
+            })();
+            let Ok((ret, params)) = spelled else { continue };
+            if !headers.contains(&k) {
+                headers.push(k);
+            }
+            let list: Vec<String> = params.iter().enumerate().map(|(i, t)| format!("{t} a{i}")).collect();
+            let args: Vec<String> = (0..params.len()).map(|i| format!("a{i}")).collect();
+            let call = format!("{}({})", m.name, args.join(", "));
+            let list = if list.is_empty() { "void".to_string() } else { list.join(", ") };
+            if ret == "void" {
+                body.push_str(&format!("{ret} {symbol}({list}) {{ {call}; }}\n"));
+            } else {
+                body.push_str(&format!("{ret} {symbol}({list}) {{ return {call}; }}\n"));
+            }
+            program.funcs.push(ast::Func {
+                ret: m.ret.clone(),
+                name: self.global(k, &m.name),
+                name_span: synthetic,
+                tparams: Vec::new(),
+                params: m.params.clone(),
+                body: ast::Block { stmts: Vec::new(), end: synthetic },
+                is_unsafe: Some(synthetic),
+                lives: Vec::new(),
+                lives_span: None,
+                lives_from: false,
+                fails: Vec::new(),
+                fails_span: None,
+                span: synthetic,
+                foreign: Some(symbol),
+            });
+        }
+        let mut shim = String::new();
+        for k in headers {
+            shim.push_str(&format!("#include <{}>\n", self.units[k].header));
+        }
+        shim.push_str(&body);
+        program.c_shim = shim;
     }
 }
 
