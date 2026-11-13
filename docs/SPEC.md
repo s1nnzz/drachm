@@ -950,7 +950,10 @@ phys::Vector3 v = 1, 2, 3;
   runs each test as its own program (a failure does not stop the rest) and exits
   1 if one failed. `assert(cond, "text");` (owner, 2026-11-13): a false check
   prints `assertion failed: cond: text` and the place. The text is plain (no
-  `${}`, E0003). Undecided, so not accepted: a name filter, `expect failure`.
+  `${}`, E0003). `expect failure F from call;` (owner, 2026-11-13, in a test
+  only, E0014 elsewhere): passes when the call fails with `F`; no failure, or
+  another failure, stops the test with a message. A failure type the call can
+  never raise is E0545. Undecided, so not accepted: a name filter.
   See `docs/PLAN.md` step 7 WP9.
 - `drachm fmt`: one official style with few knobs (indent width, line length,
   brace placement). It never aligns `=` or comments across lines.

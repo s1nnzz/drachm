@@ -783,6 +783,10 @@ impl Walker<'_> {
             }
             Stmt::Unsafe { body, .. } => self.block(body),
             Stmt::Assert { cond, .. } => self.expr(cond),
+            Stmt::ExpectFailure { failure, call, .. } => {
+                self.type_name(&mut failure.0, failure.1);
+                self.expr(call);
+            }
             Stmt::Destroy { target, .. } => self.expr(target),
             Stmt::Fill { with, body, .. } => {
                 if let Some(FillWith::Named(n, sp)) = with {

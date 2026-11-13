@@ -113,6 +113,14 @@ codes! {
         "The step of a `for (init; condition; step)` loop must be an assignment,\n\
          a compound assignment, `++` / `--`, or a call:\n\n\
          \x20   for (mut uint32 i = 0; i < 10; i += 2) { }";
+    E0014: "`expect failure` outside a test",
+        "`expect failure` checks that a call fails with a given failure. It only\n\
+         means something in a `test` block, where a wrong outcome fails the test,\n\
+         so anywhere else it is an error:\n\n\
+         \x20   test \"bad text\" {\n\
+         \x20       expect failure ConvertError from \"x\"::to<uint32>();\n\
+         \x20   }\n\n\
+         Outside a test, handle the failure with `fails with` instead.";
 
     E0101: "type mismatch",
         "A value of one type was used where another is required.\n\n\

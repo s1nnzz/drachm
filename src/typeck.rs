@@ -1974,6 +1974,7 @@ impl<'a> Checker<'a> {
                 let body = vec![hir::Stmt::Stop(hir::StopKind::Assert(index))];
                 out.push(hir::Stmt::If { label: self.new_label(), branches: vec![hir::Branch { test: Some(fails), body, end: *span }] });
             }
+            Stmt::ExpectFailure { failure, call, span } => self.expect_failure(failure, call, *span, out),
             Stmt::Unsafe { body, span } => {
                 if !self.g.unsafe_allowed {
                     self.diags.push(unsafe_disabled(Span::new(span.start, span.start + 6), "needs the file flag"));

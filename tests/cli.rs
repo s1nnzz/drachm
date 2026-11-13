@@ -354,7 +354,7 @@ fn test_runs_the_showcase_project_tests() {
     let showcase = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/showcase");
     let out = drachm(&showcase, &["test"]);
     assert!(out.status.success(), "{}{}", text(&out.stdout), text(&out.stderr));
-    assert!(text(&out.stdout).ends_with("\ntest result: ok. 2 passed; 0 failed\n"), "{}", text(&out.stdout));
+    assert!(text(&out.stdout).ends_with("\ntest result: ok. 3 passed; 0 failed\n"), "{}", text(&out.stdout));
 }
 
 #[test]
@@ -373,4 +373,79 @@ fn test_failure_prints_the_assert_message_after_the_condition() {
     let out = drachm(&s.dir, &["test", "msg.drh"]);
     assert_eq!(out.status.code(), Some(1), "{}", text(&out.stdout));
     assert!(text(&out.stdout).contains("    drachm: panic: assertion failed: 1 + 1 == 3: one and one make two\n      --> msg.drh:2\n"), "{}", text(&out.stdout));
+}
+
+/// Four tests: two pass (an expected failure, and a text that is not a
+/// number), two do not (no failure at all, and a different failure).
+const EXPECT_FILE: &str = r#"
+in io;
+
+failure Boom { Bang "it went bang" }
+failure Other { Odd "it went oddly" }
+
+string named(uint32 n) fails Boom {
+    if (n == 0) {
+        fail Boom::Bang;
+    }
+    return "ok";
+}
+
+uint32 two_ways(uint32 n) fails Boom, Other {
+    if (n == 0) {
+        fail Boom::Bang;
+    }
+    if (n == 1) {
+        fail Other::Odd;
+    }
+    return n;
+}
+
+test "the expected failure passes" {
+    expect failure Boom from named(0);
+    io::outln("this line is hidden when the test passes");
+}
+
+test "a text that is not a number" {
+    expect failure ConvertError from "x"::to<uint32>();
+}
+
+test "no failure" {
+    expect failure Boom from named(1);
+}
+
+test "another failure" {
+    expect failure Boom from two_ways(1);
+}
+
+none main() {
+    io::outln("main runs");
+}
+"#;
+
+#[test]
+fn test_expect_failure_passes_or_stops_the_test_with_a_message() {
+    let s = Scratch::new("expectfail");
+    fs::write(s.dir.join("expect.drh"), EXPECT_FILE).unwrap();
+    let plain = drachm(&s.dir, &["test", "expect.drh"]);
+    let optimised = drachm(&s.dir, &["test", "expect.drh", "-O"]);
+    for out in [&plain, &optimised] {
+        let stdout = text(&out.stdout);
+        assert_eq!(out.status.code(), Some(1), "{stdout}\n{}", text(&out.stderr));
+        assert!(stdout.starts_with("running 4 tests\n"), "{stdout}");
+        assert!(stdout.contains("test the expected failure passes ... ok\n"), "{stdout}");
+        assert!(!stdout.contains("this line is hidden"), "{stdout}");
+        assert!(stdout.contains("test a text that is not a number ... ok\n"), "{stdout}");
+        assert!(stdout.contains("test no failure ... FAILED\n"), "{stdout}");
+        assert!(stdout.contains("    drachm: panic: expected a `Boom` failure from `named(1)`, but the call did not fail\n"), "{stdout}");
+        assert!(stdout.contains("      --> expect.drh:34\n"), "{stdout}");
+        assert!(stdout.contains("test another failure ... FAILED\n"), "{stdout}");
+        assert!(stdout.contains("    drachm: panic: expected a `Boom` failure from `two_ways(1)`, but the call failed with a different failure\n"), "{stdout}");
+        assert!(stdout.contains("      --> expect.drh:38\n"), "{stdout}");
+        assert!(stdout.ends_with("\ntest result: FAILED. 2 passed; 2 failed\n"), "{stdout}");
+    }
+    assert_eq!(text(&plain.stdout), text(&optimised.stdout));
+    // A normal run checks the tests and runs only `main`.
+    let run = drachm(&s.dir, &["run", "expect.drh"]);
+    assert!(run.status.success(), "{}", text(&run.stderr));
+    assert_eq!(text(&run.stdout), "main runs\n");
 }

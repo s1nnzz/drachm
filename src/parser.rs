@@ -13,7 +13,7 @@ pub fn parse(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>) -> Program {
 }
 
 pub(crate) fn parse_file(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>, script_entry: bool) -> Program {
-    let mut p = Parser { tokens, pos: 0, diags, optionals: Vec::new(), generics: Vec::new(), chain_slips: Vec::new() };
+    let mut p = Parser { tokens, pos: 0, diags, optionals: Vec::new(), generics: Vec::new(), chain_slips: Vec::new(), in_test: false };
     let mut program = Program {
         imports: Vec::new(),
         exports: Vec::new(),
@@ -177,6 +177,8 @@ struct Parser<'a> {
     generics: Vec<TypeName>,
     /// `::` after a first call on a name (see `ast::ChainSlip`).
     chain_slips: Vec<ChainSlip>,
+    /// Inside a `test` block, where `expect failure` is allowed.
+    in_test: bool,
 }
 
 type Parsed<T> = Result<T, Diagnostic>;
@@ -1288,7 +1290,10 @@ impl Parser<'_> {
         let Some(name) = plain_text(&pieces) else {
             return Err(Diagnostic::at(&codes::E0003, name_span, "a test name is plain text").help("write the name without `${}`: `test \"adds\" { }`"));
         };
-        let body = self.block()?;
+        let was_in_test = std::mem::replace(&mut self.in_test, true);
+        let body = self.block();
+        self.in_test = was_in_test;
+        let body = body?;
         Ok(Func {
             ret: TypeName::plain("none", start),
             name: format!("test \"{name}\""),
@@ -1951,14 +1956,20 @@ impl Parser<'_> {
         match self.peek() {
             // `expect failure` is read before a binding: `expect` could be a type name.
             Tok::Ident(w) if w == "expect" && self.peek_at(1) == &Tok::Kw("failure") => {
-                // Read the whole statement here: `failure` starts an item, so the
-                // usual recovery would stop inside it.
-                while !matches!(self.peek(), Tok::Sym(";" | "}") | Tok::Eof) {
-                    self.bump();
+                self.bump();
+                self.bump();
+                if !self.in_test {
+                    return Err(Diagnostic::at(&codes::E0014, start.to(self.prev_span()), "`expect failure` is only in a `test` block")
+                        .help("write the check in `test \"name\" { }`, where a test that does not fail as expected fails"));
                 }
-                self.eat(";");
-                Err(Diagnostic::at(&codes::E0901, start.to(self.prev_span()), "`expect failure` is not supported yet")
-                    .help("this form is still being decided; for now compare the result and print it"))
+                let failure = self.qual_ident("a failure type after `expect failure`")?;
+                if self.peek() != &Tok::Kw("from") {
+                    return Err(self.unexpected("`from`").help("write `expect failure ConvertError from \"x\"::to<uint32>();`"));
+                }
+                self.bump();
+                let call = self.expr()?;
+                self.expect(";")?;
+                Ok(Stmt::ExpectFailure { failure, call, span: start.to(self.prev_span()) })
             }
             _ if self.at_fill() => self.fill_stmt(),
             _ if self.at_binding() => {
@@ -2899,7 +2910,7 @@ impl Parser<'_> {
             tokens.push(Token { tok, span: Span::new(span.start + from, span.start + i) });
         }
         tokens.push(Token { tok: Tok::Eof, span: Span::new(span.end, span.end) });
-        let mut inner = Parser { tokens, pos: 0, diags: &mut *self.diags, optionals: Vec::new(), generics: Vec::new(), chain_slips: Vec::new() };
+        let mut inner = Parser { tokens, pos: 0, diags: &mut *self.diags, optionals: Vec::new(), generics: Vec::new(), chain_slips: Vec::new(), in_test: self.in_test };
         let spec = inner.unit_spec()?;
         if inner.peek() != &Tok::Eof {
             return Err(inner.unexpected("the end of the unit"));
@@ -3113,7 +3124,7 @@ impl Parser<'_> {
                 .note("empty")
                 .help("for example `${name}`; write `\\$` for a plain dollar sign"));
         }
-        let mut inner = Parser { tokens, pos: 0, diags: &mut *self.diags, optionals: Vec::new(), generics: Vec::new(), chain_slips: Vec::new() };
+        let mut inner = Parser { tokens, pos: 0, diags: &mut *self.diags, optionals: Vec::new(), generics: Vec::new(), chain_slips: Vec::new(), in_test: self.in_test };
         let e = inner.expr()?;
         let found = std::mem::take(&mut inner.optionals);
         self.optionals.extend(found);

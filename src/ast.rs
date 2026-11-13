@@ -549,6 +549,10 @@ pub enum Stmt {
     /// condition is false, with the condition's text (and the message) and its
     /// place. Runs in every build. The message is plain text and its span.
     Assert { cond: Expr, message: Option<(String, Span)>, span: Span },
+    /// `expect failure F from call;` (in a `test` block only): passes when the
+    /// call fails with the failure `F`, and stops the test otherwise. `failure`
+    /// is the name and where it is written.
+    ExpectFailure { failure: (String, Span), call: Expr, span: Span },
     /// `destroy x;`: runs `drop()` now and ends `x`.
     Destroy { target: Expr, span: Span },
     /// `fill [partial] x { ... }`, with `with defaults` or `with NAME` after the name.

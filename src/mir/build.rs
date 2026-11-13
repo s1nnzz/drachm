@@ -1635,7 +1635,10 @@ impl<'a> Builder<'a> {
 
     /// `call fails with ...` (`e`): the Ok value, or what the handler for the failure gives.
     fn handled(&mut self, e: &Expr, call: &Expr, arms: &[hir::HandlerArm], label: Label) -> Operand {
-        let result = (e.ty != Type::None).then(|| self.new_temp(e.ty));
+        // The result is owned only from the join on: an arm that leaves early
+        // (`return`, `fail`, an `expect failure` pass) never assigns it, so
+        // no frame it leaves may drop it.
+        let result = (e.ty != Type::None).then(|| self.decl(e.ty, LocalKind::Temp));
         let join = self.new_block();
         self.resumes.insert(label, (result, join, self.frames.len()));
         let failure;
@@ -1720,7 +1723,12 @@ impl<'a> Builder<'a> {
         self.frames.pop();
         self.cur = join;
         match result {
-            Some(r) => self.read(Place::local(r), e.ty),
+            Some(r) => {
+                if needs_drop(self.hir, e.ty) {
+                    self.register(r, false);
+                }
+                self.read(Place::local(r), e.ty)
+            }
             None => Self::unit(),
         }
     }

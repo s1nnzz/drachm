@@ -807,10 +807,26 @@ test's output is shown. Exit 1 if any test failed. Libraries have tests too.
 Tests: `assert` golden cases in `tests/run` and `tests/fail`, `test` blocks in
 `tests/run/test_blocks_build.drh`, the showcase's `rules` tests, `tests/cli.rs`.
 Interims (narrowest readings, owner to decide; Q15): no name filter (the path
-is the only argument); no `expect failure` (E0901); a failing test does not stop the others; the
+is the only argument); a failing test does not stop the others; the
 test bodies are compiled into normal builds (type-checked and compiled, never
 run); `drachm test` builds once per test, so a large suite builds slowly; the
 `[warnings] as_errors` names (Q15c) are unchanged.
+
+**Step 7 progress (WP9 follow-ups, 2026-11-13, built):** `assert(cond, "text")`
+(see above). `expect failure F from call;` is a statement of a `test` block
+(`Stmt::ExpectFailure`, E0014 outside a test). Typeck lowers it to a labelled
+`if` with no test: a `Handled` call whose arm for `F` does `Leave` (the test
+goes on) and whose other arm stops with `Assertion`s for "did not fail" and
+"a different failure"; the `Stop` after the call is reached only when the call
+did not fail. E0545 when the call can never raise `F`, E0003 when it cannot
+fail, E0540 when `F` is not a failure. Shared MIR fix found on the way: the
+result temp of a `Handled` call is owned only from the join on, so a `return`
+or `Leave` in a handler no longer drops an unassigned value (it was a MIR
+validation error before, for any `return` in a handler of a value call).
+Tests: `tests/fail/expect_*.drh`, `tests/run/handler_early_leave.drh`,
+`tests/run/expect_failure_build.drh`, `tests/cli.rs`
+(`test_expect_failure_passes_or_stops_the_test_with_a_message`), the showcase's
+`rules` tests, `site/examples/test-blocks.drh`.
 
 **Open (ask owner):** the full `[warnings]` name list (grows as warnings are added).
 Also: a `deps/`

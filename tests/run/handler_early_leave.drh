@@ -1,0 +1,24 @@
+// A handler that leaves early (`return`) while the call's value is not yet
+// made: the value is owned only once it is there, so nothing is dropped twice
+// or before it exists.
+in io;
+
+failure Boom { Bang "it went bang" }
+
+string named(uint32 n) fails Boom {
+    if (n == 0) {
+        fail Boom::Bang;
+    }
+    return "ok";
+}
+
+string outer(uint32 n) {
+    string s = named(n) fails with (Boom e) => { return "early"; };
+    return s;
+}
+
+none main() {
+    io::outln(outer(0));
+    io::outln(outer(1));
+    named(0) fails with (Boom e) => { io::outln("handled"); return; };
+}
