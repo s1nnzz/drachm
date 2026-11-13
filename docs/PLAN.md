@@ -824,6 +824,28 @@ code (`ReportExit`, `_exit`, so live values are not freed). Interims: `e::cause(
 
 S5C baseline (`bench/fails.*`, four loops in one program: failing leaf 100M calls, 3-level chain 20M, string outcome 2M, plain control 100M; best of 5): drachm -O 609 ms, C struct-by-value 450 ms (135%), Rust Result 305 ms (199%), plain Cranelift build 891 ms. No gate; S5E may improve it.
 
+S6Z benchmarks (`nice -n 19 env CARGO_BUILD_JOBS=3 sh bench/run.sh`, best of 5, 2026-11-13;
+the machine was shared with other work, load 4-5, so treat the numbers as rough). Times in ms:
+
+| bench | drachm -O | C | Rust | plain (Cranelift) | -O vs C | -O vs Rust |
+|---|---|---|---|---|---|---|
+| collatz | 419 | 424 | 387 | 763 | 98% | 108% |
+| collections (sum, index, generic, map, dyn cases) | 427 | 348 | 410 | 406 | 122% | 104% |
+| dyn | 131 | 199 | 369 | 251 | 65% | 35% |
+| map | 1363 | 561 | 1065 | 1245 | 242% | 127% |
+| fails | 438 | 346 | 286 | 752 | 126% | 153% |
+| fib | 187 | 183 | 302 | 392 | 102% | 61% |
+| mandel | 181 | 166 | 189 | 215 | 109% | 95% |
+| primes | 1488 | 1994 | 1178 | 1488 | 74% | 126% |
+| strings | 292 | 106 | 180 | 268 | 275% | 162% |
+
+Against the overview's targets (reported, not gates): `collections` is within 1.3x
+of C (122%) and of Rust (104%); `map` is within 2x of Rust's `HashMap` (127%, against
+the C open-addressing twin it is 2.4x, so the `map` target is read against Rust);
+`dyn` is within 1.5x of Rust (35%, faster). Not separated: the five `collections` cases
+are one benchmark file, so the per-case rows the brief asked for are not split out here.
+`map` and `strings` are the rows to look at next (outside step 6 scope to fix now).
+
 Goal from the owner: benchmark speed on par with Rust. Measure with
 `bench/run.sh` after every step that touches codegen, and add a benchmark
 whenever a step adds something worth measuring (strings, structs, lists).
