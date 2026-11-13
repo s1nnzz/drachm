@@ -169,3 +169,9 @@ Q5 interfaces as types: any interface can be used as `&I` (its `static` methods 
 - A length argument is any compile-time constant expression: `Buffer<sint32, 16>`, `Buffer<sint32, SIZE * 2>`.
 - Functions may take length parameters and they are worked out from the argument: `sint32 sum<uint32 N>(&sint32[N] a)`, `sum(arr)` gives `N = 4`.
 - A length/value parameter may be any integer type (owner: "any integer btw int64 doesnt exist its either uint or sint"), i.e. `uintN`/`sintN`; the body may use it as a constant of that type (my reading, from the option picked: `uint32 capacity() { return N; }`; non-length uses like `struct Mod<uint64 P>` allowed).
+
+# Step 7 batch A (docs/impl/step7-modules.md Q1-Q4), 2026-11-13
+- Q1 module paths: dots or words, two spellings of the same thing: `in game.physics;` = `in physics inside game;`.
+- Q2 paths are relative to the importing file's folder; a path from the source root starts with the project's name from the config: `in mygame.game.physics;`. Climbing one folder up: not answered (my reading: write it from the root; no `up` form for now).
+- Q3 exports: an `out` list and `out` on a declaration, mixed freely in one file; the list may rename (`out Vector3 as Vec3;`). Re-exporting an imported name: not asked separately (open).
+- Q4 a local name that clashes with an imported module shadows it in its scope, with a warning.
