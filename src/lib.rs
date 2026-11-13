@@ -116,7 +116,9 @@ fn front_project_with_settings(entry: &std::path::Path, info: &modules::ProjectI
         // files into one program, and check that. The text is the files in
         // order with a newline between, which is how the source map numbers it.
         let mut graph = graph;
-        let program = resolve::resolve(&mut graph, &mut diags);
+        // `import_clash` is a project setting: each module follows its own project's.
+        let clash: Vec<_> = settings.iter().map(|(_, s)| s.import_clash).collect();
+        let program = resolve::resolve(&mut graph, &mut diags, &clash);
         if diag::has_errors(&diags) {
             return (None, graph, diags);
         }

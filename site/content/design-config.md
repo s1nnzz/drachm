@@ -159,8 +159,22 @@ program is cleaned up on the way out, as with a failure that escapes `main`.
 
 <!-- example: settings-unhandled-crash -->
 
-### Other behaviour settings
-<!-- status: not-implemented -->
+### Import clashes
+
+`import_clash = "warn"` (the default) makes an `in *` import that brings a
+name the file already has a warning (W0240): a declaration of the file wins
+over any import, and between two imports the first one wins. With `error`
+the same clash is an error (E0242), so a project can forbid hiding names
+this way. A dependency follows its own `drachm.toml`. A name that hides a
+module (W0241) and two modules of one name (E0232) are not affected.
+
+<!-- example: settings-import-clash -->
+
+The compiler says:
+
+```text
+error[E0242]: `tighten` from `spares` is hidden by the import on line 2
+```
 
 ## Warnings
 <!-- status: not-implemented -->

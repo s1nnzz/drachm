@@ -344,6 +344,13 @@ codes! {
          one wins. The warning is at the later import, and its help asks whether\n\
          you meant the module's name, `m::play`. Import the name on its own with\n\
          `as` to use both: `in play as playAudio from audio;`.";
+    E0242: "imported name is hidden (import_clash = error)",
+        "An `in * from m;` brings a name that this file already has, and the\n\
+         project says `import_clash = \"error\"` in `[behaviour]`. It is the same\n\
+         clash as W0240: a declaration of this file wins over any import, and\n\
+         between two imports the first one wins. With the default,\n\
+         `import_clash = \"warn\"`, it is the warning W0240 instead. Import the\n\
+         name on its own with `as` to use both: `in play as playAudio from audio;`.";
     W0241: "name hides an imported module",
         "A declaration in this file has the same name as a module this file\n\
          imports. The declaration wins inside the file, so the module cannot\n\

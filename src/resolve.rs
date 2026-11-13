@@ -95,7 +95,8 @@ struct Ctx {
 }
 
 /// Resolve the names of every module and join them into one program.
-pub fn resolve(graph: &mut ModuleGraph, diags: &mut Vec<Diagnostic>) -> Program {
+/// `clash` is each module's `import_clash` setting (a missing entry is `warn`).
+pub fn resolve(graph: &mut ModuleGraph, diags: &mut Vec<Diagnostic>, clash: &[crate::config::ImportClash]) -> Program {
     let n = graph.modules.len();
     let mut infos = Vec::new();
     for (i, m) in graph.modules.iter().enumerate() {
@@ -105,7 +106,8 @@ pub fn resolve(graph: &mut ModuleGraph, diags: &mut Vec<Diagnostic>) -> Program 
     let c = c_context(graph);
     let mut cx = Ctx { infos, scopes: Vec::new(), std_imports: Vec::new(), si_imported: Vec::new(), si_names, c };
     for i in 0..n {
-        let (scope, std, si) = build_scope(&cx.infos, i, graph, diags);
+        let clash_is_error = clash.get(i) == Some(&crate::config::ImportClash::Error);
+        let (scope, std, si) = build_scope(&cx.infos, i, graph, diags, clash_is_error);
         cx.scopes.push(scope);
         cx.std_imports.push(std);
         cx.si_imported.push(si);
@@ -222,7 +224,7 @@ fn info_of(index: usize, name: &str, p: &Program) -> Info {
     Info { name: name.to_string(), prefix, decls, exports }
 }
 
-fn build_scope(infos: &[Info], m: usize, graph: &ModuleGraph, diags: &mut Vec<Diagnostic>) -> (HashMap<String, Bind>, HashSet<&'static str>, bool) {
+fn build_scope(infos: &[Info], m: usize, graph: &ModuleGraph, diags: &mut Vec<Diagnostic>, clash_is_error: bool) -> (HashMap<String, Bind>, HashSet<&'static str>, bool) {
     let info = &infos[m];
     let prog = &graph.modules[m].program;
     let mut scope: HashMap<String, Bind> = HashMap::new();
@@ -309,8 +311,10 @@ fn build_scope(infos: &[Info], m: usize, graph: &ModuleGraph, diags: &mut Vec<Di
                                 format!("write `{last}::{shown}` after `in * from {} as {last} also bare;`", imp.path.join("."))
                             }
                         };
+                        // `import_clash = error` makes the hidden name an error.
+                        let code = if clash_is_error { &codes::E0242 } else { &codes::W0240 };
                         diags.push(
-                            Diagnostic::at(&codes::W0240, imp.span, format!("`{shown}` from `{}` is hidden by {hidden_by}", imp.path.join(".")))
+                            Diagnostic::at(code, imp.span, format!("`{shown}` from `{}` is hidden by {hidden_by}", imp.path.join(".")))
                                 .note("this import brings a name that is already taken")
                                 .note_line(format!("to use both, import by name with `as`: `in {shown} as other{} from {};`", cap(&shown), imp.path.join(".")))
                                 .help(format!("did you mean to use the module's `{shown}`? {module_hint}")),

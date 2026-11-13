@@ -10,6 +10,8 @@
 //      in voyage.crew as crew;                   a module under a name of your choice
 //      in * from voyage.systems as systems;      every exported name, under systems::
 //      in * from rules as rules also bare;       under rules:: and bare, too
+//                                                (drachm.toml has import_clash = "error": a bare
+//                                                name that hid another would be an error)
 //      in Order from voyage.orders;              single items
 //      in * from c."harbour.h" as harbour;       a C header (src/voyage/ports.drh)
 //

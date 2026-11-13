@@ -1,0 +1,1 @@
+out string tighten() { return "tightened with the wrench"; }

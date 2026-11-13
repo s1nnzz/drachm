@@ -8,6 +8,7 @@ charts = { path = "charts" }
 [behaviour]
 missing_key = "panic"
 unhandled_fail = "crash"
+import_clash = "error"
 
 [native]
 include = ["c"]

@@ -134,6 +134,8 @@ unsigned_negate = "wrap"   # wrap | error | signed
 ### Other behaviour settings
 
 `overflow` covers arithmetic, constants that do not fit, shifts and conversions.
+`import_clash = "error"` turns the warning for a name hidden by an `in *` import
+into an error ([Import clashes](design-config.md#import-clashes)).
 A project that values catching mistakes picks `panic`; one that wants the
 arithmetic of a hash function keeps `wrap`. `unhandled_fail = "crash"` lets a
 call to a failing function stand without saying what to do, and stops the

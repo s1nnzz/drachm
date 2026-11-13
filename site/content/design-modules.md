@@ -117,7 +117,9 @@ A name you declare yourself that has the same name as an imported module
 shadows it in that file, with a warning (W0241). When `in *` brings in a name
 that already exists, your own declaration wins, then the first import, with a
 warning at the later import line (W0240). The warning's help asks whether you
-meant the module's own name, `m::play`.
+meant the module's own name, `m::play`. With `import_clash = "error"` in
+`[behaviour]` the same clash is an error (E0242); see
+[Import clashes](design-config.md#import-clashes).
 
 ## Cycles
 
