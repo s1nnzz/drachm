@@ -28,6 +28,9 @@ For a new session with no memory of earlier conversations. Read this, then
 - **To build (small)**: an unsigned loop with a literal negative `by` counts
   down with a warning (today W0102 and wraps). Answers in owner-answers
   "Follow-ups, 2026-11-13 (late)".
+- **Design doc not synced yet** with the 2026-11-13 answers (tesla, unit-named
+  parameters, `by` signs, float `by`, Q12 details, named constants, step 7
+  batches A-D): the Docs connector was timing out. Do it next session.
 - **In flight (2026-11-13)**: an architect agent on named constants + value
   parameter arithmetic; an architect agent on step 7 WP1 (multi-file front
   end). Step 7 spec: `docs/impl/step7-modules.md`; batches A-D answered
