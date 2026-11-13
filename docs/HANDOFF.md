@@ -15,12 +15,18 @@ For a new session with no memory of earlier conversations. Read this, then
   maps/structs is E0633, `T as unit`, `take xs[i] leaving v`, ranges `by`.
   **Not built: array length parameters (Q12)**, `struct Buffer<T, uint32 N>`:
   changes `Type` (a value argument), give it to `drachm-architect`.
-- **Owner questions pending** (ask in the next batch): what `T as unit` should
-  add, since a type parameter can never share a unit's name (today it equals
-  plain `T` inside `<...>`); a zero or negative `by` step at run time (literal
-  ones are E0901; a runtime 0 loops forever); float ranges with `by` (SPEC
-  says they must give `by`, not built); my reading that `take xs[i] leaving v`
-  counts negative indexes from the end.
+- **Leftovers of 2026-11-13, built** (owner answers "Step 6 leftover
+  follow-ups"): the SI unit is `tesla`; a type parameter named like a unit is
+  W0601, and `X as unit` names the unit anywhere; `by` takes a negative step
+  (counts down), a run-time zero step stops with `range step is zero` (exit
+  101), a literal zero is E0106; float ranges with `by` (value k is
+  `start + k * step`).
+- **Owner questions pending** (ask in the next batch): `10..0 by -2`: the owner's
+  note says 10, 8, 6, 4, 2, but the inclusive end gives 0 too (built: 0 is
+  included); my reading that `take xs[i] leaving v` counts negative indexes
+  from the end (confirmed by the owner, so this can go); on an unsigned loop a
+  literal `by -2` is only W0102 (it wraps to 4294967294), not an error: should
+  "a negative step can't be written" be a hard error instead?
 - Still undesigned: `exclusive &Shape`, `unit U with X`. Not built: map-walk
   views, interface methods with their own type parameters, borrowing a generic
   interface.
