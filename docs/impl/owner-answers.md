@@ -202,3 +202,7 @@ Q5 interfaces as types: any interface can be used as `&I` (its `static` methods 
 - An unsigned loop with a literal negative step counts down anyway (the step's sign is read before the type), with a warning: `for (uint32 i of 10..0 by -2)` gives 10, 8, ..., 0 (owner: "warn tho"). Today it is W0102 and wraps: to change.
 - Step 7 Q10b: a script may define `main()` or have top-level statements, not both (with `main()`, the top level holds declarations only).
 - Step 7 Q14b: constants are qualified, `math::pi`, `math::e`. Q15b: `assert` works in normal code and runs in every build, `-O` too.
+
+# Step 7 follow-ups after WP1, 2026-11-13
+- The showcase becomes a project folder when imports work across files: `examples/showcase/` with `drachm.toml`, `src/main.drh` and modules; the site page reads all its files.
+- `in * from game.audio as snd;` brings every exported name in bare and also under `snd::` (`play()` and `snd::play()` are the same). Owner's note: "in * from x as y means it puts all of it in y" (my reading: everything is reachable as `snd::name`; the bare names come with it as in the option picked).
