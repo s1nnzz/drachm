@@ -236,3 +236,5 @@ Q5 interfaces as types: any interface can be used as `&I` (its `static` methods 
 - The owner delegated import scope. Expose declarations from the named header and its transitive includes under the import alias. This lets umbrella headers expose the API they collect. Repeated declarations of the same C symbol within one import resolve to one declaration.
 - Use one `[native]` table in `drachm.toml` for include directories, definitions and libraries.
 - Scripts can check C headers with the default search path. Linking requires a project manifest.
+- A dependency lists its public module paths in its manifest.
+- Consumers automatically inherit native link requirements from the dependencies they import.

@@ -86,8 +86,8 @@ declaration in the import. A flat `[native]` table holds include directories,
 definitions and libraries. Scripts can check headers using default search
 paths. Linking requires a project manifest.
 
-Still open: platform-specific settings, local archives, and whether library
-consumers inherit native link settings from a dependency.
+Consumers inherit the native link requirements of dependencies they import.
+Platform-specific settings and local archive syntax are still open.
 
 ### Batch B — Types and layout
 
