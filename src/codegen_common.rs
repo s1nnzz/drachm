@@ -67,21 +67,96 @@ pub(crate) fn signature(module: &ObjectModule, f: &Func) -> Signature {
     s
 }
 
+/// One eightbyte of a small struct passed by value (System V x86-64): in an
+/// integer register or an SSE register, with the bytes of the struct it holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Eightbyte {
+    Int(u32),
+    Sse(u32),
+}
+
+impl Eightbyte {
+    pub(crate) fn bytes(self) -> u32 {
+        match self {
+            Eightbyte::Int(n) | Eightbyte::Sse(n) => n,
+        }
+    }
+
+    /// The register type the eightbyte is passed as.
+    pub(crate) fn reg_type(self) -> ClType {
+        match self {
+            Eightbyte::Int(_) => types::I64,
+            Eightbyte::Sse(4) => types::F32,
+            Eightbyte::Sse(_) => types::F64,
+        }
+    }
+}
+
+/// The scalars a C struct is made of, with their offsets.
+fn flatten(prog: &Program, t: Type, base: u32, out: &mut Vec<(u32, Type)>) -> bool {
+    match t.bare() {
+        Type::Struct { id, .. } => prog.structs[id].fields.iter().all(|f| flatten(prog, f.ty, base + f.offset, out)),
+        Type::Array { elem, len } => {
+            let (size, _) = prog.size_align(*elem);
+            (0..len as u32).all(|i| flatten(prog, *elem, base + i * size, out))
+        }
+        s if scalar_size(s).is_some() && !s.is_fat() => {
+            out.push((base, s));
+            true
+        }
+        _ => false,
+    }
+}
+
+/// How the System V x86-64 ABI passes the struct `t` by value: its eightbytes
+/// when it is at most 16 bytes of numbers and pointers, `None` when it goes
+/// through memory (or is no C struct at all).
+pub(crate) fn sysv_struct(prog: &Program, t: Type) -> Option<Vec<Eightbyte>> {
+    let (size, _) = prog.size_align(t);
+    if size == 0 || size > 16 {
+        return None;
+    }
+    let mut scalars = Vec::new();
+    if !flatten(prog, t, 0, &mut scalars) {
+        return None;
+    }
+    let n = size.div_ceil(8);
+    let mut out = Vec::new();
+    for i in 0..n {
+        let bytes = (size - 8 * i).min(8);
+        let inside: Vec<Type> = scalars.iter().filter(|(off, _)| off / 8 == i).map(|&(_, s)| s).collect();
+        let sse = !inside.is_empty() && inside.iter().all(|s| matches!(s, Type::Float(_)));
+        out.push(if sse { Eightbyte::Sse(bytes) } else { Eightbyte::Int(bytes) });
+    }
+    Some(out)
+}
+
 /// The signature of a C function (step 7.1): the target's C calling
 /// convention, with the narrow integers extended the way the C ABI expects
-/// from a caller.
-pub(crate) fn foreign_signature(module: &ObjectModule, f: &Func) -> Signature {
+/// from a caller, and small structs passed in registers as the System V
+/// x86-64 ABI says.
+pub(crate) fn foreign_signature(module: &ObjectModule, prog: &Program, f: &Func) -> Signature {
     let mut s = module.make_signature();
-    s.params.extend(f.locals[..f.params].iter().map(|l| {
+    for l in &f.locals[..f.params] {
+        if l.ty.struct_id().is_some() {
+            let parts = sysv_struct(prog, l.ty).expect("a C struct passed by value fits two registers");
+            s.params.extend(parts.iter().map(|e| AbiParam::new(e.reg_type())));
+            continue;
+        }
         let ty = cl_type(l.ty).expect("a C function takes numbers and pointers");
         let p = AbiParam::new(ty);
-        match l.ty {
+        s.params.push(match l.ty {
             Type::Int { bits: 8 | 16, signed: true } => p.sext(),
             Type::Int { bits: 8 | 16, signed: false } | Type::Bool => p.uext(),
             _ => p,
-        }
-    }));
-    s.returns.extend(cl_type(f.ret).map(AbiParam::new));
+        });
+    }
+    if f.ret.struct_id().is_some() {
+        let parts = sysv_struct(prog, f.ret).expect("a C struct returned by value fits two registers");
+        s.returns.extend(parts.iter().map(|e| AbiParam::new(e.reg_type())));
+    } else {
+        s.returns.extend(cl_type(f.ret).map(AbiParam::new));
+    }
     s
 }
 

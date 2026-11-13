@@ -1035,7 +1035,7 @@ codes! {
         "The C number types (`c::int`, `c::long`, `c::size_t`, `c::char`, ...) are\n\
          types of their own, not synonyms of `sint32` or `uint64`. A value of one\n\
          does not become another number type by itself; convert it explicitly:\n\
-         `n::to<sint32>()`. A plain constant (`5`, `FLAG_A`) fits any of them.";
+         `n as sint32` or `n::to<sint32>()`. A plain constant (`5`, `FLAG_A`) fits any of them.";
     E0705: "a match on a C enum needs a catch-all",
         "C code can send a value the header does not name, so a `match` on a C enum\n\
          type (for example `fx::fx_color`) always needs a `case _`, even when every\n\

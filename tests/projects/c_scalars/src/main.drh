@@ -5,8 +5,8 @@ in * from c."drachm_fixture.h" as fx;
 none main() {
     unsafe {
         c::int sum = fx::fx_add(40, 2);
-        io::outln(f"add: ${sum::to<sint32>()}");
-        io::outln(f"big: ${fx::fx_big(21)::to<sint64>()}");
+        io::outln(f"add: ${sum as sint32}");
+        io::outln(f"big: ${fx::fx_big(21) as sint64}");
         io::outln(f"byte: ${fx::fx_byte(255)::to<uint8>()}");
         io::outln(f"sbyte: ${fx::fx_sbyte(-128)::to<sint8>()}");
         io::outln(f"neg16: ${fx::fx_neg16(-32768)::to<sint16>()}");

@@ -2464,6 +2464,13 @@ impl Parser<'_> {
     /// Precedence climbing. Higher number binds tighter.
     fn binary(&mut self, min_prec: u8) -> Parsed<Expr> {
         let mut lhs = self.unary()?;
+        // `n as sint32`: a conversion of a C number (step 7.1), the same as `n::to<sint32>()`.
+        while self.peek() == &Tok::Kw("as") && !self.as_unit_at(0) {
+            let as_span = self.bump().span;
+            let ty = self.ty()?;
+            let span = lhs.span.to(self.prev_span());
+            lhs = Expr { kind: ExprKind::Method { recv: Box::new(lhs), name: "as".into(), name_span: as_span, targs: vec![ty], unit: None, args: Vec::new() }, span, paren: false };
+        }
         while let Some((op, prec, words)) = self.binary_op_here() {
             if prec < min_prec {
                 break;

@@ -53,6 +53,20 @@ none main() {
     fx::fx_size s = 1.5, 2.5;
     io::outln(f"size: ${s.w::to<float64>()} ${s.h::to<float64>()}");
 
+    // Small structs go to C and come back by value.
+    unsafe {
+        fx::fx_point made = fx::fx_point_make(7, 8);
+        io::outln(f"made: ${made.x as sint32}, ${made.y as sint32}");
+        fx::fx_rect box = origin: made, w: 3, h: 5;
+        io::outln(f"area: ${fx::fx_rect_area(box) as sint32}");
+        fx::fx_size sz = fx::fx_size_make(2.5, 4.0);
+        io::outln(f"size: ${sz.w as float64} by ${sz.h as float64}");
+        fx::fx_mixed mixed = fx::fx_mixed_make(1, 2.0, 3.5);
+        io::outln(f"mixed: ${fx::fx_mixed_sum(mixed) as float64}");
+        fx::fx_tri tri = fx::fx_tri_make(10);
+        io::outln(f"tri: ${tri.a as sint32} ${tri.c as sint32} sum ${fx::fx_tri_sum(tri) as sint32}");
+    }
+
     io::outln(f"work: ${work(1)} ${work(0)}");
     io::outln(f"alive: ${alive()}");
 }

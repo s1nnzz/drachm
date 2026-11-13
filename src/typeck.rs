@@ -2828,7 +2828,7 @@ impl<'a> Checker<'a> {
             Diagnostic::at(&codes::E0704, at, format!("`{from}` does not become `{to}` by itself"))
                 .note(format!("this is `{from}`"))
                 .note_line(format!("`{c}` is a C type of its own, not a synonym of `{other}`"))
-                .help(format!("convert it: `x::to<{to}>()`")),
+                .help(format!("convert it: `x as {to}` or `x::to<{to}>()`")),
         );
     }
 
@@ -3811,7 +3811,7 @@ impl<'a> Checker<'a> {
     /// `::text()` and `::to<T>()` on numbers and bools.
     fn value_method(&mut self, value: Option<Val>, recv: &ast::Expr, name: &str, name_span: Span, targs: &[ast::TypeName], args: &[ast::Expr]) -> Option<Val> {
         for a in args {
-            if !matches!(name, "text" | "to") {
+            if !matches!(name, "text" | "to" | "as") {
                 self.expr(a);
             }
         }
@@ -3837,7 +3837,7 @@ impl<'a> Checker<'a> {
                 }
                 Some(Val::Expr(hir::Expr::new(hir::ExprKind::Text(Box::new(v)), Type::Str)))
             }
-            "to" => {
+            "to" | "as" => {
                 no_args(self);
                 if targs.len() != 1 {
                     self.diags.push(
@@ -3847,6 +3847,17 @@ impl<'a> Checker<'a> {
                     return None;
                 }
                 let to = self.g.resolve(&targs[0], self.diags)?;
+                // `as` is the conversion of C numbers; the other conversions are `::to<T>()`.
+                if name == "as" {
+                    let from_c = matches!(&value, Val::Expr(v) if v.ty.is_c());
+                    if !(from_c || to.is_c()) {
+                        self.diags.push(
+                            Diagnostic::at(&codes::E0901, name_span, "`as` converts C types only so far")
+                                .help(format!("write `::to<{to}>()` to convert other numbers")),
+                        );
+                        return None;
+                    }
+                }
                 if to.mentions_unit() || units::has_unit(&value) {
                     return self.unit_to(value, to, recv.span, targs[0].span);
                 }

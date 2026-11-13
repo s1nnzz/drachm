@@ -23,7 +23,7 @@ use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Switch, Variab
 use cranelift_module::{DataDescription, DataId, FuncId, Linkage, Module};
 use cranelift_object::{ObjectBuilder, ObjectModule};
 
-use crate::codegen_common::{cl_type, emit_c_main, err, foreign_signature, in_memory, is_signed, key_tag, map_ops_type, signature, MEM, STR_CAP, STR_LEN};
+use crate::codegen_common::{cl_type, emit_c_main, err, foreign_signature, in_memory, is_signed, key_tag, map_ops_type, signature, sysv_struct, Eightbyte, MEM, STR_CAP, STR_LEN};
 use crate::mir::MapFn;
 use crate::hir::{self, BinOp, STR_SIZE};
 use crate::mir::drops::{copy_glue_types, drop_glue_types, glue_name, holds_string};
@@ -51,7 +51,7 @@ pub fn compile(hir: &hir::Program, mir: &Program) -> Result<Vec<u8>, String> {
     for (i, f) in hir.funcs.iter().enumerate() {
         if let Some(symbol) = hir.foreign.get(&i) {
             // A C function: the real symbol, found by the linker.
-            let s = foreign_signature(&module, f);
+            let s = foreign_signature(&module, hir, f);
             ids.push(module.declare_function(symbol, Linkage::Import, &s).map_err(err)?);
             continue;
         }
@@ -1273,6 +1273,54 @@ impl Cg<'_, '_> {
         self.addr_of(dest.expect("a call with a string result has a destination"))
     }
 
+    /// A call of a C function. Small structs travel in registers, one value
+    /// per eightbyte, as the System V x86-64 ABI says (the front end refuses
+    /// structs by value on other targets).
+    fn foreign_call(&mut self, id: usize, args: &[Arg], dest: Option<&Place>) {
+        let ret = self.hir.funcs[id].ret;
+        let mut vals = Vec::new();
+        for a in args {
+            let ty = self.op_ty(&a.op);
+            if ty.struct_id().is_none() {
+                vals.push(self.operand(&a.op));
+                continue;
+            }
+            let parts = sysv_struct(self.hir, ty).expect("a C struct passed by value fits two registers");
+            let addr = self.operand_addr(&a.op);
+            for (i, part) in parts.iter().enumerate() {
+                let off = (8 * i) as i32;
+                let v = match *part {
+                    Eightbyte::Sse(_) => self.b.ins().load(part.reg_type(), MEM, addr, off),
+                    Eightbyte::Int(8) => self.b.ins().load(types::I64, MEM, addr, off),
+                    Eightbyte::Int(n) => {
+                        let narrow = self.b.ins().load(ClType::int((n * 8) as u16).expect("a 1, 2 or 4 byte tail"), MEM, addr, off);
+                        self.b.ins().uextend(types::I64, narrow)
+                    }
+                };
+                vals.push(v);
+            }
+        }
+        let callee = self.module.declare_func_in_func(self.ids[id], self.b.func);
+        let call = self.b.ins().call(callee, &vals);
+        let Some(d) = dest else { return };
+        if ret.struct_id().is_some() {
+            let parts = sysv_struct(self.hir, ret).expect("a C struct returned by value fits two registers");
+            let base = self.dest_addr(Some(d));
+            let results = self.b.inst_results(call).to_vec();
+            for (i, (part, r)) in parts.iter().zip(results).enumerate() {
+                let v = match *part {
+                    Eightbyte::Int(n) if n < 8 => self.b.ins().ireduce(ClType::int((n * 8) as u16).expect("a 1, 2 or 4 byte tail"), r),
+                    _ => r,
+                };
+                self.b.ins().store(MEM, v, base, (8 * i) as i32);
+            }
+        } else if cl_type(ret).is_some() {
+            let r = self.b.inst_results(call)[0];
+            let (loc, _) = self.locate(d);
+            self.store(loc, r);
+        }
+    }
+
     /// The values a Drachm function is called with: scalars as they are, strings
     /// and structs by address (the callee owns them, see the module comment).
     fn call_args(&mut self, args: &[Arg]) -> Vec<Value> {
@@ -1343,6 +1391,7 @@ impl Cg<'_, '_> {
                     self.store(loc, r);
                 }
             }
+            Callee::Func(id) if self.hir.foreign.contains_key(&id) => self.foreign_call(id, args, dest),
             Callee::Func(id) => {
                 let ret = self.hir.funcs[id].ret;
                 let mut vals = Vec::new();

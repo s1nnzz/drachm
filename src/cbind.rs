@@ -326,14 +326,33 @@ impl CCtx {
         }
     }
 
+    /// Can the struct `name` cross a C call by value? Only System V x86-64 is
+    /// verified, and only for structs of at most two eightbytes of numbers and
+    /// pointers (tails of 1, 2 or 4 bytes).
+    fn by_value_ok(&self, k: usize, name: &str) -> Result<(), String> {
+        if !cfg!(all(target_arch = "x86_64", unix)) {
+            return Err("passing a C struct by value is verified only for System V x86-64 so far".into());
+        }
+        match self.units[k].decls.get(name) {
+            Some(Decl::Record(r)) if r.unsupported.is_none() && !r.opaque => {
+                if r.size == 0 || r.size > 16 || !matches!(r.size % 8, 0 | 1 | 2 | 4) {
+                    return Err(format!("passing `{name}` ({} bytes) by value is not supported yet: only structs of up to 16 bytes", r.size));
+                }
+                Ok(())
+            }
+            _ => Err(format!("passing `{name}` by value is not supported: its layout is unknown")),
+        }
+    }
+
     fn lower_sig(&self, k: usize, sig: &CSig, found: &mut Vec<String>) -> Result<(TypeName, Vec<TypeName>), String> {
         let at = self.spans[k];
         if sig.variadic {
             return Err("it takes a variable number of arguments, which are not supported yet".into());
         }
-        let by_value = |t: &CType| matches!(t, CType::Record(_));
-        if by_value(&sig.ret) || sig.params.iter().any(|(_, t)| by_value(t)) {
-            return Err("passing a C struct by value is not supported yet".into());
+        for t in std::iter::once(&sig.ret).chain(sig.params.iter().map(|(_, t)| t)) {
+            if let CType::Record(name) = t {
+                self.by_value_ok(k, name)?;
+            }
         }
         let ret = self.lower_type(k, &sig.ret, at, found).map_err(|e| format!("its result: {e}"))?;
         let mut params = Vec::new();

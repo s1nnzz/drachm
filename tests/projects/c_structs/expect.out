@@ -1,5 +1,10 @@
 point: 14, 5
 rect: 14, 9, 6x7
 size: 1.5 2.5
+made: 7, 8
+area: 15
+size: 2.5 by 4.0
+mixed: 6.5
+tri: 10 12 sum 33
 work: 15 115
 alive: 0

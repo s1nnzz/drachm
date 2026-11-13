@@ -61,6 +61,11 @@ void fx_point_move(fx_point *p, int dx, int dy) { p->x += dx; p->y += dy; }
 fx_point fx_point_make(int x, int y) { fx_point p = { x, y }; return p; }
 int fx_rect_area(fx_rect r) { return r.w * r.h; }
 fx_size fx_size_make(double w, double h) { fx_size s = { w, h }; return s; }
+fx_mixed fx_mixed_make(int a, float b, double c) { fx_mixed m = { a, b, c }; return m; }
+double fx_mixed_sum(fx_mixed m) { return m.a + m.b + m.c; }
+fx_tri fx_tri_make(int a) { fx_tri t = { a, a + 1, a + 2 }; return t; }
+int fx_tri_sum(fx_tri t) { return t.a + t.b + t.c; }
+int fx_wide_sum(fx_wide w) { return w.a + w.b + w.c + w.d + w.e; }
 
 fx_color fx_next_color(fx_color c) { return c == FX_RED ? FX_GREEN : c == FX_GREEN ? FX_BLUE : FX_RED; }
 const char *fx_color_name(fx_color c) { return c == FX_RED ? "red" : c == FX_GREEN ? "green" : c == FX_BLUE ? "blue" : "unknown"; }

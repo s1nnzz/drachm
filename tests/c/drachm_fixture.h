@@ -53,6 +53,14 @@ void fx_point_move(fx_point *p, int dx, int dy);
 fx_point fx_point_make(int x, int y);
 int fx_rect_area(fx_rect r);
 fx_size fx_size_make(double w, double h);
+typedef struct { int a; float b; double c; } fx_mixed;
+fx_mixed fx_mixed_make(int a, float b, double c);
+double fx_mixed_sum(fx_mixed m);
+typedef struct { int a; int b; int c; } fx_tri;
+fx_tri fx_tri_make(int a);
+int fx_tri_sum(fx_tri t);
+typedef struct { int a; int b; int c; int d; int e; } fx_wide;
+int fx_wide_sum(fx_wide w);
 
 /* enums */
 typedef enum { FX_RED, FX_GREEN = 5, FX_BLUE } fx_color;
