@@ -54,8 +54,9 @@ For a new session with no memory of earlier conversations. Read this, then
   still built. See `docs/PLAN.md` step 7 WP9.
 - **Step 7**: modules, config and public dependency imports are built.
   Libraries check without `main()`. The showcase uses source tabs.
-  Bounds, unsigned negation and missing-map-key settings work. Overflow,
-  unhandled failure and import-clash settings are pending. Stateless scripts
+  All six `[behaviour]` settings work (`overflow` per function, with
+  `Rvalue::Checked` in MIR and `drachm_ovf_*` in the runtime; `unhandled_fail =
+  crash`; `import_clash = error` is E0242). Stateless scripts
   run top-level statements on both backends. Shared runtime state and JIT
   are pending. See `docs/impl/step7-modules.md` and
   `docs/impl/step7-scripts.md`. The C import draft is
