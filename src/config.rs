@@ -39,6 +39,29 @@ pub struct Config {
     pub build: Build,
     pub warnings: Warnings,
     pub behaviour: Behaviour,
+    pub native: Native,
+}
+
+/// The `[native]` table (step 7.1): what C imports and linking need. Paths
+/// are relative to the folder of the `drachm.toml` that wrote them.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Native {
+    /// Header search directories (`-I`).
+    pub include: Vec<String>,
+    /// Preprocessor definitions (`-D`): `NAME` or `NAME=value`.
+    pub defines: Vec<String>,
+    /// Libraries to link (`-l`).
+    pub libraries: Vec<String>,
+    /// Where to look for the libraries (`-L`).
+    pub library_dirs: Vec<String>,
+    /// C source files of the project, compiled and linked with it.
+    pub sources: Vec<String>,
+}
+
+impl Native {
+    pub fn is_empty(&self) -> bool {
+        *self == Native::default()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -210,6 +233,7 @@ impl Default for Config {
             build: Build::default(),
             warnings: Warnings::default(),
             behaviour: Behaviour::default(),
+            native: Native::default(),
         }
     }
 }
@@ -329,7 +353,7 @@ impl Reader {
     }
 
     fn config(&mut self, root: &Table) -> Config {
-        self.check_keys(root, &["project", "dependencies", "build", "warnings", "behaviour"], self.file);
+        self.check_keys(root, &["project", "dependencies", "build", "warnings", "behaviour", "native"], self.file);
         let mut c = if self.script { Config::script() } else { Config::default() };
         if let Some(t) = self.section(root, "project") {
             c.project = self.project(t);
@@ -348,7 +372,39 @@ impl Reader {
         if let Some(t) = self.section(root, "behaviour") {
             c.behaviour = self.behaviour(t, c.behaviour);
         }
+        if let Some(t) = self.section(root, "native") {
+            c.native = self.native(t);
+        }
         c
+    }
+
+    fn native(&mut self, t: &Table) -> Native {
+        self.check_keys(t, &["include", "defines", "libraries", "library_dirs", "sources"], "[native]");
+        let mut n = Native::default();
+        for (key, out) in [
+            ("include", &mut n.include),
+            ("defines", &mut n.defines),
+            ("libraries", &mut n.libraries),
+            ("library_dirs", &mut n.library_dirs),
+            ("sources", &mut n.sources),
+        ] {
+            let Some(item) = t.get(key) else { continue };
+            match item.as_array() {
+                Some(list) => {
+                    for v in list.iter() {
+                        match v.as_str() {
+                            Some(text) => out.push(text.to_string()),
+                            None => self.diags.push(Diagnostic::at(&codes::E0802, self.span(v.span()), format!("every entry of `{key}` is text in quotes"))),
+                        }
+                    }
+                }
+                None => self.diags.push(
+                    Diagnostic::at(&codes::E0802, self.item_span(item), format!("`{key}` is a list of text"))
+                        .help(format!("write it like `{key} = [\"name\"]`")),
+                ),
+            }
+        }
+        n
     }
 
     fn missing_name(&mut self, root: &Table) {

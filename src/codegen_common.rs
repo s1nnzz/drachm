@@ -45,6 +45,7 @@ pub(crate) fn cl_type(t: Type) -> Option<ClType> {
         Type::None | Type::Str | Type::List { .. } | Type::Map { .. } | Type::Array { .. } | Type::Struct { .. } | Type::Enum { .. } => None,
         Type::Unit { .. } => unreachable!("units are erased before the backends"),
         Type::Val { .. } => unreachable!("a value argument is no type of the program"),
+        Type::C(_) | Type::Foreign { .. } => unreachable!("C types are erased before the backends"),
     }
 }
 

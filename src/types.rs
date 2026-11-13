@@ -51,6 +51,102 @@ pub enum Type {
     /// in a program; it only keys instances, so `Buffer<sint32, 4>` and
     /// `Buffer<sint32, 8>` differ.
     Val { bits: u16, signed: bool, v: i128 },
+    /// A C scalar (`c::int`, `c::long`, `c::size_t`, ...): its own type, with
+    /// the representation of the number it stands for. Erased by `bare`.
+    C(CKind),
+    /// `foreign *T`: a pointer the C side owns. Only `unsafe` code opens it.
+    /// Erased to `*T` by `bare`, so the backends never see it.
+    Foreign { to: &'static Type },
+}
+
+/// The C scalar types (step 7.1). Width and signedness follow the target's
+/// C ABI (LP64 everywhere but Windows, where `long` is 32 bits).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CKind {
+    /// Plain `char`: its own type, since its signedness is the target's.
+    Char,
+    SChar,
+    UChar,
+    Short,
+    UShort,
+    Int,
+    UInt,
+    Long,
+    ULong,
+    LongLong,
+    ULongLong,
+    SizeT,
+    SSizeT,
+    Float,
+    Double,
+    Bool,
+}
+
+impl CKind {
+    pub const ALL: [CKind; 16] = [
+        CKind::Char, CKind::SChar, CKind::UChar, CKind::Short, CKind::UShort, CKind::Int, CKind::UInt, CKind::Long,
+        CKind::ULong, CKind::LongLong, CKind::ULongLong, CKind::SizeT, CKind::SSizeT, CKind::Float, CKind::Double, CKind::Bool,
+    ];
+
+    /// The name after `c::`.
+    pub fn word(self) -> &'static str {
+        match self {
+            CKind::Char => "char",
+            CKind::SChar => "schar",
+            CKind::UChar => "uchar",
+            CKind::Short => "short",
+            CKind::UShort => "ushort",
+            CKind::Int => "int",
+            CKind::UInt => "uint",
+            CKind::Long => "long",
+            CKind::ULong => "ulong",
+            CKind::LongLong => "longlong",
+            CKind::ULongLong => "ulonglong",
+            CKind::SizeT => "size_t",
+            CKind::SSizeT => "ssize_t",
+            CKind::Float => "float",
+            CKind::Double => "double",
+            CKind::Bool => "bool",
+        }
+    }
+
+    pub fn from_word(w: &str) -> Option<CKind> {
+        CKind::ALL.into_iter().find(|k| k.word() == w)
+    }
+
+    /// Is the number signed? (The answer for plain `char` is the target's:
+    /// signed on x86-64, unsigned on 64-bit ARM Linux.)
+    pub fn underlying_is_signed(self) -> bool {
+        match self {
+            CKind::Char => !cfg!(target_arch = "aarch64"),
+            CKind::SChar | CKind::Short | CKind::Int | CKind::Long | CKind::LongLong | CKind::SSizeT | CKind::Float | CKind::Double => true,
+            _ => false,
+        }
+    }
+
+    /// The Drachm number type with this C type's representation.
+    pub fn underlying(self) -> Type {
+        let long = if cfg!(windows) { 32 } else { 64 };
+        let int = |bits, signed| Type::Int { bits, signed };
+        match self {
+            CKind::Char => int(8, self.underlying_is_signed()),
+            CKind::SChar => int(8, true),
+            CKind::UChar => int(8, false),
+            CKind::Short => int(16, true),
+            CKind::UShort => int(16, false),
+            CKind::Int => int(32, true),
+            CKind::UInt => int(32, false),
+            CKind::Long => int(long, true),
+            CKind::ULong => int(long, false),
+            CKind::LongLong => int(64, true),
+            CKind::ULongLong => int(64, false),
+            CKind::SizeT => int(64, false),
+            CKind::SSizeT => int(64, true),
+            CKind::Float => Type::Float(32),
+            CKind::Double => Type::Float(64),
+            CKind::Bool => Type::Bool,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
@@ -251,6 +347,8 @@ impl Type {
             Type::Array { elem, len } => Type::array(elem.bare(), len),
             Type::Func(sig) if self.mentions_unit() => Type::func(sig.params.iter().map(|t| t.bare()).collect(), sig.ret.bare()),
             Type::Map { key, val, ordered } => Type::map(key.bare(), val.bare(), ordered),
+            Type::C(k) => k.underlying(),
+            Type::Foreign { to } => Type::ptr(to.bare()),
             t => t,
         }
     }
@@ -317,7 +415,7 @@ impl Type {
 
     /// A raw pointer of either kind (`*T` or `*fixed T`).
     pub fn is_ptr(self) -> bool {
-        matches!(self, Type::Ptr { .. } | Type::FixedPtr { .. })
+        matches!(self, Type::Ptr { .. } | Type::FixedPtr { .. } | Type::Foreign { .. })
     }
 
     pub fn is_fixed_ptr(self) -> bool {
@@ -327,8 +425,32 @@ impl Type {
     /// What a borrow or pointer points at.
     pub fn target(self) -> Option<Type> {
         match self {
-            Type::Ref { to, .. } | Type::Ptr { to } | Type::FixedPtr { to } => Some(*to),
+            Type::Ref { to, .. } | Type::Ptr { to } | Type::FixedPtr { to } | Type::Foreign { to } => Some(*to),
             _ => None,
+        }
+    }
+
+    /// `foreign *to`
+    pub fn foreign(to: Type) -> Type {
+        Type::Foreign { to: intern_type(to) }
+    }
+
+    pub fn is_foreign(self) -> bool {
+        matches!(self, Type::Foreign { .. })
+    }
+
+    /// A C scalar type.
+    pub fn is_c(self) -> bool {
+        matches!(self, Type::C(_))
+    }
+
+    /// Does this type (or what it points at) mention a C scalar or a foreign pointer?
+    pub fn mentions_c(self) -> bool {
+        match self {
+            Type::C(_) | Type::Foreign { .. } => true,
+            Type::Ref { to, .. } | Type::Ptr { to } | Type::FixedPtr { to } => to.mentions_c(),
+            Type::List { elem } | Type::Array { elem, .. } => elem.mentions_c(),
+            _ => false,
         }
     }
 
@@ -417,6 +539,8 @@ impl fmt::Display for Type {
             Type::Ref { mutable: true, to } => write!(f, "&mut {to}"),
             Type::Ptr { to } => write!(f, "*{to}"),
             Type::FixedPtr { to } => write!(f, "*fixed {to}"),
+            Type::C(k) => write!(f, "c::{}", k.word()),
+            Type::Foreign { to } => write!(f, "foreign *{to}"),
             Type::Unit { of, unit } => write!(f, "{of}<{}>", unit_name(unit)),
             Type::List { elem } if elem.is_borrow() => write!(f, "List<{elem}>"),
             Type::List { elem } => write!(f, "{elem}[?]"),

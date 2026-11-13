@@ -2,6 +2,7 @@
 //! (later) the language server all drive it through here.
 
 pub mod ast;
+pub mod cimport;
 pub mod cgen_common;
 pub mod cgen_mir;
 pub mod codegen_common;
