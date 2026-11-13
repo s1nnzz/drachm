@@ -1,6 +1,7 @@
 //! File flags: `//--!$key: value` lines at the top of a source file. The lexer
 //! sees them as ordinary comments; this module reads them before lexing.
 
+use crate::config::{self, Bounds, FileBehaviour, Overflow, UnsignedNegate};
 use crate::diag::{codes, Diagnostic, Span};
 
 /// What the flag lines of a file say.
@@ -9,6 +10,10 @@ pub struct FileFlags {
     pub entries: Vec<FileFlag>,
     /// `//--!$unsafe: true` is present. Only a valid `true` sets it.
     pub unsafe_allowed: bool,
+    /// The behaviour settings this file sets (`overflow`, `bounds`,
+    /// `unsigned_negate`). The last valid line for a key wins. The code
+    /// generators do not read these yet (WP4).
+    pub behaviour: FileBehaviour,
 }
 
 /// One well-formed `key: value` line.
@@ -20,7 +25,7 @@ pub struct FileFlag {
 }
 
 const PREFIX: &str = "//--!$";
-const KNOWN_KEYS: &[&str] = &["unsafe"];
+const KNOWN_KEYS: &[&str] = &["unsafe", "overflow", "bounds", "unsigned_negate", "missing_key", "unhandled_fail", "import_clash"];
 
 /// Reads the flags at the top of `src`, reporting bad ones to `diags`. Never
 /// fails. Flag lines after the top block are reported and not applied.
@@ -31,7 +36,7 @@ pub fn parse(src: &str, diags: &mut Vec<Diagnostic>) -> FileFlags {
 /// `parse` for a file that starts at global offset `base` (see `diag::SourceMap`).
 pub fn parse_at(src: &str, base: usize, diags: &mut Vec<Diagnostic>) -> FileFlags {
     let lines = split_lines(src, base);
-    let mut flags = FileFlags { entries: Vec::new(), unsafe_allowed: false };
+    let mut flags = FileFlags { entries: Vec::new(), unsafe_allowed: false, behaviour: FileBehaviour::default() };
     // A `#!` line may come first; the flags start on the line after it.
     let mut i = usize::from(lines.first().is_some_and(|l| l.text.starts_with("#!")));
     while let Some(line) = lines.get(i).filter(|l| l.text.starts_with(PREFIX)) {
@@ -106,6 +111,16 @@ fn flag_line(line: &Line, flags: &mut FileFlags, diags: &mut Vec<Diagnostic>) {
                     .label(line.span_at(value_at, value.len()), "expected `true` or `false`"),
             ),
         },
+        "overflow" => set_behaviour(key, Overflow::parse(value), Overflow::WORDS, line, value, value_at, &mut flags.behaviour.overflow, diags),
+        "bounds" => set_behaviour(key, Bounds::parse(value), Bounds::WORDS, line, value, value_at, &mut flags.behaviour.bounds, diags),
+        "unsigned_negate" => set_behaviour(key, UnsignedNegate::parse(value), UnsignedNegate::WORDS, line, value, value_at, &mut flags.behaviour.unsigned_negate, diags),
+        "missing_key" | "unhandled_fail" | "import_clash" => {
+            diags.push(
+                Diagnostic::at(&codes::E0806, line.span_at(key_at, key.len()), format!("`{key}` is a setting for the whole project"))
+                    .note("a file flag cannot set it")
+                    .help(format!("set `{key}` under `[behaviour]` in drachm.toml; the file flags are {}", config::FILE_KEYS.join(", "))),
+            );
+        }
         _ => {
             let mut d = Diagnostic::at(&codes::W0319, line.span_at(key_at, key.len()), format!("unknown file flag `{key}`"));
             if let Some(k) = similar(key, KNOWN_KEYS) {
@@ -113,6 +128,28 @@ fn flag_line(line: &Line, flags: &mut FileFlags, diags: &mut Vec<Diagnostic>) {
             }
             diags.push(d);
         }
+    }
+}
+
+/// A behaviour flag (`overflow`, `bounds`, `unsigned_negate`): a word of the
+/// setting's list sets it for this file; anything else is E0318. The value
+/// is `value`, which starts `value_at` bytes into the line.
+fn set_behaviour<T: Copy>(
+    key: &str,
+    parsed: Option<T>,
+    words: &[(&str, T)],
+    line: &Line,
+    value: &str,
+    value_at: usize,
+    slot: &mut Option<T>,
+    diags: &mut Vec<Diagnostic>,
+) {
+    match parsed {
+        Some(v) => *slot = Some(v),
+        None => diags.push(
+            Diagnostic::new(&codes::E0318, format!("`{key}` must be {}, found `{value}`", config::one_of(words)))
+                .label(line.span_at(value_at, value.len()), format!("expected {}", config::one_of(words))),
+        ),
     }
 }
 
@@ -273,5 +310,54 @@ mod tests {
         assert_eq!(flags.entries[1].value, "yes");
         assert_eq!(text_of(src, flags.entries[1].span), "//--!$unsafe:   yes");
         assert_eq!(text_of(src, diags[0].labels[0].0), "yes");
+    }
+}
+
+#[cfg(test)]
+mod behaviour_tests {
+    use super::*;
+    use crate::config::{Bounds, Overflow, UnsignedNegate};
+
+    fn check(src: &str) -> (FileFlags, Vec<Diagnostic>) {
+        let mut diags = Vec::new();
+        let flags = parse(src, &mut diags);
+        (flags, diags)
+    }
+
+    #[test]
+    fn behaviour_flags_set_their_key_for_the_file() {
+        let (flags, diags) = check("//--!$overflow: saturate\n//--!$bounds: unchecked\n//--!$unsigned_negate: signed\nnone main() { }\n");
+        assert!(diags.is_empty(), "{:?}", diags.iter().map(|d| &d.message).collect::<Vec<_>>());
+        assert_eq!(flags.behaviour.overflow, Some(Overflow::Saturate));
+        assert_eq!(flags.behaviour.bounds, Some(Bounds::Unchecked));
+        assert_eq!(flags.behaviour.unsigned_negate, Some(UnsignedNegate::Signed));
+    }
+
+    #[test]
+    fn last_valid_behaviour_value_wins() {
+        let (flags, diags) = check("//--!$overflow: panic\n//--!$overflow: clamp\n//--!$overflow: wrap\n");
+        assert_eq!(flags.behaviour.overflow, Some(Overflow::Wrap));
+        assert_eq!(diags.len(), 1);
+        assert_eq!(diags[0].code.id, "E0318");
+        assert_eq!(diags[0].message, "`overflow` must be wrap, saturate or panic, found `clamp`");
+    }
+
+    #[test]
+    fn a_project_wide_setting_in_a_file_is_e0806() {
+        let src = "//--!$missing_key: panic\n//--!$import_clash: error\n//--!$unhandled_fail: crash\nnone main() { }\n";
+        let (flags, diags) = check(src);
+        assert_eq!(flags.behaviour, FileBehaviour::default());
+        let ids: Vec<&str> = diags.iter().map(|d| d.code.id).collect();
+        assert_eq!(ids, ["E0806", "E0806", "E0806"]);
+        assert_eq!(diags[0].message, "`missing_key` is a setting for the whole project");
+        let span = diags[0].labels[0].0;
+        assert_eq!(&src[span.start..span.end], "missing_key");
+    }
+
+    #[test]
+    fn unsafe_still_works_beside_them() {
+        let (flags, diags) = check("//--!$unsafe: true\n//--!$bounds: panic\n");
+        assert!(flags.unsafe_allowed);
+        assert!(diags.is_empty());
     }
 }

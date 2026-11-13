@@ -165,7 +165,10 @@ pointer by accident. See [Unsafe](reference-unsafe.md).
 
 Use a flag for a file with one odd need, such as the file that wraps a C
 library. If most files need the same, change the project setting instead. The
-other flags, such as `//--!$overflow: saturate`, are designed, not built.
+flags `overflow`, `bounds` and `unsigned_negate` are checked (a wrong word is
+E0318) and stored for the file, such as `//--!$overflow: saturate`; the code
+does not use them yet. `missing_key`, `unhandled_fail` and `import_clash` are
+for the whole project, so a file flag that sets one is E0806.
 
 ## Scripts
 <!-- status: not-implemented -->

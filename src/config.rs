@@ -263,7 +263,7 @@ fn is_identifier(s: &str) -> bool {
 }
 
 /// `"a", "b" or "c"` for the words of a setting.
-fn one_of<T>(words: &[(&str, T)]) -> String {
+pub(crate) fn one_of<T>(words: &[(&str, T)]) -> String {
     let names: Vec<&str> = words.iter().map(|(w, _)| *w).collect();
     match names.split_last() {
         Some((last, [])) => last.to_string(),
