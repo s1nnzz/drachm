@@ -29,6 +29,7 @@ answers into `docs/SPEC.md` and the design doc, and note leftovers under that st
 | 7.5 | MIR optimiser: SSA, inlining, scalar replacement, constant folding, loop opts, check elimination, alias info from borrows | not started |
 | 8 | Language server | not started |
 | D | Documentation site (cross-cutting) | live locally: lessons 1-9, reference, design pages with status badges |
+| D2 | Site redesign | not started: a full visual re-look of the docs site to make everything look super duper sexy (owner, 2026-11-13); see "Site redesign" below |
 
 Later, unscheduled: concurrency (threads and async),
 C header import, `drachm fmt`, the Agora registry.
@@ -802,6 +803,15 @@ failing `drop()`: glue calls a synthesised wrapper (returns `none`) that reports
 code (`ReportExit`, `_exit`, so live values are not freed). Interims: `e::cause()` and `copy` of a failure are E0901; the list shorthand
 `Port p = 1, 2 maybe x` is not built; `Callee::Parse` was already replaced by S5C's status call.
 **Open (owner):** what `e::cause()` returns; whether `maybe` after a list shorthand should apply to the whole list.
+
+## Site redesign (cross-cutting, owner 2026-11-13)
+
+A full re-look of the docs site so every page looks "super duper sexy" (owner's
+words). Supersedes the earlier "minimal, like nextjs.org docs" brief as the
+target look, once started. Scope to agree with the owner before starting: a
+visual direction (mockups first), typography and colour, code blocks and the
+showcase, lesson/reference/design page layouts, the landing page, light and
+dark themes, phone layouts. Not scheduled; ask the owner when to slot it in.
 
 ## Performance (cross-cutting)
 
