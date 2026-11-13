@@ -48,3 +48,37 @@ fn a_project_file_is_checked_with_its_project() {
     assert!(all.iter().any(|(f, d)| f.ends_with("util.drh") && !d.is_empty()), "{all:?}");
     assert!(all.iter().any(|(f, d)| f.ends_with("main.drh") && d.is_empty()), "{all:?}");
 }
+
+fn parse(src: &str) -> (crate::ast::Program, Vec<crate::diag::Diagnostic>) {
+    let mut diags = Vec::new();
+    let tokens = crate::lexer::lex(src, &mut diags);
+    let program = crate::parser::parse(tokens, &mut diags);
+    (program, diags)
+}
+
+#[test]
+fn a_half_typed_function_stays_in_the_tree() {
+    let (p, diags) = parse("none f() {\n  uint32 x = 1;\n  uint32 y = 2;\n\nnone main() { }\n");
+    assert_eq!(diags.len(), 1);
+    assert_eq!(diags[0].code.id, "E0004");
+    let f = p.funcs.iter().find(|f| f.name == "f").expect("f is kept");
+    assert_eq!(f.body.stmts.len(), 2);
+    assert!(p.funcs.iter().any(|f| f.name == "main"));
+}
+
+#[test]
+fn later_errors_still_show_after_a_bad_statement() {
+    let (p, diags) = parse("none f() {\n  uint32 x = ;\n  uint32 y = 2;\n}\nnone g() {\n  uint32 z = ;\n}\nnone main() { }\n");
+    assert_eq!(diags.len(), 2, "{diags:?}");
+    assert_eq!(p.funcs.len(), 3);
+    assert_eq!(p.funcs[0].body.stmts.len(), 1);
+}
+
+#[test]
+fn a_half_typed_struct_keeps_its_members() {
+    let (p, diags) = parse("struct P {\n  public:\n  uint32 x;\n  uint32 y;\n  uint32 sum() { return self.x + self.y;\n");
+    assert!(diags.iter().any(|d| d.code.id == "E0004"));
+    let s = &p.structs[0];
+    assert_eq!(s.fields.len(), 2);
+    assert_eq!(s.methods.len(), 1);
+}

@@ -1657,8 +1657,12 @@ impl Parser<'_> {
         let mut section: Option<bool> = None;
         while self.peek() != &Tok::Sym("}") {
             if self.peek() == &Tok::Eof || self.peek() == &Tok::Kw("struct") {
-                return Err(Diagnostic::at(&codes::E0004, open, "this `{` is never closed")
-                    .label(self.span(), format!("expected `}}` before {}", self.peek().describe())));
+                self.diags.push(
+                    Diagnostic::at(&codes::E0004, open, "this `{` is never closed")
+                        .label(self.span(), format!("expected `}}` before {}", self.peek().describe())),
+                );
+                s.span = start.to(self.prev_span());
+                return Ok(s);
             }
             if let Tok::Kw(k @ ("public" | "private")) = *self.peek()
                 && self.peek_at(1) == &Tok::Sym(":")
@@ -1756,8 +1760,14 @@ impl Parser<'_> {
         while self.peek() != &Tok::Sym("}") {
             // Functions don't nest, so the start of one means the `}` is missing.
             if self.peek() == &Tok::Eof || self.at_item_start() {
-                return Err(Diagnostic::at(&codes::E0004, open, "this `{` is never closed")
-                    .label(self.span(), format!("expected `}}` before {}", self.peek().describe())));
+                // The block ends here but keeps what was read, so a half-typed
+                // function stays in the tree (the language server needs it). The
+                // error is the same one, and every block around reports its own.
+                self.diags.push(
+                    Diagnostic::at(&codes::E0004, open, "this `{` is never closed")
+                        .label(self.span(), format!("expected `}}` before {}", self.peek().describe())),
+                );
+                return Ok(Block { stmts, end: self.prev_span() });
             }
             match self.stmt() {
                 Ok(s) => stmts.push(s),
