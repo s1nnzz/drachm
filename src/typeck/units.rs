@@ -27,7 +27,7 @@ use crate::units::{scale_pair, Unit, UnitError, UnitTable};
 /// Uses of a failed unit are not reported again: the declaration already was.
 #[derive(Default)]
 pub struct UnitEnv {
-    table: UnitTable,
+    pub(super) table: UnitTable,
     failed: HashSet<String>,
 }
 
@@ -270,9 +270,14 @@ impl Globals {
     /// The unit a `<...>` names. Reports unknown and bad units to `diags`;
     /// `None` after an error.
     pub(super) fn resolve_unit_spec(&self, spec: &ast::UnitSpec, at: Span, diags: &mut Vec<Diagnostic>) -> Option<&'static Unit> {
+        self.resolve_unit_spec_in(spec, &self.tenv, at, diags)
+    }
+
+    /// `resolve_unit_spec` with the unit parameters given by `params`.
+    pub(super) fn resolve_unit_spec_in(&self, spec: &ast::UnitSpec, params: &HashMap<String, Type>, at: Span, diags: &mut Vec<Diagnostic>) -> Option<&'static Unit> {
         let mut env = self.units.borrow_mut();
         let no_decls = HashMap::new();
-        let mut ev = Eval { env: &mut env, decls: &no_decls, params: &self.tenv, stack: Vec::new(), diags, at };
+        let mut ev = Eval { env: &mut env, decls: &no_decls, params, stack: Vec::new(), diags, at };
         let u = ev.expr(&spec.expr)?;
         if spec.delta {
             return Some(ev.env.table.delta_of(u));

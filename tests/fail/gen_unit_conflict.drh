@@ -1,0 +1,11 @@
+in io;
+in si;
+
+// The second argument makes `U` seconds; the first, `U/s`, then has no unit left.
+float64<U> conflict<unit U>(float64<U/s> b, float64<U> a) {
+    return a;
+}
+
+none main() {
+    io::outln(f"${conflict(2.0<m/s>, 3.0<s>)::text()}");
+}
