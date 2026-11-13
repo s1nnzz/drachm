@@ -9,7 +9,7 @@ use lsp_types::{DiagnosticRelatedInformation, DiagnosticSeverity, Location, Numb
 
 use super::pos::{path_to_uri, to_range};
 use crate::config;
-use crate::diag::{self, Diagnostic, Severity, SourceMap, Span};
+use crate::diag::{Diagnostic, Severity, SourceMap};
 use crate::modules::{self, ModuleGraph};
 
 pub struct Analysis {
@@ -60,23 +60,17 @@ impl Analysis {
             }
         };
         let (_, graph, diags) = crate::check_project(&opened.entry, &opened.info);
-        let files: Vec<PathBuf> = {
-            let mut v = vec![PathBuf::new(); graph.map.len()];
-            for m in &graph.modules {
-                v[m.file] = m.path.clone();
-            }
-            v
-        };
+        let mut files = vec![PathBuf::new(); graph.map.len()];
+        for m in &graph.modules {
+            files[m.file] = m.path.clone();
+        }
         if let Some(member) = member {
             let key = modules::overlay_key(member);
             if !files.iter().any(|f| modules::overlay_key(f) == key) {
                 return None;
             }
         }
-        let map = SourceMap::new();
-        let mut a = Analysis { entry: opened.entry, files, map, graph: None, diags };
-        a.map = std::mem::take(&mut { graph }.map_take(&mut a.graph));
-        Some(a)
+        Some(Analysis { entry: opened.entry, files, map: SourceMap::new(), graph: Some(graph), diags })
     }
 
     /// The file id of `path` in this program.
@@ -103,12 +97,12 @@ impl Analysis {
             };
             let mut related = Vec::new();
             let here = |f: usize, r| Location { uri: path_to_uri(&self.files[f]).expect("a file path is a uri"), range: r };
-            for (i, (span, text)) in d.labels.iter().enumerate() {
+            for (span, text) in &d.labels {
                 if text.is_empty() {
                     continue;
                 }
                 let (f, local) = map.locate(*span);
-                related.push(DiagnosticRelatedInformation { location: here(f, to_range(map.source(f), local)), message: if i == 0 { text.clone() } else { text.clone() } });
+                related.push(DiagnosticRelatedInformation { location: here(f, to_range(map.source(f), local)), message: text.clone() });
             }
             for n in &d.notes {
                 related.push(DiagnosticRelatedInformation { location: here(file, range), message: format!("note: {n}") });
@@ -141,5 +135,3 @@ impl Analysis {
     }
 }
 
-#[allow(dead_code)]
-fn _unused(_: Span, _: &diag::Diagnostic) {}
