@@ -35,7 +35,7 @@ pub fn front(src: &str) -> (Option<hir::Program>, Vec<Diagnostic>) {
     let flags = flags::parse(src, &mut diags);
     let tokens = lexer::lex(src, &mut diags);
     let mut program = parser::parse(tokens, &mut diags);
-    program.unsafe_allowed = flags.unsafe_allowed;
+    program.unsafe_files = vec![(0, flags.unsafe_allowed)];
     resolve::chain_slips_by_imports(&mut program, &mut diags);
     // A program with syntax errors has holes in it; type errors found in what
     // is left would mostly be noise.
@@ -101,6 +101,17 @@ fn front_project_with_settings(entry: &std::path::Path, info: &modules::ProjectI
             resolve::chain_slips_by_imports(&mut m.program, &mut diags);
         }
         return (None, graph, diags);
+    }
+    // Where `unsafe` is allowed: each file by its own flag, or by the
+    // `[native] unsafe` of the project it belongs to (the root's, or a
+    // dependency's, so a dependency's wrappers need nothing from the app).
+    for module in graph.modules.iter_mut() {
+        let path = module.path.canonicalize().unwrap_or_else(|_| module.path.clone());
+        let project_allows = deps.iter().filter(|dep| path.starts_with(&dep.src))
+            .max_by_key(|dep| dep.src.components().count())
+            .map_or(info.unsafe_allowed, |dep| dep.config.native.unsafe_allowed);
+        let flags = flags::parse(&graph.map.source(module.file).text, &mut Vec::new());
+        module.program.unsafe_files = vec![(graph.map.base(module.file), project_allows || flags.unsafe_allowed)];
     }
     let settings: Vec<_> = graph.modules.iter().map(|module| {
         let path = module.path.canonicalize().unwrap_or_else(|_| module.path.clone());

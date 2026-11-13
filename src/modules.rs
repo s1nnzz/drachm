@@ -43,13 +43,16 @@ pub struct ProjectInfo {
     pub dependency_names: Vec<String>,
     /// The `[native]` settings C header imports are read with.
     pub native: crate::cimport::Settings,
+    /// `[native] unsafe = true`: the project's files may use `unsafe` without
+    /// the file flag.
+    pub unsafe_allowed: bool,
 }
 
 impl ProjectInfo {
     /// A script or a single file: its root is its own folder.
     pub fn script(file: &Path) -> ProjectInfo {
         let dir = file.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
-        ProjectInfo { name: None, root: dir.to_path_buf(), display_base: None, script: true, requires_main: true, dependency_names: Vec::new(), native: Default::default() }
+        ProjectInfo { name: None, root: dir.to_path_buf(), display_base: None, script: true, requires_main: true, dependency_names: Vec::new(), native: Default::default(), unsafe_allowed: false }
     }
 
 }
@@ -280,7 +283,8 @@ impl Loader<'_> {
         let fl = flags::parse_at(&text, base, self.diags);
         let tokens = lexer::lex_at(&text, base, self.diags);
         let mut program = parser::parse_file(tokens, self.diags, self.info.script && from.is_none());
-        program.unsafe_allowed = fl.unsafe_allowed;
+        // The file's own flag; a project's `[native] unsafe` is added by `lib`.
+        program.unsafe_files = vec![(base, fl.unsafe_allowed)];
         let index = self.graph.modules.len();
         self.by_path.insert(key, index);
         let mut name = self.module_name(path);

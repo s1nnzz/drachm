@@ -526,8 +526,10 @@ from, and `lives` must name exactly the borrow fields:
 
 ## E0317: `unsafe` without the file flag
 
-`unsafe { }`, `unsafe` functions, `*T` types and `address of` need the
-file flag `//--!$unsafe: true` at the very top of the file.
+`unsafe { }`, `unsafe` functions, `*T` types, C calls and `address of` need
+the file flag `//--!$unsafe: true` at the very top of the file, or
+`unsafe = true` under `[native]` in `drachm.toml`, which allows every
+file of the project (and of a dependency that sets it).
 
 ## E0321: missing `&` or `&mut` at the call
 
@@ -812,6 +814,15 @@ the kind, say so inside an `unsafe { }` block:
 
     unsafe { *fixed uint32 r = w::freeze(); }   // `*T` to `*fixed T`
     unsafe { *uint32 w2 = r::thaw(); }          // `*fixed T` to `*T`
+
+## E0335: a pointer goes to C only with `as foreign`
+
+A Drachm pointer (`*T`, `*fixed T`) and a C pointer (`foreign *T`) are
+different types, and nothing changes one into the other by itself. The
+hand-over to C is written out with `as`, inside `unsafe { }`:
+
+    unsafe { sdl::SDL_free(buf as foreign *none); }    // any pointer to `void *`
+    unsafe { foreign *uint8 p = text as foreign *uint8; }   // `*uint8` to `foreign *uint8`
 
 ## E0316: an operation on a raw pointer needs `unsafe`
 

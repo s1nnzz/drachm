@@ -6,7 +6,17 @@ in * from c."drachm_fixture.h" as fx;
 string greeting() fails InvalidText {
     unsafe {
         foreign *uint8 p = fx::fx_greeting();
-        return p::text() fails;
+        string? text = p::text() fails;
+        return text maybe "(no greeting)";
+    }
+}
+
+// Bad UTF-8 is a failure; a null pointer is `none` (see `nothing`).
+string badText() fails InvalidText {
+    unsafe {
+        foreign *uint8 p = fx::fx_bad_text();
+        string? text = p::text() fails;
+        return text maybe "unreachable";
     }
 }
 
@@ -22,23 +32,23 @@ struct Copy {
     foreign *uint8 data;
 
     none drop() {
-        unsafe { fx::fx_free(self.data); }
+        unsafe { fx::fx_free(self.data as foreign *none); }
     }
 }
 
 string shout(string s) fails InvalidText {
     unsafe {
         foreign *uint8 p = fx::fx_dup(&s as c string);
-        string text = p::text() fails;
-        fx::fx_free(p);
-        return text;
+        string? text = p::text() fails;
+        fx::fx_free(p as foreign *none);
+        return text maybe "";
     }
 }
 
 sint32 divide(sint32 a, sint32 b) {
     unsafe {
         mut c::int result = 0;
-        c::int status = fx::fx_divide(a::to<c::int>(), b::to<c::int>(), address of result);
+        c::int status = fx::fx_divide(a::to<c::int>(), b::to<c::int>(), (address of result) as foreign *c::int);
         if (status < 0) {
             return -1;
         }
@@ -49,8 +59,10 @@ sint32 divide(sint32 a, sint32 b) {
 string nothing() {
     unsafe {
         foreign *uint8 p = none;
-        if (p == none) {
-            return "null: " + (p::text() maybe "failed");
+        // A null pointer is `none`, not a failure.
+        string? text = p::text() maybe none;
+        if (text is empty) {
+            return "null: none";
         }
         return "not null";
     }
@@ -62,6 +74,7 @@ none main() {
     io::outln(f"dup: ${shout("copy me") maybe "?"}");
     io::outln(f"live: ${unsafe_live()}");
     io::outln(nothing());
+    io::outln(f"bad: ${badText() maybe "caught the failure"}");
     io::outln(f"divide: ${divide(84, 2)} ${divide(1, 0)}");
 }
 

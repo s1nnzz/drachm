@@ -903,24 +903,28 @@ imports batch A-D"); the implementation spec is `docs/impl/step7.1-c-imports.md`
   with an assembler label. `[native]` (`include`, `defines`, `libraries`,
   `library_dirs`, `sources`) goes to `link.rs` through `hir::LinkPlan`;
   dependencies' tables are merged for the files of the build.
-- Text: `p::text()` (`SystemOp::CText`, fails `InvalidText`), `&s as c string`
+- Text: `p::text()` (`SystemOp::CText`, a `string?`, fails `InvalidText` on bad
+  UTF-8 only), `&s as c string`
   (`StrFn::CPtr` on `s + "\0"`, a temporary).
 - Macros: `from c macro NAME(params) gives T;` writes a C shim
   (`hir::Program::shim`) compiled with the project.
 - Callbacks: `Constant::FuncAddr` for the name of a plain top-level function.
-- `x as T` for C numbers only (desugars to `::to<T>()`).
+- `x as T` for C numbers only (desugars to `::to<T>()`), and `p as foreign *T` /
+  `p as foreign *none` for pointers (`PtrConv`, E0335 otherwise).
 
 **Interims (E0901 or the narrowest reading), for the owner to rule on:**
-1. A `foreign *T` goes to `foreign *none` implicitly, and a `*T` / `*fixed T`
-   goes to `foreign *T` (same `T`) or `foreign *none` implicitly. The reverse
-   (`foreign *none` to a typed pointer) is not implicit.
-2. `foreign` pointers are `Copy` (C owns the target); `*T` still is not.
-3. `p::text()` fails with a new failure `InvalidText` (one variant, for bad
-   UTF-8 and null alike); wording is mine.
+1. Resolved (owner, 2026-11-13, "C imports follow-ups"): no pointer goes to C
+   implicitly. The hand-over is `buf as foreign *none` or `p as foreign *T`;
+   without it E0335 with the fix-it. The reverse (`foreign *none` to a typed
+   pointer) is not converted at all.
+2. Resolved: `foreign` pointers stay `Copy` (C owns the target); `*T` still is not.
+3. Resolved: `p::text()` gives `string?`, `none` for a null pointer, and fails
+   with `InvalidText` only on bad UTF-8 ("the C text is not valid UTF-8"). The
+   runtime answers 0 (text), 1 (null) or 2 (bad UTF-8); `c_text` in `mir/build.rs`.
 4. `&s as c string` with a NUL inside stops the program (exit 101); it is only
    allowed as a direct argument of a C call (E0901 elsewhere).
-5. `as` is accepted only where a C number or enum is involved (E0901 for other
-   numbers: `::to<T>()` stays the general conversion).
+5. `as` is accepted only where a C number or enum, or a pointer going to C, is
+   involved (E0901 for other numbers: `::to<T>()` stays the general conversion).
 6. `static inline` functions use the same declare-first form as function-like
    macros (`from c macro NAME(...) gives T;`; my reading of the open point in
    batch C). A function-like macro finds its header among the C imports of the file that
@@ -930,10 +934,12 @@ imports batch A-D"); the implementation spec is `docs/impl/step7.1-c-imports.md`
 8. `[native]` keys `library_dirs` and `sources` (C files compiled with the
    project) are my additions to the owner's "include dirs, defines, libraries";
    no platform-specific settings.
-9. Calling C needs both the file flag `//--!$unsafe: true` and an `unsafe`
-   block, as for raw pointers. The flag is read from the entry file only (an
-   existing limit of `unsafe_allowed`), so a dependency's wrappers need it in
-   the app's main file too.
+9. Resolved (owner, 2026-11-13): the permission is `[native] unsafe = true` in
+   the project's manifest (every file of that project; a dependency's files
+   follow the dependency's own table, so an app needs nothing), or the file flag
+   `//--!$unsafe: true`, which is now read for each file (`ast::Program::unsafe_files`,
+   looked up by span in `typeck::Globals::unsafe_at`). Calling C still needs an
+   `unsafe` block.
 10. Not built: variadics (after 7.1, as decided), unions, bit-fields, flexible
     array members, global variables, `long double`, 128-bit C integers, structs
     over 16 bytes by value, struct passing off System V x86-64, callbacks with

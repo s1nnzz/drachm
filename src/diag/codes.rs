@@ -388,8 +388,10 @@ codes! {
          from, and `lives` must name exactly the borrow fields:\n\n\
          \x20   struct Parser lives src { &string src; uint32 pos; }";
     E0317: "`unsafe` without the file flag",
-        "`unsafe { }`, `unsafe` functions, `*T` types and `address of` need the\n\
-         file flag `//--!$unsafe: true` at the very top of the file.";
+        "`unsafe { }`, `unsafe` functions, `*T` types, C calls and `address of` need\n\
+         the file flag `//--!$unsafe: true` at the very top of the file, or\n\
+         `unsafe = true` under `[native]` in `drachm.toml`, which allows every\n\
+         file of the project (and of a dependency that sets it).";
     E0321: "missing `&` or `&mut` at the call",
         "A parameter of type `&T` or `&mut T` is passed by writing the borrow at\n\
          the call, so the call says what the callee may do:\n\n\
@@ -584,6 +586,12 @@ codes! {
          the kind, say so inside an `unsafe { }` block:\n\n\
          \x20   unsafe { *fixed uint32 r = w::freeze(); }   // `*T` to `*fixed T`\n\
          \x20   unsafe { *uint32 w2 = r::thaw(); }          // `*fixed T` to `*T`";
+    E0335: "a pointer goes to C only with `as foreign`",
+        "A Drachm pointer (`*T`, `*fixed T`) and a C pointer (`foreign *T`) are\n\
+         different types, and nothing changes one into the other by itself. The\n\
+         hand-over to C is written out with `as`, inside `unsafe { }`:\n\n\
+         \x20   unsafe { sdl::SDL_free(buf as foreign *none); }    // any pointer to `void *`\n\
+         \x20   unsafe { foreign *uint8 p = text as foreign *uint8; }   // `*uint8` to `foreign *uint8`";
 
     E0316: "an operation on a raw pointer needs `unsafe`",
         "Making, reading, writing, copying, comparing, converting, moving, passing\n\

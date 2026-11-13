@@ -772,8 +772,10 @@ private:
 - `address of n` makes a pointer. Everything touching a pointer value (making,
   copying, comparing, dereferencing, moving, passing, returning, storing) must be inside
   `unsafe { }`, and the body of an `unsafe` function counts as one unsafe block; `*p = 7;`
-  dereferences. Both the file flag `//--!$unsafe: true` and an `unsafe` block are
-  needed.
+  dereferences. Both the permission (the file flag `//--!$unsafe: true`, or `unsafe = true`
+  under `[native]` in the project's `drachm.toml`, which allows every file of the project
+  and, through a dependency's own table, of that dependency) and an `unsafe` block are
+  needed. The file flag is read per file (owner, 2026-11-13).
 - A pointer can be `none` (null), tested with `p == none`. Two pointers of one
   pointee type (`*T` and `*fixed T` may be mixed) compare addresses with `==` and
   `!=`, inside `unsafe`; no freeze or thaw is needed.
@@ -966,9 +968,12 @@ phys::Vector3 v = 1, 2, 3;
   - C numbers are types of their own (`c::int`, `c::long`, `c::size_t`,
     `c::char`, `c::bool`, ...), converted with `as` (or `::to<T>()`).
   - C pointers are `foreign *T` (`void *` is `foreign *none`, null is `none`);
-    only `unsafe` code opens them. `p::text()` on a `foreign *uint8` reads to
-    the NUL, checks UTF-8 and fails on bad text. `&s as c string` passes a
-    Drachm string to C for that one call.
+    only `unsafe` code opens them. They copy freely. No pointer becomes a C
+    pointer by itself: the hand-over is written `buf as foreign *none` or
+    `p as foreign *T` (same `T`), and anything else is E0335 (owner, 2026-11-13).
+    `p::text()` on a `foreign *uint8` reads to the NUL and checks UTF-8: it
+    gives `string?`, `none` for a null pointer, and fails (`InvalidText`) only on
+    bad UTF-8. `&s as c string` passes a Drachm string to C for that one call.
   - C structs are value structs with the exact C layout (field access, by-value
     passing); unions are readable only in `unsafe`, bit-fields go through
     generated code, flexible array members are foreign pointers (the last three

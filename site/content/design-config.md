@@ -67,7 +67,10 @@ items with `out`. The dependency can import its private modules internally.
 The `[native]` table names what C imports need: `include` (header folders),
 `defines`, `libraries`, `library_dirs` and `sources` (C files compiled with the
 project). A project that imports a dependency links what the dependency's table
-asks for. See [C imports](reference-c-imports.md#the-native-table).
+asks for. `unsafe = true` in the same table lets every file of the project use
+`unsafe` (C calls and raw pointers) without the file flag; a dependency's own
+table says the same for its files, so an app needs nothing for it. See
+[C imports](reference-c-imports.md#the-native-table).
 
 ## Build settings
 <!-- status: not-implemented -->
@@ -190,7 +193,8 @@ as_errors = ["lossy-conversion", "missing-case"]
 ## File flags
 
 A line `//--!$key: value` at the very top of a file overrides the project
-setting for that file. Use `//--!$unsafe: true` to allow unsafe code.
+setting for that file. Use `//--!$unsafe: true` to allow unsafe code in that
+file (or `unsafe = true` under `[native]` for the whole project).
 
 ```drachm
 //--!$unsafe: true

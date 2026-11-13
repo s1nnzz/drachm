@@ -142,8 +142,8 @@ struct Globals {
     time_imported: bool,
     fs_imported: bool,
     os_imported: bool,
-    /// The file flag `//--!$unsafe: true`.
-    unsafe_allowed: bool,
+    /// Where `unsafe` is allowed, by file (`ast::Program::unsafe_files`).
+    unsafe_files: Vec<(usize, bool)>,
     /// Memoised layout, ownership and copy answers (`layout`).
     layouts: std::cell::RefCell<layout::Cache>,
     /// Map key checks that wait for the methods (`maps.rs`).
@@ -174,6 +174,12 @@ impl Globals {
     fn settings_at(&self, span: Span) -> crate::config::Behaviour {
         let end = self.settings.partition_point(|(base, _)| *base <= span.start);
         self.settings[..end].last().map_or_else(Default::default, |(_, settings)| *settings)
+    }
+
+    /// Whether the file of `span` allows `unsafe` (see `unsafe_files`).
+    fn unsafe_at(&self, span: Span) -> bool {
+        let end = self.unsafe_files.partition_point(|(base, _)| *base <= span.start);
+        self.unsafe_files[..end].last().is_some_and(|(_, allowed)| *allowed)
     }
 
     fn add_sig(&mut self, sig: Sig) -> FuncId {
@@ -290,7 +296,7 @@ impl Globals {
             return None;
         }
         if let Some((_, span)) = t.mods.first() {
-            if !self.unsafe_allowed && let Some((_, at)) = t.mods.iter().find(|(m, _)| matches!(m, ast::TypeMod::Ptr | ast::TypeMod::FixedPtr) || (matches!(m, ast::TypeMod::ForeignPtr) && !is_synthetic(t.span))) {
+            if !self.unsafe_at(t.span) && let Some((_, at)) = t.mods.iter().find(|(m, _)| matches!(m, ast::TypeMod::Ptr | ast::TypeMod::FixedPtr) || (matches!(m, ast::TypeMod::ForeignPtr) && !is_synthetic(t.span))) {
                 diags.push(unsafe_disabled(*at, "raw pointer type here"));
             }
             if self.resolve_base_quiet(t) == Some(Type::None) && !matches!(t.mods.first(), Some((ast::TypeMod::ForeignPtr, _))) {
@@ -519,7 +525,7 @@ pub(crate) fn check_with_settings(
     settings: Vec<(usize, crate::config::Behaviour)>,
     requires_main: bool,
 ) -> hir::Program {
-    let mut g = Globals { settings, unsafe_allowed: prog.unsafe_allowed, ..Globals::default() };
+    let mut g = Globals { settings, unsafe_files: prog.unsafe_files.clone(), ..Globals::default() };
     let mut si = false;
     for import in &prog.imports {
         match import.plain_name() {
@@ -902,14 +908,14 @@ fn is_synthetic(span: Span) -> bool {
 fn unsafe_disabled(span: Span, what: &str) -> Diagnostic {
     Diagnostic::at(&codes::E0317, span, "`unsafe` is not enabled in this file")
         .note(what)
-        .help("add `//--!$unsafe: true` as the first line of the file")
+        .help("add `//--!$unsafe: true` as the first line of the file, or set `unsafe = true` under `[native]` in drachm.toml for the whole project")
 }
 
 /// An `unsafe` function needs the file flag; `lives` names parameters that
 /// hold a borrow.
 fn check_signature_extras(g: &Globals, f: &ast::Func, params: &[Option<Type>], is_method: bool, diags: &mut Vec<Diagnostic>) {
     if let Some(at) = f.is_unsafe
-        && !g.unsafe_allowed
+        && !g.unsafe_at(at)
         && f.foreign.is_none()
     {
         diags.push(unsafe_disabled(at, "needs the file flag"));
@@ -1547,7 +1553,7 @@ struct Origin {
 }
 
 fn origin(e: &ast::Expr) -> Origin {
-    let compound = !e.paren && matches!(e.kind, ExprKind::Unary(..) | ExprKind::Binary(..) | ExprKind::IncDec { .. });
+    let compound = !e.paren && matches!(e.kind, ExprKind::Unary(..) | ExprKind::Binary(..) | ExprKind::IncDec { .. } | ExprKind::AddressOf(..));
     Origin { span: e.span, compound }
 }
 
@@ -2007,7 +2013,7 @@ impl<'a> Checker<'a> {
             }
             Stmt::ExpectFailure { failure, call, span } => self.expect_failure(failure, call, *span, out),
             Stmt::Unsafe { body, span } => {
-                if !self.g.unsafe_allowed {
+                if !self.g.unsafe_at(*span) {
                     self.diags.push(unsafe_disabled(Span::new(span.start, span.start + 6), "needs the file flag"));
                 }
                 let block = self.block(body);
@@ -2790,13 +2796,17 @@ impl<'a> Checker<'a> {
                 let v = self.read(Val::Expr(e));
                 self.into(v, to, from)
             }
-            // A pointer made on the Drachm side goes to the C side as it is, and any
-            // pointer goes where C wants a `void *` (`foreign *none`).
-            Val::Expr(e)
-                if e.ty != to
-                    && matches!(to, Type::Foreign { to: target } if matches!(e.ty, Type::Ptr { to: from } | Type::FixedPtr { to: from } | Type::Foreign { to: from } if from == target || *target == Type::None)) =>
-            {
-                Some(hir::Expr::new(hir::ExprKind::PtrConv(Box::new(e)), to))
+            // A pointer goes to C only by a written conversion (`p as foreign *T`).
+            Val::Expr(e) if e.ty.is_ptr() && matches!(to, Type::Foreign { .. }) && e.ty != to => {
+                let text = self.text(from.span).to_string();
+                let fix = if from.compound { format!("({text})") } else { text };
+                self.diags.push(
+                    Diagnostic::at(&codes::E0335, from.span, format!("expected `{to}`, found `{}`", e.ty))
+                        .note(format!("this is `{}`", e.ty))
+                        .note_line("a Drachm pointer does not become a C pointer by itself")
+                        .help(format!("write the hand-over: `{fix} as {to}`")),
+                );
+                None
             }
             Val::Expr(e) if e.ty.is_ptr() && to.is_ptr() && e.ty != to => {
                 self.diags.push(
@@ -3439,7 +3449,7 @@ impl<'a> Checker<'a> {
 
     /// `address of e`.
     fn address_expr(&mut self, e: &ast::Expr, inner: &ast::Expr) -> Option<Val> {
-        if !self.g.unsafe_allowed {
+        if !self.g.unsafe_at(e.span) {
             self.diags.push(unsafe_disabled(Span::new(e.span.start, e.span.start + 7), "needs the file flag"));
         }
         if !ast_place(inner) {
@@ -3678,7 +3688,8 @@ impl<'a> Checker<'a> {
                 failures::outcome_type(self.g, op.fs_result(), &fails);
                 op.fs_result()
             }
-            Platform | CText => Type::Str,
+            Platform => Type::Str,
+            CText => optionals::optional_of(self.g, Type::Str)?,
             GetEnv => optionals::optional_of(self.g, Type::Str)?,
         };
         Some(Val::Expr(hir::Expr::new(hir::ExprKind::System(op, args, fails), ty).at(span)))
@@ -3813,6 +3824,7 @@ impl<'a> Checker<'a> {
             Some(Val::Expr(v)) if v.ty.is_ptr() && matches!(name, "freeze" | "thaw") => {
                 self.pointer_convert(v, recv.span, name, name_span, args)
             }
+            Some(Val::Expr(v)) if v.ty.is_ptr() && name == "as" => self.pointer_as(v, name_span, targs, args),
             Some(Val::Expr(v)) if v.ty == Type::foreign(Type::U8) && name == "text" => self.foreign_text(v, recv.span, name_span, targs, args, span),
             Some(Val::Expr(v)) if v.ty == Type::Str => self.string_method(v, name, name_span, targs, args),
             Some(Val::Expr(v)) if v.ty.is_map() => self.map_method(v, recv, name, name_span, args),
@@ -3823,7 +3835,8 @@ impl<'a> Checker<'a> {
     }
 
     /// `p::text()` on a `foreign *uint8`: the text up to the NUL, checked as
-    /// UTF-8. It fails (`InvalidText`) on bad text and on a null pointer.
+    /// UTF-8, as a `string?`. A null pointer gives `none`; bad UTF-8 fails
+    /// (`InvalidText`).
     fn foreign_text(&mut self, v: hir::Expr, recv: Span, name_span: Span, targs: &[ast::TypeName], args: &[ast::Expr], span: Span) -> Option<Val> {
         let _ = recv;
         for a in args {
@@ -3836,8 +3849,9 @@ impl<'a> Checker<'a> {
         let _ = name_span;
         let fail = *self.g.enums_by_name.get("InvalidText")?;
         let fails = vec![fail];
-        failures::outcome_type(self.g, Type::Str, &fails);
-        Some(Val::Expr(hir::Expr::new(hir::ExprKind::System(hir::SystemOp::CText, vec![v], fails), Type::Str).at(span)))
+        let text = optionals::optional_of(self.g, Type::Str)?;
+        failures::outcome_type(self.g, text, &fails);
+        Some(Val::Expr(hir::Expr::new(hir::ExprKind::System(hir::SystemOp::CText, vec![v], fails), text).at(span)))
     }
 
     /// `p::freeze()` (`*T` to `*fixed T`) and `p::thaw()` (the reverse).
@@ -3868,6 +3882,45 @@ impl<'a> Checker<'a> {
         };
         let ty = if want_fixed { Type::fixed_ptr(to) } else { Type::ptr(to) };
         Some(Val::Expr(hir::Expr::new(hir::ExprKind::PtrConv(Box::new(v)), ty)))
+    }
+
+    /// `p as foreign *T` and `p as foreign *none`: the hand-over of a pointer to
+    /// C. `*T`, `*fixed T` and `foreign *T` go to `foreign *T` for their own `T`;
+    /// any pointer goes to `foreign *none` (C's `void *`).
+    fn pointer_as(&mut self, v: hir::Expr, name_span: Span, targs: &[ast::TypeName], args: &[ast::Expr]) -> Option<Val> {
+        for a in args {
+            self.expr(a);
+        }
+        if let Some(a) = args.first() {
+            self.diags.push(Diagnostic::at(&codes::E0103, a.span, "`as` takes no arguments"));
+            return None;
+        }
+        let [t] = targs else {
+            self.diags.push(
+                Diagnostic::at(&codes::E0103, name_span, "`as` needs the C pointer type to convert to")
+                    .help("for example `buf as foreign *none`"),
+            );
+            return None;
+        };
+        let to = self.g.resolve(t, self.diags)?;
+        let Type::Foreign { to: target } = to else {
+            self.diags.push(
+                Diagnostic::at(&codes::E0335, t.span, format!("`as` turns a pointer into a C pointer, not into `{to}`"))
+                    .note(format!("this is `{}`", v.ty))
+                    .help("write the C pointer type: `foreign *T`, or `foreign *none` for `void *`"),
+            );
+            return None;
+        };
+        let from = v.ty.target().unwrap_or(Type::None);
+        if *target != Type::None && *target != from {
+            self.diags.push(
+                Diagnostic::at(&codes::E0335, t.span, format!("expected `{to}`, found `{}`", v.ty))
+                    .note(format!("this points to `{from}`, not to `{target}`"))
+                    .help(format!("a C pointer keeps its type: write `foreign *{from}`, or `foreign *none` for `void *`")),
+            );
+            return None;
+        }
+        Some(Val::Expr(hir::Expr::new(hir::ExprKind::PtrConv(Box::new(v)), to)))
     }
 
     /// `::text()` and `::to<T>()` on numbers and bools.

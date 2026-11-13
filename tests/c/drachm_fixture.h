@@ -38,6 +38,7 @@ int fx_live(void);
 int fx_sum_bytes(const uint8_t *data, size_t n);
 int fx_divide(int a, int b, int *out);
 void *fx_identity(void *p);
+const char *fx_bad_text(void); /* bytes that are not UTF-8 */
 
 /* structs */
 typedef struct fx_point { int x; int y; } fx_point;

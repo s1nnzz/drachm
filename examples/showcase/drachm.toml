@@ -13,3 +13,4 @@ import_clash = "error"
 [native]
 include = ["c"]
 sources = ["c/harbour.c"]
+unsafe = true   # the project may call C and use raw pointers (no file flag)

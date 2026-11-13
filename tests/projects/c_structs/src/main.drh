@@ -43,7 +43,7 @@ none main() {
     // A C struct is a plain value struct with its exact layout.
     mut fx::fx_point p = 3, 4;
     p.x += 10;
-    unsafe { fx::fx_point_move(address of p, 1, 1); }
+    unsafe { fx::fx_point_move((address of p) as foreign *fx::fx_point, 1, 1); }
     io::outln(f"point: ${p.x::to<sint32>()}, ${p.y::to<sint32>()}");
 
     mut fx::fx_rect r = origin: p, w: 6, h: 7;

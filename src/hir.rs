@@ -1056,7 +1056,7 @@ pub enum SystemOp {
     Platform,
     GetEnv,
     /// `p::text()` on a C text pointer (step 7.1): the bytes up to the NUL,
-    /// checked as UTF-8.
+    /// checked as UTF-8. A null pointer is `none`; bad UTF-8 is the failure.
     CText,
 }
 
@@ -1094,6 +1094,6 @@ impl SystemOp {
     }
 
     pub fn fs_result(self) -> Type {
-        if matches!(self, Self::Read | Self::CText) { Type::Str } else { Type::None }
+        if self == Self::Read { Type::Str } else { Type::None }
     }
 }

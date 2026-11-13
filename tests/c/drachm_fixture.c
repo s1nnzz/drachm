@@ -45,6 +45,7 @@ int fx_divide(int a, int b, int *out) {
     return 0;
 }
 void *fx_identity(void *p) { return p; }
+const char *fx_bad_text(void) { return "\xff" "bad"; }
 
 struct fx_counter { int value; };
 fx_counter *fx_counter_new(int start) {

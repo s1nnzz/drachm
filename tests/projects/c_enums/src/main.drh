@@ -28,6 +28,7 @@ none main() {
     io::outln(f"mode: ${fx::FX_MODE_B::to<sint32>()}");
     unsafe {
         foreign *uint8 name = fx::fx_color_name(fx::FX_GREEN);
-        io::outln(name::text() maybe "?");
+        string? text = name::text() maybe none;
+        io::outln(text maybe "?");
     }
 }

@@ -17,7 +17,7 @@ none main() {
     // A C struct is an ordinary struct with the exact C layout.
     mut shape::shape_point p = 3, 4;
     p.x += 10;
-    unsafe { shape::shape_move(address of p, 1, 1); }
+    unsafe { shape::shape_move((address of p) as foreign *shape::shape_point, 1, 1); }
     io::outln(f"point ${p.x as sint32}, ${p.y as sint32}");
 
     // Small structs also cross a call by value, in both directions.

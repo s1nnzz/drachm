@@ -1,7 +1,7 @@
-//--!$unsafe: true
 // Part 6 of the voyage, in its own file: the harbours, which are a C library.
 // `c/harbour.h` is imported like a module; `[native]` in drachm.toml says where
-// the header is and which C file to compile and link.
+// the header is, which C file to compile and link, and that this project's
+// files may use `unsafe` (no file flag needed here).
 in io;
 in * from c."harbour.h" as harbour;
 
@@ -40,12 +40,13 @@ struct Harbour {
         }
     }
 
-    // C text comes back as a pointer; `text()` reads up to the NUL, checks the
-    // UTF-8, and fails on a null pointer or bad text.
+    // C text comes back as a pointer; `text()` reads up to the NUL and checks
+    // the UTF-8. A null pointer is `none`; bad text is a failure.
     string name() {
         unsafe {
             foreign *uint8 p = harbour::harbour_name(self.handle);
-            return p::text() maybe "unnamed";
+            string? text = p::text() maybe none;
+            return text maybe "unnamed";
         }
     }
 

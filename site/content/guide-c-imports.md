@@ -34,6 +34,7 @@ defines = ["SDL_MAIN_HANDLED"]   # preprocessor definitions (-D)
 libraries = ["SDL2"]             # libraries to link (-l)
 library_dirs = ["vendor/lib"]    # where the libraries are (-L)
 sources = ["c/helpers.c"]        # C files of your own, compiled with the program
+unsafe = true                    # every file of the project may use unsafe (no file flag)
 ```
 
 Relative paths are relative to the `drachm.toml`. The system's own header
@@ -50,7 +51,8 @@ Three things to notice:
 
 - **C calls are `unsafe`.** A C declaration tells the compiler the types, not
   what the function needs from its caller. Calling one needs an `unsafe { }`
-  block, and `unsafe` needs the file flag `//--!$unsafe: true` (see
+  block, and `unsafe` needs the file flag `//--!$unsafe: true` or the
+  project's `unsafe = true` in the table above (see
   [Unsafe and pointers](reference-unsafe.md)).
 - **C numbers are types of their own.** `c::int`, `c::long`, `c::uchar`,
   `c::size_t`, `c::double` and the rest are not synonyms of `sint32` or
@@ -81,8 +83,10 @@ its own that can also hold values the header does not list, because C can send
 any number. So a `match` on it always needs a `case _`, even when every named
 value has a case ([E0705](errors.md)).
 
-`address of p` gives a `*shape_point`; where C wants a pointer, it goes in
-without a conversion, and any pointer goes where C wants `void *`.
+`address of p` gives a `*shape_point`. C does not take it by itself: the
+hand-over is written with `as`, `(address of p) as foreign *shape::shape_point`,
+and any pointer goes to C's `void *` with `as foreign *none`. Without the `as`
+the compiler says so (E0335) and shows what to write.
 
 ## Pointers, text and returned memory
 
@@ -92,10 +96,12 @@ C pointers are `foreign *T`. A `char *` is a `foreign *uint8`, a `void *` is a
 `foreign *none`, and `none` is the null pointer. Only `unsafe` code uses them;
 the wrapper turns them into Drachm values:
 
-- `p::text()` reads the bytes up to the NUL, checks that they are UTF-8 and
-  gives a `string`. It fails with `InvalidText` for a null pointer or bad text,
-  so it is called like any failing function (`p::text() fails`, or
-  `p::text() maybe "fallback"`).
+- `p::text()` reads the bytes up to the NUL and checks that they are UTF-8. It
+  gives a `string?`: `none` for a null pointer, which is an answer and not a
+  failure, and it fails with `InvalidText` only for bad text. Because it is an
+  optional that can fail, the wrapper unwraps it: `string? t = p::text() fails;`
+  then `return t maybe "fallback";`, or `p::text() maybe none` where no
+  failure is wanted.
 - `&s as c string` passes a Drachm string where C wants a `const char *`. The
   text is a copy that ends in a NUL and lives for that one call; a NUL inside
   the string stops the program, since C would see a shorter string than the
