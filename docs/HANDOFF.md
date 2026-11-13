@@ -11,11 +11,26 @@ For a new session with no memory of earlier conversations. Read this, then
   `docs/impl/owner-answers.md` (sections from "Step 6 questions" down), in
   `docs/SPEC.md`, and in the living design doc ("Generics, interfaces and
   collections (step 6)" under Later decisions).
-- Step 6 leftovers being built (decided): `not same as`, `same as` errors on
-  maps/structs, `T as unit`, array length parameters (Q12), `take xs[i]
-  leaving v`, ranges `by` a step. Still undesigned: `exclusive &Shape`,
-  `unit U with X`. Not built: map-walk views, interface methods with their own
-  type parameters, borrowing a generic interface.
+- **In flight (2026-11-13):** a `drachm-builder` agent in worktree
+  `.claude/worktrees/agent-a7ff068dde4ee3b46` (branch
+  `worktree-agent-a7ff068dde4ee3b46`) building the decided step 6 leftovers.
+  Committed: `a not same as b`; `same as` on maps/structs of borrows is E0633;
+  `T as unit` + E0605 help names a free letter; `take xs[i] leaving v`. In
+  progress (a "WIP" commit after a usage cutoff): ranges `0..10 by 3`. Not
+  started: array length parameters `struct Buffer<T, uint32 N>` (Q12). If the
+  agent is gone: commit any WIP, then either resume it (SendMessage to its id,
+  if this session's agents survive) or start a new `drachm-builder` in that
+  worktree for the rest, then merge (full `cargo test`, site build, push) and
+  remove the worktree.
+- Still undesigned: `exclusive &Shape`, `unit U with X`. Not built: map-walk
+  views, interface methods with their own type parameters, borrowing a generic
+  interface.
+- **Next after that: step 7** (modules, config, scripts, stdlib): needs a spec
+  (drachm-architect) and an owner question round first. Today only `io` and
+  `si` exist (hardcoded in `src/typeck.rs` `check`; `si` is
+  `src/prelude/si.drh`).
+- Agent types: use `drachm-architect` / `drachm-builder` / `drachm-writer`
+  (see How work is done). Haiku by default; owner watches usage.
 - `examples/showcase.drh` shows everything that builds (CLAUDE.md "The
   showcase"); its site page reads it at build time.
 - Site redesign is on the roadmap (PLAN row D2), unscheduled.
