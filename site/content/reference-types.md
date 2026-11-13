@@ -64,6 +64,9 @@ reads and changes. A `&T` copies by itself, since it only points; a `&mut T`
 moves, like a `string`. There is no borrow of a borrow, so a `&string` parameter
 is passed on as it is.
 
+An optional that holds a borrow is `maybe &string` (see
+[Optional types](reference-generics.md#optional-types)).
+
 A binding can hold a borrow: `&string first = &name;`. Put `mut` in front
 (`mut &string cur = &a;`) to point it somewhere else later with `cur = &b;`.
 A borrow lasts until its last use. The rules, and the errors E0302 to E0307 for

@@ -213,7 +213,15 @@ parameter. A list of borrows is spelled `List<&string>`.
 `Optional<uint32>` is another way to write `uint32?`; the two are the same
 type, and can be mixed freely.
 
+An optional that holds a borrow is written `maybe &T`: `maybe &string` is the
+optional of `&string` (the same type as `Optional<&string>`). It is what a list
+or a stack gives back when the item is a borrow, and messages print it that way.
+Write `maybe &T` only with a `&`: `maybe string` is an error, since an owned
+optional is `string?`.
+
 <!-- example: gen-optional -->
+
+<!-- example: gen-maybe-borrow -->
 
 ## Interfaces
 

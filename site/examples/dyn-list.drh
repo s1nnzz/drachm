@@ -28,7 +28,7 @@ none main() {
     for (&Shape s of shapes) {
         io::outln(f"${s::name()} with area ${s::area()}");
     }
-    Optional<&Shape> first = shapes::first();
+    maybe &Shape first = shapes::first();
     match (first) {
         case &Shape s { io::outln(s::name()); }
         case none { io::outln("none"); }

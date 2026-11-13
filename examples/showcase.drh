@@ -525,6 +525,14 @@ none part5() {
     r::advance(4);
     io::outln(f"reader left ${r::left()} of ${slogan::len()}");
 
+    // `maybe &string` is an optional that holds a borrow: a view of a port name,
+    // or none when the list has no such item.
+    string[?] ports = ["Vega", "Sol"];
+    string nowhere = "deep space";
+    maybe &string first_port = ports::first();
+    maybe &string ninth_port = ports::get(8);
+    io::outln(f"first port ${first_port maybe &nowhere}, ninth port ${ninth_port maybe &nowhere}");
+
     mut string note = "mayday";
     shout_twice(&mut note);
     string kept = copy note;

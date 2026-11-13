@@ -1,0 +1,16 @@
+in io;
+
+// `maybe &string` is an optional that holds a borrow. It is the same type as
+// `Optional<&string>`, and it reads as such in messages.
+none main() {
+    mut string[?] crew = ["Ada", "Bob"];
+    string nobody = "nobody";
+    maybe &string first = crew::first();
+    maybe &string tenth = crew::get(9);
+    maybe &string spare = none;
+    Optional<&string> last = crew::last();
+    io::outln(first maybe &nobody);
+    io::outln(tenth maybe &nobody);
+    io::outln(spare maybe &nobody);
+    io::outln(last maybe &nobody);
+}
