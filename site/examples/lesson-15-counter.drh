@@ -1,0 +1,20 @@
+in io;
+
+interface Counter {
+    none bump() changes self;
+    uint32 get();
+}
+
+struct Hits with Counter {
+    public:
+    uint32 n;
+    none bump() { self.n += 1; }
+    uint32 get() { return self.n; }
+}
+
+none main() {
+    mut Hits h = 0;
+    h::bump();
+    h::bump();
+    io::outln(h::get()->text());
+}

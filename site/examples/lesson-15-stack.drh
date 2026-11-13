@@ -1,0 +1,16 @@
+in io;
+
+// A struct can take a type parameter too. Stack<string> holds strings.
+struct Stack<T> {
+    public:
+    T[?] items;
+    none push(T item) { self.items::push(item); }
+    uint64 len() { return self.items::len(); }
+}
+
+none main() {
+    mut Stack<string> words = new Stack<string> of ([]);
+    words::push("ann");
+    words::push("bo");
+    io::outln(words::len()->text());
+}

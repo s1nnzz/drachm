@@ -1,0 +1,10 @@
+in io;
+
+none main() {
+    uint32[?] scores = [4, 8, 15];
+    mut uint32 total = 0;
+    for (uint32 n of scores) {
+        total = total + n;
+    }
+    io::outln(total::text());
+}

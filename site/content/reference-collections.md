@@ -1,6 +1,6 @@
 ---
 title: Arrays and lists
-description: Array and list types, literals, indexing with bounds checks, changing a list, its methods, comparing, for loops, splitting strings into lists, and maps. Walking maps and struct keys are marked as not built yet.
+description: Array and list types, literals, indexing with bounds checks, changing a list, its methods, comparing, for loops, splitting strings into lists, and maps with their keys, updates and walks. Parts still to come are marked.
 ---
 
 # Arrays and lists
@@ -278,12 +278,10 @@ outlive every later use of the map (E0306 otherwise). Keys cannot be borrows
 
 <!-- example: map-borrows -->
 
-## Not built yet
+## Generic functions over lists
 
-<!-- status: not-implemented -->
+A generic function can take a list: `&T[?]` takes any list by borrow, and `T`
+is worked out from it, as for any other parameter. See
+[Generics](reference-generics.md#working-out-the-type-parameters).
 
-Generic functions over lists already work:
-
-```drachm
-T add_first<T>(&T[?] xs) { return xs[0] + xs[1]; }
-```
+<!-- example: gen-list -->

@@ -1,0 +1,10 @@
+in io;
+
+none main() {
+    uint8[4] rgba = [255, 0, 0, 255];
+    string[?] names = ["Illy", "Sam"];
+    Map<string, uint32> ages = { "Illy": 18 };
+    io::outln(rgba::len()->text());
+    io::outln(names::len()->text());
+    io::outln(ages::len()->text());
+}

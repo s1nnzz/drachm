@@ -717,6 +717,8 @@ only turns more programs into errors at the definition.
 
 ### Q2. How is a unit written as an argument of your own generic?
 
+Data (S6Z, 2026-11-13): `struct Vec3<T, unit U>` with `Vec3<float64, unit m/s>` builds; `unit U with Shape` is E0901 ("a constraint on a unit parameter is not supported yet").
+
 ```cpp
 struct Vec3<T, unit U> { float64<U> x; float64<U> y; }
 Vec3<float64, m/s> v;      // ?
@@ -734,6 +736,8 @@ the arguments (`float64<U> twice<unit U>(float64<U> x)` called as `twice(3.0<m>)
 writing a unit argument explicitly, or on a struct, is E0901.
 
 ### Q3. May a type argument be a borrow, or a type that holds one?
+
+Data (S6Z): `Stack<&string>` with `s::push(&name)` builds (`gen-borrow-stack`); `List<&string>` builds. A generic interface as a borrow, `&Read<uint32>`, is E0901.
 
 ```cpp
 string[?] names = ["a"];
@@ -770,6 +774,8 @@ Shape s = Circle(1.0);
 Interim: A. `Shape s;` and `Shape[?]` are E0617 with the fix-it `&Shape`.
 
 ### Q5. Which interfaces can be used as a type, and may `&Shape3D` become `&Shape`?
+
+Data (S6Z): `exclusive` in a parameter is E0901 ("`exclusive` is not supported yet"); automatic upcasts are built.
 
 ```cpp
 interface Zero { static Self zero(); }       // no value to call it on
@@ -845,6 +851,8 @@ Interim: B (E0631 offering the `&` and `copy` fixes).
 
 ### Q9. How does a map get a new entry?
 
+Data (S6Z): `m[k] = v`, `m::set`, `m::remove`, `m::get` and `m::len` all build and run (`map-update`, and a probe in the sweep).
+
 ```cpp
 Map<string, uint32> ages = { "Illy": 18 };
 ages["Bob"] = 21;          // inserts? replaces? both?
@@ -885,6 +893,8 @@ E0201 with the note "not decided yet"; a negative index panics.
 
 ### Q11. Moving an item out of a list by index
 
+Data (S6Z): `take xs[i] reorders` builds; `take xs[i] leaving v` is E0901.
+
 ```cpp
 string first = xs[0];                   // error today: strings move
 string s = take xs[0] leaving "";       // like take on a field?
@@ -900,6 +910,8 @@ string t = xs::remove(0);               // shifts the rest
 Interim: B (E0622); `take xs[i]` is E0901.
 
 ### Q12. Can the length of an array be a generic parameter?
+
+Data (S6Z): `struct Buffer<T, uint32 N> { T[N] items; }` is a parse error (E0003, "expected `,` or `>`, found name `N`"), not the E0901 the interim names. A diagnostic gap, reported, not changed.
 
 ```cpp
 struct Buffer<T, N> { T[N] items; }
@@ -949,6 +961,8 @@ Interim: A (E0626).
 
 ### Q15. Methods with type parameters of their own
 
+Data (S6Z): an interface method with its own type parameter, `U[?] map<U>((T) => U f)`, is E0901 as the interim says.
+
 ```cpp
 struct List... { U[?] map<U>((T) => U f) { ... } }
 ```
@@ -963,6 +977,8 @@ Interim: B-strict: E0901.
 
 ### Q16. How a map is walked
 
+Data (S6Z): the two-binding walk builds; `for (&string k, uint32 v of ages)` is E0901 ("looking at a map's entries without copying them is not supported yet").
+
 ```cpp
 for (string k, uint32 v of ages) { }
 ```
@@ -976,6 +992,8 @@ for (string k, uint32 v of ages) { }
 Interim: E0901 (maps cannot be iterated yet; lookups and the literal work).
 
 ### Q17. Where may a function value go?
+
+Data (S6Z): a lambda returned from a function is E0652 ("a function value cannot be returned").
 
 ```cpp
 none each((string) => none f) { ... }            // passed down
@@ -1031,6 +1049,8 @@ maps are walked by the built-in loops and are not `Iterable<T>` yet, so
 `T with Iterable<uint32>` accepts only user types.
 
 ### Q20. The empty collection
+
+Data (S6Z): `mut string[?] names;` followed by `names::push("Illy")` builds and runs; `open string[?] xs = [];` builds too.
 
 ```cpp
 string[?] xs;                // no value yet, or an empty list?

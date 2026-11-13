@@ -1,0 +1,20 @@
+in io;
+
+interface Shape {
+    float64 area();
+}
+
+struct Circle with Shape {
+    public:
+    float64 r;
+    float64 area() { return 3.14159 * self.r * self.r; }
+}
+
+none report(&Shape s) {
+    io::outln(s::area()->text());
+}
+
+none main() {
+    Circle c = 2.0;
+    report(&c);
+}

@@ -1,15 +1,13 @@
 ---
 title: Generics and interfaces
 description: When to write code over any type, when to describe what a type can do with an interface, and how the two combine.
-status: not-implemented
 ---
 
 # Generics and interfaces
 
-Generics and interfaces are designed for step 6; the compiler does not accept
-them yet, so every block here shows the intended shape and none of it is
-runnable. [Generics and interfaces](design-generics.md) lists the syntax; this
-guide is about choosing between the tools.
+Generics and interfaces work today. This guide is about choosing between the
+tools; the [reference](reference-generics.md) has every rule and error, and the
+[lesson](lesson-15-generics.md) walks through the first examples.
 
 ## Two different questions
 
@@ -27,16 +25,11 @@ Write the type as a parameter and use it like any type. The compiler works the
 parameters out from the arguments, so you write them yourself only when it
 cannot.
 
-<!-- focus: 1,3,5,6 -->
+<!-- example: lesson-15-max -->
 
-```drachm
-T max<T>(T a, T b) { if (a > b) { return a; } return b; }
+A generic struct works the same way. `Stack<string>` is a stack of strings:
 
-struct Stack<T> { T[?] items; none push(T item) { self.items::push(item); } }
-
-uint32 m = max(a, b);               // T is uint32, from the arguments
-uint32 n = max<uint32>(5, 9);       // written out
-```
+<!-- example: lesson-15-stack -->
 
 Reach for a generic when you are about to copy a function and change only the
 type. When the body needs the type to offer something specific, say so with a
@@ -48,49 +41,33 @@ constraint, as in the next section.
 the body can use what the interface offers, and callers get an error if they
 pass a type that does not have it.
 
-```drachm
-float64 total<T with Shape>(T[?] shapes) { /* ... */ }
-```
+<!-- example: iface-total -->
 
 Constrain by the least you need. A function that only calls `area()` should say
 `with Shape`, not a larger interface that happens to include it.
 
 ## Interfaces
 
-An interface lists method signatures, `static` methods and required fields. It
-has no default method bodies. A struct says which interfaces it implements with
-`with`, several joined by `and`.
+An interface lists what a type must have: method signatures, `static` methods
+and required fields. It has no method bodies. A struct says which interfaces it
+implements with `with`, several joined by `and`, and the compiler checks that
+it has every member.
 
-<!-- focus: 1-3,5 -->
-
-```drachm
-interface Shape {
-    float64 area();
-}
-
-struct Circle with Shape and Drawable {
-    float64 r;
-    float64 area() { return 3.14159 * self.r * self.r; }
-}
-```
+<!-- example: lesson-15-shape -->
 
 Interfaces can require fields (`interface Positioned { float64 x; float64 y; }`)
-and build on others (`interface Shape3D extends Shape { float64 volume(); }`).
-Because there are no default bodies, an interface is only a promise, and what
-each struct does is written in that struct.
+and build on others, several at once (`interface Placed extends Shape and
+Positioned`, in the next example). Because there are no default bodies, an
+interface is only a promise, and what each struct does is written in that struct.
+
+<!-- example: iface-shape -->
 
 ## Interface as a type, or as a constraint
 
 An interface name used as a type means "any struct with it", and which one is
 decided while the program runs.
 
-<!-- focus: 1,4 -->
-
-```drachm
-none report(&Shape s) { io::outln(s::area()->text()); }
-
-float64 total<T with Shape>(T[?] shapes) { /* ... */ }
-```
+<!-- example: dyn-report -->
 
 The two look alike and differ:
 
@@ -99,19 +76,18 @@ The two look alike and differ:
 | Which struct | any, decided while running | one type, chosen per call |
 | Use it when | the caller has a value and the kind does not matter | the code deals in one kind at a time, or must return that same kind |
 
-In `total`, every element of `T[?]` is the same `T`. If the function gives back
-something of the type it was given, it has to be a generic:
-`T biggest<T with Shape>(T[?] shapes)` returns a `T`, whereas an interface type
-only says "some `Shape`".
+In `total<T with Shape>(...)`, every element of the list is the same `T`. If the
+function gives back something of the type it was given, it has to be a generic:
+`T first<T with Shape>(T[?] shapes)` returns a `T`, whereas a `&Shape` result is
+only a borrow of "some `Shape`".
 
 ## Self
 
 `Self` names the implementing type inside an interface, for things that return
-or take the type itself.
+or take the type itself. In `static Self unit();` each struct that implements
+the interface returns its own type.
 
-```drachm
-interface Zero { static Self zero(); }
-```
+<!-- example: iface-shape -->
 
 ## Methods that change self
 
@@ -120,14 +96,7 @@ has no body to look at, so a method that may change `self` says so after its
 parameters. A struct method may not change more than the interface allows.
 `changes self` is written only in interfaces.
 
-<!-- focus: 2 -->
-
-```drachm
-interface Counter {
-    none bump() changes self;
-    uint32 get();
-}
-```
+<!-- example: iface-counter -->
 
 Write `changes self` only for methods that need it. A method without it can be
 called through a `&` borrow, and one with it needs `&mut`; so every `changes
@@ -153,9 +122,7 @@ A unit in a signature is fixed (see [Units of measure](reference-units.md)):
 unit, and the result keeps the unit it was given. You write `unit U` once and
 use `U` where the unit goes:
 
-```drachm
-float64<U> twice<unit U>(float64<U> x) { return x * 2; }
-```
+<!-- example: gen-twice-unit -->
 
 You never say which unit `U` is: `twice(2.5<m>)` gives metres and
 `twice(1.5<km>)` kilometres, because the compiler reads the unit from the
@@ -172,3 +139,9 @@ that works when no argument has a unit.
 | One function over values of mixed kinds | an interface type: `&Shape` |
 | A function that returns the type it was given | a generic |
 | Code that works for any unit | `<unit U>` |
+
+## Still to come
+
+Some generic and interface ideas are not built yet, and the design page marks
+them: a constraint on a unit, methods with type parameters of their own, and
+borrowing a generic interface. See [Generics and interfaces](design-generics.md).

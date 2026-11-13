@@ -1,0 +1,11 @@
+in io;
+
+none main() {
+    mut string[?] names;
+    names::push("Illy");
+    open string[?] xs = [];
+    xs::push("a");
+    xs::push("b");
+    io::outln(names::join(", "));
+    io::outln(xs::join("-"));
+}

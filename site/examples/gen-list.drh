@@ -1,0 +1,15 @@
+in io;
+
+// A generic function over lists: `&T[?]` takes any list by borrow, and T is
+// worked out from it. Each item is only read.
+T add_first<T>(&T[?] xs) {
+    return xs[0] + xs[1];
+}
+
+none main() {
+    uint32[?] small = [1, 2, 3];
+    string[?] words = ["ab", "cd"];
+    uint32 total = add_first(&small);
+    io::outln(total::text());
+    io::outln(add_first(&words));
+}
