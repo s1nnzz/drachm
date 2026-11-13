@@ -192,6 +192,22 @@ fn shown(p: &Path) -> String {
     p.to_string_lossy().replace('\\', "/")
 }
 
+/// A path with `.` and `..` folded away (without touching the disk).
+fn normalise(p: &Path) -> PathBuf {
+    use std::path::Component;
+    let mut out = PathBuf::new();
+    for c in p.components() {
+        match c {
+            Component::CurDir => {}
+            Component::ParentDir if out.file_name().is_some() => {
+                out.pop();
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
+}
+
 /// The file an import path means below `dir`: `a.b.c` is `dir/a/b/c.drh`.
 fn file_for(dir: &Path, segs: &[String]) -> PathBuf {
     let mut p = dir.to_path_buf();
@@ -242,23 +258,30 @@ impl Loader<'_> {
         program.unsafe_allowed = fl.unsafe_allowed;
         let index = self.graph.modules.len();
         self.by_path.insert(key, index);
-        self.graph.modules.push(Module { name: self.module_name(path), path: path.to_path_buf(), file, program, targets: Vec::new() });
+        let mut name = self.module_name(path);
+        while self.graph.modules.iter().any(|m| m.name == name) {
+            name = format!("{name}_{index}");
+        }
+        self.graph.modules.push(Module { name, path: path.to_path_buf(), file, program, targets: Vec::new() });
         Some(index)
     }
 
     fn resolve_imports(&mut self, m: usize) {
-        let imports: Vec<(Vec<String>, Span, Option<String>, Span)> = self.graph.modules[m]
+        let imports: Vec<(Vec<String>, Span, Option<String>, Span, Option<String>)> = self.graph.modules[m]
             .program
             .imports
             .iter()
-            .map(|i| (i.path.clone(), i.path_span, i.binding().map(String::from), i.span))
+            .map(|i| (i.path.clone(), i.path_span, i.binding().map(String::from), i.span, i.file.clone()))
             .collect();
         let importer = self.graph.modules[m].path.clone();
         let mut targets = Vec::new();
         // The name each module import gives, for the same-name check.
         let mut bound: Vec<(String, Target)> = Vec::new();
-        for (path, path_span, binding, whole) in imports {
-            let target = self.resolve(&importer, &path, path_span);
+        for (path, path_span, binding, whole, file) in imports {
+            let target = match &file {
+                Some(f) => self.resolve_file(&importer, f, path_span),
+                None => self.resolve(&importer, &path, path_span),
+            };
             if let (Some(name), Some(t)) = (binding, target) {
                 match bound.iter().find(|(n, _)| *n == name) {
                     Some((_, first)) if *first != t => self.diags.push(same_name(&name, &path, whole)),
@@ -269,6 +292,22 @@ impl Loader<'_> {
             targets.push(target);
         }
         self.graph.modules[m].targets = targets;
+    }
+
+    /// An import by file path: relative to the importing file's folder, `..` allowed.
+    fn resolve_file(&mut self, importer: &Path, file: &str, at: Span) -> Option<Target> {
+        let dir = importer.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+        let path = normalise(&dir.join(file));
+        if !path.is_file() {
+            self.diags.push(
+                Diagnostic::at(&codes::E0230, at, format!("module file `{file}` not found"))
+                    .note("no such file")
+                    .note_line(format!("looked for `{}`", self.display(&path)))
+                    .help("a file path is relative to this file's folder and may climb with `..`: `in \"../runtime/scheduler.drh\";`"),
+            );
+            return None;
+        }
+        self.add_file(&path, Some(at)).map(Target::File)
     }
 
     fn resolve(&mut self, importer: &Path, segs: &[String], at: Span) -> Option<Target> {

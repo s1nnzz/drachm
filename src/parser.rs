@@ -1005,6 +1005,31 @@ impl Parser<'_> {
         Ok((path, span, false))
     }
 
+    /// A module named as a path or as a string file path (`"../x/y.drh"`).
+    /// Returns the path (a file path gives its stem), its span, whether it was
+    /// written in words, and the file path.
+    fn module_ref(&mut self) -> Parsed<(Vec<String>, Span, bool, Option<String>)> {
+        if let Tok::Str(pieces) = self.peek().clone() {
+            let span = self.bump().span;
+            let mut text = String::new();
+            for p in &pieces {
+                match p {
+                    StrPiece::Raw(t, _) => text.push_str(t),
+                    _ => return Err(Diagnostic::at(&codes::E0003, span, "a module file path is plain text").help("write the path without escapes or `${}`: `in \"../runtime/scheduler.drh\";`")),
+                }
+            }
+            let stem = text.rsplit('/').next().unwrap_or("").strip_suffix(".drh").unwrap_or("").to_string();
+            if stem.is_empty() || !stem.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') || stem.starts_with(|c: char| c.is_ascii_digit()) {
+                return Err(Diagnostic::at(&codes::E0230, span, format!("`{text}` is not a module file path"))
+                    .note("needs a file name ending in `.drh`")
+                    .help("a module file has a plain name (letters, digits, `_`): `in \"../runtime/scheduler.drh\";`"));
+            }
+            return Ok((vec![stem], span, false, Some(text)));
+        }
+        let (path, span, word) = self.module_path()?;
+        Ok((path, span, word, None))
+    }
+
     /// `in` items; see `ast::Import` for the forms.
     fn import(&mut self) -> Parsed<Import> {
         let start = self.bump().span;
@@ -1013,10 +1038,25 @@ impl Parser<'_> {
             if !self.eat_kw("from") {
                 return Err(self.unexpected("`from` after `*`").help(help));
             }
-            let (path, path_span, word_form) = self.module_path()?;
+            let (path, path_span, word_form, file) = self.module_ref()?;
+            let alias = self.alias()?;
+            let mut also_bare = false;
+            if matches!(self.peek(), Tok::Ident(w) if w == "also") && matches!(self.peek_at(1), Tok::Ident(w) if w == "bare") {
+                let at = self.bump().span.to(self.bump().span);
+                if alias.is_none() {
+                    return Err(Diagnostic::at(&codes::E0003, at, "`also bare` needs a name")
+                        .help("without `as`, `in * from m;` already brings the names bare: `in * from game.audio as snd also bare;`"));
+                }
+                also_bare = true;
+            }
+            self.expect(";")?;
+            return Ok(Import { path, path_span, word_form, items: Vec::new(), glob: true, alias, also_bare, file, span: start.to(self.prev_span()) });
+        }
+        if matches!(self.peek(), Tok::Str(_)) {
+            let (path, path_span, word_form, file) = self.module_ref()?;
             let alias = self.alias()?;
             self.expect(";")?;
-            return Ok(Import { path, path_span, word_form, items: Vec::new(), glob: true, alias, span: start.to(self.prev_span()) });
+            return Ok(Import { path, path_span, word_form, items: Vec::new(), glob: false, alias, also_bare: false, file, span: start.to(self.prev_span()) });
         }
         // The first names, as dotted paths for now: `in a.b as c;` is a module,
         // `in a as b, c from m;` is a list of items. `from` tells them apart.
@@ -1039,14 +1079,14 @@ impl Parser<'_> {
                 let full = alias.as_ref().map_or(span, |a| span.to(a.1));
                 items.push(ImportItem { name: path.into_iter().next().unwrap(), alias: alias.map(|a| a.0), span: full });
             }
-            let (path, path_span, word_form) = self.module_path()?;
+            let (path, path_span, word_form, file) = self.module_ref()?;
             if self.peek() == &Tok::Kw("as") {
                 return Err(self
                     .unexpected("`;`")
                     .help("rename an item next to its name: `in Vector3 as V3 from physics;`, or import the module with its own name: `in physics as phys;`"));
             }
             self.expect(";")?;
-            return Ok(Import { path, path_span, word_form, items, glob: false, alias: None, span: start.to(self.prev_span()) });
+            return Ok(Import { path, path_span, word_form, items, glob: false, alias: None, also_bare: false, file, span: start.to(self.prev_span()) });
         }
         if entries.len() != 1 {
             return Err(self.unexpected("`from` after the imported names").help(help));
@@ -1066,7 +1106,7 @@ impl Parser<'_> {
         }
         let alias = if alias.is_none() { self.alias()? } else { alias };
         self.expect(";")?;
-        Ok(Import { path, path_span, word_form, items: Vec::new(), glob: false, alias, span: start.to(self.prev_span()) })
+        Ok(Import { path, path_span, word_form, items: Vec::new(), glob: false, alias, also_bare: false, file: None, span: start.to(self.prev_span()) })
     }
 
     /// `as name`, if written.
