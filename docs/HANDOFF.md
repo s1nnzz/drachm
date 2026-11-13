@@ -25,9 +25,14 @@ For a new session with no memory of earlier conversations. Read this, then
   follow-ups")**: named constants (non-`mut` top-level with a constant value
   usable in types; optional `fixed`), constant arithmetic on value parameters
   in types (`T[N + 1]`, E0901 today).
-- **Owner questions pending**: `10..0 by -2` gives 10..2 in my question's
-  preview but the inclusive end gives 0 too (built: 0 included); on an
-  unsigned loop a literal `by -2` is only W0102: hard error instead?
+- **To build (small)**: an unsigned loop with a literal negative `by` counts
+  down with a warning (today W0102 and wraps). Answers in owner-answers
+  "Follow-ups, 2026-11-13 (late)".
+- **In flight (2026-11-13)**: an architect agent on named constants + value
+  parameter arithmetic; an architect agent on step 7 WP1 (multi-file front
+  end). Step 7 spec: `docs/impl/step7-modules.md`; batches A-D answered
+  (owner-answers), batch E and some sub-questions (9b, 13b, 13c, 15c, re-export,
+  climbing a folder up) still open.
 - Still undesigned: `exclusive &Shape`, `unit U with X`. Not built: map-walk
   views, interface methods with their own type parameters, borrowing a generic
   interface.

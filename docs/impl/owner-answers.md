@@ -196,3 +196,9 @@ Q5 interfaces as types: any interface can be used as `&I` (its `static` methods 
 - Named constants: a top-level non-`mut` value with a constant initializer is usable in types and array sizes (`uint32 SIZE = 8; uint8[SIZE] raw;`); `fixed` is optional and makes it a checked constant (an error if the value is not constant): `fixed uint32 MAX = SIZE * 2;` (owner: "fixed would just make it better"). Values from the run (`io::inln()`, function calls) are not usable in types.
 - Value-parameter functions keep the borrow at the call: `sum(&arr)` (E0321 rule).
 - Any constant arithmetic on value parameters inside types is allowed: `T[N + 1]`, `Buffer<T, N * 2>`, checked per instance.
+
+# Follow-ups, 2026-11-13 (late)
+- A range includes its end when the step lands on it, both ways: `10..0 by -2` is 10, 8, 6, 4, 2, 0; `0..10 by 2` is 0, 2, ..., 10 (checked: built that way).
+- An unsigned loop with a literal negative step counts down anyway (the step's sign is read before the type), with a warning: `for (uint32 i of 10..0 by -2)` gives 10, 8, ..., 0 (owner: "warn tho"). Today it is W0102 and wraps: to change.
+- Step 7 Q10b: a script may define `main()` or have top-level statements, not both (with `main()`, the top level holds declarations only).
+- Step 7 Q14b: constants are qualified, `math::pi`, `math::e`. Q15b: `assert` works in normal code and runs in every build, `-O` too.
