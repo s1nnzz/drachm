@@ -236,6 +236,11 @@ impl Parser<'_> {
                     let span = self.bump().span;
                     args.push(TypeName { is_number: true, ..TypeName::plain(v.to_string(), span) });
                 }
+                _ if self.unit_arg_at(0) => {
+                    let start = self.bump().span;
+                    let spec = self.unit_spec()?;
+                    args.push(TypeName { unit_arg: Some(spec), ..TypeName::plain("", start.to(self.prev_span())) });
+                }
                 _ => {
                     let ty = self.ty()?;
                     if ty.func.is_some() {
@@ -253,6 +258,36 @@ impl Parser<'_> {
         }
         self.close_angle()?;
         Ok(args)
+    }
+
+    /// Is a unit written as a type argument at token offset `n`: `unit` and
+    /// then the start of a unit expression (`unit m/s`, `unit delta degC`)?
+    /// Elsewhere `unit` is an ordinary name, so `Stack<unit>` is a type.
+    fn unit_arg_at(&self, n: usize) -> bool {
+        matches!(self.peek_at(n), Tok::Ident(w) if w == "unit")
+            && match self.peek_at(n + 1) {
+                Tok::Ident(_) | Tok::Sym("(") => true,
+                Tok::Num(NumLit { value: Const::Int(v), suffix: None, .. }, None) => *v == num_bigint::BigInt::from(1),
+                _ => false,
+            }
+    }
+
+    /// The offset just after the unit expression that starts at `n` inside
+    /// a unit type argument: it runs up to the `,` or `>` that follows.
+    fn unit_arg_end(&self, mut n: usize) -> Option<usize> {
+        let first = n;
+        let mut depth = 0usize;
+        loop {
+            match self.peek_at(n) {
+                Tok::Ident(_) | Tok::Sym("*" | "/" | "^" | "-") => {}
+                Tok::Num(NumLit { value: Const::Int(_), suffix: None, .. }, None) => {}
+                Tok::Sym("(") => depth += 1,
+                Tok::Sym(")") => depth = depth.checked_sub(1)?,
+                _ => break,
+            }
+            n += 1;
+        }
+        (depth == 0 && n > first).then_some(n)
     }
 
     /// `[?]` and `[N]` after a type name, in order.
@@ -513,6 +548,8 @@ impl Parser<'_> {
                     return None;
                 }
                 j += 1;
+            } else if self.unit_arg_at(j) {
+                j = self.unit_arg_end(j + 1)?;
             } else {
                 loop {
                     match self.peek_at(j) {
@@ -2511,6 +2548,9 @@ mod tests {
                 TypeMod::FixedPtr => "*fixed ",
             });
         }
+        if let Some(u) = &t.unit_arg {
+            return format!("unit {}", unit_str(u));
+        }
         s.push_str(&t.name);
         if let Some(u) = &t.unit {
             s.push_str(&format!("<{}>", unit_str(u)));
@@ -2547,6 +2587,21 @@ mod tests {
         assert_eq!(let_type("Stack<uint32>? s;"), "Stack<uint32>?");
         assert_eq!(let_type("List<List<uint32>> x = y;"), "List<List<uint32>>");
         assert_eq!(let_type("Array<uint8, 4> a;"), "Array<uint8, 4>");
+    }
+
+    #[test]
+    fn unit_type_arguments() {
+        assert_eq!(let_type("Vec3<float64, unit m/s> v;"), "Vec3<float64, unit (m/s)>");
+        assert_eq!(let_type("Vec3<T, unit U> v;"), "Vec3<T, unit U>");
+        assert_eq!(let_type("Vec3<float64, unit delta degC> v;"), "Vec3<float64, unit delta degC>");
+        assert_eq!(let_type("Pair<Vec3<float64, unit m>, unit s> v;"), "Pair<Vec3<float64, unit m>, unit s>");
+        // `unit` is only a unit where a unit can start: a type named `unit` stays one.
+        assert_eq!(let_type("Stack<unit> v;"), "Stack<unit>");
+        let (s, d) = body("uint32 a = twice<unit m>(x); Vec3<float64, unit m>::zero();");
+        assert!(d.is_empty(), "{:?}", errors(&d));
+        let Stmt::Let { value: Some(Init::Expr(e)), .. } = &s[0] else { panic!() };
+        let ExprKind::Call { targs, .. } = &e.kind else { panic!("{:?}", e.kind) };
+        assert!(targs[0].unit_arg.is_some() && targs[0].name.is_empty());
     }
 
     #[test]

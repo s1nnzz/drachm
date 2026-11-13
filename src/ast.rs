@@ -219,6 +219,9 @@ pub struct TypeName {
     pub dims: Vec<Dim>,
     /// A number written where a type argument goes.
     pub is_number: bool,
+    /// A unit written where a type argument goes: `Vec3<float64, unit m/s>`.
+    /// Its `name` is empty; the unit is here.
+    pub unit_arg: Option<UnitSpec>,
     /// The return type the parser gives a constructor: the struct itself,
     /// whatever type arguments it has in this instance.
     pub self_ty: bool,
@@ -233,7 +236,7 @@ pub struct FuncType {
 impl TypeName {
     /// A bare name with nothing else written.
     pub fn plain(name: impl Into<String>, span: Span) -> TypeName {
-        TypeName { name: name.into(), span, func: None, mods: Vec::new(), unit: None, optional: None, args: Vec::new(), dims: Vec::new(), is_number: false, self_ty: false }
+        TypeName { name: name.into(), span, func: None, mods: Vec::new(), unit: None, optional: None, args: Vec::new(), dims: Vec::new(), is_number: false, unit_arg: None, self_ty: false }
     }
 }
 
