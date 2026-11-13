@@ -252,3 +252,9 @@ Q5 interfaces as types: any interface can be used as `&I` (its `static` methods 
 - After `fs::create(path, text)` writes initial text, the returned file's cursor starts at the beginning.
 - `fs::open(path, Read or Write or ReadWrite)` opens an existing file and returns the same `File` type in all three modes.
 - `fs::open(path, Write)` preserves existing contents and appends writes at the end.
+
+# C header imports batch B (types and layout), 2026-11-13
+- Scalars: C number types are their own types, `c::int`, `c::long`, `c::size_t` (plain `char` and C `bool` too, my reading); convert with `as` (`sint32 x = n as sint32;`).
+- Pointers: C pointers are `foreign *T` (e.g. `foreign *uint8 p = c::getenv("HOME");`); only `unsafe` code may open them (`unsafe { string home = p::text(); }`); wrappers turn them into Drachm values. `void *`, null and pointer-to-pointer out parameters: not asked separately (open; my reading: `foreign *none`, null as `none`).
+- Structs: full value structs with the exact C layout: fields readable and writable, passed by value (`sdl::SDL_Rect r = 10, 10, 200, 100; r.w += 5;`).
+- Unions are readable only in `unsafe`; bit-fields are read and written through generated code; flexible array members are raw (foreign) pointers.
