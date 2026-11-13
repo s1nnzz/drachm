@@ -1307,6 +1307,105 @@ Rename the parameter to remove the warning.
     K max<K>(K a, K b) { ... }        // W0618: K is the type here
     float64<K as unit> t = 1.0<K>;   // the unit K
 
+## E0800: project file is not valid
+
+A project file cannot be read, or is not valid TOML: `drachm.toml`,
+`srachm.toml` and `drachm.lock` are TOML files. The label points at
+the first thing the TOML reader could not parse.
+
+## E0801: unknown setting
+
+A key or table in `drachm.toml` or `srachm.toml` is not one the
+compiler knows, so it would do nothing. The sections are `[project]`,
+`[dependencies]`, `[build]`, `[warnings]` and `[behaviour]`. A close
+spelling is suggested.
+
+## E0802: bad setting value
+
+A setting has a value it does not accept: a word that is not one of
+the choices (`overflow = "clamp"`), text where a number or a list
+goes, a `kind` other than `program` or `library`, or an `entry` that is
+not a `.drh` file inside the project.
+
+## E0803: required setting missing
+
+A setting that must be there is not: `[project] name` in a project, a
+git dependency's `tag`, or the `path` or `git` of a dependency.
+
+    [project]
+    name = "mygame"
+
+## E0804: bad dependency
+
+A `[dependencies]` entry is not usable: its name is not a plain name,
+it is not a table, it mixes `path` and `git`, or it has a key that is
+not `path`, `git` or `tag`.
+
+    sdl = { git = "https://example.org/sdl.git", tag = "v0.4" }
+    utils = { path = "../utils" }
+
+## E0805: invalid project name
+
+The project's name is part of every path that starts at the source
+folder, so it must be a plain name: letters, digits and `_`, starting
+with a letter or `_`. `2fast` and `my-game` are not names.
+
+## E0806: behaviour set in a file flag
+
+A `//--!$` file flag sets a behaviour that must be the same across the
+whole project: `missing_key`, `unhandled_fail` or `import_clash`. Set
+those in `[behaviour]` of `drachm.toml`. Only `overflow`, `bounds` and
+`unsigned_negate` may differ from file to file.
+
+## E0807: project and script config both here
+
+A folder has both `drachm.toml` (a project) and `srachm.toml` (a
+script). A folder is one or the other. Keep the one that fits.
+
+## E0808: cannot fetch a git dependency
+
+A `git` dependency could not be fetched: `git` is not installed, the
+address is wrong, or the tag does not exist. Dependencies are cloned
+into `deps/NAME` in the project folder. The message shows what git said.
+
+## E0809: git tag moved
+
+A git dependency is built from the commit `drachm.lock` records, even when
+its tag moves later. When that commit is not in `deps/`, it has to be
+fetched from the tag, and the tag now names another commit: the compiler
+refuses rather than build something the lock file did not record. To take
+the new commit, delete `drachm.lock` and build again.
+
+## E0810: dependency cycle
+
+A dependency is part of a cycle: it depends on a project that depends on
+it, directly or through other
+dependencies. A project's dependencies must form a tree.
+
+## E0811: library has no program
+
+`drachm run` and `drachm build` make a program, and a project with
+`kind = "library"` has no program to make: its code is used by other
+projects. Change `kind` to `"program"` to build it, or run a program
+project instead.
+
+## E0812: entry file not found
+
+The project's `entry` (`src/main.drh` by default) is not a file. Create
+it, or change `entry` in `[project]`.
+
+## E0813: cannot make a new project
+
+`drachm new NAME` needs NAME to be a plain name and a folder that does
+not exist yet in the current folder.
+
+## E0814: no drachm.toml here
+
+A project folder is given to `build`, `run` or `check`, or the current
+folder is used by default, and it has no `drachm.toml`. A project is a
+folder with a `drachm.toml` and the program in `src/main.drh`; `drachm new`
+makes one.
+
 ## E0901: not supported yet
 
 This is part of Drachm's design, but this version of the compiler does

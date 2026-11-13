@@ -5,13 +5,15 @@ description: build, run, check and explain, the -O flag, and exit codes.
 
 # Command line
 
-The compiler has four commands. `-O` works with `build` and `run`, and nothing
+The compiler has five commands: `new` makes a project, and the others work on a
+file or project folder. `-O` works with `build` and `run`, and nothing
 else takes a flag.
 
 ```text
-drachm build <file.drh | folder> [-o <output>] [-O]   compile to a native executable
-drachm run   <file.drh | folder> [-O]                 compile and run
-drachm check <file.drh | folder>                      check for errors only
+drachm build [file.drh | folder] [-o <output>] [-O]   compile to a native executable
+drachm run   [file.drh | folder] [-O]                 compile and run
+drachm check [file.drh | folder]                      check for errors only
+drachm new <name>                            make a project folder
 drachm explain <code>                        describe an error code, e.g. E0101
 
   -O   optimised build: slower to compile, much faster to run
@@ -42,6 +44,18 @@ the lessons do, because it is the fastest way to see whether a change compiles.
 drachm check hello.drh
 ```
 
+## new
+
+`new` makes a project folder in the current folder: `drachm.toml`, `src/main.drh`
+with a greeting, and an empty `tests/` folder. The name must be a plain name
+(letters, digits and `_`, not starting with a digit), and the folder must not
+exist yet. Then `drachm run NAME` runs it.
+
+```sh
+drachm new mygame
+drachm run mygame
+```
+
 ## explain
 
 `explain` prints the title and description of one code. An unknown code is an
@@ -65,9 +79,15 @@ drachm run hello.drh -O
 ## Project folders
 
 Instead of a file, `build`, `run` and `check` take a project folder: one with a
-`drachm.toml` and the program in `src/main.drh`. The project's name comes from
-`name` under `[project]`. A file inside such a folder belongs to that project;
+`drachm.toml`. With no argument they use the current folder. The program starts
+in the file `entry` names under `[project]` (`src/main.drh` by default), and the
+folder of that file is the source root. A file inside a project belongs to it;
 a file with no `drachm.toml` above it is a script and its own folder is its
 root. Files the program imports are found and read, but a program of several
 files cannot be built yet (error E0901): naming things across files is still to
 come.
+
+A project with `kind = "library"` has no program: `build` and `run` say so
+(E0811), and `check` checks it. A folder with no `drachm.toml` is an error
+(E0814), and so is a missing entry file (E0812). The settings are described in
+[Projects and config](design-config.md).

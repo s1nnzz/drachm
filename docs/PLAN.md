@@ -738,7 +738,34 @@ no way to climb a folder up; re-exporting an imported name and `out` on a
 covers module imports, item clashes wait for WP2; cross-file mutual recursion
 (Q8) is a WP2 check. Next: WP2 (scoped names), then the rest.
 
+**Step 7 progress (WP3, built):** `src/config.rs` reads `drachm.toml` and
+`srachm.toml` (`toml_edit`, not the `toml` crate: it keeps spans on keys and
+values for the diagnostics): `[project]` name / kind (`program` default,
+`library`) / entry (`src/main.drh`), `[dependencies]` by `path` or `git` with an
+exact `tag`, `[build]` target / opt, `[warnings]` as_errors (stored only),
+`[behaviour]` six settings (stored only, WP4 applies them). Codes E0800-E0814
+(08xx). `config::open` replaces the scanner: a folder is a project, a file takes
+the nearest config above it, and both `drachm.toml` and `srachm.toml` in one
+folder is E0807. `kind = "library"`: `run` and `build` are E0811, `check` runs
+the program checks (a library without `main` gets E0204; interim, needs an
+owner decision). `src/deps.rs`: path deps are folders; git deps clone into
+`deps/NAME/` of the project (owner, 2026-11-13: per project, not a user cache),
+`drachm.lock` pins the commit (`[[git]]` url, tag, commit), a moved tag is E0809
+only when the commit must be fetched, two sources under one name E0804, cycles
+E0810. `Opened.deps` gives the dependency roots (name, dir, src, own config);
+wiring their modules into `in` paths is WP2. `drachm new NAME` (E0805, E0813),
+the `Command` enum in `main.rs` (flags only where they apply; input defaults to
+`.`). File flags: `overflow`, `bounds`, `unsigned_negate` are checked and kept
+per file (`FileFlags.behaviour`; WP4 plumbs them), `missing_key`,
+`unhandled_fail`, `import_clash` in a file are E0806. Interims: no registry
+(E0901); cross target E0901; `[build] opt = true` acts as `-O`.
+Tests: `config` and `flags` unit tests, `tests/deps.rs` (local `file://` repos),
+`tests/cli.rs` (`new` then `run`, library, entry, errors).
+
 **Open (ask owner):** the full `[warnings]` name list (grows as warnings are added).
+Also: should `check` on a library skip the `main` requirement (E0204)? A `deps/`
+folder in `.gitignore` or committed? Whether `drachm new` should write a
+`.gitignore`. Dependency names clash only per build (no module-level names yet).
 
 ---
 

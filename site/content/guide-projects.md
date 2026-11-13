@@ -5,11 +5,12 @@ description: Splitting code into modules with in and out, describing the project
 
 # Organising a project
 
-Today the compiler takes one file at a time and reads no config. The built
-pieces are `in io;`, `in si;` and the file flag `//--!$unsafe: true`. Modules
-between your own files, `drachm.toml`, scripts and the other flags are
-designed, and their sections are marked. The code blocks there show the
-intended shape, not something you can run.
+The compiler builds a project folder with a `drachm.toml`: its `[project]` name,
+kind and entry are read, and `build`, `run` and `check` take the folder. The
+built pieces are `in io;`, `in si;`, the file flag `//--!$unsafe: true` and the
+project file's `[project]` section. Modules between your own files, dependencies,
+scripts and the other settings are designed, and their sections are marked. The
+code blocks there show the intended shape, not something you can run.
 
 ## Start small, split when it hurts
 
@@ -71,11 +72,13 @@ small file, but it can bring in a name you already have; the `import_clash`
 setting below chooses whether that is a warning or an error.
 
 ## The project file
-<!-- status: not-implemented -->
 
-`drachm.toml` names the project, its dependencies and its build. Dependencies
-come from the Agora (the package registry), a git URL or a local path;
-`drachm add json` adds one.
+`drachm.toml` names the project. The `[project]` section is built: `name` is
+required, `kind = "library"` marks code that other projects use, and `entry`
+moves the start of the program (`src/main.drh` by default). Dependencies from a
+local folder (`path`) or a git tag (`git` with `tag`) are read and fetched; a
+registry version such as `json = "1.2"` waits for the Agora. The build settings
+below it are designed.
 
 <!-- focus: 1-3,5-7,9,10 -->
 
@@ -163,7 +166,10 @@ pointer by accident. See [Unsafe](reference-unsafe.md).
 
 Use a flag for a file with one odd need, such as the file that wraps a C
 library. If most files need the same, change the project setting instead. The
-other flags, such as `//--!$overflow: saturate`, are designed, not built.
+flags `overflow`, `bounds` and `unsigned_negate` are checked (a wrong word is
+E0318) and stored for the file, such as `//--!$overflow: saturate`; the code
+does not use them yet. `missing_key`, `unhandled_fail` and `import_clash` are
+for the whole project, so a file flag that sets one is E0806.
 
 ## Scripts
 <!-- status: not-implemented -->

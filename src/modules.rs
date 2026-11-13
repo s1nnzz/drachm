@@ -46,56 +46,6 @@ impl ProjectInfo {
         ProjectInfo { name: None, root: dir.to_path_buf(), display_base: None }
     }
 
-    /// What a command-line path means: a file (inside a project if a
-    /// `drachm.toml` is found above it, else a script) or a project folder
-    /// (entry `src/main.drh`). Returns the entry file and its project.
-    ///
-    /// Interim until the config step (WP3): the only thing read from the toml
-    /// is `name` under `[project]`; `kind` and `entry` are not read yet.
-    pub fn open(path: &Path) -> Result<(PathBuf, ProjectInfo), String> {
-        if path.is_dir() {
-            let toml = path.join("drachm.toml");
-            if !toml.is_file() {
-                return Err(format!("{}: a project folder needs a drachm.toml", path.display()));
-            }
-            let entry = path.join("src").join("main.drh");
-            if !entry.is_file() {
-                return Err(format!("{}: no src/main.drh", path.display()));
-            }
-            return Ok((entry, Self::of_project(path, &toml)?));
-        }
-        let start = path.canonicalize().ok().and_then(|p| p.parent().map(Path::to_path_buf));
-        for dir in start.iter().flat_map(|d| d.ancestors()) {
-            if dir.join("srachm.toml").is_file() {
-                break;
-            }
-            let toml = dir.join("drachm.toml");
-            if toml.is_file() {
-                return Ok((path.to_path_buf(), Self::of_project(dir, &toml)?));
-            }
-        }
-        Ok((path.to_path_buf(), Self::script(path)))
-    }
-
-    fn of_project(dir: &Path, toml: &Path) -> Result<ProjectInfo, String> {
-        let text = std::fs::read_to_string(toml).map_err(|e| format!("{}: {e}", toml.display()))?;
-        let name = project_name(&text).ok_or_else(|| format!("{}: no `name` under [project]", toml.display()))?;
-        Ok(ProjectInfo { name: Some(name), root: dir.join("src"), display_base: Some(dir.to_path_buf()) })
-    }
-}
-
-/// `name = "x"` under `[project]`. A stand-in for the toml reader of WP3.
-fn project_name(toml: &str) -> Option<String> {
-    let mut in_project = false;
-    for line in toml.lines() {
-        let line = line.trim();
-        if line.starts_with('[') {
-            in_project = line == "[project]";
-        } else if in_project && let Some((key, value)) = line.split_once('=') && key.trim() == "name" {
-            return Some(value.trim().trim_matches('"').to_string()).filter(|n| !n.is_empty());
-        }
-    }
-    None
 }
 
 /// What an `in` path names.
@@ -391,14 +341,6 @@ fn same_name(name: &str, path: &[String], whole: Span) -> Diagnostic {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn toml_name() {
-        assert_eq!(project_name("[project]\nname = \"mygame\"\nkind = \"program\"\n").as_deref(), Some("mygame"));
-        assert_eq!(project_name("[other]\nname = \"x\"\n[project]\n name=\"y\"\n").as_deref(), Some("y"));
-        assert_eq!(project_name("[other]\nname = \"x\"\n"), None);
-    }
-
     #[test]
     fn file_paths() {
         let segs: Vec<String> = ["game", "physics"].iter().map(|s| s.to_string()).collect();

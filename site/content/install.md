@@ -15,6 +15,10 @@ The compiler uses the C compiler to link programs and to build `-O` programs.
   with the C++ workload, which Rust needs anyway. Use the MSVC Rust toolchain
   (the default). clang finds Visual Studio's linker and libraries by itself.
 
+For projects that use git dependencies, `git` must be on the `PATH` as well: the
+compiler clones each one into the project's `deps/` folder. Programs with only
+`path` dependencies or no dependencies do not need it.
+
 From the root of the repository, build in release mode.
 The compiler is then `target/release/drachm`, and the examples use that path.
 
@@ -47,6 +51,19 @@ print the same output.
 target/release/drachm run hello.drh -O
 target/release/drachm build hello.drh -O -o hello
 ```
+
+## Start a project
+
+For more than one file, make a project folder. `drachm new` writes
+`drachm.toml`, a `src/main.drh` with a greeting and an empty `tests/` folder:
+
+```sh
+target/release/drachm new mygame
+target/release/drachm run mygame
+```
+
+`run` and `check` also take the folder itself, or nothing at all from inside
+it. The [project settings](design-config.md) say what else `drachm.toml` holds.
 
 ## Check without building
 

@@ -48,6 +48,11 @@ impl Drop for Tree {
     }
 }
 
+/// What `config::open` gives for a path: the entry file and the module info.
+fn open(path: &Path) -> Result<(PathBuf, ProjectInfo), ()> {
+    drachm::config::open(path).map(|o| (o.entry, o.info)).map_err(|_| ())
+}
+
 fn names(g: &modules::ModuleGraph) -> Vec<&str> {
     g.modules.iter().map(|m| m.name.as_str()).collect()
 }
@@ -235,20 +240,20 @@ fn front_project_checks_one_file_and_stops_at_several() {
 fn project_discovery() {
     let t = Tree::new("discover", Some("demo"), &[("main.drh", "none main() { }\n"), ("sub/x.drh", "\n")]);
     fs::write(t.dir.join("drachm.toml"), "[project]\nname = \"demo\"\n").unwrap();
-    let (entry, info) = ProjectInfo::open(&t.dir).unwrap();
+    let (entry, info) = open(&t.dir).unwrap();
     assert_eq!(entry, t.dir.join("src/main.drh"));
     assert_eq!(info.name.as_deref(), Some("demo"));
     // A file inside a project belongs to it.
-    let (_, info) = ProjectInfo::open(&t.dir.join("src/sub/x.drh")).unwrap();
+    let (_, info) = open(&t.dir.join("src/sub/x.drh")).unwrap();
     assert_eq!(info.name.as_deref(), Some("demo"));
     assert_eq!(info.root, t.dir.join("src"));
     // A folder without a toml is not a project.
     let bare = t.dir.join("src");
-    assert!(ProjectInfo::open(&bare).is_err());
+    assert!(open(&bare).is_err());
     // A file outside every project is a script with its own folder as root.
     let loose = std::env::temp_dir().join(format!("drachm-modules-{}-loose.drh", std::process::id()));
     fs::write(&loose, "\n").unwrap();
-    let (_, info) = ProjectInfo::open(&loose).unwrap();
+    let (_, info) = open(&loose).unwrap();
     assert_eq!(info.name, None);
     assert_eq!(info.root, Path::new(&std::env::temp_dir()));
     let _ = fs::remove_file(loose);
