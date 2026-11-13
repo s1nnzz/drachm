@@ -13,12 +13,17 @@ a small extension that runs the compiler.
   **Run Optimised (-O)**.
 - **Build**, **Check** and **Explain Error Code** from the command palette (`Drachm: ...`).
   Build output and explanations go to the "Drachm" output channel.
-- **Diagnostics**: on each save, `drachm check` runs and its errors and warnings appear in the
-  Problems panel and as squiggles. The error code links to `drachm explain`. Related notes, help
-  lines and secondary labels appear as related information. Turn this off with
-  `drachm.checkOnSave`.
-- **Status bar**: "Drachm" with a check or a cross for the last check of the active file. Click it
-  to check again.
+- **Language server**: the extension starts `drachm lsp`. Errors and warnings appear in the
+  Problems panel while you type (from the unsaved text, for the whole project), with the error code
+  and the notes, help lines and secondary labels as related information. **Hover** shows types and
+  signatures, **Go to Definition** (F12) works for locals, functions, structs, fields, methods and
+  enum variants, and **completion** offers methods after `::`, fields after `.`, bare enum
+  variants, names in scope and keywords. `Drachm: Restart Language Server` restarts it (do that
+  after rebuilding the compiler).
+- **Without the server** (`drachm.languageServer` off): on each save, `drachm check` runs and its
+  errors and warnings appear in the Problems panel. Turn that off with `drachm.checkOnSave`.
+- **Status bar**: "Drachm" shows the server is running; click it to restart. Without the server it
+  shows the last check of the active file.
 - **Tasks**: a `drachm` task type with `build`, `run` and `check` (see below), and a `$drachm`
   problem matcher for the compiler's error format.
 
@@ -27,7 +32,8 @@ a small extension that runs the compiler.
 | Setting             | Default   | What it does                                              |
 | ------------------- | --------- | --------------------------------------------------------- |
 | `drachm.path`       | `drachm`  | The compiler to run: a name on PATH, or a full path.      |
-| `drachm.checkOnSave`| `true`    | Run `drachm check` on save and show its diagnostics.      |
+| `drachm.languageServer`| `true` | Start `drachm lsp` (diagnostics, hover, definition, completion). |
+| `drachm.checkOnSave`| `true`    | Only without the server: run `drachm check` on save.      |
 
 ## Tasks
 

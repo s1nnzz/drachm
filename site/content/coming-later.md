@@ -25,7 +25,7 @@ the compiler accepts what they show.
 | 6 | Generics, interfaces, collections | done: generic functions, structs and enums, with units and borrows as type arguments ([Generics](reference-generics.md)); interfaces with `with`, `extends`, generic interfaces, `&Shape` and `Iterable` ([Interfaces](reference-generics.md#interfaces)); arrays, lists and maps with their keys, updates and walks ([Arrays and lists](reference-collections.md), [Maps](reference-collections.md#maps)); function types and lambdas ([Function types and lambdas](reference-generics.md#function-types-and-lambdas)). What is still to come is marked on [Generics and interfaces](design-generics.md#still-to-come) and [Collections](design-collections.md) |
 | 7 | Modules, config, scripts, stdlib | not started: [Modules](design-modules.md), [Config](design-config.md), [Scripts](design-scripts.md) |
 | 7.5 | MIR optimiser: SSA, inlining, scalar replacement, constant folding, loop optimisations, check elimination, alias information from borrows | not started, see [Performance](guide-performance.md#the-planned-optimiser) |
-| 8 | Language server | not started, see [Tooling](design-tooling.md) |
+| 8 | Language server | partly done: diagnostics, hover, go to definition and completion work, see [Editor support](install.md#editor-support); inlay hints, imports completion, rename and references are left |
 
 ## Later, not yet scheduled
 

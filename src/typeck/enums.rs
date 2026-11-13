@@ -152,6 +152,7 @@ impl Checker<'_> {
     /// A value of variant `vi` of enum `en`, built from `args` (one for each
     /// value the variant declares). `parens` says the call was written with `(`.
     pub(super) fn variant_expr(&mut self, en: EnumId, vi: usize, args: &[ast::Expr], parens: bool, span: Span, name_span: Span) -> Option<hir::Expr> {
+        self.note_variant(en, vi, name_span);
         // A failure's first field is the hidden cause, which the program never writes.
         let hidden = (self.g.enums[en].kind == hir::EnumKind::Failure) as usize;
         let fields: Vec<Option<Type>> = self.g.enums[en].variants[vi].fields.iter().skip(hidden).map(|f| f.ty).collect();
@@ -480,7 +481,20 @@ impl Checker<'_> {
     fn declare_binding(&mut self, name: &str, ty: Type, span: Span) -> hir::LocalId {
         let id = self.locals.len();
         self.locals.push(super::LocalInfo { name: name.to_string(), ty: Some(ty), mutable: false, is_param: false, is_self: false, open: false, span, written: None });
+        self.note_declared(id);
         id
+    }
+
+    /// Tell the language server that `at` (starting at the variant's name) names variant `vi` of `en`.
+    pub(super) fn note_variant(&self, en: EnumId, vi: usize, at: Span) {
+        let e = &self.g.enums[en];
+        if !matches!(e.kind, hir::EnumKind::User | hir::EnumKind::Failure) {
+            return;
+        }
+        let v = &e.variants[vi];
+        let at = Span::new(at.start, at.start + v.name.len());
+        let code = format!("{}::{}", super::index::demangle(&e.name), super::index::demangle(&self.variant_shape(en, vi)));
+        super::index::with(|ix| ix.refs.push(super::index::Ref { at, def: Some(v.name_span), code, note: format!("variant of `{}`", super::index::demangle(&e.name)) }));
     }
 
     pub(super) fn tag_test(&self, en: EnumId, vi: usize, place: &hir::Expr) -> hir::Expr {
@@ -539,7 +553,7 @@ impl Checker<'_> {
             );
             return None;
         }
-        let _ = name_span;
+        self.note_variant(en, vi, name_span);
         alt.tests.push(self.tag_test(en, vi, place));
         let mut ok = true;
         let mut subs = vec![Pat::Wild; skip];
@@ -652,6 +666,11 @@ impl Checker<'_> {
 
     /// One top-level pattern of a `case`, for the enum value `scrut`.
     fn top_pat(&mut self, scrut: &hir::Expr, p: &ast::Pattern, alt: &mut Alt) -> Option<Pat> {
+        match p {
+            ast::Pattern::Expr(e) => self.note_expected(e.span, scrut.ty),
+            ast::Pattern::Variant { span, .. } => self.note_expected(*span, scrut.ty),
+            _ => {}
+        }
         match p {
             ast::Pattern::Any(_) => Some(Pat::Wild),
             ast::Pattern::Variant { enum_name, name, name_span, args, parens, span } => {

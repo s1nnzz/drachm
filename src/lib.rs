@@ -14,6 +14,7 @@ pub mod flags;
 pub mod hir;
 pub mod lexer;
 pub mod link;
+pub mod lsp;
 pub mod mir;
 pub mod modules;
 pub mod ownership;

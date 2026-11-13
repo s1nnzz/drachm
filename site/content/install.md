@@ -65,6 +65,38 @@ target/release/drachm run mygame
 `run` and `check` also take the folder itself, or nothing at all from inside
 it. The [project settings](design-config.md) say what else `drachm.toml` holds.
 
+## Editor support
+
+`drachm lsp` is the language server. It speaks the Language Server Protocol on
+standard input and output, so any editor with a language client can use it. While
+you type it checks the program you are editing (the open, unsaved text, not the
+file on disk), and it understands a whole project folder, not only one file.
+
+- **Errors and warnings** appear as you type, with the error code, and the notes,
+  help lines and secondary labels as related information.
+- **Hover** shows the type of a variable or expression, a field's type, and a
+  function's or method's signature.
+- **Go to definition** works for locals, functions, structs, fields, methods and
+  enum variants, also across the files of a project.
+- **Completion** offers methods after `::` and `->` on a value of known type,
+  fields after `.`, static methods after a struct name, variants after an enum
+  name, bare enum variants where the enum is known from the context (a
+  declaration, an assignment, a comparison, an argument, a `case`), the names in
+  scope, and keywords.
+
+Half-typed code still gives answers: the parser keeps what it could read, so a
+function missing its closing `}` still has hover and completion inside it. (Type
+errors are not shown while the file has syntax errors, so a half-typed line does
+not fill the Problems panel.)
+
+**Visual Studio Code:** the extension in `editors/vscode` starts the server by
+itself. Run `npm install` and `npm run compile` in that folder, then link or copy it into
+your extensions folder (see its README). It runs `drachm` from your `PATH`; the
+setting `drachm.path` names another compiler, and `drachm.languageServer` turns the server
+off, which brings back the older check on save.
+
+**Other editors:** start `drachm lsp` as the server for `.drh` files, with no arguments.
+
 ## Check without building
 
 `check` prints errors and warnings and creates no program. The lessons use it to
