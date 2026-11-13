@@ -185,6 +185,11 @@ by name with `fill p with Veteran { }`.
 
 <!-- example: def-defaults -->
 
+A field value in a `def` may be a bare variant when the field has an enum type,
+as in an assignment: `rank = Cadet;` takes `Rank` from the field.
+
+<!-- example: def-bare-variant -->
+
 Missing defaults are reported too: `fill ... with defaults` needs the struct to
 name a default (E0510), and a name that is not a def of that struct is E0508.
 

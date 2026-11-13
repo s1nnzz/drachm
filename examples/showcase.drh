@@ -65,7 +65,7 @@ none part1() {
 enum Rank { Cadet, Pilot, Captain }
 
 // `def` names a bundle of default field values; `fill ... with` applies it.
-def Rookie of Member { hp = 100; rank = Rank::Cadet; missions = 0; }
+def Rookie of Member { hp = 100; rank = Cadet; missions = 0; }
 def Veteran of Member from Rookie { hp = 180; }
 
 struct Member defaults Rookie {
