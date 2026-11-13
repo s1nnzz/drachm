@@ -172,6 +172,29 @@ impl Parser<'_> {
         }
     }
 
+    /// A name that may be qualified by modules: `Vector3`, `phys::Vector3`.
+    /// The parts are joined with `::` in one string; the resolver
+    /// (`resolve.rs`) turns it into the name the checker uses.
+    fn qual_ident(&mut self, what: &str) -> Parsed<(String, Span)> {
+        let (mut name, mut span) = self.ident(what)?;
+        while self.peek() == &Tok::Sym("::") && matches!(self.peek_at(1), Tok::Ident(_)) {
+            self.bump();
+            let (part, part_span) = self.ident(what)?;
+            name = format!("{name}::{part}");
+            span = span.to(part_span);
+        }
+        Ok((name, span))
+    }
+
+    /// The token offset after the name at `n` and any `::name` parts after it.
+    fn qual_end(&self, n: usize) -> usize {
+        let mut end = n + 1;
+        while self.peek_at(end) == &Tok::Sym("::") && matches!(self.peek_at(end + 1), Tok::Ident(_)) {
+            end += 2;
+        }
+        end
+    }
+
     /// A type: `&`, `&mut` and `*` marks, then a name or the keyword `none`.
     fn ty(&mut self) -> Parsed<TypeName> {
         // `maybe &T`: an optional that holds a borrow (the same type as `Optional<&T>`).
@@ -244,7 +267,13 @@ impl Parser<'_> {
             let unit = self.type_unit()?;
             return Ok(TypeName { mods, unit, ..TypeName::plain("none", span) });
         }
-        let (name, span) = if self.peek() == &Tok::Kw("Self") { ("Self".to_string(), self.bump().span) } else { self.ident("a type")? };
+        let (name, span) = if self.peek() == &Tok::Kw("Self") {
+            ("Self".to_string(), self.bump().span)
+        } else if matches!(self.peek(), Tok::Ident(w) if is_number_name(w)) {
+            self.ident("a type")?
+        } else {
+            self.qual_ident("a type")?
+        };
         // A `<` after a number type opens a unit (`float64<m/s>`); after any
         // other name it opens type arguments (`Map<string, uint32>`).
         let (mut unit, mut args) = (None, Vec::new());
@@ -661,7 +690,7 @@ impl Parser<'_> {
         match self.name_look(n, &mut look) {
             Some(end) if !look.half => end,
             _ => {
-                let mut end = n + 1;
+                let mut end = self.qual_end(n);
                 // Every `?` counts, so that `T??` reaches `ty` and is E0901 there.
                 while self.peek_at(end) == &Tok::Sym("?") {
                     end += 1;
@@ -674,7 +703,7 @@ impl Parser<'_> {
     /// Lookahead for the type whose name is at token offset `n`: the offset
     /// after it, if what follows the name reads as a unit part or argument list.
     fn name_look(&self, n: usize, look: &mut Look) -> Option<usize> {
-        let mut end = n + 1;
+        let mut end = self.qual_end(n);
         if self.peek_at(end) == &Tok::Sym("<") {
             let number = matches!(self.peek_at(n), Tok::Ident(w) if is_number_name(w));
             if number {
@@ -1148,7 +1177,10 @@ impl Parser<'_> {
                             .label(first, "first written here"));
                     }
                     let at = self.bump().span;
-                    fails = self.name_list("a failure type name after `fails`")?;
+                    fails = vec![self.qual_ident("a failure type name after `fails`")?];
+                    while self.eat(",") {
+                        fails.push(self.qual_ident("a failure type name after `fails`")?);
+                    }
                     fails_span = Some(at.to(self.prev_span()));
                 }
                 _ => break,
@@ -1485,7 +1517,7 @@ impl Parser<'_> {
         let mut of_args = Vec::new();
         if self.peek() == &Tok::Kw("of") {
             self.bump();
-            let (n, sp) = self.ident("a struct name after `of`")?;
+            let (n, sp) = self.qual_ident("a struct name after `of`")?;
             if self.peek() == &Tok::Sym("<") && self.type_start_at(1) {
                 of_args = self.type_args()?;
                 self.generics.push(TypeName { args: of_args.clone(), ..TypeName::plain(n.clone(), sp) });
@@ -1495,7 +1527,7 @@ impl Parser<'_> {
         let mut from = None;
         if self.peek() == &Tok::Kw("from") {
             self.bump();
-            from = Some(self.ident("the name of the def to extend after `from`")?);
+            from = Some(self.qual_ident("the name of the def to extend after `from`")?);
         }
         self.expect("{")?;
         let mut assigns = Vec::new();
@@ -1531,7 +1563,7 @@ impl Parser<'_> {
                         return Err(Diagnostic::at(&codes::E0003, self.span(), "the default is named twice").label(first, "first named here"));
                     }
                     self.bump();
-                    defaults = Some(self.ident("the name of the default def after `defaults`")?);
+                    defaults = Some(self.qual_ident("the name of the default def after `defaults`")?);
                 }
                 Tok::Kw("with") => {
                     if let Some(first) = with.first() {
@@ -1844,7 +1876,7 @@ impl Parser<'_> {
             if self.peek() == &Tok::Ident("defaults".to_string()) {
                 Some(FillWith::Defaults(self.bump().span))
             } else {
-                let (n, sp) = self.ident("`defaults` or the name of a def after `with`")?;
+                let (n, sp) = self.qual_ident("`defaults` or the name of a def after `with`")?;
                 Some(FillWith::Named(n, sp))
             }
         } else {
@@ -2084,8 +2116,7 @@ impl Parser<'_> {
                 return Ok(Some(Pattern::Bind { mode: mode.unwrap_or(BindMode::Plain), ty, name, name_span }));
             }
         }
-        let qualified = matches!(self.peek(), Tok::Ident(_)) && self.peek_at(1) == &Tok::Sym("::") && matches!(self.peek_at(2), Tok::Ident(_));
-        let k = if qualified { 3 } else { 1 };
+        let k = if matches!(self.peek(), Tok::Ident(_)) { self.qual_end(0) } else { 1 };
         if !matches!(self.peek(), Tok::Ident(_)) || self.peek_at(k) != &Tok::Sym("(") {
             return Ok(None);
         }
@@ -2096,11 +2127,14 @@ impl Parser<'_> {
     fn variant_pattern(&mut self) -> Parsed<Pattern> {
         let start = self.span();
         let mut enum_name = None;
-        let (mut name, mut name_span) = self.ident("a variant name")?;
-        if self.peek() == &Tok::Sym("::") && matches!(self.peek_at(1), Tok::Ident(_)) {
-            self.bump();
-            enum_name = Some((name, name_span));
-            (name, name_span) = self.ident("a variant name")?;
+        let (mut name, mut name_span) = self.qual_ident("a variant name")?;
+        // `Enum::Variant` or `module::Enum::Variant`: the last part is the variant.
+        if let Some((owner, last)) = name.rsplit_once("::") {
+            let owner_span = Span::new(name_span.start, name_span.end - last.len() - 2);
+            let variant_span = Span::new(name_span.end - last.len(), name_span.end);
+            enum_name = Some((owner.to_string(), owner_span));
+            name = last.to_string();
+            name_span = variant_span;
         }
         let mut args = Vec::new();
         let parens = self.eat("(");
@@ -2491,9 +2525,14 @@ impl Parser<'_> {
                 && targs.is_empty()
                 && unit.is_none()
                 && self.peek() != &Tok::Sym("(")
-                && let ExprKind::Var(owner) = &e.kind
+                && let Some(owner) = match &e.kind {
+                    ExprKind::Var(owner) => Some(owner.clone()),
+                    // `module::Enum::Variant`: the module and the enum are the owner.
+                    ExprKind::Path { owner, name, .. } => Some(format!("{owner}::{name}")),
+                    _ => None,
+                }
             {
-                let (owner, owner_span) = (owner.clone(), e.span);
+                let owner_span = e.span;
                 let span = e.span.to(name_span);
                 e = Expr { kind: ExprKind::Path { owner, owner_span, name, name_span }, span, paren: false };
                 calls = 0;
@@ -2552,7 +2591,7 @@ impl Parser<'_> {
                 } else if otherwise {
                     return Err(self.unexpected("`any`").help("write `otherwise (any e) => { ... }`"));
                 } else {
-                    let (name, span) = self.ident("a failure type")?;
+                    let (name, span) = self.qual_ident("a failure type")?;
                     HandlerKind::Type(name, span)
                 };
                 let bind = self.ident("a name for the failure")?;
@@ -2735,7 +2774,7 @@ impl Parser<'_> {
             Tok::Kw("false") => ExprKind::Bool(false),
             Tok::Kw("none") => ExprKind::NoneValue,
             Tok::Kw("new") => {
-                let (name, name_span) = self.ident("a struct name after `new`")?;
+                let (name, name_span) = self.qual_ident("a struct name after `new`")?;
                 let targs = if self.peek() == &Tok::Sym("<") && self.type_start_at(1) { self.type_args()? } else { Vec::new() };
                 if !targs.is_empty() {
                     self.generics.push(TypeName { args: targs.clone(), ..TypeName::plain(name.clone(), name_span) });
