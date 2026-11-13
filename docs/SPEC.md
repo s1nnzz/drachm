@@ -446,12 +446,12 @@ float64<m/s> speed = dist / time;     // dist + time is a compile error
     comparison. Unit names are ASCII; prefixes are not automatic (`km` is its
     own declaration).
   - `in si;` loads the SI set as ordinary declarations: base `m s kg A K mol cd`,
-    `rad`; derived `N Pa J W C V F ohm S Wb T H Hz`; `g = 0.001 kg` (kg is the
+    `rad`; derived `N Pa J W C V F ohm S Wb tesla H Hz`; `g = 0.001 kg` (kg is the
     base mass unit), `mm cm km mg ms us ns min h kHz MHz GHz kJ kW kN`, and the
     point `degC`. Without it nothing is predeclared (E0402). A file that declares
     a name the SI set has is E0403.
-  - `T as unit` inside the `<...>` of a number type names the unit `T` explicitly
-    (`float64<T as unit>` is tesla; the literal `0.5<T>` is the same). A type
+  - The SI unit for magnetic flux density is `tesla` (owner, 2026-11-13: it was `T`,
+    which clashed with type parameters). `float64<tesla>`, `0.5<tesla>`. A type
     parameter cannot be named like a unit with `in si;` (E0605, which suggests a
     free letter). Built, with the reading that a type parameter never shadows a
     unit name in `<...>`; so the explicit form currently means the same as the

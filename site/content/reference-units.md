@@ -44,7 +44,7 @@ in si;
 
 It has the base units `m`, `s`, `kg`, `A`, `K`, `mol` and `cd`, `rad` for
 angles, and the derived ones: `N`, `Pa`, `J`, `W`, `C`, `V`, `F`, `ohm`, `S`,
-`Wb`, `T`, `H` and `Hz`. Scaled units are declared the same way: `g` (`0.001 kg`),
+`Wb`, `tesla`, `H` and `Hz`. Scaled units are declared the same way: `g` (`0.001 kg`),
 `mm`, `cm`, `km`, `mg`, `ms`, `us`, `ns`, `min` (60 s), `h` (3600 s), `kHz`,
 `MHz`, `GHz`, `kJ`, `kW` and `kN`, plus the point `degC`.
 
