@@ -93,7 +93,15 @@ impl CCtx {
         match decl {
             Decl::Func { sig, inline } => {
                 if *inline {
-                    diags.push(self.unusable(k, name, "it is a `static inline` function, which has no symbol to call", at));
+                    // A `static inline` function has no symbol: like a function-like macro,
+                    // it is called through a shim once its types are declared.
+                    if self.state.borrow().declared.iter().any(|d| d.unit == k && d.name == name) {
+                        return Some(Member::Item { global: self.global(k, name), func: true });
+                    }
+                    diags.push(
+                        self.unusable(k, name, "it is a `static inline` function, which has no symbol to call", at)
+                            .help(format!("declare its types first: `from c macro {name}(...) gives T;`")),
+                    );
                     return None;
                 }
                 if let Err(why) = self.lower_sig(k, sig, &mut Vec::new()) {
@@ -153,7 +161,11 @@ impl CCtx {
 
     /// Is `name` a function-like macro of unit `k`?
     pub fn is_function_macro(&self, k: usize, name: &str) -> bool {
-        matches!(self.units[k].decls.get(name), Some(Decl::Macro(m)) if m.function_like)
+        match self.units[k].decls.get(name) {
+            Some(Decl::Macro(m)) => m.function_like,
+            Some(Decl::Func { inline, .. }) => *inline,
+            _ => false,
+        }
     }
 
     /// Record `from c macro NAME(...) gives T;` for unit `k`; its types are resolved.
@@ -239,9 +251,21 @@ impl CCtx {
         if let Some(v) = self.state.borrow().macros.get(&key) {
             return v.clone();
         }
-        let value = crate::cimport::eval_macros(&self.units[k], &[name.to_string()]).ok().and_then(|mut m| m.remove(name));
-        self.state.borrow_mut().macros.insert(key, value.clone());
-        value
+        // The first macro asked for evaluates every constant-looking macro of the
+        // header in one pass: reading a big header again costs more than the macros.
+        let unit = &self.units[k];
+        let names: Vec<String> = unit
+            .decls
+            .iter()
+            .filter(|(_, d)| matches!(d, Decl::Macro(m) if !m.function_like && !m.tokens.is_empty() && !m.tokens.iter().any(|t| matches!(t.as_str(), "{" | "}" | ";" | "#" | "extern" | "static" | "typedef" | "struct" | "union" | "enum" | "do" | "if" | "while" | "for" | "return" | "__attribute__" | "__asm__" | "asm" | "inline" | "const" | "volatile"))))
+            .map(|(n, _)| n.clone())
+            .collect();
+        let mut all = crate::cimport::eval_macros(unit, &names).unwrap_or_default();
+        let mut st = self.state.borrow_mut();
+        for n in &names {
+            st.macros.insert((k, n.clone()), all.remove(n));
+        }
+        st.macros.get(&key).cloned().flatten()
     }
 
     /// A typedef written as a type (`sdl::Uint32`): what it stands for.

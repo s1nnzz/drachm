@@ -120,6 +120,8 @@ shape::shape_kind`. A `match` on one needs `case _` (E0705).
   called: `from c macro NAME(Type name, ...) gives Type;`. The compiler writes a
   small C function that calls the macro, compiled with the same `include` and
   `defines`, so the macro is expanded by the C compiler.
+- A `static inline` function has no symbol, so it is declared the same way
+  (`from c macro NAME(...) gives T;`) and called through the same kind of shim.
 - A macro that is neither is reported (E0901).
 
 ## Text, memory and callbacks
@@ -144,7 +146,6 @@ These are named in the headers but report E0901 with the reason when used:
 
 - variadic functions (`printf`)
 - unions, and structs with bit-fields or flexible array members
-- `static inline` functions (they have no symbol)
 - global C variables
 - structs larger than 16 bytes passed or returned by value, and passing structs
   by value on targets other than System V x86-64

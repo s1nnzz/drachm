@@ -68,6 +68,9 @@ you declare its types once, and then it is callable like a function:
 from c macro TALLY_DOUBLE(c::int x) gives c::int;
 ```
 
+A `static inline` function, which has no symbol to link to, is declared the
+same way.
+
 ## Structs and enums
 
 <!-- example: c-shapes -->
@@ -118,6 +121,6 @@ usual.
 Not everything in a C header is usable yet. The compiler tells you which
 declaration and why (E0901) when you name one it cannot use, and the rest of
 the header stays available: variadic functions (`printf`), unions, bit-fields,
-`static inline` functions, global variables, structs larger than 16 bytes passed
+global variables, structs larger than 16 bytes passed
 by value, and struct passing on machines other than x86-64 Linux and macOS. The
 [reference](reference-c-imports.md#not-supported-yet) lists them.

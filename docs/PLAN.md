@@ -818,7 +818,7 @@ imports batch A-D"); the implementation spec is `docs/impl/step7.1-c-imports.md`
 - `src/cbind.rs`: C declarations as syntax-tree items. The resolver binds the
   alias (`Target::C`), gives `alias::name` its program-wide name, and writes the
   declarations the program used as `ast::Func` (with `foreign: Some(symbol)`),
-  `ast::Struct` and `Program::c_enums`; objects-like macros become literals.
+  `ast::Struct` and `Program::c_enums`; object-like macros become literals.
 - Types: `Type::C(CKind)` (`c::int`, `c::long`, `c::size_t`, `c::char`, `c::bool`,
   ...), `Type::CEnum`, `Type::Foreign { to }` (`foreign *T`, copyable, in
   `is_ptr`). C numbers erase to their integers with `Type::bare` before MIR.
@@ -849,7 +849,9 @@ imports batch A-D"); the implementation spec is `docs/impl/step7.1-c-imports.md`
    allowed as a direct argument of a C call (E0901 elsewhere).
 5. `as` is accepted only where a C number or enum is involved (E0901 for other
    numbers: `::to<T>()` stays the general conversion).
-6. A function-like macro finds its header among the C imports of the file that
+6. `static inline` functions use the same declare-first form as function-like
+   macros (`from c macro NAME(...) gives T;`; my reading of the open point in
+   batch C). A function-like macro finds its header among the C imports of the file that
    declares it; the declared name is called as `alias::NAME`.
 7. Object-like macros are untyped constants; enumerators are typed with their
    enum; enumerators of an anonymous enum are plain numbers.
@@ -861,8 +863,7 @@ imports batch A-D"); the implementation spec is `docs/impl/step7.1-c-imports.md`
    existing limit of `unsafe_allowed`), so a dependency's wrappers need it in
    the app's main file too.
 10. Not built: variadics (after 7.1, as decided), unions, bit-fields, flexible
-    array members, `static inline` functions (they would need the macro-style
-    declaration), global variables, `long double`, 128-bit C integers, structs
+    array members, global variables, `long double`, 128-bit C integers, structs
     over 16 bytes by value, struct passing off System V x86-64, callbacks with
     struct parameters, import forms other than `in * from c."h" as alias;`,
     hover on C names in the language server.

@@ -154,3 +154,26 @@ fn c_calls_do_not_hide_in_safe_code() {
     assert!(run.status.success(), "{}", text(&run.stderr));
     assert_eq!(text(&run.stdout), "42\n");
 }
+
+#[test]
+fn a_missing_libclang_is_reported_and_only_where_a_header_is_imported() {
+    let with_c = root().join("tests/projects/c_scalars");
+    let out = Command::new(env!("CARGO_BIN_EXE_drachm"))
+        .current_dir(root())
+        .env("NO_COLOR", "1")
+        .env("LIBCLANG_PATH", "/nonexistent-drachm-libclang")
+        .args(["check", with_c.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    assert!(text(&out.stderr).contains("E0700"), "{}", text(&out.stderr));
+    // A program without a C import never loads libclang.
+    let plain = root().join("tests/projects/single");
+    let out = Command::new(env!("CARGO_BIN_EXE_drachm"))
+        .current_dir(root())
+        .env("LIBCLANG_PATH", "/nonexistent-drachm-libclang")
+        .args(["check", plain.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", text(&out.stderr));
+}

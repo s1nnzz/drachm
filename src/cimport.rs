@@ -761,6 +761,30 @@ mod tests {
     }
 
     #[test]
+    fn records_enums_and_unsupported_declarations() {
+        let unit = discover("drachm_fixture.h", &fixture_settings()).unwrap();
+        match unit.decls.get("fx_point") {
+            Some(Decl::Record(r)) => {
+                assert_eq!(r.fields.len(), 2);
+                assert_eq!(r.size, 8);
+                assert!(r.unsupported.is_none());
+            }
+            other => panic!("fx_point: {other:?}"),
+        }
+        assert!(matches!(unit.decls.get("fx_counter"), Some(Decl::Record(r)) if r.opaque));
+        assert!(matches!(unit.decls.get("fx_flags"), Some(Decl::Record(r)) if r.unsupported.as_deref().is_some_and(|w| w.contains("bit-field"))));
+        assert!(matches!(unit.decls.get("fx_number"), Some(Decl::Record(r)) if r.unsupported.is_some()));
+        assert!(matches!(unit.decls.get("FX_GREEN"), Some(Decl::Enumerator { value: 5, .. })));
+        assert!(matches!(unit.decls.get("fx_printf"), Some(Decl::Func { sig, .. }) if sig.variadic));
+        assert!(matches!(unit.decls.get("fx_twice"), Some(Decl::Func { inline: true, .. })));
+        assert!(matches!(unit.decls.get("fx_global"), Some(Decl::Unsupported(_))));
+        match unit.decls.get("fx_len") {
+            Some(Decl::Func { sig, .. }) => assert_eq!(sig.ret, CType::Scalar(CKind::SizeT)),
+            other => panic!("fx_len: {other:?}"),
+        }
+    }
+
+    #[test]
     fn missing_header_is_not_found() {
         match discover("no_such_header_anywhere.h", &Settings::default()) {
             Err(Failure::NotFound(_)) => {}
