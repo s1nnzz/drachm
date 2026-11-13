@@ -163,7 +163,8 @@ impl Globals {
             return self.instance_of(t);
         }
         if let Some(&ty) = self.tenv.get(&t.name) {
-            return Some(ty);
+            // A unit parameter is no type (E0609, reported by `resolve`).
+            return ty.as_unit_arg().is_none().then_some(ty);
         }
         if t.name == "none" {
             return Some(Type::None);
@@ -194,6 +195,9 @@ impl Globals {
 
     /// `t` with its `&`, `&mut` and `*` marks applied to the named type.
     fn resolve_quiet(&self, t: &ast::TypeName) -> Option<Type> {
+        if let Some(spec) = &t.unit_arg {
+            return self.resolve_unit_arg(spec, t.span, &mut Vec::new());
+        }
         if t.func.is_some() {
             return self.resolve_func(t, &mut Vec::new());
         }
@@ -215,8 +219,19 @@ impl Globals {
     }
 
     fn resolve(&self, t: &ast::TypeName, diags: &mut Vec<Diagnostic>) -> Option<Type> {
+        if let Some(spec) = &t.unit_arg {
+            return self.resolve_unit_arg(spec, t.span, diags);
+        }
         if t.func.is_some() {
             return self.resolve_func(t, diags);
+        }
+        if t.args.is_empty() && t.unit.is_none() && self.tenv.get(&t.name).is_some_and(|ty| ty.as_unit_arg().is_some()) {
+            diags.push(
+                Diagnostic::at(&codes::E0609, t.span, format!("`{}` is a unit, so it cannot be a type", t.name))
+                    .note("a unit parameter stands for a unit")
+                    .help(format!("use it inside a number type: `float64<{}>`", t.name)),
+            );
+            return None;
         }
         if let Some((_, span)) = t.mods.first() {
             if !self.unsafe_allowed && let Some((_, at)) = t.mods.iter().find(|(m, _)| matches!(m, ast::TypeMod::Ptr | ast::TypeMod::FixedPtr)) {

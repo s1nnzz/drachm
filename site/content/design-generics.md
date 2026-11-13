@@ -62,12 +62,5 @@ which `at` the loop uses.
 
 ## Units and generics
 
-<!-- status: tentative -->
-
-A unit in a signature is fixed today (see [Units of measure](reference-units.md)).
-Once generics exist, a function can be generic over a unit. The `<unit U>`
-spelling is the planned form, not a decided one.
-
-```drachm
-float64<U> twice<unit U>(float64<U> x) { return x * 2; }
-```
+Built: a function or a generic struct or enum can take a unit parameter. See
+[Generic over units](reference-generics.md#generic-over-units).

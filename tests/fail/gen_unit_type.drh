@@ -1,0 +1,13 @@
+in io;
+in si;
+
+// `U` stands for a unit: it can sit inside `float64<>`, but not where a type goes.
+float64<U> keep<unit U>(float64<U> a) {
+    U kept = a;
+    return kept;
+}
+
+none main() {
+    float64<m> d = 1.0<m>;
+    io::outln(f"${keep(d)::text()}");
+}

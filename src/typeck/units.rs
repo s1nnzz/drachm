@@ -31,6 +31,10 @@ pub struct UnitEnv {
     failed: HashSet<String>,
 }
 
+/// The parameters of the instance being resolved: a unit parameter stands for
+/// the unit it was given (`Type::unit_arg`), looked up before the table.
+type Params<'a> = &'a HashMap<String, Type>;
+
 /// The SI units of `in si;` (`src/prelude/si.drh`): ordinary declarations.
 pub const SI_PRELUDE: &str = include_str!("../prelude/si.drh");
 
@@ -63,7 +67,8 @@ pub(super) fn declare_units(g: &mut Globals, decls: &[ast::UnitDecl], diags: &mu
             }
         }
     }
-    let mut ev = Eval { env: g.units.get_mut(), decls: &by_name, stack: Vec::new(), diags, at: Span::new(0, 0) };
+    let none = HashMap::new();
+    let mut ev = Eval { env: g.units.get_mut(), decls: &by_name, params: &none, stack: Vec::new(), diags, at: Span::new(0, 0) };
     for d in decls {
         ev.name(&d.name, d.name_span);
     }
@@ -74,6 +79,7 @@ pub(super) fn declare_units(g: &mut Globals, decls: &[ast::UnitDecl], diags: &mu
 struct Eval<'a, 'd> {
     env: &'a mut UnitEnv,
     decls: &'d HashMap<&'d str, &'d ast::UnitDecl>,
+    params: Params<'a>,
     /// The declarations being evaluated, outermost first, for cycle messages.
     stack: Vec<&'d str>,
     diags: &'a mut Vec<Diagnostic>,
@@ -84,6 +90,9 @@ struct Eval<'a, 'd> {
 impl<'d> Eval<'_, 'd> {
     /// The unit called `name`, declaring it first if the file declares it.
     fn name(&mut self, name: &str, at: Span) -> Option<&'static Unit> {
+        if let Some(u) = self.params.get(name).and_then(|t| t.as_unit_arg()) {
+            return Some(u);
+        }
         if let Some(u) = self.env.table.lookup(name) {
             return Some(u);
         }
@@ -263,7 +272,7 @@ impl Globals {
     pub(super) fn resolve_unit_spec(&self, spec: &ast::UnitSpec, at: Span, diags: &mut Vec<Diagnostic>) -> Option<&'static Unit> {
         let mut env = self.units.borrow_mut();
         let no_decls = HashMap::new();
-        let mut ev = Eval { env: &mut env, decls: &no_decls, stack: Vec::new(), diags, at };
+        let mut ev = Eval { env: &mut env, decls: &no_decls, params: &self.tenv, stack: Vec::new(), diags, at };
         let u = ev.expr(&spec.expr)?;
         if spec.delta {
             return Some(ev.env.table.delta_of(u));
@@ -276,6 +285,20 @@ impl Globals {
         let name = self.units.borrow().table.display(unit);
         types::name_unit(unit, &name);
         base.with_unit(unit)
+    }
+
+    /// A unit written as a type argument (`unit m/s`), as its stand-in.
+    pub(super) fn resolve_unit_arg(&self, spec: &ast::UnitSpec, at: Span, diags: &mut Vec<Diagnostic>) -> Option<Type> {
+        let unit = self.resolve_unit_spec(spec, at, diags)?;
+        Some(self.unit_arg(unit))
+    }
+
+    /// The stand-in for `unit` in the generic tables (`Type::unit_arg`), with
+    /// its display name recorded: instance names and symbols are made from it.
+    pub(super) fn unit_arg(&self, unit: &'static Unit) -> Type {
+        let name = self.units.borrow().table.display(unit);
+        types::name_unit(unit, &name);
+        Type::unit_arg(unit)
     }
 
     /// A type written with a unit (`float64<m>`, `&mut uint32<kg>`). Errors

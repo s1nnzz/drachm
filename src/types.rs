@@ -78,7 +78,7 @@ pub fn name_unit(unit: &'static Unit, name: &str) {
     names.insert(unit as *const Unit as usize, name.to_string());
 }
 
-fn unit_name(unit: &'static Unit) -> String {
+pub fn unit_name(unit: &'static Unit) -> String {
     let names = UNIT_NAMES.lock().unwrap_or_else(|e| e.into_inner());
     names.get(&(unit as *const Unit as usize)).cloned().unwrap_or_else(|| unit.to_string())
 }
@@ -254,6 +254,21 @@ impl Type {
     pub fn unit(self) -> Option<&'static Unit> {
         match self {
             Type::Unit { unit, .. } => Some(unit),
+            _ => None,
+        }
+    }
+
+    /// The stand-in for a unit that a unit parameter (`unit U`) or a unit type
+    /// argument (`Vec3<float64, unit m>`) has in the generic tables. It is a
+    /// `Type::Unit` over `none`, which no written type is: those are numbers.
+    pub fn unit_arg(unit: &'static Unit) -> Type {
+        Type::Unit { of: intern_type(Type::None), unit }
+    }
+
+    /// The unit this stand-in (`unit_arg`) carries, if it is one.
+    pub fn as_unit_arg(self) -> Option<&'static Unit> {
+        match self {
+            Type::Unit { of, unit } if *of == Type::None => Some(unit),
             _ => None,
         }
     }
