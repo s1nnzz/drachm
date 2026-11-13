@@ -218,7 +218,8 @@ if (a) {                       // outermost
   - A value that doesn't fit at runtime follows `[behaviour] overflow` as well,
     for automatic conversions and `::to<T>()` alike. wrap: integers keep their
     low bits, floats drop the fraction and then wrap. saturate: clamp to the
-    nearest end. panic: exit 101. NaN and infinities become 0 (or panic).
+    nearest end. panic: exit 101. NaN and infinities become 0 under wrap (the
+    infinities clamp under saturate, NaN is still 0; panic stops on both).
 - **Mixed types: the left side leads.** In `a + b`, `a < b` and every other
   two-sided operator, the right side converts to the left side's type (W0102 if
   lossy) and the operation is done in that type. No exceptions for floats:
@@ -238,13 +239,17 @@ if (a) {                       // outermost
   merged with the file's `//--!$overflow:` flag). It covers `+ - *`, unary `-`,
   `/` (smallest signed value by -1), `**`, `++`, `--`, `+=` and the other
   compound forms, shifts, constants and conversions (automatic and `::to<T>()`).
+  Under saturate a negative shift amount shifts the other way (`8 << -1` is 4,
+  `8 >> -1` is 16), and the exact result clamps (`200 >> -1` in uint8 is 255);
+  a positive amount still lets the bits fall off.
   **saturate** clamps to the nearest end of the type (unsigned `-x` of a
   non-zero value and `0 - 1` give 0); **panic** stops with exit 101 and the
   message `arithmetic overflow`, `shift amount out of range` or `conversion
   overflow`. Shifts under saturate: an amount outside `0..width` (or negative)
   makes every bit fall off: 0, or -1 for a negative value shifted right. A
-  float to a whole number drops the fraction, then clamps; NaN and the
-  infinities are 0 under wrap and saturate. A constant that does not fit is
+  float to a whole number drops the fraction, then clamps; NaN is 0 under wrap
+  and saturate, the infinities are 0 under wrap and clamp to the ends under
+  saturate (`+inf` gives the maximum, `-inf` the minimum). A constant that does not fit is
   W0102 and is changed (wrap: wraps, saturate: clamps) or, under panic, E0116
   (a constant shift amount outside the width too, which under saturate is
   silent and under wrap is W0106). Arithmetic the compiler writes for itself

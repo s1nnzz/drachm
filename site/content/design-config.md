@@ -137,10 +137,20 @@ covers `+ - *`, unary `-`, `/` (the smallest signed value divided by -1),
 | `saturate` | stops at the nearest end of the type | the bits fall off | clamps to the nearest end |
 | `panic` | stops the program (exit 101) | stops the program | stops the program |
 
-A float turned into a whole number drops its fraction first; NaN and the
-infinities become 0 (a panic under `panic`). A constant that does not fit is
-W0102 and is changed (`wrap` wraps it, `saturate` clamps it); under `panic`
-it is an error (E0116), since the program could never run it.
+Under `saturate`, a negative shift amount shifts the other way: `8 << -1` is 4
+and `8 >> -1` is 16. The exact result then clamps to the type like any other
+overflow, so `200 >> -1` in `uint8` is 255. Only the negative amount reverses;
+a shift by a positive amount that loses bits still lets them fall off.
+
+A float turned into a whole number drops its fraction first. NaN becomes 0
+under `wrap` and `saturate`, and the infinities become 0 under `wrap` but clamp
+to the type's largest or smallest value under `saturate` (`+inf` gives the
+maximum, `-inf` the minimum). Under `panic` NaN and the infinities stop the
+program.
+
+A constant that does not fit is W0102 and is changed (`wrap` wraps it,
+`saturate` clamps it); under `panic` it is an error (E0116), since the program
+could never run it.
 
 The setting applies per function: the project's `[behaviour]` merged with the
 `//--!$overflow:` flag of the file the function is written in. Generic

@@ -13,4 +13,11 @@ none main() {
     uint32 one = 1;
     uint32 shift = 40;
     io::outln(f"${one << shift}");
+    // A negative amount shifts the other way, and the exact result clamps.
+    uint8 level = 200;
+    sint32 back = -1;
+    io::outln(f"${8 >> -1} ${level >> back} ${8 << -1}");
+    float64 zero = 0.0;
+    float64 infinity = 1.0 / zero;
+    io::outln(f"${infinity::to<uint8>()} ${(-infinity)::to<uint8>()} ${(zero / zero)::to<uint8>()}");
 }

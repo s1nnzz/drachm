@@ -824,6 +824,13 @@ a lone `.drh` file with no `drachm.toml` now takes the script default
 gone). The golden cases that need E0544 are projects with `unhandled_fail =
 "error"`: `tests/projects/fail_unhandled_*`. `tests/fail/script_unhandled` moved
 to `tests/run/script_unhandled_crash` (it compiles and stops now).
+Under `overflow = saturate` a negative shift amount shifts the other way
+(`runtime/runtime.c` `drachm_ovf_shift`: the exact result clamps; a constant
+`8 << -1` folds in `typeck.rs` `binary_vals`, where an untyped constant
+negative amount was E0101 before, under wrap still is); float to integer:
++inf clamps to the max, -inf to the min, NaN is 0 (`drachm_ovf_f2i`). Tests:
+`tests/run/settings_saturate_negative_shift`, `settings_overflow_saturate`,
+`site/examples/settings-overflow`, showcase `voyage/gauges.drh`.
 
 **Step 7 progress (WP9, built):** `assert(cond);` is a statement (`Stmt::Assert`,
 lowered to an `if` that stops with `StopKind::Assert`). It runs in every build,
