@@ -70,6 +70,11 @@ For a new session with no memory of earlier conversations. Read this, then
   pass (tables in `docs/impl/step3-ownership.md` section 4 and the step 5/6
   overviews). Not reviewed yet.
 
+- **Language server built (step 8, partly)**: `drachm lsp`, `src/lsp/`, the checker's side
+  table `src/typeck/index.rs`, the VS Code client in `editors/vscode` (run `npm install`
+  and `npm run compile` there; `Drachm: Restart Language Server` after rebuilding `drachm`).
+  See PLAN step 8 for what is left.
+
 ## How work is done
 
 - **Roles** (owner's choice): the main session (Opus) orchestrates and talks to

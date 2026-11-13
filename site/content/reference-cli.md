@@ -5,8 +5,8 @@ description: build, run, check and explain, the -O flag, and exit codes.
 
 # Command line
 
-The compiler has five commands: `new` makes a project, and the others work on a
-file or project folder. `-O` works with `build` and `run`, and nothing
+The compiler has six commands: `new` makes a project, `lsp` starts the language
+server for editors, and the others work on a file or project folder. `-O` works with `build` and `run`, and nothing
 else takes a flag.
 
 ```text
@@ -14,6 +14,7 @@ drachm build [file.drh | folder] [-o <output>] [-O]   compile to a native execut
 drachm run   [file.drh | folder] [-O]                 compile and run
 drachm check [file.drh | folder]                      check for errors only
 drachm new <name>                            make a project folder
+drachm lsp                                   run the language server on stdin and stdout
 drachm explain <code>                        describe an error code, e.g. E0101
 
   -O   optimised build: slower to compile, much faster to run
@@ -43,6 +44,11 @@ the lessons do, because it is the fastest way to see whether a change compiles.
 ```sh
 drachm check hello.drh
 ```
+
+## lsp
+
+`lsp` runs the language server. An editor starts it and talks to it over standard
+input and output; you do not run it by hand. See [Editor support](install.md#editor-support).
 
 ## new
 

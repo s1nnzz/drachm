@@ -1,6 +1,7 @@
 import * as cp from "node:child_process";
 import * as path from "node:path";
 import * as vscode from "vscode";
+import { LanguageClient, LanguageClientOptions, ServerOptions } from "vscode-languageclient/node";
 import { charIndex, ParsedDiagnostic, parseCheckOutput } from "./parse";
 
 const LANGUAGE = "drachm";
@@ -36,6 +37,7 @@ let output: vscode.OutputChannel;
 let problems: vscode.DiagnosticCollection;
 let statusItem: vscode.StatusBarItem;
 let checker: Checker;
+let client: LanguageClient | undefined;
 let warnedMissing = false;
 const states = new Map<string, CheckState>();
 
@@ -56,20 +58,67 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.commands.registerCommand("drachm.build", build),
         vscode.commands.registerCommand("drachm.check", checkActive),
         vscode.commands.registerCommand("drachm.explain", explain),
+        vscode.commands.registerCommand("drachm.restartServer", restartServer),
         vscode.languages.registerCodeLensProvider({ language: LANGUAGE }, new MainLensProvider()),
         vscode.tasks.registerTaskProvider(LANGUAGE, taskProvider),
         vscode.workspace.onDidSaveTextDocument((doc) => {
-            if (doc.languageId === LANGUAGE && config<boolean>("checkOnSave", true)) checker.schedule(doc);
+            // With the language server on, it checks on its own.
+            if (doc.languageId === LANGUAGE && !serverEnabled() && config<boolean>("checkOnSave", true)) checker.schedule(doc);
         }),
         vscode.window.onDidChangeActiveTextEditor(updateStatus),
         vscode.workspace.onDidChangeConfiguration((e) => {
             if (e.affectsConfiguration("drachm.path")) warnedMissing = false;
+            if (e.affectsConfiguration("drachm.path") || e.affectsConfiguration("drachm.languageServer")) void restartServer();
         }),
     );
     updateStatus();
+    void startServer();
 }
 
-export function deactivate(): void {}
+export function deactivate(): Thenable<void> | undefined {
+    return client?.stop();
+}
+
+// ---------------------------------------------------------------- language server
+
+function serverEnabled(): boolean {
+    return config<boolean>("languageServer", true);
+}
+
+/** Start `drachm lsp`: diagnostics as you type, hover, go to definition, completion. */
+async function startServer(): Promise<void> {
+    if (!serverEnabled() || client) return;
+    const serverOptions: ServerOptions = {
+        command: drachmPath(),
+        args: ["lsp"],
+        options: { env: { ...process.env, NO_COLOR: "1" } },
+    };
+    const clientOptions: LanguageClientOptions = {
+        documentSelector: [{ scheme: "file", language: LANGUAGE }],
+        outputChannel: output,
+    };
+    const c = new LanguageClient("drachm", "Drachm", serverOptions, clientOptions);
+    client = c;
+    try {
+        await c.start();
+    } catch (error) {
+        client = undefined;
+        output.appendLine(`Could not start "${drachmPath()} lsp": ${String(error)}`);
+        reportMissingBinary(error as NodeJS.ErrnoException);
+    }
+    updateStatus();
+}
+
+async function restartServer(): Promise<void> {
+    const old = client;
+    client = undefined;
+    try {
+        await old?.stop();
+    } catch {
+        // The server was already gone.
+    }
+    await startServer();
+}
 
 function config<T>(key: string, fallback: T): T {
     return vscode.workspace.getConfiguration("drachm").get<T>(key, fallback);
@@ -312,6 +361,8 @@ class Checker implements vscode.Disposable {
 async function checkActive(): Promise<void> {
     const doc = activeDrachmDoc();
     if (!doc || !(await saveFirst(doc))) return;
+    // The language server checks on save by itself.
+    if (client) return;
     await checker.check(doc);
 }
 
@@ -321,6 +372,14 @@ function updateStatus(): void {
         statusItem.hide();
         return;
     }
+    if (client) {
+        statusItem.text = "$(check) Drachm";
+        statusItem.tooltip = "Drachm: language server running. Click to restart it.";
+        statusItem.command = "drachm.restartServer";
+        statusItem.show();
+        return;
+    }
+    statusItem.command = "drachm.check";
     const state: CheckState = states.get(doc.uri.toString()) ?? { kind: "unknown", errors: 0, warnings: 0 };
     const summary = (): string => {
         const parts: string[] = [];

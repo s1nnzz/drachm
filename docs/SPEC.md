@@ -437,7 +437,7 @@ match (s) {
 }
 ```
 
-Bare variants require the language server to complete them.
+Bare variants require the language server to complete them (`drachm lsp`, built).
 
 ```cpp
 case Text(take string body)  { }    // moves the payload out; the matched value is used up
