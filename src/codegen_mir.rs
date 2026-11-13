@@ -48,9 +48,11 @@ pub fn compile(hir: &hir::Program, mir: &Program) -> Result<Vec<u8>, String> {
 
     let ptr = module.target_config().pointer_type();
     let mut ids = Vec::new();
-    for f in &hir.funcs {
-        let s = signature(&module, f);
-        ids.push(module.declare_function(&f.symbol, Linkage::Local, &s).map_err(err)?);
+    for (f, func) in hir.funcs.iter().enumerate() {
+        let s = signature(&module, func);
+        // A function with no body is a test block that this build leaves out: declared, never defined.
+        let linkage = if mir.bodies[f].is_some() { Linkage::Local } else { Linkage::Import };
+        ids.push(module.declare_function(&func.symbol, linkage, &s).map_err(err)?);
     }
 
     // Glue functions: declared up front so any function can call them.
@@ -94,7 +96,8 @@ pub fn compile(hir: &hir::Program, mir: &Program) -> Result<Vec<u8>, String> {
 
     for (f, &id) in ids.iter().enumerate() {
         let hf = &hir.funcs[f];
-        let body = mir.bodies[f].as_ref().ok_or_else(|| format!("`{}` has no MIR body", hf.symbol))?;
+        // No body: a test block that this build leaves out (see `lib::build`).
+        let Some(body) = mir.bodies[f].as_ref() else { continue };
         ctx.func.signature = module.declarations().get_function_decl(id).signature.clone();
         ctx.func.name = UserFuncName::user(0, id.as_u32());
         let cfg = module.isa().frontend_config();

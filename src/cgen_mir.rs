@@ -24,7 +24,8 @@ use crate::types::Type;
 pub fn generate(hir: &hir::Program, mir: &Program) -> String {
     let mut out = prelude();
     out += &struct_defs(hir, true);
-    let bodies: Vec<&Body> = (0..hir.funcs.len()).map(|f| mir.bodies[f].as_ref().expect("a MIR body for every function")).collect();
+    // A function without a body is a test block that this build leaves out (see `lib::build`).
+    let bodies: Vec<&Body> = mir.bodies.iter().take(hir.funcs.len()).flatten().collect();
     for &body in &bodies {
         let _ = writeln!(out, "{};", signature(hir, body));
     }

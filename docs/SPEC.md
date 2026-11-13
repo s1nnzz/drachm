@@ -955,7 +955,9 @@ phys::Vector3 v = 1, 2, 3;
   another failure, stops the test with a message. A failure type the call can
   never raise is E0545. `drachm test PATH NAME` (owner, 2026-11-13) runs only
   the tests whose name contains NAME (substring, case-sensitive); the summary
-  says how many were filtered out. See `docs/PLAN.md` step 7 WP9.
+  says how many were filtered out. Test bodies are type-checked and left out
+  of normal `build`/`run` executables (owner, 2026-11-13); `drachm test` builds
+  each one. See `docs/PLAN.md` step 7 WP9.
 - `drachm fmt`: one official style with few knobs (indent width, line length,
   brace placement). It never aligns `=` or comments across lines.
 - Registry: **the Agora** (agora.drachm.dev); `drachm add json`. Deps may also be

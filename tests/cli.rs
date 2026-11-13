@@ -475,3 +475,29 @@ fn test_expect_failure_passes_or_stops_the_test_with_a_message() {
     assert!(run.status.success(), "{}", text(&run.stderr));
     assert_eq!(text(&run.stdout), "main runs\n");
 }
+
+#[test]
+fn test_blocks_are_left_out_of_normal_builds_but_drachm_test_builds_them() {
+    let s = Scratch::new("testleftout");
+    let src = "in io;\n\ntest \"only a test\" {\n    assert(1 == 2, \"a message only the tests build\");\n}\n\nnone main() {\n    io::outln(\"main\");\n}\n";
+    fs::write(s.dir.join("left.drh"), src).unwrap();
+    let marker = b"a message only the tests build";
+    for flags in [&[][..], &["-O"][..]] {
+        let mut args = vec!["build", "left.drh", "-o", "left_exe"];
+        args.extend(flags);
+        let build = drachm(&s.dir, &args);
+        assert!(build.status.success(), "{}", text(&build.stderr));
+        let exe = fs::read(s.dir.join("left_exe")).unwrap();
+        assert!(!exe.windows(marker.len()).any(|w| w == marker), "a normal build contains the test's text");
+        let run = Command::new(s.dir.join("left_exe")).output().unwrap();
+        assert_eq!(text(&run.stdout), "main\n");
+    }
+    // The test is still type-checked and built by `drachm test`, which fails it.
+    let test = drachm(&s.dir, &["test", "left.drh"]);
+    assert_eq!(test.status.code(), Some(1), "{}", text(&test.stdout));
+    assert!(text(&test.stdout).contains("drachm: panic: assertion failed: 1 == 2: a message only the tests build"), "{}", text(&test.stdout));
+    // Its text is a check: a test that breaks the build is an error in a normal build too.
+    fs::write(s.dir.join("broken.drh"), "test \"typo\" {\n    uint32 n = \"text\";\n}\n\nnone main() { }\n").unwrap();
+    let check = drachm(&s.dir, &["check", "broken.drh"]);
+    assert_eq!(check.status.code(), Some(1));
+}

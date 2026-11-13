@@ -177,6 +177,13 @@ pub fn build(program: &hir::Program, out: &std::path::Path, optimise: bool) -> R
     mir::cleanup::cleanup_program(program, &mut mir);
     mir::drops::elaborate_program(program, &mut mir);
     mir::cleanup::cleanup_program(program, &mut mir);
+    // Test blocks are checked but not built: only the test that `drachm test`
+    // makes `main` has a body here.
+    for t in &program.tests {
+        if t.func != program.main {
+            mir.bodies[t.func] = None;
+        }
+    }
     if optimise {
         link::compile_c(&cgen_mir::generate(program, &mir), out)
     } else {

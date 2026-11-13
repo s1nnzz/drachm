@@ -219,7 +219,8 @@ What the rules are:
 - Test names are unique within a file (E0239).
 - `expect failure` checks a failing call inside a test (see below).
 - A normal `build` or `run` checks the test blocks too, so a broken test is an
-  error in every build. It never runs them: only `main` runs.
+  error in every build. It leaves their code out of the executable: only `main`
+  is built. `drachm test` builds each test.
 - `drachm test` works on a library as well as a program, and `-O` runs the
   tests on the optimised build.
 - The exit code is 0 when every test passes and 1 otherwise.
