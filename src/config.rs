@@ -17,11 +17,12 @@
 //! generation of `[behaviour]` is WP4: until it lands the values are stored,
 //! not applied.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use toml_edit::{ImDocument, Item, Table, Value};
 
-use crate::diag::{codes, Diagnostic, SourceMap, Span};
+use crate::diag::{codes, render_all_map, Diagnostic, SourceMap, Span};
+use crate::modules::ProjectInfo;
 
 pub const PROJECT_FILE: &str = "drachm.toml";
 pub const SCRIPT_FILE: &str = "srachm.toml";
@@ -602,6 +603,155 @@ fn edit_distance(a: &str, b: &str) -> usize {
         }
     }
     row[b.len()]
+}
+
+/// What `open` returns: the file to compile, the module root and project
+/// name for `modules`, and the config.
+pub struct Opened {
+    pub entry: PathBuf,
+    pub info: ProjectInfo,
+    pub config: Config,
+}
+
+/// Why `open` failed. The map holds every config file it read, so the
+/// diagnostics that point into them can be shown.
+pub struct Failure {
+    pub map: SourceMap,
+    pub diags: Vec<Diagnostic>,
+}
+
+impl Failure {
+    fn plain(d: Diagnostic) -> Failure {
+        Failure { map: SourceMap::new(), diags: vec![d] }
+    }
+
+    /// The text to print to stderr.
+    pub fn render(&self, color: bool) -> String {
+        if !self.map.is_empty() {
+            return render_all_map(&self.diags, &self.map, color);
+        }
+        let mut out = String::new();
+        for d in &self.diags {
+            let kind = if d.is_error() { "error" } else { "warning" };
+            out += &format!("{kind}[{}]: {}\n", d.code.id, d.message);
+            for n in &d.notes {
+                out += &format!("  note: {n}\n");
+            }
+            if let Some(h) = &d.help {
+                out += &format!("  help: {h}\n");
+            }
+        }
+        out
+    }
+}
+
+/// Where a path given on the command line lives.
+enum Home {
+    /// A folder with a `drachm.toml`.
+    Project(PathBuf),
+    /// A folder with a `srachm.toml`, or a file beside one.
+    Script(PathBuf),
+    /// A file with no config above it: a script with the defaults, rooted at its folder.
+    Bare,
+}
+
+/// Finds what `path` (a file or a project folder) means and reads its config.
+/// A folder is a project and its entry is `entry` from the config; a file is
+/// compiled as given, and its config is the nearest `drachm.toml` or
+/// `srachm.toml` above it.
+pub fn open(path: &Path) -> Result<Opened, Failure> {
+    let home = locate(path).map_err(Failure::plain)?;
+    let mut map = SourceMap::new();
+    match home {
+        Home::Project(dir) => {
+            let config = match load(&mut map, &dir.join(PROJECT_FILE), PROJECT_FILE, false) {
+                Ok(c) => c,
+                Err(diags) => return Err(Failure { map, diags }),
+            };
+            let entry_rel = PathBuf::from(&config.project.entry);
+            let entry = if path.is_dir() {
+                let entry = dir.join(&entry_rel);
+                if !entry.is_file() {
+                    let d = Diagnostic::new(&codes::E0812, format!("the entry file `{}` of {PROJECT_FILE} does not exist", config.project.entry))
+                        .help(format!("create it, or change `entry` in `[project]`"));
+                    return Err(Failure::plain(d));
+                }
+                entry
+            } else {
+                path.to_path_buf()
+            };
+            let root = dir.join(entry_rel.parent().unwrap_or(Path::new("")));
+            let info = ProjectInfo { name: config.project.name.clone(), root, display_base: Some(dir) };
+            Ok(Opened { entry, info, config })
+        }
+        Home::Script(dir) => {
+            let config = match load(&mut map, &dir.join(SCRIPT_FILE), SCRIPT_FILE, true) {
+                Ok(c) => c,
+                Err(diags) => return Err(Failure { map, diags }),
+            };
+            let info = ProjectInfo { name: config.project.name.clone(), root: dir, display_base: None };
+            Ok(Opened { entry: path.to_path_buf(), info, config })
+        }
+        Home::Bare => Ok(Opened { entry: path.to_path_buf(), info: ProjectInfo::script(path), config: Config::script() }),
+    }
+}
+
+fn locate(path: &Path) -> Result<Home, Diagnostic> {
+    if path.is_dir() {
+        if path.join(PROJECT_FILE).is_file() {
+            return Ok(Home::Project(path.to_path_buf()));
+        }
+        return Err(Diagnostic::new(&codes::E0814, format!("`{}` has no {PROJECT_FILE}", path.display()))
+            .note_line("a project folder needs a drachm.toml")
+            .help("`drachm new NAME` makes a project folder"));
+    }
+    let start = path.canonicalize().ok().and_then(|p| p.parent().map(Path::to_path_buf));
+    for dir in start.iter().flat_map(|d| d.ancestors()) {
+        let project = dir.join(PROJECT_FILE).is_file();
+        let script = dir.join(SCRIPT_FILE).is_file();
+        if project && script {
+            return Err(Diagnostic::new(&codes::E0807, format!("`{}` has both {PROJECT_FILE} and {SCRIPT_FILE}", dir.display()))
+                .note_line("a folder is a project or a script, not both")
+                .help(format!("keep `{PROJECT_FILE}` for a project and `{SCRIPT_FILE}` for a script")));
+        }
+        if script {
+            return Ok(Home::Script(dir.to_path_buf()));
+        }
+        if project {
+            return Ok(Home::Project(dir.to_path_buf()));
+        }
+    }
+    Ok(Home::Bare)
+}
+
+impl Opened {
+    /// `build` and `run` make a program, so a library is E0811.
+    pub fn program(&self, verb: &str) -> Result<(), Failure> {
+        if self.config.project.kind != Kind::Library {
+            return Ok(());
+        }
+        let name = self.config.project.name.as_deref().unwrap_or("this project");
+        let d = Diagnostic::new(&codes::E0811, format!("`{name}` is a library, so there is no program to {verb}"))
+            .note_line("a library's code is used by other projects")
+            .help("`drachm check` checks a library; set `kind = \"program\"` in `[project]` to make it a program");
+        Err(Failure::plain(d))
+    }
+}
+
+/// `[build] target` must be the machine the compiler runs on: cross builds
+/// are not supported yet (E0901).
+pub fn check_target(config: &Config) -> Result<(), Failure> {
+    let Some(target) = config.build.target.as_deref() else { return Ok(()) };
+    if Some(target) == host_target() {
+        return Ok(());
+    }
+    let d = Diagnostic::new(&codes::E0901, format!("building for `{target}` is not supported yet"))
+        .note(match host_target() {
+            Some(h) => format!("this compiler builds for `{h}`"),
+            None => "this compiler builds only for the machine it runs on".to_string(),
+        })
+        .help("remove `target` from `[build]`, or build on the machine it names");
+    Err(Failure::plain(d))
 }
 
 #[cfg(test)]

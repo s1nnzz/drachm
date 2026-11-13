@@ -970,6 +970,11 @@ codes! {
     E0813: "cannot make a new project",
         "`drachm new NAME` needs NAME to be a plain name and a folder that does\n\
          not exist yet in the current folder.";
+    E0814: "no drachm.toml here",
+        "A project folder is given to `build`, `run` or `check`, or the current\n\
+         folder is used by default, and it has no `drachm.toml`. A project is a\n\
+         folder with a `drachm.toml` and the program in `src/main.drh`; `drachm new`\n\
+         makes one.";
     E0901: "not supported yet",
         "This is part of Drachm's design, but this version of the compiler does\n\
          not implement it yet.";

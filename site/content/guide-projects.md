@@ -5,11 +5,12 @@ description: Splitting code into modules with in and out, describing the project
 
 # Organising a project
 
-Today the compiler takes one file at a time and reads no config. The built
-pieces are `in io;`, `in si;` and the file flag `//--!$unsafe: true`. Modules
-between your own files, `drachm.toml`, scripts and the other flags are
-designed, and their sections are marked. The code blocks there show the
-intended shape, not something you can run.
+The compiler builds a project folder with a `drachm.toml`: its `[project]` name,
+kind and entry are read, and `build`, `run` and `check` take the folder. The
+built pieces are `in io;`, `in si;`, the file flag `//--!$unsafe: true` and the
+project file's `[project]` section. Modules between your own files, dependencies,
+scripts and the other settings are designed, and their sections are marked. The
+code blocks there show the intended shape, not something you can run.
 
 ## Start small, split when it hurts
 
@@ -71,11 +72,12 @@ small file, but it can bring in a name you already have; the `import_clash`
 setting below chooses whether that is a warning or an error.
 
 ## The project file
-<!-- status: not-implemented -->
 
-`drachm.toml` names the project, its dependencies and its build. Dependencies
-come from the Agora (the package registry), a git URL or a local path;
-`drachm add json` adds one.
+`drachm.toml` names the project. The `[project]` section is built: `name` is
+required, `kind = "library"` marks code that other projects use, and `entry`
+moves the start of the program (`src/main.drh` by default). The dependencies
+and the build settings below it are designed: they come from the Agora (the
+package registry), a git URL or a local path, and `drachm add json` will add one.
 
 <!-- focus: 1-3,5-7,9,10 -->
 

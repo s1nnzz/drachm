@@ -9,9 +9,9 @@ The compiler has four commands. `-O` works with `build` and `run`, and nothing
 else takes a flag.
 
 ```text
-drachm build <file.drh | folder> [-o <output>] [-O]   compile to a native executable
-drachm run   <file.drh | folder> [-O]                 compile and run
-drachm check <file.drh | folder>                      check for errors only
+drachm build [file.drh | folder] [-o <output>] [-O]   compile to a native executable
+drachm run   [file.drh | folder] [-O]                 compile and run
+drachm check [file.drh | folder]                      check for errors only
 drachm explain <code>                        describe an error code, e.g. E0101
 
   -O   optimised build: slower to compile, much faster to run
@@ -65,9 +65,15 @@ drachm run hello.drh -O
 ## Project folders
 
 Instead of a file, `build`, `run` and `check` take a project folder: one with a
-`drachm.toml` and the program in `src/main.drh`. The project's name comes from
-`name` under `[project]`. A file inside such a folder belongs to that project;
+`drachm.toml`. With no argument they use the current folder. The program starts
+in the file `entry` names under `[project]` (`src/main.drh` by default), and the
+folder of that file is the source root. A file inside a project belongs to it;
 a file with no `drachm.toml` above it is a script and its own folder is its
 root. Files the program imports are found and read, but a program of several
 files cannot be built yet (error E0901): naming things across files is still to
 come.
+
+A project with `kind = "library"` has no program: `build` and `run` say so
+(E0811), and `check` checks it. A folder with no `drachm.toml` is an error
+(E0814), and so is a missing entry file (E0812). The settings are described in
+[Projects and config](design-config.md).
