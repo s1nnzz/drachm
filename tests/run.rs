@@ -394,7 +394,7 @@ fn borrowck() {
     });
 }
 
-/// Project folders, `tests/projects/NAME/`: a `drachm.toml`, the files below
+/// Project folders, `tests/projects/NAME/` (and `examples/showcase/`): a `drachm.toml`, the files below
 /// `src/` (entry `src/main.drh`), and the expectations beside them:
 ///
 /// - `expect.out` (with optional `expect.code`, `expect.in`): the project is
@@ -413,6 +413,8 @@ fn projects() {
         .collect();
     dirs.sort();
     assert!(!dirs.is_empty(), "no projects in tests/projects");
+    // The showcase is a project folder too, with its expectations inside it.
+    dirs.push(root().join("examples/showcase"));
     run_all(dirs, project_case);
 }
 

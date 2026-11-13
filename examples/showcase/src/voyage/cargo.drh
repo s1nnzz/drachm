@@ -1,0 +1,126 @@
+// Part 5 of the voyage, in its own file: cargo and ownership.
+in io;
+
+// ---------------------------------------------------------------------------
+// Part 5: ownership, borrows, lives, drop, take/copy, lambdas, skip
+// ---------------------------------------------------------------------------
+struct Crate {
+public:
+    string label;
+    uint32 mass;
+
+    // Runs by itself when the owner goes out of scope (or on `destroy`).
+    none drop() { io::outln(f"  [crate ${self.label} unloaded]"); }
+}
+
+// A struct that holds a borrow names the borrow field in its head.
+struct Reader lives src {
+public:
+    &string src;
+    mut uint64 pos;
+    none advance(uint64 n) { self.pos += n; }
+    uint64 left() { return self.src::len() - self.pos; }
+}
+
+// Two borrows could be the source of the result: `lives` says which.
+&string longer(&string a, &string b) lives a, b {
+    if (a::len() >= b::len()) { return a; }
+    return b;
+}
+
+// Taking a value by value moves it in: the caller cannot use it afterwards.
+uint32 weigh(Crate c) { return c.mass; }
+
+none grow(&mut string s) { s += "!"; }
+
+none shout_twice(&mut string s) {
+    grow(lend s);               // `lend` reborrows without giving it away
+    grow(lend s);
+}
+
+// A function taking a function: `(uint32) => uint32` is a function type.
+uint32 apply_all(&uint32[?] xs, (uint32) => uint32 f) {
+    mut uint32 total = 0;
+    for (uint32 n of xs) { total += f(n); }
+    return total;
+}
+
+string gauge(uint32 fuel) {
+    mut string verdict = "plenty";
+    if (fuel < 50) {
+        verdict = "low";
+        if (fuel < 10) {
+            verdict = "critical";
+            skip;                   // leave the enclosing `if`, keep the verdict
+        }
+        verdict = verdict + ", refuel soon";
+    }
+    return verdict;
+}
+
+out none run() {
+    io::outln("== Part 5: cargo and ownership ==");
+    Crate a = "seed vault", 120;
+    Crate b = "tea", 8;
+    io::outln(f"weighing crate b: ${weigh(b)} kg");      // `b` moved into weigh and dropped there
+    destroy a;                                           // explicit early drop
+    io::outln("  a is gone, the hold is empty");
+
+    // Borrow, copy, take: three ways to get at a value that someone else owns.
+    string captain = "Okonkwo";
+    string slogan = "per aspera ad astra";
+    io::outln(f"longer: ${longer(&captain, &slogan)}");
+    mut Reader r = &slogan, 0;
+    r::advance(4);
+    io::outln(f"reader left ${r::left()} of ${slogan::len()}");
+
+    // `maybe &string` is an optional that holds a borrow: a view of a port name,
+    // or none when the list has no such item.
+    string[?] ports = ["Vega", "Sol"];
+    string nowhere = "deep space";
+    maybe &string first_port = ports::first();
+    maybe &string ninth_port = ports::get(8);
+    io::outln(f"first port ${first_port maybe &nowhere}, ninth port ${ninth_port maybe &nowhere}");
+    // `same as` asks whether two borrows are the same place, not the same text.
+    string twin_slogan = "per aspera ad astra";
+    io::outln(f"the longer one is the slogan itself: ${longer(&captain, &slogan) same as &slogan}; a copy of it is not: ${&slogan same as &twin_slogan}");
+    // `containsRef` asks the same of a list of borrows: is this exact place in it?
+    List<&string> banner = [&captain, &slogan];
+    io::outln(f"the banner holds the slogan: ${banner::containsRef(&slogan)}, its twin: ${banner::containsRef(&twin_slogan)}");
+    io::outln(f"a copy is not the slogan: ${&twin_slogan not same as &slogan}, the slogan is not a copy: ${&slogan not same as &slogan}");
+
+    mut string note = "mayday";
+    shout_twice(&mut note);
+    string kept = copy note;
+    note = "all clear";
+    io::outln(f"${kept} / ${note}");
+
+    mut Crate c = "relics", 40;
+    string tag = take c.label leaving "(empty)";
+    io::outln(f"took label '${tag}', crate now '${c.label}'");
+
+    mut string[?] queue = ["alpha", "beta", "gamma", "delta"];
+    string second = take queue[1] reorders;
+    io::outln(f"took ${second}; queue is ${queue::join(", ")}");
+    // `leaving v` keeps the length and the order: the new word takes the old one's place.
+    string third = take queue[1] leaving "omega";
+    io::outln(f"took ${third}; queue is now ${queue::join(", ")}");
+
+    // Lambdas: capture by reference, `move` to capture a copy, function types.
+    mut uint32 calls = 0;
+    uint32 factor = 3;
+    uint32[?] loads = [4, 5, 6];
+    uint32 sum = apply_all(&loads, (uint32 n) => { calls++; return n * factor + 1; });
+    mut uint32 grand = 0;
+    loads::each((uint32 n) => { grand += n; });
+    io::outln(f"lambda total ${sum} after ${calls} calls; loads sum to ${grand}");
+    string motto = "ad astra";
+    () => none sing = move () => io::outln(f"  the crew sings: ${motto}");
+    sing();
+    sing();
+
+    for (uint32 fuel of [75, 30, 5]) {
+        io::outln(f"  fuel ${fuel}: ${gauge(fuel)}");
+    }
+    io::outln("  leaving part 5; c drops now");
+}

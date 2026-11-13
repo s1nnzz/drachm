@@ -1,0 +1,75 @@
+// Part 1 of the voyage, in its own file: units of measure.
+in io;
+in si;
+
+// ---------------------------------------------------------------------------
+// Part 1: units of measure, generics over units, numbers of every width
+// ---------------------------------------------------------------------------
+unit ly = 9460730472580800 m;            // our own unit, built from a metre
+
+// A generic struct with a unit parameter: one logbook for any unit.
+struct Log<Num, unit U> {
+public:
+    Num entries;
+    float64<U> total;
+    float64<U> mean() { return self.total / self.entries; }
+}
+
+// One function for every unit; the unit is worked out from the argument.
+float64<U> doubled<unit U>(float64<U> x) {
+    return x * 2.0;
+}
+
+// `tesla as unit` names the unit in full, even where a type parameter `T` is in scope.
+float64<tesla as unit> boosted<T>(float64<tesla as unit> b) {
+    return b * 2.0;
+}
+
+out none run() {
+    io::outln("== Part 1: numbers and units ==");
+    uint8 crew = 200;
+    sint16 deck = -12;
+    uint64 stars = 1_000_000_000_000;
+    uint128 atoms = 2 ** 100;
+    float32 hull = 2.5f32;
+    uint32 mask = 0xff;
+    io::outln(f"crew ${crew}, deck ${deck}, stars ${stars}, hull ${hull}, mask ${mask}");
+    io::outln(f"atoms in the cargo hold: ${atoms}");
+    mut uint8 hearts = 250;
+    for (uint32 i of 0..9) { hearts++; }
+    io::outln(f"overflow wraps: 250 + 10 = ${hearts}");
+    // `by` steps a range: the counter lands on 0, 5, 10, 15 and 20, and stops there.
+    mut uint32 pulses = 0;
+    for (uint32 beat of 0..20 by 5) { pulses = pulses + beat; }
+    io::outln(f"beats 0 to 20 by 5 sum to ${pulses}");
+    // A negative step counts down: the countdown lands on 10, 8, 6, 4, 2 and 0.
+    mut string countdown = "";
+    for (sint32 t of 10..0 by -2) { countdown = countdown + t::text() + " "; }
+    io::outln(f"countdown: ${countdown}");
+    // A float range: value k is 0.0 + k * 0.25, stopping at the last value not past 1.0.
+    mut float64 gauge = 0.0;
+    for (float64 level of 0.0..1.0 by 0.25) { gauge = gauge + level; }
+    io::outln(f"gauge steps add up to ${gauge::text()}");
+
+    float64<kg> mass = 4000.0<kg>;
+    float64<m/s^2> thrust = 12.5<m/s^2>;
+    float64<N> force = mass * thrust;
+    io::outln(f"force: ${force::text()} ${force::unitText()}");
+    float64<km/h> cruise = 72.0<km/h>;
+    io::outln(f"cruise: ${cruise::in<m/s>()->text()} m/s");
+    float64<degC> cabin = 21.0<degC>;
+    io::outln(f"cabin: ${cabin::in<K>()->text()} K");
+
+    Log<float64, unit m> run = new Log<float64, unit m> of (4.0, 10.0<m>);
+    Log<float64, unit km> leg = new Log<float64, unit km> of (2.0, 9.0<km>);
+    io::outln(f"mean run ${run::mean()->text()} ${run::mean()->unitText()}, mean leg ${leg::mean()->text()} ${leg::mean()->unitText()}");
+    io::outln(f"doubled: ${doubled(5.0<s>)::text()} ${doubled(5.0<s>)::unitText()}");
+    float64<ly> gap = 4.2<ly>;
+    io::outln(f"nearest star: ${gap::in<m>()->text()} m");
+    // tesla is the SI unit of magnetic flux density.
+    float64<tesla> flux = 0.5<tesla>;
+    io::outln(f"flux: ${flux::text()} ${flux::unitText()}");
+    float64<tesla> boost = boosted<uint32>(flux);
+    io::outln(f"boost: ${boost::text()} ${boost::unitText()}");
+    io::outln("");
+}
