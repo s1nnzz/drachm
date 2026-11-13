@@ -182,3 +182,9 @@ Q5 interfaces as types: any interface can be used as `&I` (its `static` methods 
 - Q6b `X with I { }` blocks and `def`s follow the type: visible wherever the struct or the interface is visible (`in Circle from shapes;` brings Circle's `with` blocks). For `def`s, my reading: visible where the type they define on is visible.
 - Q7 `in *` clashes (with `import_clash = warn`): a local declaration beats imports; between imports the first wins; the warning is at the later import line.
 - Q8 import cycles are allowed (declarations see each other across files), except cross-file recursion: a function in a.drh that calls into b.drh which calls back into a.drh is an error (owner: "allowed unless code calls itself"; clarified as cross-file mutual recursion, not top-level init loops or types). My reading: recursion within one file stays fine; the error shows the call chain.
+
+# Step 7 batch C (Q9-Q12), 2026-11-13
+- Q9 the toml says what a project builds: `[project] name = "geometry"`, `kind = "library"` (`"program"` by default), `entry = "src/main.drh"`. 9b (how a dependency's modules are named) not asked separately: open.
+- Q10 scripts: top-level variables are script-wide state that functions can read and change (`uint32 total = 0; none addTo(uint32 n) { total += n; }`). 10b (`main()` in a script) not asked: open.
+- Q11 a `//--!$` file flag may set only keys that change one function's code (`overflow`, `unsigned_negate`, `bounds`); the others are project-wide (a flag setting them is an error). A dependency obeys its own drachm.toml.
+- Q12 dependencies in step 7: path and git (cloned into a cache folder, tag pinned, a lock file): `sdl = { git = "https://...", tag = "v0.4" }`. Registry entries stay E0901.
