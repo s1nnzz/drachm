@@ -52,8 +52,11 @@ the tag moves later. If the tag moved and the commit is not in `deps/`, the
 build stops (E0809); delete `drachm.lock` to take the new commit. Commit the
 lock file; whether `deps/` is committed is up to you.
 
-A dependency obeys its own `drachm.toml`. Its modules are not importable yet:
-naming them across files is the next part of step 7.
+### Dependency imports
+<!-- status: tentative -->
+
+Importing from a configured dependency is pending a decision on how packages
+expose and name their modules. Such imports report E0901 in the meantime.
 
 ## Build settings
 <!-- status: not-implemented -->

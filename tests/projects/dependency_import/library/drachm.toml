@@ -1,0 +1,4 @@
+[project]
+name = "arithmetic"
+kind = "library"
+entry = "src/lib.drh"

@@ -784,7 +784,7 @@ config (WP3).
 **Open (ask owner):** the full `[warnings]` name list (grows as warnings are added).
 Also: should `check` on a library skip the `main` requirement (E0204)? A `deps/`
 folder in `.gitignore` or committed? Whether `drachm new` should write a
-`.gitignore`. Dependency names clash only per build (no module-level names yet).
+`.gitignore`. Dependency imports report E0901 while Q9b (module names and exports) is open.
 
 ---
 

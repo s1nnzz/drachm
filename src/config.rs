@@ -685,8 +685,13 @@ pub fn open(path: &Path) -> Result<Opened, Failure> {
                 path.to_path_buf()
             };
             let root = dir.join(entry_rel.parent().unwrap_or(Path::new("")));
-            let info = ProjectInfo { name: config.project.name.clone(), root, display_base: Some(dir.clone()) };
             let deps = dependencies_of(&dir, &config, &mut map)?;
+            let info = ProjectInfo {
+                name: config.project.name.clone(),
+                root,
+                display_base: Some(dir.clone()),
+                dependency_names: deps.iter().map(|dep| dep.name.clone()).collect(),
+            };
             Ok(Opened { entry, info, config, deps })
         }
         Home::Script(dir) => {
@@ -694,8 +699,13 @@ pub fn open(path: &Path) -> Result<Opened, Failure> {
                 Ok(c) => c,
                 Err(diags) => return Err(Failure { map, diags }),
             };
-            let info = ProjectInfo { name: config.project.name.clone(), root: dir.clone(), display_base: None };
             let deps = dependencies_of(&dir, &config, &mut map)?;
+            let info = ProjectInfo {
+                name: config.project.name.clone(),
+                root: dir.clone(),
+                display_base: None,
+                dependency_names: deps.iter().map(|dep| dep.name.clone()).collect(),
+            };
             Ok(Opened { entry: path.to_path_buf(), info, config, deps })
         }
         Home::Bare => Ok(Opened { entry: path.to_path_buf(), info: ProjectInfo::script(path), config: Config::script(), deps: Vec::new() }),
