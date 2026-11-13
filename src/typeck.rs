@@ -106,6 +106,7 @@ struct SelfUse {
 /// Everything shared by all function bodies.
 #[derive(Default)]
 struct Globals {
+    settings: Vec<(usize, crate::config::Behaviour)>,
     sigs: Vec<Sig>,
     funcs_by_name: HashMap<String, FuncId>,
     structs: Vec<StructInfo>,
@@ -161,6 +162,11 @@ struct Globals {
 }
 
 impl Globals {
+    fn settings_at(&self, span: Span) -> crate::config::Behaviour {
+        let end = self.settings.partition_point(|(base, _)| *base <= span.start);
+        self.settings[..end].last().map_or_else(Default::default, |(_, settings)| *settings)
+    }
+
     fn add_sig(&mut self, sig: Sig) -> FuncId {
         self.sigs.push(sig);
         self.self_use.push(SelfUse::default());
@@ -490,11 +496,17 @@ pub fn si_unit_names() -> Vec<String> {
 /// Checks the whole program. The result is only fit for codegen when no
 /// errors were reported.
 pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir::Program {
-    check_with_entry(prog, src, diags, true)
+    check_with_settings(prog, src, diags, Vec::new(), true)
 }
 
-pub(crate) fn check_with_entry(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>, requires_main: bool) -> hir::Program {
-    let mut g = Globals { unsafe_allowed: prog.unsafe_allowed, ..Globals::default() };
+pub(crate) fn check_with_settings(
+    prog: &ast::Program,
+    src: &str,
+    diags: &mut Vec<Diagnostic>,
+    settings: Vec<(usize, crate::config::Behaviour)>,
+    requires_main: bool,
+) -> hir::Program {
+    let mut g = Globals { settings, unsafe_allowed: prog.unsafe_allowed, ..Globals::default() };
     let mut si = false;
     for import in &prog.imports {
         match import.plain_name() {
@@ -751,6 +763,7 @@ pub(crate) fn check_with_entry(prog: &ast::Program, src: &str, diags: &mut Vec<D
     let (dyn_ifaces, vtables) = dynamic::finish(&mut g, &structs);
     index::finish(&g, src);
     let mut program = hir::Program { settings: Vec::new(), funcs: funcs.into_iter().map(|f| f.unwrap_or_else(placeholder)).collect(), structs, enums: enum_defs, main, collections, conformances, dyn_ifaces, vtables, closures: std::mem::take(&mut g.lambdas.closures), ties: std::mem::take(&mut g.ties) };
+    program.settings = program.funcs.iter().map(|f| g.settings_at(f.name_span)).collect();
     if !diags.iter().any(Diagnostic::is_error) {
         lambdas::infer_captures(&mut program, diags);
     }
@@ -3817,6 +3830,26 @@ impl<'a> Checker<'a> {
                 }
             },
             Val::Expr(v) if (op == UnOp::Neg && v.ty.is_numeric()) || (op == UnOp::BitNot && v.ty.is_int()) => {
+                let mut v = v;
+                if let (UnOp::Neg, Type::Int { bits, signed: false }) = (op, v.ty.bare()) {
+                    use crate::config::UnsignedNegate;
+                    match self.g.settings_at(span).unsigned_negate {
+                        UnsignedNegate::Wrap => {}
+                        UnsignedNegate::Error => {
+                            self.diags.push(Diagnostic::at(&codes::E0101, span, format!("cannot negate `{}` with unsigned_negate = error", v.ty)));
+                            return None;
+                        }
+                        UnsignedNegate::Signed if bits == 128 => {
+                            self.diags.push(Diagnostic::at(&codes::E0901, span, "negating uint128 in signed mode needs sint256"));
+                            return None;
+                        }
+                        UnsignedNegate::Signed => {
+                            let signed = Type::Int { bits: bits * 2, signed: true };
+                            let ty = v.ty.unit().map_or(signed, |unit| signed.with_unit(unit));
+                            v = hir::Expr::new(hir::ExprKind::Convert(Box::new(v)), ty).at(span);
+                        }
+                    }
+                }
                 let ty = v.ty;
                 let kind = if op == UnOp::Neg { hir::ExprKind::Neg(Box::new(v)) } else { hir::ExprKind::BitNot(Box::new(v)) };
                 Some(Val::Expr(hir::Expr::new(kind, ty)))

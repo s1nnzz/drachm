@@ -782,6 +782,8 @@ A local declaration or item clashing with an explicit item import is E0232
 **Step 7 progress (WP4):** `bounds` is applied in shared MIR lowering. File
 flags override the project default, negative indexes still count from the
 end, and constant array indexes are checked by the type checker.
+`unsigned_negate` is applied during type checking. Signed negation of
+`uint128` is E0901 until `sint256` is supported.
 
 **Open (ask owner):** the full `[warnings]` name list (grows as warnings are added).
 Also: a `deps/`

@@ -1,4 +1,5 @@
 // Ship-wide constants. Constants can be exported like anything else, and
+//--!$unsigned_negate: signed
 // they can size types in the files that import them.
 // A top-level value with a constant initializer is a named constant, and it
 // can size a type. `fixed` makes the compiler check that it is constant.
@@ -8,3 +9,8 @@ out fixed uint32 RACK_SLOTS = BAYS;
 // The ship's name from its hull number. A call through a module can start a
 // chain: `rules::hull(7)::upper()` and `rules::hull(7)->lower()` both work.
 out string hull(uint32 n) { return "Drachma-" + n::text(); }
+
+// A downward correction is signed even though the sensor reports a magnitude.
+out sint16 downward_correction(uint8 magnitude) {
+    return -magnitude;
+}

@@ -40,8 +40,8 @@ pub fn front(src: &str) -> (Option<hir::Program>, Vec<Diagnostic>) {
     if diag::has_errors(&diags) {
         return (None, diags);
     }
-    let mut checked = typeck::check(&program, src, &mut diags);
-    checked.settings = vec![config::Behaviour::default().for_file(&flags.behaviour); checked.funcs.len()];
+    let settings = config::Behaviour::default().for_file(&flags.behaviour);
+    let checked = typeck::check_with_settings(&program, src, &mut diags, vec![(0, settings)], true);
     if diag::has_errors(&diags) {
         return (None, diags);
     }
@@ -97,13 +97,8 @@ fn front_project_with_settings(entry: &std::path::Path, info: &modules::ProjectI
             .map_or(behaviour, |dep| dep.config.behaviour);
         // Loading has already validated the flags and reported their diagnostics.
         let flags = flags::parse(&graph.map.source(module.file).text, &mut Vec::new());
-        project.for_file(&flags.behaviour)
+        (graph.map.base(module.file), project.for_file(&flags.behaviour))
     }).collect();
-    let apply_settings = |program: &mut hir::Program, map: &diag::SourceMap| {
-        program.settings = program.funcs.iter()
-            .map(|func| settings[map.file_of(func.name_span.start)])
-            .collect();
-    };
     if graph.modules.len() > 1 {
         // Several files: give every name its program-wide meaning, join the
         // files into one program, and check that. The text is the files in
@@ -114,8 +109,7 @@ fn front_project_with_settings(entry: &std::path::Path, info: &modules::ProjectI
             return (None, graph, diags);
         }
         let src = (0..graph.map.len()).map(|f| graph.map.source(f).text.as_str()).collect::<Vec<_>>().join("\n");
-        let mut checked = typeck::check_with_entry(&program, &src, &mut diags, info.requires_main);
-        apply_settings(&mut checked, &graph.map);
+        let checked = typeck::check_with_settings(&program, &src, &mut diags, settings, info.requires_main);
         if diag::has_errors(&diags) {
             return (None, graph, diags);
         }
@@ -128,8 +122,7 @@ fn front_project_with_settings(entry: &std::path::Path, info: &modules::ProjectI
     }
     let program = &graph.modules[0].program;
     let src = &graph.map.source(0).text;
-    let mut checked = typeck::check_with_entry(program, src, &mut diags, info.requires_main);
-    apply_settings(&mut checked, &graph.map);
+    let checked = typeck::check_with_settings(program, src, &mut diags, settings, info.requires_main);
     if diag::has_errors(&diags) {
         return (None, graph, diags);
     }

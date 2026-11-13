@@ -207,3 +207,18 @@ out uint32 read(sint64 i) {
         assert_eq!(text(&out.stdout), "8 16\n");
     }
 }
+
+#[test]
+fn unsigned_negate_error_rejects_typed_values() {
+    let s = Scratch::new("unsigned-negate");
+    fs::write(s.dir.join("main.drh"), r#"//--!$unsigned_negate: error
+none main() {
+    uint8 amount = 240;
+    uint8 wrapped = -amount;
+}
+"#).unwrap();
+    let out = drachm(&s.dir, &["check", "main.drh"]);
+    assert!(!out.status.success());
+    let stderr = text(&out.stderr);
+    assert!(stderr.contains("E0101") && stderr.contains("unsigned_negate = error"), "{stderr}");
+}

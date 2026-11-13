@@ -1,0 +1,8 @@
+//--!$unsigned_negate: signed
+in io;
+
+none main() {
+    uint8 depth = 240;
+    sint16 elevation = -depth;
+    io::outln(f"${elevation}");
+}

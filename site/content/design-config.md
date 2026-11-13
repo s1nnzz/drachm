@@ -97,12 +97,20 @@ The compiler still checks constant array indexes.
 
 <!-- example: settings-bounds -->
 
+### Unsigned negation
+
+`unsigned_negate = "wrap"` keeps the operand's unsigned type. With `error`,
+negating a typed unsigned value is a compile error (E0101). With `signed`,
+the result has the next wider signed type. Widening `uint128` requires
+`sint256`, which is **not implemented yet** (E0901).
+
+<!-- example: settings-unsigned-negate -->
+
 ### Other behaviour settings
 <!-- status: not-implemented -->
 
 `overflow` covers arithmetic, constants that do not fit, shifts and automatic
-conversions. `unsigned_negate` decides what `-x` does on an unsigned value; with
-`signed` the result becomes the next larger signed type.
+conversions.
 
 ## Warnings
 <!-- status: not-implemented -->
@@ -125,8 +133,8 @@ setting for that file. Use `//--!$unsafe: true` to allow unsafe code.
 //--!$overflow: saturate
 ```
 
-`bounds` takes effect per file. File flags for `overflow` and
-`unsigned_negate` are accepted and await code generation. `missing_key`, `unhandled_fail` and `import_clash` are project-wide: a
+`bounds` and `unsigned_negate` take effect per file. The `overflow` flag
+is validated and awaits code generation. `missing_key`, `unhandled_fail` and `import_clash` are project-wide: a
 file flag that sets one is an error (E0806).
 
 ## Tests

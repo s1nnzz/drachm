@@ -113,7 +113,8 @@ import_clash = "warn"      # warn | error
 unsigned_negate = "wrap"   # wrap | error | signed
 ```
 
-`bounds` controls runtime index checks. See [Bounds](design-config.md#bounds).
+`bounds` controls runtime index checks. See [Bounds](design-config.md#bounds) and
+[Unsigned negation](design-config.md#unsigned-negation).
 
 ### Other behaviour settings
 <!-- status: not-implemented -->
@@ -168,7 +169,8 @@ pointer by accident. See [Unsafe](reference-unsafe.md).
 Use a flag for a file with one odd need, such as the file that wraps a C
 library. If most files need the same, change the project setting instead. The
 flag `//--!$bounds: unchecked` disables runtime index checks for the file.
-The `overflow` and `unsigned_negate` flags are validated and await code generation. `missing_key`, `unhandled_fail` and `import_clash` are
+The `unsigned_negate` flag also takes effect per file. The `overflow` flag
+is validated and awaits code generation. `missing_key`, `unhandled_fail` and `import_clash` are
 for the whole project, so a file flag that sets one is E0806.
 
 ## Scripts
