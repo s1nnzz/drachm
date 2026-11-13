@@ -392,8 +392,8 @@ impl<'a> Builder<'a> {
             b.assign_stmt(Place::local(t), Rvalue::Convert(op, to));
             Operand::Copy(Place::local(t))
         };
-        let a = self.decl(Type::U64, LocalKind::Temp);
         if unchecked && !signed {
+            let a = self.decl(Type::U64, LocalKind::Temp);
             let u = conv(self, iop, idx_ty, Type::U64);
             self.assign_stmt(Place::local(a), Rvalue::Use(u));
             return a;
@@ -406,6 +406,7 @@ impl<'a> Builder<'a> {
                 Operand::Copy(Place::local(l))
             }
         };
+        let a = self.decl(Type::U64, LocalKind::Temp);
         let shown;
         if signed {
             let i = conv(self, iop, idx_ty, Type::S64);

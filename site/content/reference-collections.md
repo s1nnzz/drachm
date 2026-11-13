@@ -176,9 +176,10 @@ are. A map declared without a value starts empty and can be used at once.
 
 <!-- example: map-basic -->
 
-`m[k]` gives the value as an optional: `none` when the key is missing, so
-`m[k] maybe 0` is the value or a fallback. `m::get(k)` is the same lookup as a
-method. `m[k] = v;` adds the entry or replaces its value, `m::set(k, v)` does
+By default, `m[k]` gives the value as an optional: `none` when the key is missing, so
+`m[k] maybe 0` is the value or a fallback. With `missing_key = "panic"`,
+`m[k]` returns the value directly and stops on a miss. `m::get(k)` always
+returns an optional. `m[k] = v;` adds the entry or replaces its value, `m::set(k, v)` does
 the same as a method, `m::remove(k)` takes the entry out, and `m::len()`
 counts the entries. Changes require a `mut` or `open` binding, or an
 `&mut` borrow.
