@@ -79,6 +79,8 @@ fn is_word(b: u8) -> bool {
 
 struct Lexer<'a> {
     src: &'a str,
+    /// Global offset of the first byte of `src` (see `diag::SourceMap`).
+    base: usize,
     bytes: &'a [u8],
     i: usize,
     diags: &'a mut Vec<Diagnostic>,
@@ -87,22 +89,32 @@ struct Lexer<'a> {
 /// Never fails: bad input is reported to `diags` and skipped, so the token
 /// stream always ends in `Eof`.
 pub fn lex(src: &str, diags: &mut Vec<Diagnostic>) -> Vec<Token> {
-    let mut lx = Lexer { src, bytes: src.as_bytes(), i: 0, diags };
+    lex_at(src, 0, diags)
+}
+
+/// `lex` for a file that starts at global offset `base`: every span is shifted
+/// by it, so spans from several files can share one number space.
+pub fn lex_at(src: &str, base: usize, diags: &mut Vec<Diagnostic>) -> Vec<Token> {
+    let mut lx = Lexer { src, base, bytes: src.as_bytes(), i: 0, diags };
     let mut out = Vec::new();
     while let Some((tok, start)) = lx.next() {
-        out.push(Token { tok, span: Span::new(start, lx.i) });
+        out.push(Token { tok, span: lx.span(start, lx.i) });
     }
-    out.push(Token { tok: Tok::Eof, span: Span::new(src.len(), src.len()) });
+    out.push(Token { tok: Tok::Eof, span: lx.span(src.len(), src.len()) });
     out
 }
 
 impl Lexer<'_> {
+    fn span(&self, start: usize, end: usize) -> Span {
+        Span::new(self.base + start, self.base + end)
+    }
+
     fn at(&self, offset: usize) -> u8 {
         self.bytes.get(self.i + offset).copied().unwrap_or(0)
     }
 
     fn error(&mut self, code: &'static codes::Code, start: usize, message: impl Into<String>) -> &mut Diagnostic {
-        self.diags.push(Diagnostic::at(code, Span::new(start, self.i.max(start + 1)), message));
+        self.diags.push(Diagnostic::at(code, self.span(start, self.i.max(start + 1)), message));
         self.diags.last_mut().unwrap()
     }
 
@@ -232,7 +244,7 @@ impl Lexer<'_> {
         if !units::is_valid_unit_text(text) {
             return plain;
         }
-        let unit = Some((text.to_string(), Span::new(from, j)));
+        let unit = Some((text.to_string(), self.span(from, j)));
         self.i = j + 1;
         Tok::Num(lit, unit)
     }
@@ -408,7 +420,7 @@ impl Lexer<'_> {
     /// The text from `from` to here, as written, if there is any.
     fn raw_piece(&self, from: usize, pieces: &mut Vec<StrPiece>) {
         if from < self.i {
-            pieces.push(StrPiece::Raw(self.src[from..self.i].to_string(), Span::new(from, self.i)));
+            pieces.push(StrPiece::Raw(self.src[from..self.i].to_string(), self.span(from, self.i)));
         }
     }
 
@@ -454,7 +466,7 @@ impl Lexer<'_> {
                 return None;
             }
         };
-        Some(StrPiece::Escape(ch, Span::new(at, self.i)))
+        Some(StrPiece::Escape(ch, self.span(at, self.i)))
     }
 
     /// `${...}`; `self.i` is at the `$`. The expression inside is lexed as
@@ -475,7 +487,7 @@ impl Lexer<'_> {
                 (_, nl) => {
                     self.i = nl.map_or(self.src.len(), |n| before + n);
                     self.diags.push(
-                        Diagnostic::at(&codes::E0004, Span::new(open, open + 2), "this `${` is never closed")
+                        Diagnostic::at(&codes::E0004, self.span(open, open + 2), "this `${` is never closed")
                             .help("end the interpolated expression with `}`"),
                     );
                     return None;
@@ -484,14 +496,14 @@ impl Lexer<'_> {
             match tok {
                 Tok::Sym("{") => depth += 1,
                 Tok::Sym("}") if depth == 0 => {
-                    tokens.push(Token { tok, span: Span::new(s, self.i) });
-                    tokens.push(Token { tok: Tok::Eof, span: Span::new(self.i, self.i) });
-                    return Some(StrPiece::Interp(tokens, Span::new(open, self.i)));
+                    tokens.push(Token { tok, span: self.span(s, self.i) });
+                    tokens.push(Token { tok: Tok::Eof, span: self.span(self.i, self.i) });
+                    return Some(StrPiece::Interp(tokens, self.span(open, self.i)));
                 }
                 Tok::Sym("}") => depth -= 1,
                 _ => {}
             }
-            tokens.push(Token { tok, span: Span::new(s, self.i) });
+            tokens.push(Token { tok, span: self.span(s, self.i) });
         }
     }
 }

@@ -25,7 +25,12 @@ const KNOWN_KEYS: &[&str] = &["unsafe"];
 /// Reads the flags at the top of `src`, reporting bad ones to `diags`. Never
 /// fails. Flag lines after the top block are reported and not applied.
 pub fn parse(src: &str, diags: &mut Vec<Diagnostic>) -> FileFlags {
-    let lines = split_lines(src);
+    parse_at(src, 0, diags)
+}
+
+/// `parse` for a file that starts at global offset `base` (see `diag::SourceMap`).
+pub fn parse_at(src: &str, base: usize, diags: &mut Vec<Diagnostic>) -> FileFlags {
+    let lines = split_lines(src, base);
     let mut flags = FileFlags { entries: Vec::new(), unsafe_allowed: false };
     // A `#!` line may come first; the flags start on the line after it.
     let mut i = usize::from(lines.first().is_some_and(|l| l.text.starts_with("#!")));
@@ -62,9 +67,9 @@ impl Line<'_> {
     }
 }
 
-fn split_lines(src: &str) -> Vec<Line<'_>> {
+fn split_lines(src: &str, base: usize) -> Vec<Line<'_>> {
     let mut lines = Vec::new();
-    let mut start = 0;
+    let mut start = base;
     for piece in src.split('\n') {
         lines.push(Line { start, text: piece.strip_suffix('\r').unwrap_or(piece) });
         start += piece.len() + 1;
