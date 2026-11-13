@@ -258,3 +258,8 @@ Q5 interfaces as types: any interface can be used as `&I` (its `static` methods 
 - Pointers: C pointers are `foreign *T` (e.g. `foreign *uint8 p = c::getenv("HOME");`); only `unsafe` code may open them (`unsafe { string home = p::text(); }`); wrappers turn them into Drachm values. `void *`, null and pointer-to-pointer out parameters: not asked separately (open; my reading: `foreign *none`, null as `none`).
 - Structs: full value structs with the exact C layout: fields readable and writable, passed by value (`sdl::SDL_Rect r = 10, 10, 200, 100; r.w += 5;`).
 - Unions are readable only in `unsafe`; bit-fields are read and written through generated code; flexible array members are raw (foreign) pointers.
+
+# C header imports batch C (values and callables), 2026-11-13
+- Enums: a foreign enum type that also allows unknown values; a `match` on it needs a catch-all case (`case _`), since C can send values the header doesn't list.
+- Macros: a function-like macro is callable only after the code declares its types: `from c macro SDL_MUSTLOCK(foreign *SDL_Surface s) gives bool;`. My reading: object-like macros that evaluate to a number or string still come in as constants without a declaration; `static inline` functions follow the same declare-first rule (open).
+- Callbacks: a plain top-level Drachm function (no captures) can be passed as a C callback; variadic C functions (`printf`) wait until after 7.1.
