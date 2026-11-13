@@ -1629,10 +1629,11 @@ impl Parser<'_> {
             }
             self.bump();
             let iter = self.expr()?;
+            let step = self.range_step(&iter)?;
             self.expect(")")?;
             let span = start.to(self.prev_span());
             let body = self.block()?;
-            return Ok(Stmt::ForEach { mutable, ty, name, name_span, iter, body, span });
+            return Ok(Stmt::ForEach { mutable, ty, name, name_span, iter, step, body, span });
         }
 
         let init = if self.eat(";") {
@@ -1665,6 +1666,23 @@ impl Parser<'_> {
         let span = start.to(self.prev_span());
         let body = self.block()?;
         Ok(Stmt::For { init, cond, step, body, span })
+    }
+
+    /// The `by n` after the range of a `for ... of a..b by n`, if there is one.
+    /// `by` is a context word: an ordinary name everywhere else, so it only
+    /// counts right after a range.
+    fn range_step(&mut self, iter: &Expr) -> Parsed<Option<Expr>> {
+        if !matches!(self.peek(), Tok::Ident(w) if w == "by") {
+            return Ok(None);
+        }
+        let at = self.span();
+        if !matches!(iter.kind, ExprKind::Range(..)) {
+            return Err(Diagnostic::at(&codes::E0003, at, "`by` goes after a range")
+                .note("this is not a range")
+                .help("write `for (uint32 i of 0..10 by 3) { }`"));
+        }
+        self.bump();
+        Ok(Some(self.expr()?))
     }
 
     /// `match (value) { case p, q { } case _ { } }`

@@ -1,0 +1,4 @@
+none main() {
+    uint32[?] xs = [1];
+    for (uint32 i of xs by 2) { }
+}

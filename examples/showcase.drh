@@ -40,6 +40,10 @@ none part1() {
     mut uint8 hearts = 250;
     for (uint32 i of 0..9) { hearts++; }
     io::outln(f"overflow wraps: 250 + 10 = ${hearts}");
+    // `by` steps a range: the counter lands on 0, 5, 10, 15 and 20, and stops there.
+    mut uint32 pulses = 0;
+    for (uint32 beat of 0..20 by 5) { pulses = pulses + beat; }
+    io::outln(f"beats 0 to 20 by 5 sum to ${pulses}");
 
     float64<kg> mass = 4000.0<kg>;
     float64<m/s^2> thrust = 12.5<m/s^2>;

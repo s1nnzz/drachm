@@ -33,6 +33,9 @@ the first part may declare a variable that exists only inside the loop.
 `for (T x of a..b)` goes over the inclusive range from `a` to `b`, and runs zero
 times if `a` is above `b`. The loop variable is not `mut` unless you say so, and
 changing it does not change the range.
+`by n` after the range sets the step: `for (uint32 i of 0..10 by 3)` runs for
+0, 3, 6 and 9. The step is a whole number of the loop's type; a literal zero or
+negative step is E0901 for now.
 
 <!-- example: loops -->
 
