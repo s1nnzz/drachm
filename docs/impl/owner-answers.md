@@ -131,3 +131,8 @@ Q5 interfaces as types: any interface can be used as `&I` (its `static` methods 
 - `get(i)`, `first()`, `last()` on owning items give a view `&T?` (borrows the list); `copy names::first()` gives an owned `T?`. Mirrors `&xs[i]` / `copy xs[i]`.
 - `contains` on owning items takes the value written with `&`: `names::contains(&name)`; without `&` it would move.
 - Split edges: `""::split(",")` is `[""]`; `lines()` drops one trailing line end and `""::lines()` is `[]`; `split("")` gives the characters like `chars()` (does not stop the program).
+
+# Iterable, 2026-11-13 (replaces the walker design of Q19)
+- No separate walker. `interface Iterable<T> { T? at(uint64 i); }`: `for (T x of thing)` calls `thing::at(0)`, `at(1)`, ... until `none`. The value itself is not spent and can be walked again.
+- Borrowing walkers: owner said "u pick"; moot without walkers (my note: `at` is an ordinary method taking `self` shared, so the value can't change during the loop, like lists).
+- A type may be `Iterable` over several item types (`Graph with Iterable<Node> and Iterable<Edge>`); the loop's binding type picks which: `for (Node n of g)` vs `for (Edge e of g)`.
