@@ -1,15 +1,31 @@
-use std::fs::{self, OpenOptions};
-use std::io::{self, Write};
+use std::fs::{self, File, OpenOptions};
+use std::io::{self, Seek, SeekFrom, Write};
 use std::path::Path;
 
 pub(super) fn read_text(path: &Path) -> io::Result<String> {
     fs::read_to_string(path)
 }
 
-#[allow(dead_code)] // The shared File API is pending.
-pub(super) fn create_text(path: &Path, text: &str) -> io::Result<()> {
-    let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
-    file.write_all(text.as_bytes())
+// The compiler will transfer this owned file into its drop-managed handle
+// once the public File API is available.
+#[allow(dead_code)]
+pub(super) fn create_file(path: &Path, initial: Option<&str>) -> io::Result<File> {
+    let mut file = OpenOptions::new().read(true).write(true).create_new(true).open(path)?;
+    if let Some(initial) = initial {
+        file.write_all(initial.as_bytes())?;
+        file.seek(SeekFrom::Start(0))?;
+    }
+    Ok(file)
+}
+
+#[allow(dead_code)]
+pub(super) fn open_read(path: &Path) -> io::Result<File> {
+    File::open(path)
+}
+
+#[allow(dead_code)]
+pub(super) fn open_append(path: &Path) -> io::Result<File> {
+    OpenOptions::new().append(true).open(path)
 }
 
 pub(super) fn write_text(path: &Path, text: &str) -> io::Result<()> {
@@ -20,6 +36,7 @@ pub(super) fn write_text(path: &Path, text: &str) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Read;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -52,11 +69,34 @@ mod tests {
     fn exclusive_create_preserves_contents() -> io::Result<()> {
         let dir = TestDir::new()?;
         let path = dir.0.join("text");
-        create_text(&path, "original")?;
+        let mut file = create_file(&path, Some("original"))?;
+        let mut contents = String::new();
+        file.read_to_string(&mut contents)?;
+        assert_eq!(contents, "original");
+        drop(file);
 
-        let error = create_text(&path, "replacement").unwrap_err();
+        let error = create_file(&path, Some("replacement")).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
         assert_eq!(read_text(&path)?, "original");
+        Ok(())
+    }
+
+    #[test]
+    fn append_preserves_existing_file_and_requires_it_to_exist() -> io::Result<()> {
+        let dir = TestDir::new()?;
+        let path = dir.0.join("text");
+        assert_eq!(open_append(&path).unwrap_err().kind(), io::ErrorKind::NotFound);
+        drop(create_file(&path, None)?);
+
+        let mut file = open_append(&path)?;
+        file.write_all(b"first")?;
+        file.seek(SeekFrom::Start(0))?;
+        file.write_all(b"second")?;
+        drop(file);
+
+        let mut contents = String::new();
+        open_read(&path)?.read_to_string(&mut contents)?;
+        assert_eq!(contents, "firstsecond");
         Ok(())
     }
 
@@ -65,7 +105,7 @@ mod tests {
         let dir = TestDir::new()?;
         let path = dir.0.join("text");
         assert_eq!(write_text(&path, "missing").unwrap_err().kind(), io::ErrorKind::NotFound);
-        create_text(&path, "café au lait")?;
+        create_file(&path, Some("café au lait"))?;
         assert_eq!(read_text(&path)?, "café au lait");
 
         write_text(&path, "茶")?;

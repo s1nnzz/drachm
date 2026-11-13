@@ -3469,7 +3469,7 @@ impl<'a> Checker<'a> {
             ("fs", "write") => Write,
             ("os", "platform") => Platform,
             ("os", "getEnv") => GetEnv,
-            ("fs", "create") | ("os", "cwd") => {
+            ("fs", "create" | "open" | "readLine" | "writeLine") | ("os", "cwd") => {
                 self.diags.push(Diagnostic::at(&codes::E0901, name_span, format!("`{module}::{name}` is not implemented yet")));
                 return None;
             }

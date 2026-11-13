@@ -79,8 +79,9 @@ once their public behavior is decided.
 ## Owner questions for main
 
 - Does write create a missing file? Is replacing contents a truncating write,
-  or must replacement be atomic? Confirm the effect of opening an existing
-  file in `Write` mode on its contents.
+  or must replacement be atomic? Confirm the initial cursor and write
+  position in `ReadWrite` mode. Confirm line terminators, EOF, invalid text
+  and errors for line operations on a handle opened in the wrong mode.
 - Confirm text and path encoding and the public cause names for existing
   destinations, invalid paths, invalid file text and other host errors. Should
   failure values include the path or a platform error detail?

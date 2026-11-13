@@ -124,4 +124,4 @@ none main() {
 ```
 
 **Not implemented yet** — Exclusive `fs::create` with a shared `File` result,
-line I/O and `os::cwd`.
+`fs::open`, line I/O and `os::cwd`.
