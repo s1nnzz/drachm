@@ -423,8 +423,9 @@ is rejected. The error shows the chain. Recursion inside one file is fine.
 
 An `in * from m;` brings a name that this file already has: its own
 declaration wins over any import, and between two imports the first
-one wins. The warning is at the later import. Import the name on its
-own with `as` to use both: `in play as playAudio from audio;`.
+one wins. The warning is at the later import, and its help asks whether
+you meant the module's name, `m::play`. Import the name on its own with
+`as` to use both: `in play as playAudio from audio;`.
 
 ## W0241: name hides an imported module
 

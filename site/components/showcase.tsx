@@ -1,5 +1,5 @@
 'use client';
-import { Children, useEffect, useRef, useState } from 'react';
+import { Children, isValidElement, useEffect, useId, useRef, useState } from 'react';
 import type { KeyboardEvent, PointerEvent, ReactNode } from 'react';
 
 // The showcase block: the program beside its output. Each pane scrolls on its
@@ -38,8 +38,27 @@ function save(s: Saved) {
   }
 }
 
-export function Showcase({ children }: { children: ReactNode }) {
-  const [source, output] = Children.toArray(children);
+export function Showcase({ children, files }: { children: ReactNode; files: string }) {
+  const paths: string[] = JSON.parse(files);
+  const blocks = Children.toArray(children).filter(isValidElement);
+  const output = blocks[paths.length];
+  const tabId = useId();
+  const tabs = useRef<Array<HTMLButtonElement | null>>([]);
+  const [activeFile, setActiveFile] = useState(0);
+
+  const navigateFiles = (e: KeyboardEvent<HTMLButtonElement>, index: number) => {
+    let next: number;
+    switch (e.key) {
+      case 'ArrowLeft': next = (index + paths.length - 1) % paths.length; break;
+      case 'ArrowRight': next = (index + 1) % paths.length; break;
+      case 'Home': next = 0; break;
+      case 'End': next = paths.length - 1; break;
+      default: return;
+    }
+    e.preventDefault();
+    setActiveFile(next);
+    tabs.current[next]?.focus();
+  };
   const root = useRef<HTMLElement>(null);
   const slot = useRef<HTMLDivElement>(null);
   const body = useRef<HTMLDivElement>(null);
@@ -66,7 +85,10 @@ export function Showcase({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!expanded) return;
     const onKey = (e: globalThis.KeyboardEvent) => {
-      if (e.key === 'Escape') setExpanded(false);
+      if (e.key !== 'Escape') return;
+      if (slot.current) slot.current.style.height = '';
+      setExpanded(false);
+      requestAnimationFrame(() => expandBtn.current?.focus());
     };
     document.addEventListener('keydown', onKey);
     const was = document.body.style.overflow;
@@ -202,7 +224,40 @@ export function Showcase({ children }: { children: ReactNode }) {
         </div>
         <div className="drh-sc-frame">
           <div className="drh-sc-body" ref={body}>
-            {source}
+            <div className="drh-sc-pane">
+              <div className="drh-sc-tabs" role="tablist" aria-label="Source files">
+                {paths.map((file, index) => (
+                  <button
+                    key={file}
+                    ref={(el) => { tabs.current[index] = el; }}
+                    className="drh-sc-btn"
+                    type="button"
+                    role="tab"
+                    id={`${tabId}-tab-${index}`}
+                    aria-controls={`${tabId}-file-${index}`}
+                    aria-selected={activeFile === index}
+                    tabIndex={activeFile === index ? 0 : -1}
+                    onClick={() => setActiveFile(index)}
+                    onKeyDown={(e) => navigateFiles(e, index)}
+                  >
+                    {file}
+                  </button>
+                ))}
+              </div>
+              {paths.map((file, index) => (
+                <div
+                  key={file}
+                  className="drh-sc-file"
+                  role="tabpanel"
+                  id={`${tabId}-file-${index}`}
+                  aria-labelledby={`${tabId}-tab-${index}`}
+                  tabIndex={0}
+                  hidden={activeFile !== index}
+                >
+                  {blocks[index]}
+                </div>
+              ))}
+            </div>
             <div
               className="drh-sc-split"
               role="separator"
@@ -215,7 +270,7 @@ export function Showcase({ children }: { children: ReactNode }) {
               onPointerDown={dragSplit}
               onKeyDown={keySplit}
             />
-            {output}
+            <div className="drh-sc-pane">{output}</div>
           </div>
           <div
             className="drh-sc-vert"

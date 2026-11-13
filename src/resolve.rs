@@ -86,6 +86,10 @@ struct Ctx {
     scopes: Vec<HashMap<String, Bind>>,
     /// Imports of each module that are the standard `io`.
     io_imported: Vec<bool>,
+    /// Imports of each module that are the standard `si` (its units are per file).
+    si_imported: Vec<bool>,
+    /// The names of the units `in si;` brings.
+    si_names: HashSet<String>,
 }
 
 /// Resolve the names of every module and join them into one program.
@@ -95,11 +99,13 @@ pub fn resolve(graph: &mut ModuleGraph, diags: &mut Vec<Diagnostic>) -> Program 
     for (i, m) in graph.modules.iter().enumerate() {
         infos.push(info_of(i, &m.name, &m.program));
     }
-    let mut cx = Ctx { infos, scopes: Vec::new(), io_imported: Vec::new() };
+    let si_names = crate::typeck::si_unit_names().into_iter().collect();
+    let mut cx = Ctx { infos, scopes: Vec::new(), io_imported: Vec::new(), si_imported: Vec::new(), si_names };
     for i in 0..n {
-        let (scope, io) = build_scope(&cx.infos, i, graph, diags);
+        let (scope, io, si) = build_scope(&cx.infos, i, graph, diags);
         cx.scopes.push(scope);
         cx.io_imported.push(io);
+        cx.si_imported.push(si);
     }
 
     let mut merged = Program::default();
@@ -108,8 +114,15 @@ pub fn resolve(graph: &mut ModuleGraph, diags: &mut Vec<Diagnostic>) -> Program 
     let mut func_module: HashMap<String, usize> = HashMap::new();
     for i in 0..n {
         let mut prog = std::mem::take(&mut graph.modules[i].program);
-        let mut w = Walker { cx: &cx, m: i, diags, locals: Vec::new(), tparams: Vec::new(), calls: Vec::new(), extra_generics: Vec::new(), edges: Vec::new() };
+        let mut w = Walker { cx: &cx, m: i, diags, locals: Vec::new(), tparams: Vec::new(), calls: Vec::new(), extra_generics: Vec::new(), edges: Vec::new(), module_spans: Vec::new(), si_reported: HashSet::new() };
         w.program(&mut prog);
+        // A `::` after a call on a module is the chain's first call (`m::f()::g()`);
+        // on anything else it is the E0007 the parser held back.
+        for slip in std::mem::take(&mut prog.chain_slips) {
+            if !w.module_spans.contains(&slip.owner_span) {
+                w.diags.push(slip.diag);
+            }
+        }
         for f in &prog.funcs {
             func_module.insert(f.name.clone(), i);
         }
@@ -173,11 +186,12 @@ fn info_of(index: usize, name: &str, p: &Program) -> Info {
     Info { name: name.to_string(), prefix, decls, exports }
 }
 
-fn build_scope(infos: &[Info], m: usize, graph: &ModuleGraph, diags: &mut Vec<Diagnostic>) -> (HashMap<String, Bind>, bool) {
+fn build_scope(infos: &[Info], m: usize, graph: &ModuleGraph, diags: &mut Vec<Diagnostic>) -> (HashMap<String, Bind>, bool, bool) {
     let info = &infos[m];
     let prog = &graph.modules[m].program;
     let mut scope: HashMap<String, Bind> = HashMap::new();
     let mut io = false;
+    let mut si = false;
     for d in &info.decls {
         // Two declarations with one name are the checker's E0202.
         scope.entry(d.name.clone()).or_insert(Bind::Item { item: Item { global: d.global.clone(), func: d.func }, import: None });
@@ -189,6 +203,7 @@ fn build_scope(infos: &[Info], m: usize, graph: &ModuleGraph, diags: &mut Vec<Di
             Target::Std(name) => {
                 if imp.plain_name().is_some() || imp.binding().is_some() && imp.items.is_empty() && !imp.glob && imp.alias.is_none() {
                     io |= *name == "io";
+                    si |= *name == "si";
                 } else {
                     diags.push(
                         Diagnostic::at(&codes::E0901, imp.span, format!("this form of `in` is not supported for the standard module `{name}` yet"))
@@ -234,10 +249,20 @@ fn build_scope(infos: &[Info], m: usize, graph: &ModuleGraph, diags: &mut Vec<Di
                             Bind::Item { import: Some(k), .. } => format!("the import on line {}", line_number(graph, prog.imports[*k].span)),
                             Bind::Module(_) => "a module of that name".to_string(),
                         };
+                        // The module of this import: the name it is given, or (without `as`) the
+                        // last part of its path, which `as` must name first.
+                        let module_hint = match &imp.alias {
+                            Some((alias, _)) => format!("write `{alias}::{shown}`"),
+                            None => {
+                                let last = imp.path.last().map(String::as_str).unwrap_or_default();
+                                format!("write `{last}::{shown}` after `in * from {} as {last} also bare;`", imp.path.join("."))
+                            }
+                        };
                         diags.push(
                             Diagnostic::at(&codes::W0240, imp.span, format!("`{shown}` from `{}` is hidden by {hidden_by}", imp.path.join(".")))
                                 .note("this import brings a name that is already taken")
-                                .help(format!("the first one wins; to use both, import by name with `as`: `in {shown} as other{} from {};`", cap(&shown), imp.path.join("."))),
+                                .note_line(format!("to use both, import by name with `as`: `in {shown} as other{} from {};`", cap(&shown), imp.path.join(".")))
+                                .help(format!("did you mean to use the module's `{shown}`? {module_hint}")),
                         );
                     }
                 }
@@ -281,7 +306,7 @@ fn build_scope(infos: &[Info], m: usize, graph: &ModuleGraph, diags: &mut Vec<Di
             bind_module(&mut scope, name, at, diags);
         }
     }
-    (scope, io)
+    (scope, io, si)
 }
 
 fn cap(s: &str) -> String {
@@ -330,6 +355,11 @@ struct Walker<'a> {
     extra_generics: Vec<TypeName>,
     /// `(function, function it calls, where)` for every free function walked.
     edges: Vec<(String, String, Span)>,
+    /// The spans of names that are modules where they are used as a call's
+    /// receiver (`physics` in `physics::gravity(2.0)`).
+    module_spans: Vec<Span>,
+    /// SI units this file used without `in si;`, reported once each.
+    si_reported: HashSet<String>,
 }
 
 impl Walker<'_> {
@@ -455,18 +485,34 @@ impl Walker<'_> {
         self.unit_expr(&mut u.expr);
     }
 
+    /// `name` is not a unit of this file: if it is an SI unit and the file has
+    /// no `in si;`, that is the error (the SI units are joined into the
+    /// program for every file, so the checker alone would accept it).
+    fn si_unit(&mut self, name: &str, at: Span) {
+        if self.cx.si_imported[self.m] || !self.cx.si_names.contains(name) || !self.si_reported.insert(name.to_string()) {
+            return;
+        }
+        self.diags.push(
+            Diagnostic::at(&codes::E0402, at, format!("unknown unit `{name}`"))
+                .note("an SI unit, and this file does not import `si`")
+                .help("add `in si;` at the top of this file: every file imports what it uses"),
+        );
+    }
+
     fn unit_expr(&mut self, e: &mut UnitExpr) {
         match e {
-            UnitExpr::Name(n, _) => {
-                if !self.tparams.contains(n) && let Some(i) = self.global_of(n) {
-                    *n = i.global;
+            UnitExpr::Name(n, at) => {
+                if !self.tparams.contains(n) {
+                    match self.global_of(n) {
+                        Some(i) => *n = i.global,
+                        None => self.si_unit(n, *at),
+                    }
                 }
             }
-            UnitExpr::Explicit(n, _) => {
-                if let Some(i) = self.global_of(n) {
-                    *n = i.global;
-                }
-            }
+            UnitExpr::Explicit(n, at) => match self.global_of(n) {
+                Some(i) => *n = i.global,
+                None => self.si_unit(n, *at),
+            },
             UnitExpr::Mul(a, b) | UnitExpr::Div(a, b) => {
                 self.unit_expr(a);
                 self.unit_expr(b);
@@ -802,6 +848,7 @@ impl Walker<'_> {
                     _ => None,
                 };
                 if let Some(j) = module {
+                    self.module_spans.push(recv.span);
                     let (name_span, targs_taken, args_taken) = (*name_span, std::mem::take(targs), std::mem::take(args));
                     let Some(item) = self.member(j, name, name_span) else {
                         e.kind = ExprKind::NoneValue;
@@ -891,6 +938,13 @@ impl Walker<'_> {
                 if let ExprKind::Var(v) = &recv.kind
                     && v == "io"
                     && !self.locals.contains(v)
+                    && self.cx.io_imported[self.m]
+                {
+                    self.module_spans.push(recv.span);
+                }
+                if let ExprKind::Var(v) = &recv.kind
+                    && v == "io"
+                    && !self.locals.contains(v)
                     && !self.cx.io_imported[self.m]
                     && self.scope().get("io").is_none()
                 {
@@ -961,6 +1015,18 @@ impl Walker<'_> {
                 self.expr(index);
             }
             ExprKind::OptionalTest { value, .. } => self.expr(value),
+        }
+    }
+}
+
+/// The chain slips (`ast::ChainSlip`) of a file, decided by its own `in`
+/// lines: a name one of them binds is a module, anything else is the E0007.
+/// Used for one-file programs and wherever the names are not resolved (a
+/// program with errors already); `resolve` decides exactly, with the scopes.
+pub fn chain_slips_by_imports(prog: &mut Program, diags: &mut Vec<Diagnostic>) {
+    for slip in std::mem::take(&mut prog.chain_slips) {
+        if !prog.imports.iter().any(|i| i.binding() == Some(slip.owner.as_str())) {
+            diags.push(slip.diag);
         }
     }
 }

@@ -1,0 +1,6 @@
+in io;
+
+out none run() {
+    float64<km> d = 2.0;
+    io::outln(d::text());
+}

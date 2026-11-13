@@ -1,0 +1,2 @@
+error[E0007]: expected `->` here, found `::`
+--> src/main.drh:7:30

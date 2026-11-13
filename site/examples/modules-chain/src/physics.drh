@@ -1,0 +1,2 @@
+out float64 gravity(float64 t) { return 9.8 * t; }
+out string name() { return "physics"; }

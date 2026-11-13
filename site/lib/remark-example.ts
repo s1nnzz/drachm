@@ -41,20 +41,11 @@ export function remarkExample() {
         const files = projectFiles(project, project).sort((a, b) => (a === 'src/main.drh' ? -1 : b === 'src/main.drh' ? 1 : a < b ? -1 : 1));
         const code = (lang: string, title: string, file: string) =>
           ({ type: 'code', lang, meta: `title="${title}"`, value: readFileSync(file, 'utf8').replace(/\n+$/, '') }) as never;
-        // <DrhShowcase> is the client component (components/showcase.tsx) that
-        // lays out the two panes with their resize handles and expand button.
-        const pane = (children: unknown[], extra = '') =>
-          ({
-            type: 'mdxJsxFlowElement',
-            name: 'div',
-            attributes: [{ type: 'mdxJsxAttribute', name: 'className', value: `drh-sc-pane${extra}` }],
-            children,
-          }) as never;
         out.push({
           type: 'mdxJsxFlowElement',
           name: 'DrhShowcase',
-          attributes: [],
-          children: [pane(files.map((f) => code('drachm', f, path.join(project, f))), ' drh-sc-files'), pane([code('text', 'output', expected)])],
+          attributes: [{ type: 'mdxJsxAttribute', name: 'files', value: JSON.stringify(files) }],
+          children: [...files.map((f) => code('drachm', f, path.join(project, f))), code('text', 'output', expected)],
         } as never);
         continue;
       }

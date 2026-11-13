@@ -236,24 +236,41 @@ pre[data-focus-on] .line:not([data-hl])::before { opacity: 0.3; }
   border-radius: var(--radius);
   overflow: hidden;
 }
-.drh-sc-pane > .drh-block {
+.drh-sc-pane > .drh-block,
+.drh-sc-file > .drh-block {
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
 }
-.drh-sc-pane > .drh-block > .drh-scroll {
+.drh-sc-pane > .drh-block > .drh-scroll,
+.drh-sc-file > .drh-block > .drh-scroll {
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
   overscroll-behavior: contain;
 }
 
-/* The source pane of a project: one block per file, the pane scrolls as a whole. */
-.drh-sc-files { overflow: auto; overscroll-behavior: contain; }
-.drh-sc-files > .drh-block { flex: 0 0 auto; }
-.drh-sc-files > .drh-block > .drh-scroll { flex: 0 0 auto; overflow-x: auto; }
+.drh-sc-tabs {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 0.25rem;
+  padding: 0.375rem;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--color-fd-border);
+}
+.drh-sc-tabs > button { flex: 0 0 auto; }
+.drh-sc-tabs > [aria-selected="true"] {
+  color: var(--drh);
+  border-color: currentColor;
+}
+.drh-sc-file:not([hidden]) {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
 
 /* Handles: hidden in the narrow layout */
 .drh-sc-split,

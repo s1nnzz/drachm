@@ -34,6 +34,7 @@ pub fn front(src: &str) -> (Option<hir::Program>, Vec<Diagnostic>) {
     let tokens = lexer::lex(src, &mut diags);
     let mut program = parser::parse(tokens, &mut diags);
     program.unsafe_allowed = flags.unsafe_allowed;
+    resolve::chain_slips_by_imports(&mut program, &mut diags);
     // A program with syntax errors has holes in it; type errors found in what
     // is left would mostly be noise.
     if diag::has_errors(&diags) {
@@ -76,8 +77,12 @@ fn ownership_checks(checked: Option<hir::Program>, mut diags: Vec<Diagnostic>) -
 /// checked as one program.
 pub fn front_project(entry: &std::path::Path, info: &modules::ProjectInfo) -> (Option<hir::Program>, modules::ModuleGraph, Vec<Diagnostic>) {
     let mut diags = Vec::new();
-    let graph = modules::load(entry, info, &mut diags);
+    let mut graph = modules::load(entry, info, &mut diags);
     if diag::has_errors(&diags) || graph.modules.is_empty() {
+        // A chain on a name that is no module of its file is an error here too.
+        for m in &mut graph.modules {
+            resolve::chain_slips_by_imports(&mut m.program, &mut diags);
+        }
         return (None, graph, diags);
     }
     if graph.modules.len() > 1 {
@@ -95,6 +100,11 @@ pub fn front_project(entry: &std::path::Path, info: &modules::ProjectInfo) -> (O
             return (None, graph, diags);
         }
         return (Some(checked), graph, diags);
+    }
+    let mut graph = graph;
+    resolve::chain_slips_by_imports(&mut graph.modules[0].program, &mut diags);
+    if diag::has_errors(&diags) {
+        return (None, graph, diags);
     }
     let program = &graph.modules[0].program;
     let src = &graph.map.source(0).text;

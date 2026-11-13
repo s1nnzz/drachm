@@ -481,6 +481,12 @@ impl Globals {
     }
 }
 
+/// The units of `in si;`, by name (the resolver checks that a file importing
+/// them has its own `in si;`).
+pub fn si_unit_names() -> Vec<String> {
+    units::si_unit_names()
+}
+
 /// Checks the whole program. The result is only fit for codegen when no
 /// errors were reported.
 pub fn check(prog: &ast::Program, src: &str, diags: &mut Vec<Diagnostic>) -> hir::Program {

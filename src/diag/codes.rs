@@ -317,8 +317,9 @@ codes! {
     W0240: "imported name is hidden",
         "An `in * from m;` brings a name that this file already has: its own\n\
          declaration wins over any import, and between two imports the first\n\
-         one wins. The warning is at the later import. Import the name on its\n\
-         own with `as` to use both: `in play as playAudio from audio;`.";
+         one wins. The warning is at the later import, and its help asks whether\n\
+         you meant the module's name, `m::play`. Import the name on its own with\n\
+         `as` to use both: `in play as playAudio from audio;`.";
     W0241: "name hides an imported module",
         "A declaration in this file has the same name as a module this file\n\
          imports. The declaration wins inside the file, so the module cannot\n\

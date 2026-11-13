@@ -1,0 +1,9 @@
+in io;
+in si;
+in dist;
+
+none main() {
+    dist::run();
+    float64<m> wall = 3.0;
+    io::outln(wall::text());
+}

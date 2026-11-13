@@ -1,3 +1,5 @@
 warning[W0241]: `audio` hides the module `game.audio` imported in this file
 warning[W0240]: `play` from `game.video` is hidden by the import on line 3
 warning[W0240]: `volume` from `game.audio` is hidden by your own declaration
+help: did you mean to use the module's `volume`? write `audio::volume` after `in * from game.audio as audio also bare;`
+help: did you mean to use the module's `play`? write `video::play` after `in * from game.video as video also bare;`

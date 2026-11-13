@@ -1,0 +1,5 @@
+[project]
+name = "app"
+
+[dependencies]
+maths = { path = "library" }

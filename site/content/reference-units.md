@@ -90,7 +90,8 @@ none main() {
 <!-- example: units-si -->
 
 Without `in si;`, a unit such as `m` is unknown and the compiler says so
-([E0402](errors.md)).
+([E0402](errors.md)). `in si;` is per file, like every import: a file that uses
+SI units imports `si` itself, even when another file of the project already does.
 
 ## Numbers with units
 

@@ -22,6 +22,9 @@ backends and checks the output, and this page reads all the files when the site
 is built, so it cannot go out of date. Run it yourself with
 `drachm run examples/showcase`.
 
+Select a source tab to switch files. Use Left or Right to move between tabs,
+or Home and End to jump to the first or last file.
+
 The block below can be resized. Drag the divider between the program and its
 output (or press its arrow keys), drag the bar under the panes to make the block
 taller or shorter, and press Expand for a full-screen view (Esc closes it). Each

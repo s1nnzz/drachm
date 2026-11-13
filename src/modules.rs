@@ -38,13 +38,15 @@ pub struct ProjectInfo {
     /// `drachm.toml`); `None` shows them as they were given.
     pub display_base: Option<PathBuf>,
     pub requires_main: bool,
+    /// Dependency aliases declared in this project.
+    pub dependency_names: Vec<String>,
 }
 
 impl ProjectInfo {
     /// A script or a single file: its root is its own folder.
     pub fn script(file: &Path) -> ProjectInfo {
         let dir = file.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
-        ProjectInfo { name: None, root: dir.to_path_buf(), display_base: None, requires_main: true }
+        ProjectInfo { name: None, root: dir.to_path_buf(), display_base: None, requires_main: true, dependency_names: Vec::new() }
     }
 
 }
@@ -321,6 +323,14 @@ impl Loader<'_> {
             return Some(Target::Std(s));
         }
         let Some(file) = files.pop() else {
+            if self.info.dependency_names.contains(&segs[0]) {
+                self.diags.push(Diagnostic::at(
+                    &codes::E0901,
+                    at,
+                    format!("importing from dependency `{}` is not supported yet", segs[0]),
+                ));
+                return None;
+            }
             let mut d = Diagnostic::at(&codes::E0230, at, format!("module `{written}` not found")).note("no such module");
             d = d.note_line(format!("looked for the file `{}`", self.display(&beside)));
             if let Some(r) = &rooted {

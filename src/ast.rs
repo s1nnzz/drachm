@@ -36,6 +36,20 @@ pub struct Program {
     /// ones inside other arguments), in the order the parser finished them.
     /// The checker makes the instances they name before it resolves types.
     pub generics: Vec<TypeName>,
+    /// `::` written after the first call on a name (`physics::gravity(2.0)::text()`).
+    /// It is an error unless the name is a module, which only the resolver
+    /// (or the single-file check) knows: it decides and reports these.
+    pub chain_slips: Vec<ChainSlip>,
+}
+
+/// A `::` where `->` is wanted, after the first call on `owner`: the E0007
+/// error, held back until the name is known to be a module or not.
+#[derive(Debug)]
+pub struct ChainSlip {
+    pub owner: String,
+    /// The span of the name the first call is made on.
+    pub owner_span: Span,
+    pub diag: crate::diag::Diagnostic,
 }
 
 /// `struct Name { fields and methods }`

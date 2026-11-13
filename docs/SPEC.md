@@ -911,13 +911,17 @@ phys::Vector3 v = 1, 2, 3;
   one name is an error.
 - `in * from m as y` puts the names under `y::` only; `also bare` also brings
   them bare (`play()` and `y::play()` are the same).
-- Nothing is auto-imported in projects, not even `io`.
+- Nothing is auto-imported in projects, not even `io`. `in si;` is per file too: a
+  file that uses SI units needs its own (E0402 otherwise, with the help to add it).
 - Two modules of one file name in one file: an error at the second import, fix-it `as`.
 - A local declaration with a module's name shadows the module, with a warning.
 - `in *` name clashes (`import_clash` = warn | error): a local declaration wins,
   then the first import; the warning is at the later import.
 - `X with I { }` blocks and `def`s follow the type.
 - Import cycles are allowed; cross-file mutual recursion is an error.
+- A call through a module may be followed by `::` or `->`: `physics::gravity(2.0)::text()`
+  and `physics::gravity(2.0)->text()` both work. Only there: the module call is not
+  a value's first call, and a name bound by a local declaration is a value.
 - Built (step 7 WP1, WP2): paths, loading, the graph, `out` lists and `out` on
   declarations (functions, structs, enums, interfaces, failures, units, named
   constants), names across files (item and module imports, `*`, aliases,

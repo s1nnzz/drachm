@@ -25,6 +25,7 @@ in voyage.cargo as cargo;
 
 none main() {
     io::outln(f"the survey ship Drachma: ${BAYS} cargo bays, ${rules::RACK_SLOTS} rack slots");
+    io::outln(f"hull ${rules::hull(7)::upper()}, also ${rules::hull(7)->lower()}");
     io::outln("");
     units::run();
     crew::run();

@@ -4,3 +4,7 @@
 // can size a type. `fixed` makes the compiler check that it is constant.
 out uint32 BAYS = 3;
 out fixed uint32 RACK_SLOTS = BAYS;
+
+// The ship's name from its hull number. A call through a module can start a
+// chain: `rules::hull(7)::upper()` and `rules::hull(7)->lower()` both work.
+out string hull(uint32 n) { return "Drachma-" + n::text(); }
