@@ -20,7 +20,9 @@ pub(super) struct State {
 impl Globals {
     pub(super) fn resolve_func(&self, t: &ast::TypeName, diags: &mut Vec<Diagnostic>) -> Option<Type> {
         let f = t.func.as_ref()?;
-        if !t.mods.is_empty() {
+        // `foreign *(c::int) => c::int`: the type of a C function pointer.
+        let foreign = matches!(t.mods[..], [(ast::TypeMod::ForeignPtr, _)]);
+        if !t.mods.is_empty() && !foreign {
             diags.push(Diagnostic::at(&codes::E0652, t.span, "a function value cannot be stored behind a borrow or pointer"));
             return None;
         }
@@ -30,7 +32,8 @@ impl Globals {
             diags.push(Diagnostic::at(&codes::E0901, f.ret.span, "a function value returning a borrow is not supported yet"));
             return None;
         }
-        Some(Type::func(params, ret))
+        let func = Type::func(params, ret);
+        Some(if foreign { Type::foreign(func) } else { func })
     }
 
     pub(super) fn resolve_return(&self, t: &ast::TypeName, diags: &mut Vec<Diagnostic>) -> Option<Type> {

@@ -1,0 +1,6 @@
+[project]
+name = "c_callbacks"
+
+[native]
+include = ["../../c"]
+sources = ["../../c/drachm_fixture.c"]

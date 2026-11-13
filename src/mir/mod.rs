@@ -320,6 +320,8 @@ pub enum Constant {
     Bool(bool),
     /// A non-owning `string` value.
     Str(StrId),
+    /// The address of a function (a callback for C), of the given pointer type.
+    FuncAddr(hir::FuncId, Type),
 }
 
 #[derive(Debug)]

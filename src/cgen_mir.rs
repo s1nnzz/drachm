@@ -512,6 +512,7 @@ impl Gen<'_> {
             Operand::Const(Constant::Float(v, Type::Float(32))) => format!("drachm_f32_bits(UINT32_C({}))", (*v as f32).to_bits()),
             Operand::Const(Constant::Float(v, _)) => format!("drachm_f64_bits(UINT64_C({}))", v.to_bits()),
             Operand::Const(Constant::Bool(b)) => format!("((uint8_t){})", *b as u8),
+            Operand::Const(Constant::FuncAddr(f, ty)) => format!("(({})(void *){})", c_type(*ty), self.hir.funcs[*f].symbol),
             Operand::Const(Constant::Str(id)) => format!("((drachm_str){})", c_str_value(&self.mir.strings[*id])),
         }
     }

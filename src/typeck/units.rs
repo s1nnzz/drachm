@@ -1362,7 +1362,7 @@ fn visit_expr(e: &mut hir::Expr, f: &mut dyn FnMut(&mut Type)) {
 fn children_mut(e: &mut hir::Expr) -> Vec<&mut hir::Expr> {
     use hir::ExprKind as K;
     match &mut e.kind {
-        K::Int(_) | K::Float(_) | K::Bool(_) | K::Str(_) | K::Local(_) | K::FuncRef(_) | K::NullPtr | K::InLine | K::InEnded => Vec::new(),
+        K::Int(_) | K::Float(_) | K::Bool(_) | K::Str(_) | K::Local(_) | K::FuncRef(_) | K::FuncAddr(_) | K::NullPtr | K::InLine | K::InEnded => Vec::new(),
         K::IncDec { .. } => Vec::new(),
         K::Field(x, _)
         | K::Neg(x)

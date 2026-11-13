@@ -3455,6 +3455,36 @@ impl<'a> Checker<'a> {
         Some(hir::Expr::new(hir::ExprKind::StrCall(hir::StrFn::CPtr, vec![terminated]), param).at(a.span))
     }
 
+    /// A function given to C as a callback: a plain top-level function of the
+    /// signature the C pointer type says.
+    fn callback_arg(&mut self, a: &ast::Expr, param: Type) -> Option<hir::Expr> {
+        let Type::Foreign { to: Type::Func(want) } = param else { unreachable!() };
+        let named = match &a.kind {
+            ExprKind::Var(name) if self.lookup(name).is_none() => self.g.funcs_by_name.get(name).copied(),
+            _ => None,
+        };
+        let Some(fid) = named else {
+            self.diags.push(
+                Diagnostic::at(&codes::E0901, a.span, "only the name of a top-level function can be given to C as a callback")
+                    .note(format!("this parameter is `{param}`"))
+                    .help("declare a plain function with the C types, with no captured values, and pass its name"),
+            );
+            return None;
+        };
+        let sig = &self.g.sigs[fid];
+        let same = sig.params.iter().map(|p| *p).collect::<Option<Vec<_>>>().as_deref() == Some(&want.params[..]) && sig.ret == Some(want.ret) && sig.fails.is_empty();
+        if !same {
+            let have: Vec<String> = sig.params.iter().map(|p| p.map_or("?".into(), |t| t.to_string())).collect();
+            self.diags.push(
+                Diagnostic::at(&codes::E0101, a.span, format!("expected a function of type `{}`, found `{}({})`", Type::Func(want), sig.name, have.join(", ")))
+                    .note("a C callback has the types the C declaration gives")
+                    .help("write the parameters and the result with the `c::` types of the declaration"),
+            );
+            return None;
+        }
+        Some(hir::Expr::new(hir::ExprKind::FuncAddr(fid), param).at(a.span))
+    }
+
     /// Check a call's arguments against function `id`'s parameters.
     fn args(&mut self, id: FuncId, args: &[ast::Expr], span: Span) -> Option<Vec<hir::Expr>> {
         let params = self.g.sigs[id].params.clone();
@@ -3475,6 +3505,7 @@ impl<'a> Checker<'a> {
         for (a, p) in args.iter().zip(&params) {
             let v = match p {
                 Some(p) if matches!(a.kind, ExprKind::CString(_)) && self.g.foreign_funcs.contains(&id) => self.c_string_arg(a, *p),
+                Some(p @ Type::Foreign { to: Type::Func(_) }) if self.g.foreign_funcs.contains(&id) => self.callback_arg(a, *p),
                 // The callee owns its parameters.
                 Some(p) if p.is_borrow() => self.coerce_borrow(a, *p, Some(id)),
                 Some(p) => self.coerce(a, *p),

@@ -727,6 +727,8 @@ pub enum ExprKind {
     PtrConv(Box<Expr>),
     /// A named function adapted to the function-value ABI.
     FuncRef(FuncId),
+    /// The address of a function, for a C callback (step 7.1).
+    FuncAddr(FuncId),
     /// A lifted function with its captures as places in the enclosing function.
     Closure(FuncId, Vec<Expr>),
     /// Indirect call with the callable value at index zero.
@@ -771,7 +773,7 @@ impl Expr {
     pub fn children(&self) -> Vec<&Expr> {
         use ExprKind as K;
         match &self.kind {
-            K::Int(_) | K::Float(_) | K::Bool(_) | K::Str(_) | K::Local(_) | K::FuncRef(_) | K::NullPtr | K::InLine | K::InEnded | K::IncDec { .. } => Vec::new(),
+            K::Int(_) | K::Float(_) | K::Bool(_) | K::Str(_) | K::Local(_) | K::FuncRef(_) | K::FuncAddr(_) | K::NullPtr | K::InLine | K::InEnded | K::IncDec { .. } => Vec::new(),
             K::Field(x, _)
             | K::Neg(x)
             | K::Not(x)

@@ -212,7 +212,20 @@ impl CCtx {
                 e.dims.push(Dim::Array(*n, synthetic));
                 Ok(e)
             }
-            CType::FuncPtr(_) => Err("function pointers are not supported yet".into()),
+            CType::FuncPtr(sig) => {
+                if sig.variadic {
+                    return Err("a callback that takes a variable number of arguments is not supported yet".into());
+                }
+                if matches!(sig.ret, CType::Record(_)) || sig.params.iter().any(|(_, t)| matches!(t, CType::Record(_))) {
+                    return Err("a callback that passes a C struct by value is not supported yet".into());
+                }
+                let ret = self.lower_type(k, &sig.ret, at, found).map_err(|e| format!("the callback's result: {e}"))?;
+                let mut params = Vec::new();
+                for (_, t) in &sig.params {
+                    params.push(self.lower_type(k, t, at, found).map_err(|e| format!("the callback's parameter: {e}"))?);
+                }
+                Ok(TypeName { mods: vec![(TypeMod::ForeignPtr, synthetic)], func: Some(Box::new(ast::FuncType { params, ret })), ..TypeName::plain("", synthetic) })
+            }
             CType::Unsupported(why) => Err(why.clone()),
         }
     }

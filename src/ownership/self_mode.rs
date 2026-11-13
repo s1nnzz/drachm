@@ -262,6 +262,7 @@ impl Cx<'_> {
             | ExprKind::Str(_)
             | ExprKind::Local(_)
             | ExprKind::FuncRef(_)
+            | ExprKind::FuncAddr(_)
             | ExprKind::InLine
             | ExprKind::InEnded
             | ExprKind::NullPtr => {}

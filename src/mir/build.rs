@@ -1151,6 +1151,7 @@ impl<'a> Builder<'a> {
             ExprKind::Bool(b) => Operand::Const(Constant::Bool(*b)),
             ExprKind::Str(s) => Operand::Const(Constant::Str(self.intern(s))),
             ExprKind::NullPtr => Operand::Const(Constant::Int(0, e.ty)),
+            ExprKind::FuncAddr(id) => Operand::Const(Constant::FuncAddr(*id, e.ty)),
             ExprKind::Local(_) | ExprKind::Field(..) | ExprKind::Deref(_) | ExprKind::Payload { .. } | ExprKind::Index(..) => {
                 let p = self.as_place(e);
                 self.at(expr_span(e));
@@ -2045,6 +2046,7 @@ fn kind_name(k: &ExprKind) -> &'static str {
         ExprKind::Convert(_) => "Convert",
         ExprKind::PtrConv(_) => "PtrConv",
         ExprKind::FuncRef(_) => "FuncRef",
+        ExprKind::FuncAddr(_) => "FuncAddr",
         ExprKind::Closure(..) => "Closure",
         ExprKind::FnCall(_) => "FnCall",
         ExprKind::Unsize(_) => "Unsize",

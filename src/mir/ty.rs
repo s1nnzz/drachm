@@ -87,7 +87,7 @@ pub fn place_ty_in(locals: &IndexVec<Local, LocalDecl>, hir: &hir::Program, p: &
 
 pub fn const_ty(c: &Constant) -> Type {
     match c {
-        Constant::Int(_, t) | Constant::Float(_, t) => *t,
+        Constant::Int(_, t) | Constant::Float(_, t) | Constant::FuncAddr(_, t) => *t,
         Constant::Bool(_) => Type::Bool,
         Constant::Str(_) => Type::Str,
     }

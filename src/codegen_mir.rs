@@ -788,6 +788,10 @@ impl Cg<'_, '_> {
             Operand::Const(Constant::Float(v, Type::Float(32))) => self.b.ins().f32const(*v as f32),
             Operand::Const(Constant::Float(v, _)) => self.b.ins().f64const(*v),
             Operand::Const(Constant::Bool(v)) => self.b.ins().iconst(types::I8, *v as i64),
+            Operand::Const(Constant::FuncAddr(f, _)) => {
+                let fref = self.module.declare_func_in_func(self.ids[*f], self.b.func);
+                self.b.ins().func_addr(self.ptr, fref)
+            }
             Operand::Const(Constant::Str(_)) => unreachable!("a string constant is not a scalar"),
         }
     }
