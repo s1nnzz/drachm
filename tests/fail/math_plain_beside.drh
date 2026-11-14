@@ -1,0 +1,8 @@
+in io;
+in math;
+in si;
+
+none main() {
+    float64<m> d = 3.0<m>;
+    io::outln(math::max(d, 5.0)::text());
+}

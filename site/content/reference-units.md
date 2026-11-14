@@ -43,7 +43,8 @@ in si;
 ```
 
 It has the base units `m`, `s`, `kg`, `A`, `K`, `mol` and `cd`, `rad` for
-angles, and the derived ones: `N`, `Pa`, `J`, `W`, `C`, `V`, `F`, `ohm`, `S`,
+angles (and `deg`, which is `0.017453292519943295 rad`, so `math::sin(90.0<deg>)`
+is 1; see [Maths](reference-math.md)), and the derived ones: `N`, `Pa`, `J`, `W`, `C`, `V`, `F`, `ohm`, `S`,
 `Wb`, `tesla`, `H` and `Hz`. Scaled units are declared the same way: `g` (`0.001 kg`),
 `mm`, `cm`, `km`, `mg`, `ms`, `us`, `ns`, `min` (60 s), `h` (3600 s), `kHz`,
 `MHz`, `GHz`, `kJ`, `kW` and `kN`, plus the point `degC`.

@@ -1,5 +1,6 @@
 // Part 1 of the voyage, in its own file: units of measure.
 in io;
+in math;
 in si;
 in gauges;
 
@@ -24,6 +25,12 @@ float64<U> doubled<unit U>(float64<U> x) {
 // `tesla as unit` names the unit in full, even where a type parameter `T` is in scope.
 float64<tesla as unit> boosted<T>(float64<tesla as unit> b) {
     return b * 2.0;
+}
+
+// `math` works on any unit: the root-mean-square of two readings, for any unit U. The square
+// of a reading is `U^2`, and the square root halves the powers back to `U`.
+float64<U> rms<unit U>(float64<U> a, float64<U> b) {
+    return math::sqrt((a * a + b * b) / 2.0);
 }
 
 out none run() {
@@ -78,5 +85,28 @@ out none run() {
     io::outln(f"flux: ${flux::text()} ${flux::unitText()}");
     float64<tesla> boost = boosted<uint32>(flux);
     io::outln(f"boost: ${boost::text()} ${boost::unitText()}");
+
+    // The navigator's maths. `math` carries units through every function: the second
+    // argument of `hypot` is brought to the unit of the first, `atan2` gives radians.
+    float64<m> east = 3000.0<m>;
+    float64<km> north = 4.0<km>;
+    float64<m> legLength = math::hypot(east, north);
+    float64<rad> bearing = math::atan2(north, east) * 1.0<rad>;
+    io::outln(f"leg: ${legLength::text()} m, bearing ${bearing::in<deg>()->text()} deg");
+    // Constants belong to the number type; `pow` with a unit multiplies the powers and
+    // `sqrt` halves them again, so the radius comes back as metres.
+    float64<m> orbit = 6371000.0<m>;
+    float64<m^2> disc = float64::pi * math::pow(orbit, 2);
+    io::outln(f"survey disc: ${disc::text()} ${disc::unitText()}, radius back: ${math::sqrt(disc / float64::pi)->text()} m");
+    // `abs`, `min`, `max`, `clamp`, `floor`, `ceil` and `round` keep the unit; as a method the
+    // same function is `x::abs()`.
+    float64<m> depth = -37.5<m>;
+    float64<m> hullLimit = 30.0<m>;
+    io::outln(f"depth ${depth::abs()->text()} m, held to the hull limit: ${math::clamp(depth::abs(), 0.0<m>, hullLimit)::text()} m");
+    float64<cm> keel = 150.0<cm>;
+    io::outln(f"shallower of 1.2 m and 150 cm: ${math::min(1.2<m>, keel)::text()} m");
+    io::outln(f"rounded cruise: ${math::round(cruise::in<m/s>())::text()} m/s");
+    io::outln(f"course correction: sin 90 deg = ${math::sin(90.0<deg>)}, cos 180 deg = ${math::cos(180.0<deg>)}");
+    io::outln(f"rms of two gauges: ${rms(3.0<m/s>, 4.0<m/s>)::text()} ${rms(3.0<m/s>, 4.0<m/s>)::unitText()}");
     io::outln("");
 }

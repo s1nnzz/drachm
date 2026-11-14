@@ -1,0 +1,8 @@
+in io;
+in math;
+in si;
+
+none main() {
+    float64<m> length = 2.0<m>;
+    io::outln(math::sin(length)::text());
+}

@@ -257,7 +257,7 @@ impl Analysis {
 
     /// The modules an import can name: the standard library's and the project's.
     fn import_modules(&self) -> Vec<Item> {
-        let mut out: Vec<Item> = crate::modules::STD_MODULES.iter().map(|m| item(*m, Kind::MODULE, "standard library", 0)).collect();
+        let mut out: Vec<Item> = crate::stdlib::names().map(|m| item(m, Kind::MODULE, "standard library", 0)).collect();
         // The entry file comes first in the graph; it is not imported by name.
         if let Some(g) = &self.graph {
             out.extend(g.modules.iter().skip(1).map(|m| item(&m.name, Kind::MODULE, "module", 0)));

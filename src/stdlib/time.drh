@@ -1,0 +1,5 @@
+// The `time` module. Intrinsic functions: the compiler types and lowers a call.
+// (`duration` is a `float64<s>`; the declaration cannot name the unit without `in si;`.)
+
+// Pauses the program for `duration` seconds.
+out none sleep(float64 duration) intrinsic;

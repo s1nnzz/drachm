@@ -23,7 +23,7 @@ the compiler accepts what they show.
 | 4.6 | Input: `io::inln()`, `io::ended()`, text `::to<T>()` | done, see [Input and output](reference-io.md) |
 | 5 | Constructors, enums, `fails` / `maybe` | done: enums with data and `match` on them ([Enums](reference-enums.md)), constructors, `new ... of`, `fill` and `def` ([Structs](reference-structs.md#constructors)) are done; optionals ([Optionals](reference-enums.md#optionals)) are done; [Failures](reference-errors.md) (`failure`, `fails`, `fail`, `maybe`, a bare `fails`, handlers, `because`, failing constructors and `drop()`) are done. |
 | 6 | Generics, interfaces, collections | done: generic functions, structs and enums, with units and borrows as type arguments ([Generics](reference-generics.md)); interfaces with `with`, `extends`, generic interfaces, `&Shape` and `Iterable` ([Interfaces](reference-generics.md#interfaces)); arrays, lists and maps with their keys, updates and walks ([Arrays and lists](reference-collections.md), [Maps](reference-collections.md#maps)); function types and lambdas ([Function types and lambdas](reference-generics.md#function-types-and-lambdas)). What is still to come is marked on [Generics and interfaces](design-generics.md#still-to-come) and [Collections](design-collections.md) |
-| 7 | Modules, config, scripts, stdlib | not started: [Modules](design-modules.md), [Config](design-config.md), [Scripts](design-scripts.md) |
+| 7 | Modules, config, scripts, stdlib | partly done: modules, config and dependencies are built ([Modules](design-modules.md), [Config](design-config.md)); the standard library has started with `math` ([Maths](reference-math.md)), and `os`, `fs`, `time` are modules of it; `string`, `convert` and `process` are next. Scripts: [Scripts](design-scripts.md) |
 | 7.1 | Importing C headers | done: functions, scalars, pointers, text, structs, enums, macros and callbacks, see [Calling C libraries](guide-c-imports.md); what is still missing is listed in the [reference](reference-c-imports.md#not-supported-yet) |
 | 7.5 | MIR optimiser: SSA, inlining, scalar replacement, constant folding, loop optimisations, check elimination, alias information from borrows | not started, see [Performance](guide-performance.md#the-planned-optimiser) |
 | 8 | Language server | partly done: diagnostics, hover, go to definition and completion work, see [Editor support](install.md#editor-support); formatting is left |
@@ -31,7 +31,7 @@ the compiler accepts what they show.
 ## Later, not yet scheduled
 
 - [Concurrency](design-concurrency.md): threads, channels, async.
-- [Maths and exact numbers](design-maths.md): vectors, matrices, fractions.
+- [Maths and exact numbers](design-maths.md): vectors, matrices, fractions (the `math` functions are built, see [Maths](reference-math.md)).
 - `drachm fmt` and the Agora package registry, in [Tooling](design-tooling.md).
 - Assembly functions, in [Unsafe](design-unsafe.md#assembly-functions).
 - Targets besides x86-64 Linux and Windows: macOS, and AArch64.

@@ -1,0 +1,7 @@
+in io;
+in math;
+in si;
+
+none main() {
+    io::outln(math::log(2.0<s>)::text());
+}

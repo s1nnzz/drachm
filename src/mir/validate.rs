@@ -355,6 +355,7 @@ impl Validator<'_> {
                 (Some(args), ret)
             }
             Callee::Sleep => (Some(vec![Want::Exact(Type::F64)]), Type::None),
+            Callee::Math(f, ty) => (Some((0..f.arity()).map(|_| Want::Exact(ty)).collect()), ty),
             Callee::InEnded => (Some(Vec::new()), Type::Bool),
             Callee::Parse(ty) => (Some(vec![shared(Type::Str)]), ty),
             Callee::ParseStatus(_) => (Some(vec![shared(Type::Str)]), Type::U8),

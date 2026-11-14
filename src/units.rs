@@ -259,7 +259,9 @@ impl UnitTable {
         let base = if k < 0 { a.scale.recip() } else { a.scale.clone() };
         let scale = exact_root(&base, n)?;
         let dim: Vec<(&'static str, i32)> = a.dim.iter().map(|&(name, e)| (name, e / k)).collect();
-        let text = Unit { dim: dim.clone(), scale: scale.clone(), offset: BigRational::zero() }.to_string();
+        let shown = Unit { dim: dim.clone(), scale: scale.clone(), offset: BigRational::zero() }.to_string();
+        // A scale other than one is part of the name (`100*m`), or two units would look alike.
+        let text = if scale.is_one() { shown } else { format!("{scale}*{}", paren_if(shown.contains(['*', '/']), shown.clone())) };
         Some(self.intern(Unit { dim, scale, offset: BigRational::zero() }, false, text))
     }
 

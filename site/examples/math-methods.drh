@@ -1,0 +1,17 @@
+in io;
+in math;
+
+float64 distance(float64 dx, float64 dy) {
+    return (dx * dx + dy * dy)::sqrt();
+}
+
+none main() {
+    float64 x = 2.0;
+    // The same function, two spellings.
+    io::outln(f"${math::sqrt(x)} ${x::sqrt()}");
+    io::outln(f"${math::max(x, 5.0)} ${x::max(5.0)}");
+    // The first call uses `::`, further calls in the chain use `->`.
+    io::outln(f"${(-16.0)::abs()->sqrt()}");
+    io::outln(f"${x::pow(3.0)->sqrt()->floor()}");
+    io::outln(f"${distance(3.0, 4.0)}");
+}

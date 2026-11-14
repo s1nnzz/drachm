@@ -1,0 +1,31 @@
+// The `math` module. Every function is an intrinsic: the compiler types a call by
+// its own rule, so one declaration serves every number type and carries units
+// through (`math::sqrt(9.0<m^2>)` is `3.0<m>`). The types written here only show
+// the plain case. Each function is also a method: `math::sqrt(x)` is `x::sqrt()`.
+// The constants (`float64::pi`, `float64::e`, `float64::tau`) belong to the number types.
+
+// Roots, powers and logarithms (float32 or float64).
+out float64 sqrt(float64 x) intrinsic;
+out float64 pow(float64 base, float64 exponent) intrinsic;
+out float64 exp(float64 x) intrinsic;
+out float64 log(float64 x) intrinsic;
+out float64 log2(float64 x) intrinsic;
+out float64 log10(float64 x) intrinsic;
+out float64 hypot(float64 x, float64 y) intrinsic;
+
+// Rounding (float32 or float64; the unit stays).
+out float64 floor(float64 x) intrinsic;
+out float64 ceil(float64 x) intrinsic;
+out float64 round(float64 x) intrinsic;
+
+// Trigonometry: a plain number is radians, an angle unit is converted.
+out float64 sin(float64 angle) intrinsic;
+out float64 cos(float64 angle) intrinsic;
+out float64 tan(float64 angle) intrinsic;
+out float64 atan2(float64 y, float64 x) intrinsic;
+
+// Any number type; the unit stays and the arguments must agree.
+out float64 abs(float64 x) intrinsic;
+out float64 min(float64 a, float64 b) intrinsic;
+out float64 max(float64 a, float64 b) intrinsic;
+out float64 clamp(float64 x, float64 low, float64 high) intrinsic;

@@ -1,0 +1,8 @@
+in io;
+in math;
+in si;
+
+none main() {
+    float64<degC> t = 4.0<degC>;
+    io::outln(math::sqrt(t)::text());
+}

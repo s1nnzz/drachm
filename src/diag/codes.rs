@@ -282,7 +282,7 @@ codes! {
          other method is called on a value (`p::length()`). This call used the\n\
          wrong one.";
     E0230: "module not found",
-        "An `in` names a module that is neither a standard module (`io`, `si`, `time`)\n\
+        "An `in` names a module that is neither a standard module (`io`, `si`, `math`, `os`, `fs`, `time`)\n\
          nor a file of the project. A path is relative to the folder of the file\n\
          that writes it: `in game.physics;` (or `in physics inside game;`) means\n\
          the file `game/physics.drh` beside this one. To start from the source\n\
@@ -351,6 +351,11 @@ codes! {
          between two imports the first one wins. With the default,\n\
          `import_clash = \"warn\"`, it is the warning W0240 instead. Import the\n\
          name on its own with `as` to use both: `in play as playAudio from audio;`.";
+    E0243: "`intrinsic` is for the standard library",
+        "A function written `intrinsic;` instead of a body is one the compiler itself\n\
+         knows how to call: only the modules embedded in the compiler (`math`, `fs`,\n\
+         ...) have them. A function of your own needs a body.\n\n\
+         \x20   out float64 half(float64 x) { return x / 2.0; }   // yours";
     W0241: "name hides an imported module",
         "A declaration in this file has the same name as a module this file\n\
          imports. The declaration wins inside the file, so the module cannot\n\
@@ -568,6 +573,15 @@ codes! {
          unit (`d + 5<m>`). Multiplying and dividing by plain numbers is fine, and\n\
          zero is unit-free in `+`, `-` and comparisons, except beside a point such\n\
          as `degC`.";
+    E0410: "a unit has no square root",
+        "`math::sqrt` halves the powers of a unit: `math::sqrt(9.0<m^2>)` is `3.0<m>`.\n\
+         A unit with an odd power (`m`, `m^3`) has no square root. A point (`degC`)\n\
+         has none either: take the root of an amount.";
+    E0411: "this math function needs a plain number",
+        "`math::sin`, `cos` and `tan` take a plain number (radians) or an angle (`rad`,\n\
+         `deg`); `exp`, `log`, `log2`, `log10` and the exponent of `pow` take a plain\n\
+         number. A value with another unit, such as metres, is not one. Divide by a\n\
+         value of the same unit to get a plain number: `distance / 1.0<m>`.";
     E0409: "points and deltas cannot be mixed this way",
         "A unit with an offset, such as `degC`, measures a point on a scale, not an\n\
          amount. Subtract two points to get a `delta`, and add a `delta` to a point\n\

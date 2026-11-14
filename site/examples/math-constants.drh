@@ -1,0 +1,17 @@
+in io;
+
+// The constants belong to the number type, so no import is needed.
+float64 circleArea(float64 radius) {
+    return float64::pi * radius * radius;
+}
+
+none main() {
+    io::outln(f"pi ${float64::pi}");
+    io::outln(f"e ${float64::e}");
+    io::outln(f"tau ${float64::tau}");
+    io::outln(f"area ${circleArea(2.0)}");
+    // At the precision of the type they belong to.
+    float32 narrow = float32::pi;
+    float64 wide = float64::pi;
+    io::outln(f"${narrow} ${wide}");
+}

@@ -372,7 +372,7 @@ wrong one.
 
 ## E0230: module not found
 
-An `in` names a module that is neither a standard module (`io`, `si`, `time`)
+An `in` names a module that is neither a standard module (`io`, `si`, `math`, `os`, `fs`, `time`)
 nor a file of the project. A path is relative to the folder of the file
 that writes it: `in game.physics;` (or `in physics inside game;`) means
 the file `game/physics.drh` beside this one. To start from the source
@@ -470,6 +470,14 @@ clash as W0240: a declaration of this file wins over any import, and
 between two imports the first one wins. With the default,
 `import_clash = "warn"`, it is the warning W0240 instead. Import the
 name on its own with `as` to use both: `in play as playAudio from audio;`.
+
+## E0243: `intrinsic` is for the standard library
+
+A function written `intrinsic;` instead of a body is one the compiler itself
+knows how to call: only the modules embedded in the compiler (`math`, `fs`,
+...) have them. A function of your own needs a body.
+
+    out float64 half(float64 x) { return x / 2.0; }   // yours
 
 ## W0241: name hides an imported module
 
@@ -789,6 +797,19 @@ A number without a unit was used where a measure is needed: `d + 5`,
 unit (`d + 5<m>`). Multiplying and dividing by plain numbers is fine, and
 zero is unit-free in `+`, `-` and comparisons, except beside a point such
 as `degC`.
+
+## E0410: a unit has no square root
+
+`math::sqrt` halves the powers of a unit: `math::sqrt(9.0<m^2>)` is `3.0<m>`.
+A unit with an odd power (`m`, `m^3`) has no square root. A point (`degC`)
+has none either: take the root of an amount.
+
+## E0411: this math function needs a plain number
+
+`math::sin`, `cos` and `tan` take a plain number (radians) or an angle (`rad`,
+`deg`); `exp`, `log`, `log2`, `log10` and the exponent of `pow` take a plain
+number. A value with another unit, such as metres, is not one. Divide by a
+value of the same unit to get a plain number: `distance / 1.0<m>`.
 
 ## E0409: points and deltas cannot be mixed this way
 

@@ -6,7 +6,7 @@ unit N   = kg * m / s^2;      unit Pa  = N / m^2;        unit J = N * m;
 unit W   = J / s;             unit C   = A * s;          unit V = W / A;
 unit F   = C / V;             unit ohm = V / A;          unit S = 1 / ohm;
 unit Wb  = V * s;             unit tesla = Wb / m^2;  unit H = Wb / A;
-unit Hz  = 1 / s;             unit rad;
+unit Hz  = 1 / s;             unit rad;   unit deg = 0.017453292519943295 rad;
 unit mm  = 0.001 m;   unit cm = 0.01 m;      unit km = 1000 m;
 unit mg  = 0.000001 kg; unit ms = 0.001 s;   unit us = 0.000001 s;  unit ns = 0.000000001 s;
 unit min = 60 s;      unit h  = 3600 s;

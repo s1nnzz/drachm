@@ -1,0 +1,15 @@
+in io;
+in math;
+
+none main() {
+    // abs, min, max and clamp work on whole numbers too.
+    sint32 temperature = -12;
+    io::outln(f"abs ${math::abs(temperature)}");
+    io::outln(f"min ${math::min(temperature, 5)} max ${math::max(temperature, 5)}");
+    io::outln(f"clamp ${math::clamp(temperature, -10, 10)}");
+    uint8 level = 200;
+    io::outln(f"capped ${math::min(level, 100)}");
+    // The others need a float: convert a whole number first.
+    uint32 area = 49;
+    io::outln(f"root ${math::sqrt(area::to<float64>())}");
+}

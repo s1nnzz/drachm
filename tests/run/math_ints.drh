@@ -1,0 +1,25 @@
+// abs, min, max and clamp work on whole numbers of every width too; a constant takes the
+// type of the other argument.
+in io;
+in math;
+
+none main() {
+    sint8 a = -100;
+    sint16 b = -30000;
+    sint32 c = -7;
+    sint64 d = -9000000000;
+    sint128 e = -170141183460469231731687303715884105727;
+    uint8 u8 = 200;
+    uint64 u64 = 18000000000000000000;
+    uint128 u128 = 340282366920938463463374607431768211455;
+    io::outln(f"abs ${math::abs(a)} ${math::abs(b)} ${math::abs(c)} ${math::abs(d)} ${math::abs(e)}");
+    io::outln(f"abs of unsigned ${math::abs(u8)} ${math::abs(u64)} ${math::abs(u128)}");
+    io::outln(f"abs constant ${math::abs(-5)} ${math::abs(5)}");
+    io::outln(f"min ${math::min(a, 5)} ${math::min(5, a)} ${math::min(u8, 7)} ${math::min(e, 3)} ${math::min(u128, u128 - 1)}");
+    io::outln(f"max ${math::max(a, 5)} ${math::max(5, a)} ${math::max(u8, 7)} ${math::max(e, 3)} ${math::max(u64, 1)}");
+    io::outln(f"clamp ${math::clamp(c, -3, 3)} ${math::clamp(c, -10, 3)} ${math::clamp(d, 0, 100)} ${math::clamp(u8, 10, 20)} ${math::clamp(50, 0, 10)}");
+    io::outln(f"methods ${c::abs()} ${c::min(-9)} ${c::max(0)} ${c::clamp(-1, 1)}");
+    io::outln(f"nested ${math::max(math::abs(c), math::min(c, 12))}");
+    mut sint32 evaluated = 0;
+    io::outln(f"arguments run once ${math::max(evaluated++, evaluated++)} ${evaluated}");
+}

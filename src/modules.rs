@@ -23,8 +23,11 @@ use crate::ast;
 use crate::diag::{codes, Diagnostic, SourceMap, Span};
 use crate::{flags, lexer, parser};
 
-/// The modules the compiler carries inside it. WP6 grows this list.
-pub const STD_MODULES: &[&str] = &["io", "si", "time", "fs", "os"];
+/// The modules the compiler carries inside it: `io` and `si` are special, the others are
+/// embedded Drachm source (`stdlib.rs`).
+pub fn std_module(name: &str) -> Option<&'static str> {
+    crate::stdlib::names().find(|m| *m == name)
+}
 
 /// Where a project's files are and what its root path starts with.
 #[derive(Debug, Clone)]
@@ -79,6 +82,9 @@ pub struct Module {
     /// One entry per `program.imports`, in order; `None` where the import
     /// could not be resolved (an error was reported).
     pub targets: Vec<Option<Target>>,
+    /// A standard module written in Drachm and embedded in the compiler (`stdlib.rs`);
+    /// `path` is then not a file on disk.
+    pub embedded: bool,
 }
 
 pub struct ModuleGraph {
@@ -291,8 +297,31 @@ impl Loader<'_> {
         while self.graph.modules.iter().any(|m| m.name == name) {
             name = format!("{name}_{index}");
         }
-        self.graph.modules.push(Module { name, path: path.to_path_buf(), file, program, targets: Vec::new() });
+        for f in program.funcs.iter().filter(|f| f.intrinsic) {
+            self.diags.push(
+                Diagnostic::at(&codes::E0243, f.span, format!("`{}` is written `intrinsic`, which only the standard library may do", f.name))
+                    .note("compiler-only")
+                    .help("give the function a body in braces; `intrinsic;` stands for a function the compiler itself knows"),
+            );
+        }
+        self.graph.modules.push(Module { name, path: path.to_path_buf(), file, program, targets: Vec::new(), embedded: false });
         Some(index)
+    }
+
+    /// An embedded standard module (`stdlib.rs`), loaded once like a file.
+    fn add_embedded(&mut self, name: &str, text: &'static str) -> usize {
+        let path = PathBuf::from(format!("std/{name}.drh"));
+        if let Some(&i) = self.by_path.get(&path) {
+            return i;
+        }
+        let (file, base) = self.graph.map.add(shown(&path), text.to_string());
+        let tokens = lexer::lex_at(text, base, self.diags);
+        let mut program = parser::parse_file(tokens, self.diags, false);
+        program.unsafe_files = vec![(base, false)];
+        let index = self.graph.modules.len();
+        self.by_path.insert(path.clone(), index);
+        self.graph.modules.push(Module { name: name.to_string(), path, file, program, targets: Vec::new(), embedded: true });
+        index
     }
 
     fn resolve_imports(&mut self, m: usize) {
@@ -393,7 +422,7 @@ impl Loader<'_> {
     fn resolve(&mut self, importer: &Path, segs: &[String], at: Span) -> Option<Target> {
         let written = segs.join(".");
         let dir = importer.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
-        let std = (segs.len() == 1).then(|| STD_MODULES.iter().find(|m| **m == segs[0])).flatten().copied();
+        let std = (segs.len() == 1).then(|| std_module(&segs[0])).flatten();
         let beside = file_for(dir, segs);
         let owner = self.dependency_owner(importer);
         let (project_name, root, project_dir) = owner.map_or(
@@ -427,7 +456,10 @@ impl Loader<'_> {
             return None;
         }
         if let Some(s) = std {
-            return Some(Target::Std(s));
+            return match crate::stdlib::source(s) {
+                Some(text) => Some(Target::File(self.add_embedded(s, text))),
+                None => Some(Target::Std(s)),
+            };
         }
         let Some(file) = files.pop() else {
             if self.info.dependency_names.contains(&segs[0]) {

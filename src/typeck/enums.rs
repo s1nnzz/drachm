@@ -203,6 +203,13 @@ impl Checker<'_> {
             let vi = self.find_variant(en, name, name_span)?;
             return self.variant_expr(en, vi, &[], false, span, name_span).map(Val::Expr);
         }
+        // `float64::pi`: a constant of the number type, no import needed.
+        if self.lookup(owner).is_none()
+            && !self.g.structs_by_name.contains_key(owner)
+            && let Ok(ty @ Type::Float(_)) = Type::from_name(owner)
+        {
+            return self.float_constant(ty, name, name_span, span);
+        }
         let _ = owner_span;
         self.diags.push(
             Diagnostic::at(&codes::E0003, name_span, format!("expected `(` after `{owner}::{name}`"))
