@@ -26,7 +26,7 @@ the compiler accepts what they show.
 | 7 | Modules, config, scripts, stdlib | not started: [Modules](design-modules.md), [Config](design-config.md), [Scripts](design-scripts.md) |
 | 7.1 | Importing C headers | done: functions, scalars, pointers, text, structs, enums, macros and callbacks, see [Calling C libraries](guide-c-imports.md); what is still missing is listed in the [reference](reference-c-imports.md#not-supported-yet) |
 | 7.5 | MIR optimiser: SSA, inlining, scalar replacement, constant folding, loop optimisations, check elimination, alias information from borrows | not started, see [Performance](guide-performance.md#the-planned-optimiser) |
-| 8 | Language server | partly done: diagnostics, hover, go to definition and completion work, see [Editor support](install.md#editor-support); inlay hints, imports completion, rename and references are left |
+| 8 | Language server | partly done: diagnostics, hover, go to definition and completion work, see [Editor support](install.md#editor-support); formatting is left |
 
 ## Later, not yet scheduled
 

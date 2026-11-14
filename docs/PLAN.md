@@ -1094,8 +1094,36 @@ hooks are one-liners at the places names and types are resolved); the VS Code
 client. With syntax errors the checker still runs on the recovered tree, for the
 table only (its errors are dropped). Completion patches the buffer under the
 cursor (receiver kept with a placeholder member, or a placeholder name) and
-analyses that. Not built: the inferred-`self` inlay hint, imports completion,
-rename, references, formatting, builtin method signatures in completion.
+analyses that.
+
+**Built (2026-11-14):** find references and rename (`src/lsp/refs.rs`, from the
+checker's `Index::refs`; type names are recorded in `Globals::note_type_use`).
+Rename is workspace-wide in a project and refuses, with the reason shown, a
+keyword or type name, `self`, a name from the standard library or a C import,
+and a name declared in a package outside the entry's folder. Completion of
+module names after `in` and `from`, and of the names a module exports (`out`)
+for `in a, b from mod;`. Inlay hints for the inferred `self` mode
+(`src/lsp/hints.rs`, from `ownership::infer`; shown only when the program
+checks). Built-in method signatures in completion (strings, lists, arrays,
+maps, numbers; tables in `src/lsp/complete.rs`, read from the checker's
+method tables). Not built: formatting (the owner's style decision).
+
+**Interims (step 8):**
+- Rename of a name used only as a value (a function passed on, not called) may
+  miss that use: only calls, fields, methods, variants and type names are
+  recorded. Check before relying on it for such names.
+- Imports: the brief said "items after `in x from`"; built as the names before
+  `from` on an `in` line, completed from the module written after `from` on the
+  same line (the syntax has the module after `from`).
+- Module names offered after `in` are the standard library's list
+  (`modules::STD_MODULES`) and the project's modules.
+
+**Open (ask owner):**
+- Imports completion: is `in gravity from physics;` the form you mean by
+  "items after `in x from`", and should the items be offered at the `in` position
+  as now?
+- Rename across a package the project depends on: refused now. Should a
+  rename ever touch a dependency (it is someone else's code)?
 
 **Open (ask owner):** highlighting colours/theme, if they care.
 

@@ -78,11 +78,27 @@ file on disk), and it understands a whole project folder, not only one file.
   function's or method's signature.
 - **Go to definition** works for locals, functions, structs, fields, methods and
   enum variants, also across the files of a project.
+- **Find references** lists every use of a local, function, method, field,
+  struct, enum or variant, across the files of a project (the declaration too,
+  if the editor asks).
+- **Rename** changes a name and all its uses in one go, across the project's
+  files. It refuses, with the reason shown: a keyword, a type name, `self`, a name
+  from the standard library, a name from a C import, and a name from another
+  package the project uses.
 - **Completion** offers methods after `::` and `->` on a value of known type,
   fields after `.`, static methods after a struct name, variants after an enum
   name, bare enum variants where the enum is known from the context (a
   declaration, an assignment, a comparison, an argument, a `case`), the names in
   scope, and keywords.
+  The built-in methods of strings, lists, arrays, maps and numbers come with
+  their signatures, with the item or key and value types filled in.
+- **Inlay hints** show the `self` mode the checker worked out for each method,
+  after its signature: `&self` when the method only reads `self`, `&mut self`
+  when it changes it. You do not write it; the hint shows what was inferred.
+- **Imports:** after `in` the standard library's modules and the project's
+  modules; after `from` the modules. For `in gravity from physics;` the names
+  come from the module written after `from` on the same line, so type `gravity`
+  and pick it from the list of what `physics` exports (`out`).
 
 Half-typed code still gives answers: the parser keeps what it could read, so a
 function missing its closing `}` still has hover and completion inside it. (Type

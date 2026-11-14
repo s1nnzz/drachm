@@ -112,6 +112,11 @@ pub fn collect<R>(f: impl FnOnce() -> R) -> (R, Index) {
     (r, ix)
 }
 
+/// Is anyone collecting? (The checker asks before it does extra work for the table.)
+pub fn collecting() -> bool {
+    CURRENT.with(|c| c.borrow().is_some())
+}
+
 /// Record something, if anyone is collecting.
 pub(super) fn with(f: impl FnOnce(&mut Index)) {
     CURRENT.with(|c| {

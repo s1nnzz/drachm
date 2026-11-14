@@ -1653,9 +1653,10 @@ impl Parser<'_> {
                 self.bump();
                 continue;
             }
+            let at = self.pos;
             if let Err(d) = self.member(&mut s, section) {
                 self.diags.push(d);
-                self.skip_statement();
+                self.skip_after_error(at);
             }
         }
         self.bump();
@@ -1683,9 +1684,10 @@ impl Parser<'_> {
                 return Err(Diagnostic::at(&codes::E0004, open, "this `{` is never closed")
                     .label(self.span(), format!("expected `}}` before {}", self.peek().describe())));
             }
+            let at = self.pos;
             if let Err(d) = self.interface_member(&mut methods, &mut fields) {
                 self.diags.push(d);
-                self.skip_statement();
+                self.skip_after_error(at);
             }
         }
         self.bump();
@@ -1851,9 +1853,10 @@ impl Parser<'_> {
                 self.bump();
                 continue;
             }
+            let at = self.pos;
             if let Err(d) = self.member(&mut s, section) {
                 self.diags.push(d);
-                self.skip_statement();
+                self.skip_after_error(at);
             }
         }
         self.bump();
@@ -1863,6 +1866,7 @@ impl Parser<'_> {
 
     /// One field or method of struct `s`.
     fn member(&mut self, s: &mut Struct, section: Option<bool>) -> Parsed<()> {
+        self.out_on_member();
         let is_static = if self.peek() == &Tok::Kw("static") { Some(self.bump().span) } else { None };
         let is_unsafe = if self.peek() == &Tok::Kw("unsafe") { Some(self.bump().span) } else { None };
         let mutable = if self.peek() == &Tok::Kw("mut") { Some(self.bump().span) } else { None };
@@ -1948,16 +1952,39 @@ impl Parser<'_> {
                 );
                 return Ok(Block { stmts, end: self.prev_span() });
             }
+            let at = self.pos;
             match self.stmt() {
                 Ok(s) => stmts.push(s),
                 Err(d) => {
                     self.diags.push(d);
-                    self.skip_statement();
+                    self.skip_after_error(at);
                 }
             }
         }
         let end = self.bump().span;
         Ok(Block { stmts, end })
+    }
+
+    /// After a syntax error in a body (`{ }`) whose item began at `start`:
+    /// skip as `skip_statement` does, and always move past one token when the
+    /// item consumed nothing, so the body loop cannot retry the same token.
+    fn skip_after_error(&mut self, start: usize) {
+        self.skip_statement();
+        if self.pos == start && self.peek() != &Tok::Eof {
+            self.bump();
+        }
+    }
+
+    /// `out` before a field or method of a struct, impl or interface body.
+    /// Reported and skipped, so the member is still read as written.
+    fn out_on_member(&mut self) {
+        if self.peek() == &Tok::Kw("out") {
+            let span = self.bump().span;
+            self.diags.push(
+                Diagnostic::at(&codes::E0003, span, "`out` cannot go before a field or method")
+                    .help("`out` marks a top-level item; a member's visibility is set by a `public:` or `private:` label in the body (before any label, methods are public and fields private)"),
+            );
+        }
     }
 
     /// After a syntax error: skip to just past the next `;` (or nested block),
@@ -2347,6 +2374,7 @@ impl Parser<'_> {
         let open = self.expect("{")?;
         let mut cases = Vec::new();
         while self.peek() != &Tok::Sym("}") {
+            let at = self.pos;
             if self.peek() == &Tok::Eof || self.at_item_start() {
                 return Err(Diagnostic::at(&codes::E0004, open, "this `{` is never closed")
                     .label(self.span(), format!("expected `}}` before {}", self.peek().describe())));
@@ -2354,7 +2382,7 @@ impl Parser<'_> {
             if self.peek() != &Tok::Kw("case") {
                 let d = self.unexpected("`case` or `}`").help("each arm of a `match` is written `case pattern { }`");
                 self.diags.push(d);
-                self.skip_statement();
+                self.skip_after_error(at);
                 continue;
             }
             let case_start = self.bump().span;

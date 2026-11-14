@@ -40,8 +40,7 @@ Editors get errors as you type, completion, go to definition and hover from
 such as `Rect(2.0, 3.0)` rely on completion, so the server is part of the
 language's design. Highlighting and the server's client exist for VS Code.
 
-Not built yet: the inferred `self` mode as an inlay hint, completion of imports,
-rename, find references and formatting.
+Not built yet: formatting (its style is the owner's decision).
 
 ## The standard library
 <!-- status: not-implemented -->

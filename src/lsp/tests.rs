@@ -299,3 +299,160 @@ fn completion_in_half_typed_code() {
 fn nothing_inside_a_string_or_comment() {
     assert!(completions("none main() {\n    string s = \"p::$\";\n}\n").is_empty());
 }
+
+#[test]
+fn references_of_locals_functions_methods_and_structs() {
+    let (a, p, off) = marked(&SHAPES.replace("io::outln(total", "io::outln($total"));
+    assert_eq!(a.references(&p, off, true).len(), 2);
+    assert_eq!(a.references(&p, off, false).len(), 1);
+    let (a, p, off) = marked(&SHAPES.replace("= add(", "= $add("));
+    assert_eq!(a.references(&p, off, true).len(), 2);
+    let (a, p, off) = marked(&SHAPES.replace("p::sum", "p::$sum"));
+    assert_eq!(a.references(&p, off, true).len(), 2);
+    // The struct's name: its declaration, the return type, `new Point`, and `Point p`.
+    let (a, p, off) = marked(&SHAPES.replace("    Point p =", "    $Point p ="));
+    let refs = a.references(&p, off, true);
+    assert_eq!(refs.len(), 4, "{refs:?}");
+}
+
+#[test]
+fn references_across_files_of_a_project() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/projects/several_files");
+    let main = dir.join("src/main.drh");
+    let text = std::fs::read_to_string(&main).unwrap();
+    let a = Analysis::run(&main, &HashMap::new());
+    let off = text.find("greeting").unwrap() + 2;
+    let refs = a.references(&main, off, true);
+    assert_eq!(refs.len(), 2, "{refs:?}");
+    let uris: Vec<String> = refs.iter().map(|r| r.uri.as_str().to_string()).collect();
+    assert!(uris.iter().any(|f| f.ends_with("util.drh")) && uris.iter().any(|f| f.ends_with("main.drh")), "{uris:?}");
+}
+
+#[test]
+fn rename_changes_the_declaration_and_every_use() {
+    let (a, p, off) = marked(&SHAPES.replace("sint32 total", "sint32 tot$al"));
+    let edits = a.rename(&p, off, "sum_all").expect("a local renames");
+    let all: Vec<&lsp_types::TextEdit> = edits.values().flatten().collect();
+    assert_eq!(all.len(), 2, "{all:?}");
+    assert!(all.iter().all(|e| e.new_text == "sum_all"));
+}
+
+#[test]
+fn rename_a_struct_renames_its_type_uses() {
+    let (a, p, off) = marked(&SHAPES.replace("    Point p =", "    Poi$nt p ="));
+    let edits = a.rename(&p, off, "Vec2").expect("a struct renames");
+    let n: usize = edits.values().map(Vec::len).sum();
+    assert_eq!(n, 4, "{edits:?}");
+}
+
+#[test]
+fn rename_changes_every_file_of_the_project() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/projects/several_files");
+    let main = dir.join("src/main.drh");
+    let text = std::fs::read_to_string(&main).unwrap();
+    let a = Analysis::run(&main, &HashMap::new());
+    let off = text.find("greeting").unwrap() + 2;
+    let edits = a.rename(&main, off, "hello").expect("a function of the project renames");
+    assert_eq!(edits.len(), 2, "{edits:?}");
+    // The qualified use `util::greeting` changes its last word only.
+    let (uri, main_edits) = edits.iter().find(|(u, _)| u.as_str().ends_with("main.drh")).unwrap();
+    assert!(uri.as_str().ends_with("main.drh"));
+    let line = text.lines().position(|l| l.contains("util::greeting")).unwrap();
+    let col = text.lines().nth(line).unwrap().find("greeting").unwrap();
+    assert_eq!(main_edits[0].range.start, lsp_types::Position { line: line as u32, character: col as u32 });
+}
+
+#[test]
+fn rename_refuses_what_it_cannot_do() {
+    let (a, p, off) = marked(&SHAPES.replace("sint32 total", "sint32 tot$al"));
+    assert!(a.rename(&p, off, "while").unwrap_err().contains("keyword"));
+    assert!(a.rename(&p, off, "2fast").unwrap_err().contains("not a name"));
+    assert!(a.rename(&p, off, "uint32").unwrap_err().contains("type"));
+    let (a, p, off) = marked(&SHAPES.replace("return self.x", "return $self.x"));
+    assert!(a.rename(&p, off, "me").unwrap_err().contains("`self`"));
+    // A name the program does not declare (a built-in) has nothing to rename.
+    let (a, p, off) = marked(&SHAPES.replace("io::outln", "io::$outln"));
+    assert!(a.rename(&p, off, "say").is_err());
+}
+
+/// The labels offered in `main.drh` of the `several_files` project, with `buffer` as its text.
+fn project_completions(buffer: String, at: usize) -> Vec<String> {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/projects/several_files");
+    let main = dir.join("src/main.drh");
+    let docs = HashMap::from([(main.clone(), buffer)]);
+    Analysis::complete_at(&main, &docs, at).into_iter().map(|i| i.label).collect()
+}
+
+#[test]
+fn inlay_hints_show_the_inferred_self_mode() {
+    let text = "struct Counter {\n    public:\n    sint32 n;\n    none bump() { self.n = self.n + 1; }\n    sint32 get() { return self.n; }\n}\nnone main() { }\n";
+    let (a, p) = of_source(text);
+    let whole = lsp_types::Range { start: lsp_types::Position { line: 0, character: 0 }, end: lsp_types::Position { line: 100, character: 0 } };
+    let hints = a.self_hints(&p, whole);
+    let label = |h: &lsp_types::InlayHint| match &h.label {
+        lsp_types::InlayHintLabel::String(s) => s.clone(),
+        _ => String::new(),
+    };
+    // `bump` writes a field, so it takes `&mut self`; `get` only reads it.
+    let bump = hints.iter().find(|h| h.position.line == 3).expect("a hint after bump's signature");
+    assert_eq!(label(bump), "&mut self");
+    assert_eq!(bump.position.character, "    none bump()".len() as u32);
+    let get = hints.iter().find(|h| h.position.line == 4).expect("a hint after get's signature");
+    assert_eq!(label(get), "&self");
+    assert_eq!(hints.len(), 2, "{hints:?}");
+}
+
+#[test]
+fn imports_offer_modules_after_in_and_from() {
+    let text = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/projects/several_files/src/main.drh")).unwrap();
+    // `in ` on a line of its own: the standard library's modules and the project's.
+    let got = project_completions(format!("in \n{text}"), 3);
+    assert!(got.iter().any(|l| l == "io") && got.iter().any(|l| l == "util"), "{got:?}");
+    // After `from`: the modules too.
+    let got = project_completions(format!("in greeting from \n{text}"), "in greeting from ".len());
+    assert!(got.iter().any(|l| l == "util"), "{got:?}");
+}
+
+#[test]
+fn imports_offer_the_items_of_the_module_named_after_from() {
+    let text = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/projects/several_files/src/main.drh")).unwrap();
+    // The names are typed before `from`; the module comes after it on the same line.
+    let got = project_completions(format!("in gre from util;\n{text}"), "in gre".len());
+    assert!(got.iter().any(|l| l == "greeting"), "{got:?}");
+    assert!(!got.iter().any(|l| l == "io"), "{got:?}");
+}
+
+/// The labels and details offered where `$` stands in `text`.
+fn completion_details(text: &str) -> Vec<(String, String)> {
+    let off = text.find('$').expect("a $ marks the cursor");
+    let clean = text.replacen('$', "", 1);
+    let path = PathBuf::from("/nonexistent-drachm-test/main.drh");
+    let docs = HashMap::from([(path.clone(), clean)]);
+    Analysis::complete_at(&path, &docs, off).into_iter().map(|i| (i.label, i.detail)).collect()
+}
+
+fn detail_of(got: &[(String, String)], name: &str) -> String {
+    got.iter().find(|(l, _)| l == name).map(|(_, d)| d.clone()).unwrap_or_else(|| panic!("no {name} in {got:?}"))
+}
+
+#[test]
+fn builtin_methods_show_their_signatures() {
+    let got = completion_details("none main() {\n    string s = \"ab\";\n    s::$\n}\n");
+    assert_eq!(detail_of(&got, "find"), "sint64 find(string text)");
+    assert_eq!(detail_of(&got, "len"), "uint64 len()");
+    assert_eq!(detail_of(&got, "padLeft"), "string padLeft(uint64 width[, string fill])");
+    // A list's signatures use its item type.
+    let got = completion_details("none f(uint32[?] xs) {\n    xs::$\n}\nnone main() { }\n");
+    assert_eq!(detail_of(&got, "push"), "none push(uint32 item)");
+    assert_eq!(detail_of(&got, "pop"), "uint32? pop()");
+    // A map's signatures use its key and value types.
+    let got = completion_details("none f(Map<string, uint32> m) {\n    m::$\n}\nnone main() { }\n");
+    assert_eq!(detail_of(&got, "get"), "uint32? get(string key)");
+    assert_eq!(detail_of(&got, "set"), "none set(string key, uint32 value)");
+}
+
+#[test]
+fn hover_on_a_field_names_its_struct() {
+    let h = hover_text(&SHAPES.replace("p.x, p.y", "p.$x, p.y"));
+    assert!(h.contains("field of `Point`"), "{h}");
+}
