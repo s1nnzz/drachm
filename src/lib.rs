@@ -37,6 +37,11 @@ pub fn front(src: &str) -> (Option<hir::Program>, Vec<Diagnostic>) {
     let tokens = lexer::lex(src, &mut diags);
     let mut program = parser::parse(tokens, &mut diags);
     program.unsafe_files = vec![(0, flags.unsafe_allowed)];
+    // A source that imports an embedded standard module (`math`, `fs`, ...) needs the module
+    // graph: it is checked as a one-file script that has those modules beside it.
+    if program.imports.iter().any(|i| i.file.is_none() && i.c_header.is_none() && i.path.len() == 1 && stdlib::source(&i.path[0]).is_some()) {
+        return front_script_text(src);
+    }
     resolve::chain_slips_by_imports(&mut program, &mut diags);
     // A program with syntax errors has holes in it; type errors found in what
     // is left would mostly be noise.
@@ -51,6 +56,18 @@ pub fn front(src: &str) -> (Option<hir::Program>, Vec<Diagnostic>) {
     }
     locate_asserts(&mut checked, &diag::SourceMap::single("input", src));
     (Some(checked), diags)
+}
+
+/// `front` for a source string that imports embedded standard modules: the text stands in
+/// for a script file named `input.drh`, and the module graph does the rest.
+fn front_script_text(src: &str) -> (Option<hir::Program>, Vec<Diagnostic>) {
+    let path = std::path::PathBuf::from("input.drh");
+    let info = modules::ProjectInfo::script(&path);
+    let files = std::collections::HashMap::from([(modules::overlay_key(&path), src.to_string())]);
+    let (checked, _, diags) = modules::with_overlay(files, || {
+        front_project_with_settings(&path, &info, config::Config::script().behaviour, &[])
+    });
+    (checked, diags)
 }
 
 /// Writes the message of each `assert`: its heading (the condition and the
