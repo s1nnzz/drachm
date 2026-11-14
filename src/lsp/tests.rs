@@ -450,3 +450,9 @@ fn builtin_methods_show_their_signatures() {
     assert_eq!(detail_of(&got, "get"), "uint32? get(string key)");
     assert_eq!(detail_of(&got, "set"), "none set(string key, uint32 value)");
 }
+
+#[test]
+fn hover_on_a_field_names_its_struct() {
+    let h = hover_text(&SHAPES.replace("p.x, p.y", "p.$x, p.y"));
+    assert!(h.contains("field of `Point`"), "{h}");
+}

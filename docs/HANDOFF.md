@@ -30,8 +30,10 @@ For a new session with no memory of earlier conversations. Read this, then
   parameters, `by` signs, float `by`, Q12 details, named constants, step 7
   batches A-D): the Docs connector was timing out. Do it next session.
 - **Early language server merged**: `drachm lsp` and the VS Code extension
-  provide live diagnostics, hover, definition and completion. See PLAN step 8
-  for remaining work and the extension README for setup.
+  provide live diagnostics, hover, definition and completion, and (2026-11-14)
+  find references, rename, import completion, inlay hints for the inferred
+  `self` mode and built-in method signatures. See PLAN step 8 for the interims
+  and open questions, and the extension README for setup.
 - **Step 7.1 built (2026-11-13)**: C header imports. `src/cimport.rs` (libclang
   through `clang-sys`), `src/cbind.rs` (C declarations as syntax-tree items, the
   resolver binds `Target::C`), `Type::C`, `Type::CEnum`, `Type::Foreign`, foreign

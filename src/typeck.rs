@@ -2403,10 +2403,11 @@ impl<'a> Checker<'a> {
             self.diags.push(d);
             return None;
         }
+        let owner = index::demangle(&ty.to_string());
         index::with(|ix| {
-            let ty = f.ty.map_or("?".to_string(), |t| index::demangle(&t.to_string()));
-            ix.types.push((recv_span.to(name_span), ty.clone()));
-            ix.refs.push(index::Ref { at: name_span, def: Some(f.span), code: format!("{ty} {name}"), note: format!("field of `{}`", index::demangle(&ty.to_string())) });
+            let fty = f.ty.map_or("?".to_string(), |t| index::demangle(&t.to_string()));
+            ix.types.push((recv_span.to(name_span), fty.clone()));
+            ix.refs.push(index::Ref { at: name_span, def: Some(f.span), code: format!("{fty} {name}"), note: format!("field of `{owner}`") });
         });
         Some((i, f.ty?))
     }
