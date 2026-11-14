@@ -1,0 +1,3 @@
+{"name":"Ada","level":7,"health":99.5,"alive":true,"tags":["archer","quick"],"home":{"city":"Turin","street":null}}
+Ada is level 7 in Turin
+cannot read: $.level does not fit its type

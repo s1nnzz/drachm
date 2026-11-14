@@ -10,7 +10,8 @@ the compiler accepts today. Numbers of every width, units of measure carried thr
 and constructors, enums and `match`, optionals, failures with handlers and
 causes, interfaces and generics, borrows and `lives`, lists, maps, lambdas, and a
 C library (the harbours of part 6, `examples/showcase/c/`) called through a
-safe wrapper.
+safe wrapper. Part 7 is the logbook, which reads and writes JSON with `convert` and
+uses the `string` module.
 Each part has a header comment saying what it shows off.
 
 It is a real, tested example, and a project of several files: `examples/showcase/`

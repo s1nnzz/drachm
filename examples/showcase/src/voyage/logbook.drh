@@ -1,0 +1,95 @@
+// Part 7 of the voyage, in its own file: the logbook. The standard library's `string` and
+// `convert` modules: the same functions as the text methods, JSON built from the field
+// names, numbers in other bases, and the bytes of a text.
+in io;
+in math;
+in string;
+in convert;
+
+struct Entry {
+public:
+    uint16 day;
+    string port;
+    uint32 tons;
+    float64 distance;
+    string? note;
+    string[?] crew;
+}
+
+struct Logbook {
+public:
+    string ship;
+    uint32 registry;
+    Entry[?] entries;
+}
+
+Logbook voyage() {
+    Entry first = new Entry of (1, "Vega", 120, 0.0, none, ["Okonkwo", "Ilse"]);
+    Entry second = new Entry of (9, "Sol", 85, 4.5, "customs asked about the \"seed vault\"", ["Okonkwo", "Ilse", "Pim"]);
+    Entry third = new Entry of (23, "Wren", 0, 11.25, none, []);
+    return new Logbook of ("Drachma", 48879, [first, second, third]);
+}
+
+// `string::padLeft(text, width, fill)` is `text::padLeft(width, fill)`: one function, two spellings.
+string row(&Entry e) {
+    mut string crew = string::join(e.crew, " & ");
+    if (crew::isEmpty()) { crew = "nobody aboard"; }
+    return string::padLeft(e.day::text(), 3, " ") + "  " + string::padRight(e.port, 5, " ") + string::padLeft(e.tons::text(), 5, " ") + "  " + crew;
+}
+
+none attempt(string label, string text) {
+    Logbook book = convert::fromJson<Logbook>(text) fails with (convert::JsonError e) => {
+        io::outln(f"  ${label}: ${e}");
+        maybe voyage();
+    };
+}
+
+out none run() {
+    io::outln("== Part 7: the logbook ==");
+    Logbook book = voyage();
+    io::outln(string::repeat("=", 34));
+    io::outln(f"${string::upper(book.ship)} registry 0x${convert::hex(book.registry)}");
+    for (&Entry e of book.entries) {
+        io::outln(row(e));
+    }
+    io::outln(string::repeat("-", 34));
+
+    // JSON is built from the field names. Reading it back gives the same logbook.
+    string text = convert::toJson(book);
+    io::outln(text);
+    Logbook again = convert::fromJson<Logbook>(text) maybe voyage();
+    assert(convert::toJson(again) == text);
+    io::outln(f"read back ${again.entries::len()} entries, the same text: ${convert::toJson(again) == text}");
+
+    // Each way a text can fail to be a logbook is its own failure, with the place in it.
+    io::outln("edited logbooks:");
+    attempt("cut short", """{"ship": "Drachma", "registry": 48879, "entries": [""");
+    attempt("a day too far", """{"ship": "Drachma", "registry": 48879, "entries": [{"day": 70000}]}""");
+    attempt("no port", """{"ship": "Drachma", "registry": 48879, "entries": [{"day": 5}]}""");
+    attempt("not a crew", """{"ship": "Drachma", "registry": 48879, "entries": [{"day": 5, "port": "Sol", "tons": 1, "distance": 0.5, "crew": "Okonkwo"}]}""");
+    attempt("a stowaway field", """{"ship": "Drachma", "registry": 48879, "entries": [], "stowaway": true}""");
+
+    // Bases: the registry in hex, binary and octal, and back from a text typed in capitals.
+    io::outln(f"registry ${book.registry}: ${convert::hex(book.registry)}, ${convert::binary(book.registry)}, ${convert::octal(book.registry)}");
+    uint64 typed = convert::fromHex("BEEF") maybe 0;
+    uint64 slip = convert::fromHex("BEEG") fails with (ConvertError e) => {
+        io::outln(f"  \"BEEG\" is not hex: ${e}");
+        maybe 0;
+    };
+    io::outln(f"BEEF is ${typed}, the registry again: ${typed == book.registry::to<uint64>()}");
+
+    // The bytes of a text, as UTF-8: the accented letter takes two.
+    string captain = "señor";
+    uint8[?] bytes = convert::utf8(captain);
+    mut string[?] shown = [];
+    for (uint8 b of bytes) {
+        shown::push(string::padLeft(convert::hex(b), 2, "0"));
+    }
+    io::outln(f"${captain} is ${captain::len()} characters in ${bytes::len()} bytes: ${string::join(shown, " ")}");
+
+    // A whole number to `math::sqrt` gives a whole number, rounded down (the compiler warns:
+    // convert first for a fractional result).
+    uint32 area = book.entries[0].tons + 5;
+    io::outln(f"a square deck of ${area} m2 has a side of ${math::sqrt(area)} m, or ${math::sqrt(area::to<float64>())::text()} exactly");
+    io::outln("");
+}

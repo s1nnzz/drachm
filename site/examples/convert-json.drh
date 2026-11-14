@@ -1,0 +1,37 @@
+in io;
+in convert;
+
+struct Address {
+public:
+    string city;
+    string? street;
+}
+
+struct Player {
+public:
+    string name;
+    uint8 level;
+    float64 health;
+    bool alive;
+    string[?] tags;
+    Address home;
+}
+
+none main() {
+    Player ada = new Player of ("Ada", 7, 99.5, true, ["archer", "quick"], new Address of ("Turin", none));
+    string text = convert::toJson(ada);
+    io::outln(text);
+
+    // Reading builds the value from the field names, or fails with the reason.
+    Player loaded = convert::fromJson<Player>(text) fails with (convert::JsonError e) => {
+        io::outln(f"cannot read: ${e}");
+        maybe ada;
+    };
+    io::outln(f"${loaded.name} is level ${loaded.level} in ${loaded.home.city}");
+
+    string wrong = """{"name": "Bo", "level": 300}""";
+    Player bo = convert::fromJson<Player>(wrong) fails with (convert::JsonError e) => {
+        io::outln(f"cannot read: ${e}");
+        maybe loaded;
+    };
+}
