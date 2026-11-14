@@ -996,6 +996,41 @@ phys::Vector3 v = 1, 2, 3;
   - Memory returned by C is released by the wrapper (e.g. in `drop()`), never
     inferred; C error conventions are ordinary wrapper code.
 
+## 9b. Standard library
+
+Owner decisions, 2026-11-13 and 2026-11-14 (`docs/impl/owner-answers.md`
+"Standard library"). First cut in this order: `io` (files too), `string`,
+`convert`, `math`, `os` (environment), `fs`, `time`, `process`. Built today
+(hard-wired in the checker until WP6 moves them into embedded `.drh` modules):
+`io`, `fs::read`/`fs::write`, `os::platform`/`os::getEnv`, `time::sleep`.
+
+- A module function and a method are the same function, two spellings:
+  `math::sqrt(2.0)` is `2.0::sqrt()`; `string::join(words, ", ")` is
+  `words::join(", ")`.
+- Maths constants belong to the number type: `float64::pi`, `float32::pi`,
+  `float64::e`, at that type's precision, with no import.
+- `math` carries units: `math::sqrt(9.0<m^2>)` is `3.0<m>`; `abs`, `min`,
+  `max`, `floor`, `ceil`, `round`, `clamp` keep the unit; `sin`, `cos`, `tan`
+  take a plain number or an angle unit.
+- `string`: functions that do not start from one string (`string::repeat`),
+  plus every text method under the module name.
+- `convert`: text formats built from field names (`convert::toJson(v)`,
+  `convert::fromJson<T>(text) fails`) and bases and bytes (`convert::hex`,
+  `convert::fromHex`, `convert::binary`, `convert::utf8`).
+- `os`: `platform()`, `getEnv(name)` gives `string?`, `cwd()`, `args()` gives
+  `string[?]` without the program name, `programName()`.
+- `fs`: `read`, `write` (replaces), `create(path, text?)` (fails if the file
+  exists; the cursor starts at the beginning), `open(path, Read | Write |
+  ReadWrite)` (Write appends). All give the same `File`. Reading: `for (string
+  line of f)` and `f::readLine()` giving `string?`. Failures by cause:
+  `FileMissing`, `AccessDenied`, `InvalidPath`, `InvalidFileText`,
+  `FileIoError`. A `File` closes in its `drop()`.
+- `time`: `sleep(float64<s>)`; `now()` is a point in seconds (`float64<s>`),
+  and the difference of two is a `float64<delta s>`. Dates later.
+- `process`: `run(program, args)` gives `process::Ran` (`code`, `out`,
+  `errText`); a non-zero exit is not a failure, only failing to start is.
+- Still open: the exact-number and vector types (13c), `assert` names (15c).
+
 ## 10. Projects, config, scripts, tooling
 
 - `drachm check` checks a library without requiring `main()`.
