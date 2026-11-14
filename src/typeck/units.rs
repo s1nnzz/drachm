@@ -562,7 +562,7 @@ impl Checker<'_> {
         );
     }
 
-    fn point_error(&mut self, at: Span, message: &str, help: &str) {
+    pub(super) fn point_error(&mut self, at: Span, message: &str, help: &str) {
         self.diags.push(Diagnostic::at(&codes::E0409, at, message).note("this is a point, like `degC`").help(help));
     }
 
@@ -997,7 +997,7 @@ impl Checker<'_> {
         Some(Val::Expr(result))
     }
 
-    fn table<R>(&self, f: impl FnOnce(&mut UnitTable) -> R) -> R {
+    pub(super) fn table<R>(&self, f: impl FnOnce(&mut UnitTable) -> R) -> R {
         f(&mut self.g.units.borrow_mut().table)
     }
 
@@ -1058,7 +1058,7 @@ impl Checker<'_> {
         Some(Val::Expr(e))
     }
 
-    fn check_unit<T>(&mut self, r: Result<T, UnitError>, at: Span) -> Option<T> {
+    pub(super) fn check_unit<T>(&mut self, r: Result<T, UnitError>, at: Span) -> Option<T> {
         match r {
             Ok(v) => Some(v),
             Err(e) => {
@@ -1390,7 +1390,7 @@ fn children_mut(e: &mut hir::Expr) -> Vec<&mut hir::Expr> {
         K::Len(x) => vec![&mut **x],
         K::Index(a, b) | K::ListPush { list: a, value: b } => vec![&mut **a, &mut **b],
         K::ListCall { args, .. } => args.iter_mut().collect(),
-        K::System(_, args, _) => args.iter_mut().collect(),
+        K::System(_, args, _) | K::Math(_, args, _) => args.iter_mut().collect(),
         K::List(items) | K::Array(items) => items.iter_mut().collect(),
         K::Map(pairs) => pairs.iter_mut().flat_map(|(k, v)| [k, v]).collect(),
         K::MapCall { args, .. } => args.iter_mut().collect(),

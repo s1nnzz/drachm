@@ -1,0 +1,11 @@
+//--!$overflow: panic
+in io;
+in math;
+
+none main() {
+    sint8 fine = -127;
+    io::outln(f"${math::abs(fine)}");
+    sint8 low = -128;
+    io::outln(f"${math::abs(low)}");
+    io::outln("not reached");
+}

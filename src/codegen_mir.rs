@@ -1462,6 +1462,15 @@ impl Cg<'_, '_> {
                     }
                 }
             }
+            Callee::Math(f, ty) => {
+                let params: Vec<_> = args.iter().map(|arg| self.operand(&arg.op)).collect();
+                let cl = if ty == Type::Float(32) { types::F32 } else { types::F64 };
+                let result = self.rt(f.symbol(ty == Type::Float(32)), &vec![cl; params.len()], &[cl], &params);
+                if let Some(dest) = dest {
+                    let (loc, _) = self.locate(dest);
+                    self.store(loc, result[0]);
+                }
+            }
             Callee::Sleep => {
                 let seconds = self.operand(&args[0].op);
                 self.rt("drachm_sleep", &[types::F64], &[], &[seconds]);

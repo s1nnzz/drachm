@@ -1,0 +1,7 @@
+in io;
+in math;
+in si;
+
+none main() {
+    io::outln(math::min(1.0<m>, 2.0<s>)::text());
+}

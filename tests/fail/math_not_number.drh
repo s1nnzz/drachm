@@ -1,0 +1,6 @@
+in io;
+in math;
+
+none main() {
+    io::outln(math::sqrt("nine")::text());
+}

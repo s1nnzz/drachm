@@ -1,0 +1,8 @@
+in io;
+in math;
+in si;
+
+none main() {
+    float64<m^3> volume = 8.0<m^3>;
+    io::outln(math::sqrt(volume)::text());
+}

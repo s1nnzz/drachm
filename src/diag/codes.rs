@@ -573,6 +573,15 @@ codes! {
          unit (`d + 5<m>`). Multiplying and dividing by plain numbers is fine, and\n\
          zero is unit-free in `+`, `-` and comparisons, except beside a point such\n\
          as `degC`.";
+    E0410: "a unit has no square root",
+        "`math::sqrt` halves the powers of a unit: `math::sqrt(9.0<m^2>)` is `3.0<m>`.\n\
+         A unit with an odd power (`m`, `m^3`) has no square root. A point (`degC`)\n\
+         has none either: take the root of an amount.";
+    E0411: "this math function needs a plain number",
+        "`math::sin`, `cos` and `tan` take a plain number (radians) or an angle (`rad`,\n\
+         `deg`); `exp`, `log`, `log2`, `log10` and the exponent of `pow` take a plain\n\
+         number. A value with another unit, such as metres, is not one. Divide by a\n\
+         value of the same unit to get a plain number: `distance / 1.0<m>`.";
     E0409: "points and deltas cannot be mixed this way",
         "A unit with an offset, such as `degC`, measures a point on a scale, not an\n\
          amount. Subtract two points to get a `delta`, and add a `delta` to a point\n\

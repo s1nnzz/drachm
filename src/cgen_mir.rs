@@ -939,6 +939,11 @@ impl Gen<'_> {
                     self.line(format!("{dest} = {}({params});", op.symbol()));
                 }
             }
+            Callee::Math(f, ty) => {
+                let dest = dest_lv.expect("a math call has a destination");
+                let params = args.iter().map(|arg| self.operand(&arg.op)).collect::<Vec<_>>().join(", ");
+                self.line(format!("{dest} = {}({params});", f.symbol(ty == Type::Float(32))));
+            }
             Callee::Sleep => {
                 let seconds = self.operand(&args[0].op);
                 self.line(format!("drachm_sleep({seconds});"));

@@ -3786,7 +3786,20 @@ impl<'a> Checker<'a> {
     }
 
     fn method(&mut self, recv: &ast::Expr, name: &str, name_span: Span, targs: &[ast::TypeName], args: &[ast::Expr], span: Span) -> Option<Val> {
-        match self.expr(recv) {
+        let value = self.expr(recv);
+        // `x::sqrt()` on a number is `math::sqrt(x)` when the file imports `math`.
+        if let Some(v) = &value
+            && self.math_method_applies(name, span)
+            && match v {
+                Val::Const(_) | Val::UConst(..) => true,
+                Val::Expr(e) => e.ty.is_numeric() || e.ty.is_borrow() && e.ty.target().is_some_and(|t| t.is_numeric()),
+                Val::NoneLit(_) => false,
+            }
+        {
+            let o = origin(recv);
+            return self.math_call(name, targs, args, span, Some((value?, o)));
+        }
+        match value {
             Some(Val::Expr(v)) if self.g.ifaces.ext.get(&v.ty).is_some_and(|ms| ms.iter().any(|m| m.name == name)) => {
                 self.ext_method(v, recv.span, name, name_span, targs, args, span)
             }
@@ -3993,10 +4006,12 @@ impl<'a> Checker<'a> {
                     Val::NoneLit(_) => "`none` has".to_string(),
                     Val::Expr(v) => format!("`{}` has", v.ty),
                 };
-                self.diags.push(
-                    Diagnostic::at(&codes::E0201, name_span, format!("{on} no method `{name}`"))
-                        .help("the methods so far are `text()` and `to<T>()`"),
-                );
+                let help = if hir::MathFn::from_name(name).is_some() {
+                    format!("`{name}` is a function of `math`: add `in math;` to call it as `math::{name}(x)` or `x::{name}()`")
+                } else {
+                    "the methods so far are `text()` and `to<T>()`".to_string()
+                };
+                self.diags.push(Diagnostic::at(&codes::E0201, name_span, format!("{on} no method `{name}`")).help(help));
                 None
             }
         }

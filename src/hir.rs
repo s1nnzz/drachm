@@ -715,6 +715,9 @@ pub enum ExprKind {
     InEnded,
     Sleep(Box<Expr>),
     System(SystemOp, Vec<Expr>, Vec<EnumId>),
+    /// A `math` function (WP6) on numbers of one type, which is also the result's. The
+    /// mode is the function's `overflow` setting, used by whole-number `abs`.
+    Math(MathFn, Vec<Expr>, crate::config::Overflow),
     /// `&place` / `&mut place` (the place may also be a temporary value).
     Borrow { mutable: bool, place: Box<Expr> },
     /// Reads through a borrow or pointer; also a place.
@@ -833,7 +836,7 @@ impl Expr {
             K::Map(pairs) => pairs.iter().flat_map(|(k, v)| [k, v]).collect(),
             K::MapCall { args, .. } => args.iter().collect(),
             K::ListCall { args, .. } => args.iter().collect(),
-            K::System(_, args, _) => args.iter().collect(),
+            K::System(_, args, _) | K::Math(_, args, _) => args.iter().collect(),
             K::List(items) | K::Array(items) => items.iter().collect(),
             K::Radix { value, .. } => vec![&**value],
             K::Out { arg, .. } => vec![&**arg],
@@ -1046,6 +1049,112 @@ impl StrFn {
             Split | Lines | Chars => Type::list(S),
             CPtr => Type::Foreign { to: &Type::U8 },
             _ => S,
+        }
+    }
+}
+
+/// The `math` functions that work on one number type (units are gone by now).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MathFn {
+    Sqrt,
+    Pow,
+    Exp,
+    Log,
+    Log2,
+    Log10,
+    Hypot,
+    Floor,
+    Ceil,
+    Round,
+    Sin,
+    Cos,
+    Tan,
+    Atan2,
+    Abs,
+    Min,
+    Max,
+    Clamp,
+}
+
+impl MathFn {
+    /// The function's name in `math`.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Sqrt => "sqrt",
+            Self::Pow => "pow",
+            Self::Exp => "exp",
+            Self::Log => "log",
+            Self::Log2 => "log2",
+            Self::Log10 => "log10",
+            Self::Hypot => "hypot",
+            Self::Floor => "floor",
+            Self::Ceil => "ceil",
+            Self::Round => "round",
+            Self::Sin => "sin",
+            Self::Cos => "cos",
+            Self::Tan => "tan",
+            Self::Atan2 => "atan2",
+            Self::Abs => "abs",
+            Self::Min => "min",
+            Self::Max => "max",
+            Self::Clamp => "clamp",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Option<MathFn> {
+        use MathFn::*;
+        [Sqrt, Pow, Exp, Log, Log2, Log10, Hypot, Floor, Ceil, Round, Sin, Cos, Tan, Atan2, Abs, Min, Max, Clamp].into_iter().find(|f| f.name() == name)
+    }
+
+    pub fn arity(self) -> usize {
+        match self {
+            Self::Pow | Self::Hypot | Self::Atan2 | Self::Min | Self::Max => 2,
+            Self::Clamp => 3,
+            _ => 1,
+        }
+    }
+
+    /// Does the function call the C library on floats? (`min`, `max`, `clamp` and whole-number
+    /// `abs` are built from comparisons.)
+    pub fn is_libm(self) -> bool {
+        !matches!(self, Self::Min | Self::Max | Self::Clamp)
+    }
+
+    /// The C library function for `float32` (`f32`) or `float64`; also the symbol the
+    /// Cranelift backend calls.
+    pub fn symbol(self, f32: bool) -> &'static str {
+        match (self, f32) {
+            (Self::Sqrt, false) => "sqrt",
+            (Self::Sqrt, true) => "sqrtf",
+            (Self::Pow, false) => "pow",
+            (Self::Pow, true) => "powf",
+            (Self::Exp, false) => "exp",
+            (Self::Exp, true) => "expf",
+            (Self::Log, false) => "log",
+            (Self::Log, true) => "logf",
+            (Self::Log2, false) => "log2",
+            (Self::Log2, true) => "log2f",
+            (Self::Log10, false) => "log10",
+            (Self::Log10, true) => "log10f",
+            (Self::Hypot, false) => "hypot",
+            (Self::Hypot, true) => "hypotf",
+            (Self::Floor, false) => "floor",
+            (Self::Floor, true) => "floorf",
+            (Self::Ceil, false) => "ceil",
+            (Self::Ceil, true) => "ceilf",
+            (Self::Round, false) => "round",
+            (Self::Round, true) => "roundf",
+            (Self::Sin, false) => "sin",
+            (Self::Sin, true) => "sinf",
+            (Self::Cos, false) => "cos",
+            (Self::Cos, true) => "cosf",
+            (Self::Tan, false) => "tan",
+            (Self::Tan, true) => "tanf",
+            (Self::Atan2, false) => "atan2",
+            (Self::Atan2, true) => "atan2f",
+            (Self::Abs, false) => "fabs",
+            (Self::Abs, true) => "fabsf",
+            (other, _) => unreachable!("{} is not a library call", other.name()),
         }
     }
 }

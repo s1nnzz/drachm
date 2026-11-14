@@ -1368,6 +1368,7 @@ impl<'a> Builder<'a> {
             }
             ExprKind::InLine => self.call(Callee::InLine, Vec::new(), Type::Str),
             ExprKind::System(op, args, fails) => self.system_call(e.ty, *op, args, fails),
+            ExprKind::Math(f, args, mode) => self.math(e, *f, args, *mode),
             ExprKind::Sleep(duration) => {
                 let args = self.operands(&[&**duration], &|_| None);
                 self.call(Callee::Sleep, args, Type::None)
@@ -2089,6 +2090,71 @@ impl<'a> Builder<'a> {
         }
     }
 
+    /// A `math` function. Floats go to the C library; `min`, `max`, `clamp` and the `abs` of
+    /// a whole number are built from comparisons, so they follow the same rules on both
+    /// backends (and the `overflow` setting for `abs` of the smallest signed value).
+    /// A NaN in `min`/`max` gives NaN; in `clamp`, a NaN `x` stays NaN.
+    fn math(&mut self, e: &Expr, f: hir::MathFn, args: &[Expr], mode: crate::config::Overflow) -> Operand {
+        use hir::MathFn::*;
+        let ty = e.ty;
+        if f.is_libm() && ty.is_float() {
+            let refs: Vec<&Expr> = args.iter().collect();
+            let ops = self.operands(&refs, &|_| None);
+            return self.call(Callee::Math(f, ty), ops, ty);
+        }
+        // Each argument once, in a temp of its own.
+        let vals: Vec<Local> = args
+            .iter()
+            .map(|a| {
+                let o = self.operand(a);
+                let t = self.new_temp(a.ty);
+                self.assign_stmt(Place::local(t), Rvalue::Use(o));
+                t
+            })
+            .collect();
+        let copy = |l: Local| Operand::Copy(Place::local(l));
+        let result = self.new_temp(ty);
+        self.assign_stmt(Place::local(result), Rvalue::Use(copy(vals[0])));
+        let is_float = ty.is_float();
+        match f {
+            Min | Max => {
+                let op = if f == Min { hir::BinOp::Lt } else { hir::BinOp::Gt };
+                self.set_if(Rvalue::Binary(op, copy(vals[1]), copy(vals[0])), result, Rvalue::Use(copy(vals[1])));
+                if is_float {
+                    self.set_if(Rvalue::Binary(hir::BinOp::Ne, copy(vals[1]), copy(vals[1])), result, Rvalue::Use(copy(vals[1])));
+                }
+            }
+            Clamp => {
+                self.set_if(Rvalue::Binary(hir::BinOp::Lt, copy(vals[0]), copy(vals[1])), result, Rvalue::Use(copy(vals[1])));
+                self.set_if(Rvalue::Binary(hir::BinOp::Gt, copy(vals[0]), copy(vals[2])), result, Rvalue::Use(copy(vals[2])));
+            }
+            Abs => {
+                let zero = Operand::Const(Constant::Int(0, ty));
+                let negate = if mode == crate::config::Overflow::Wrap {
+                    Rvalue::Neg(copy(vals[0]))
+                } else {
+                    Rvalue::Checked(OvfOp::Neg, mode, copy(vals[0]), Operand::Const(Constant::Bool(false)))
+                };
+                self.set_if(Rvalue::Binary(hir::BinOp::Lt, copy(vals[0]), zero), result, negate);
+            }
+            other => unreachable!("{} is a library call", other.name()),
+        }
+        copy(result)
+    }
+
+    /// `if (cond) { dest = value; }`
+    fn set_if(&mut self, cond: Rvalue, dest: Local, value: Rvalue) {
+        let c = self.new_temp(Type::Bool);
+        self.assign_stmt(Place::local(c), cond);
+        let then = self.new_block();
+        let join = self.new_block();
+        self.end(TerminatorKind::If { cond: Operand::Copy(Place::local(c)), then, els: join });
+        self.cur = then;
+        self.assign_stmt(Place::local(dest), value);
+        self.goto(join);
+        self.cur = join;
+    }
+
     /// `call` with arguments already made.
     fn call_args(&mut self, callee: Callee, args: Vec<Arg>, ret: Type) -> Operand {
         self.call(callee, args, ret)
@@ -2176,6 +2242,7 @@ fn kind_name(k: &ExprKind) -> &'static str {
         ExprKind::InLine => "InLine",
         ExprKind::System(..) => "System",
         ExprKind::Sleep(_) => "Sleep",
+        ExprKind::Math(..) => "Math",
         ExprKind::InEnded => "InEnded",
         ExprKind::TryParse { .. } => "TryParse",
         ExprKind::FailMaybe { .. } => "FailMaybe",

@@ -1,0 +1,6 @@
+in io;
+
+none main() {
+    float64 r = math::sqrt(2.0);
+    io::outln(r::text());
+}

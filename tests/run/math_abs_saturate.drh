@@ -1,0 +1,10 @@
+//--!$overflow: saturate
+in io;
+in math;
+
+none main() {
+    sint8 low = -128;
+    io::outln(f"${math::abs(low)}");
+    sint64 big = -9223372036854775807 - 1;
+    io::outln(f"${math::abs(big)}");
+}

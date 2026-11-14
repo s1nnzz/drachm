@@ -148,8 +148,10 @@ pub fn resolve(graph: &mut ModuleGraph, diags: &mut Vec<Diagnostic>, clash: &[cr
         }
         edges.extend(std::mem::take(&mut w.edges));
         // The embedded standard modules this file imports (for `x::sqrt()` on a number).
-        let libs: Vec<String> = graph.modules[i].targets.iter().flatten()
-            .filter_map(|t| if let Target::File(j) = t && graph.modules[*j].embedded { Some(graph.modules[*j].name.clone()) } else { None })
+        // Only a whole-module import counts (`in math;`, `in math as m;`), not `in sqrt from math;`.
+        let libs: Vec<String> = prog.imports.iter().zip(&graph.modules[i].targets)
+            .filter(|(imp, _)| imp.items.is_empty() && !imp.glob)
+            .filter_map(|(_, t)| if let Some(Target::File(j)) = t && graph.modules[*j].embedded { Some(graph.modules[*j].name.clone()) } else { None })
             .collect();
         if !libs.is_empty() {
             merged.lib_imports.push((graph.map.base(graph.modules[i].file), libs));

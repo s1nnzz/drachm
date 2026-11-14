@@ -1,0 +1,5 @@
+in io;
+
+none main() {
+    io::outln(float64::phi::text());
+}

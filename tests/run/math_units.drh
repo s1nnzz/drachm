@@ -1,0 +1,78 @@
+// `math` carries units: sqrt halves the powers, abs/min/max/clamp/floor/ceil/round keep the
+// unit, sin/cos/tan take a plain number or an angle, pow multiplies the powers.
+in io;
+in math;
+in si;
+
+unit ha = 10000 m^2;
+unit sq2 = 2 m^2;
+
+none show<T>(string label, T x) {
+    io::outln(f"${label}: ${x::text()} ${x::unitText()}");
+}
+
+none plain(string label, float64 x) {
+    io::outln(f"${label}: ${x::text()}");
+}
+
+none main() {
+    // sqrt
+    float64<m^2> area = 9.0<m^2>;
+    show("sqrt(area)", math::sqrt(area));
+    show("sqrt(9 m^2)", math::sqrt(9.0<m^2>));
+    show("sqrt(4 km^2)", math::sqrt(4.0<km^2>));
+    show("sqrt(4 ha)", math::sqrt(4.0<ha>));
+    show("sqrt(8 sq2)", math::sqrt(8.0<sq2>));
+    show("sqrt(16 s^4)", math::sqrt(16.0<s^4>));
+    show("sqrt(m^2/s^2)", math::sqrt(25.0<m^2/s^2>));
+    plain("sqrt(plain)", math::sqrt(16.0));
+    float64<m> side = math::sqrt(area);
+    show("side", side);
+
+    // abs, min, max, clamp keep the unit
+    float64<m> back = -2.5<m>;
+    show("abs", math::abs(back));
+    show("abs method", back::abs());
+    show("min m cm", math::min(2.0<m>, 150.0<cm>));
+    show("max m cm", math::max(2.0<m>, 150.0<cm>));
+    show("min cm m", math::min(150.0<cm>, 2.0<m>));
+    show("clamp", math::clamp(7.5<m>, 0.0<m>, 5.0<m>));
+    show("clamp zero", math::clamp(back, 0, 5.0<m>));
+    sint32<m> whole = -7<m>;
+    show("abs whole", math::abs(whole));
+    show("max whole", math::max(whole, 3<m>));
+
+    // floor, ceil, round keep the unit
+    float64<km> far = 2.6<km>;
+    show("floor", math::floor(far));
+    show("ceil", math::ceil(far));
+    show("round", math::round(far));
+    show("round method", far::round());
+
+    // angles
+    plain("sin(90 deg)", math::sin(90.0<deg>));
+    plain("cos(180 deg)", math::cos(180.0<deg>));
+    plain("tan(45 deg)", math::tan(45.0<deg>));
+    plain("sin(rad)", math::sin(0.0<rad>));
+    float64<rad> quarter = 1.5707963267948966<rad>;
+    plain("sin(quarter)", math::sin(quarter));
+    plain("sin(plain)", math::sin(0.0));
+    plain("atan2", math::atan2(1.0<m>, 1.0<m>));
+    plain("atan2 m cm", math::atan2(1.0<m>, 100.0<cm>));
+    show("hypot", math::hypot(3.0<m>, 400.0<cm>));
+
+    // pow
+    show("pow m", math::pow(3.0<m>, 2));
+    show("pow m neg", math::pow(2.0<m>, -1));
+    show("pow m 3", math::pow(2.0<m>, 3.0));
+    plain("pow s", math::pow(2.0<s>, 0));
+    plain("pow plain", math::pow(2.0, 0.5));
+    show("pow km", math::pow(2.0<km>, 2));
+
+    // the result is a unit value like any other
+    float64<m> hyp = math::hypot(30.0<m>, 40.0<m>);
+    float64<m> total = hyp + math::sqrt(4.0<m^2>);
+    show("total", total);
+    float64<m^2> sq = math::pow(total, 2);
+    show("sq", sq);
+}

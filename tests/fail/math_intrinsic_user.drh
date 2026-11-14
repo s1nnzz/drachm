@@ -1,0 +1,7 @@
+in io;
+
+out float64 half(float64 x) intrinsic;
+
+none main() {
+    io::outln(half(2.0)::text());
+}

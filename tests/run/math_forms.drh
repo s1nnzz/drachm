@@ -1,0 +1,22 @@
+// A function and a method are one function in two spellings, and `math` can be imported
+// in every form a module can.
+in io;
+in math as m;
+in hypot from math;
+in * from math as everything;
+
+none main() {
+    float64 x = 2.0;
+    io::outln(f"${m::sqrt(x)} ${x::sqrt()} ${(8.0)::sqrt()}");
+    io::outln(f"${hypot(3.0, 4.0)} ${everything::abs(-1.5)} ${x::pow(3.0)}");
+    // Chains read left to right.
+    io::outln(f"${m::abs(-16.0)->sqrt()->floor()} ${(0.0 - 9.0)::abs()->sqrt()->to<uint8>()}");
+    float32 f = 9.0;
+    io::outln(f"${f::sqrt()} ${m::pow(f, 2.0)} ${m::clamp(f, 0.0, 5.0)} ${f::round()}");
+    io::outln(f"${float32::pi} ${float64::pi} ${float32::e} ${float64::e} ${float32::tau} ${float64::tau}");
+    float32 narrow = float32::pi;
+    float64 wide = float64::pi;
+    io::outln(f"${narrow::to<float64>() != wide} ${narrow::to<float64>()}");
+    float64 circumference = 2.0 * float64::pi * 3.0;
+    io::outln(f"${circumference::floor()}");
+}

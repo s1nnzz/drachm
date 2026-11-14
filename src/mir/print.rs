@@ -93,6 +93,7 @@ fn terminator(p: &Program, hir: &hir::Program, k: &TerminatorKind) -> String {
                 Callee::InLine => "InLine".to_string(),
                 Callee::System(op) => op.name().into(),
                 Callee::Sleep => "Sleep".to_string(),
+                Callee::Math(f, ty) => format!("Math::{}<{ty}>", f.name()),
                 Callee::InEnded => "InEnded".to_string(),
                 Callee::Parse(ty) => format!("Parse<{ty}>"),
                 Callee::ParseStatus(ty) => format!("ParseStatus<{ty}>"),

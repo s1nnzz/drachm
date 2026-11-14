@@ -1,0 +1,39 @@
+sqrt(area): 3.0 m
+sqrt(9 m^2): 3.0 m
+sqrt(4 km^2): 2.0 km
+sqrt(4 ha): 2.0 100*m
+sqrt(8 sq2): 4.0 m
+sqrt(16 s^4): 4.0 s^2
+sqrt(m^2/s^2): 5.0 m/s
+sqrt(plain): 4.0
+side: 3.0 m
+abs: 2.5 m
+abs method: 2.5 m
+min m cm: 1.5 m
+max m cm: 2.0 m
+min cm m: 150.0 cm
+clamp: 5.0 m
+clamp zero: 0.0 m
+abs whole: 7 m
+max whole: 3 m
+floor: 2.0 km
+ceil: 3.0 km
+round: 3.0 km
+round method: 3.0 km
+sin(90 deg): 1.0
+cos(180 deg): -1.0
+tan(45 deg): 0.9999999999999999
+sin(rad): 0.0
+sin(quarter): 1.0
+sin(plain): 0.0
+atan2: 0.7853981633974483
+atan2 m cm: 0.7853981633974483
+hypot: 5.0 m
+pow m: 9.0 m^2
+pow m neg: 0.5 m^-1
+pow m 3: 8.0 m^3
+pow s: 1.0
+pow plain: 1.4142135623730951
+pow km: 4.0 km^2
+total: 52.0 m
+sq: 2704.0 m^2

@@ -236,6 +236,8 @@ pub enum Callee {
     /// `io::ended()`.
     InEnded,
     Sleep,
+    /// A `math` function on floats, by the C library: float arguments of the result's type.
+    Math(hir::MathFn, Type),
     System(hir::SystemOp),
     /// A `&string` read as a number of this type (the text is known to be fine).
     Parse(Type),

@@ -218,6 +218,13 @@ pub fn compile_c(source: &str, out: &Path, plan: &LinkPlan, shim: &str) -> Resul
         let (native, native_flags) = native_inputs(plan, shim, &scratch)?;
         let out = exe_path(out);
         let mut args: Vec<&OsStr> = ["-O3", "-ffp-contract=off", "-w"].iter().map(OsStr::new).collect();
+        // The C library computes these at run time on both backends: the compiler must not
+        // fold a call with constant arguments with its own (correctly rounded) maths.
+        let no_builtin: Vec<String> = ["sin", "cos", "tan", "exp", "log", "log2", "log10", "pow", "atan2", "hypot"]
+            .iter()
+            .flat_map(|f| [format!("-fno-builtin-{f}"), format!("-fno-builtin-{f}f")])
+            .collect();
+        args.extend(no_builtin.iter().map(OsStr::new));
         args.extend([src.as_os_str(), strings.as_os_str()]);
         args.extend(native.iter().map(|o| o.as_os_str()));
         args.extend(native_flags.iter().map(OsStr::new));
