@@ -374,3 +374,31 @@ fn rename_refuses_what_it_cannot_do() {
     let (a, p, off) = marked(&SHAPES.replace("io::outln", "io::$outln"));
     assert!(a.rename(&p, off, "say").is_err());
 }
+
+/// The labels offered in `main.drh` of the `several_files` project, with `buffer` as its text.
+fn project_completions(buffer: String, at: usize) -> Vec<String> {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/projects/several_files");
+    let main = dir.join("src/main.drh");
+    let docs = HashMap::from([(main.clone(), buffer)]);
+    Analysis::complete_at(&main, &docs, at).into_iter().map(|i| i.label).collect()
+}
+
+#[test]
+fn imports_offer_modules_after_in_and_from() {
+    let text = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/projects/several_files/src/main.drh")).unwrap();
+    // `in ` on a line of its own: the standard library's modules and the project's.
+    let got = project_completions(format!("in \n{text}"), 3);
+    assert!(got.iter().any(|l| l == "io") && got.iter().any(|l| l == "util"), "{got:?}");
+    // After `from`: the modules too.
+    let got = project_completions(format!("in greeting from \n{text}"), "in greeting from ".len());
+    assert!(got.iter().any(|l| l == "util"), "{got:?}");
+}
+
+#[test]
+fn imports_offer_the_items_of_the_module_named_after_from() {
+    let text = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/projects/several_files/src/main.drh")).unwrap();
+    // The names are typed before `from`; the module comes after it on the same line.
+    let got = project_completions(format!("in gre from util;\n{text}"), "in gre".len());
+    assert!(got.iter().any(|l| l == "greeting"), "{got:?}");
+    assert!(!got.iter().any(|l| l == "io"), "{got:?}");
+}

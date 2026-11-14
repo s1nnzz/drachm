@@ -90,6 +90,10 @@ file on disk), and it understands a whole project folder, not only one file.
   name, bare enum variants where the enum is known from the context (a
   declaration, an assignment, a comparison, an argument, a `case`), the names in
   scope, and keywords.
+- **Imports:** after `in` the standard library's modules and the project's
+  modules; after `from` the modules. For `in gravity from physics;` the names
+  come from the module written after `from` on the same line, so type `gravity`
+  and pick it from the list of what `physics` exports (`out`).
 
 Half-typed code still gives answers: the parser keeps what it could read, so a
 function missing its closing `}` still has hover and completion inside it. (Type

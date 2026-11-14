@@ -43,6 +43,10 @@ enum Context {
     Name { word: usize },
     /// In a string or a comment.
     Nothing,
+    /// A module name in an import (`in io;`, or after `from`).
+    Module,
+    /// An item named in an import, taken from the module named after `from`.
+    Item { module: String },
 }
 
 fn context(text: &str, offset: usize) -> Context {
@@ -52,6 +56,9 @@ fn context(text: &str, offset: usize) -> Context {
     let line = &text[line_start..offset];
     if line.contains("//") || line.matches('"').count() % 2 == 1 {
         return Context::Nothing;
+    }
+    if let Some(c) = import_context(text, word) {
+        return c;
     }
     let before = &text[..word];
     for op in ["::", "->"] {
@@ -68,6 +75,29 @@ fn context(text: &str, offset: usize) -> Context {
         }
     }
     Context::Name { word }
+}
+
+/// The context of an import line: `in mod;`, `in mod as x;`, `in a, b from mod;`
+/// and `in * from mod;`. `word` is where the word typed so far starts. `None`
+/// when the line is not an import.
+fn import_context(text: &str, word: usize) -> Option<Context> {
+    let line_start = text[..word].rfind('\n').map_or(0, |i| i + 1);
+    let line_end = text[word..].find('\n').map_or(text.len(), |i| word + i);
+    let stmt = text[line_start..word].trim_start().strip_prefix("in ")?;
+    let shape = stmt.trim_end();
+    if shape.contains([';', '"', '*']) || shape.ends_with(" as") || shape == "as" {
+        return Some(Context::Nothing);
+    }
+    if shape == "from" || shape.ends_with(" from") {
+        return Some(Context::Module);
+    }
+    // The names before `from` are items of the module after it, which may be typed later on the line.
+    let rest = &text[word..line_end];
+    if let Some((_, after)) = rest.split_once(" from ") {
+        let module = after.split(';').next().unwrap_or("").trim();
+        return Some(Context::Item { module: module.to_string() });
+    }
+    Some(Context::Module)
 }
 
 /// The type with borrows and pointers taken off.
@@ -112,6 +142,8 @@ impl Analysis {
         };
         match context(text, offset) {
             Context::Nothing => Vec::new(),
+            Context::Module => Analysis::run(file, docs).import_modules(),
+            Context::Item { module } => Analysis::run(file, docs).import_items(&module),
             Context::Member { op, word, dot } => {
                 // The receiver stays, with a member that does not exist: the
                 // checker looks at the receiver before it finds that out. A
@@ -132,6 +164,44 @@ impl Analysis {
                 a.names(file, word)
             }
         }
+    }
+
+    /// The modules an import can name: the standard library's and the project's.
+    fn import_modules(&self) -> Vec<Item> {
+        let mut out: Vec<Item> = crate::modules::STD_MODULES.iter().map(|m| item(*m, Kind::MODULE, "standard library", 0)).collect();
+        // The entry file comes first in the graph; it is not imported by name.
+        if let Some(g) = &self.graph {
+            out.extend(g.modules.iter().skip(1).map(|m| item(&m.name, Kind::MODULE, "module", 0)));
+        }
+        out
+    }
+
+    /// The names a module exports (`out`), for an import from it. The graph has
+    /// taken the modules' trees by now, so the module's text is read again.
+    fn import_items(&self, module: &str) -> Vec<Item> {
+        let Some(g) = &self.graph else { return Vec::new() };
+        let Some(m) = g.modules.iter().find(|m| m.name == module) else { return Vec::new() };
+        let mut diags = Vec::new();
+        let p = crate::parser::parse(crate::lexer::lex(&g.map.source(m.file).text, &mut diags), &mut diags);
+        p.exports
+            .iter()
+            .map(|e| {
+                let kind = if p.funcs.iter().any(|f| f.name == e.name) {
+                    Kind::FUNCTION
+                } else if p.structs.iter().any(|s| s.name == e.name) {
+                    Kind::STRUCT
+                } else if p.enums.iter().any(|x| x.name == e.name) {
+                    Kind::ENUM
+                } else if p.interfaces.iter().any(|x| x.name == e.name) {
+                    Kind::INTERFACE
+                } else if p.consts.iter().any(|c| c.name == e.name) {
+                    Kind::CONSTANT
+                } else {
+                    Kind::VARIABLE
+                };
+                item(e.alias.as_deref().unwrap_or(&e.name), kind, format!("from {module}"), 0)
+            })
+            .collect()
     }
 
     fn members(&self, file: &Path, op: usize, recv: Option<&str>, dot: bool) -> Vec<Item> {
@@ -235,5 +305,17 @@ mod tests {
         assert_eq!(context("Dir d = No", 10), Context::Name { word: 8 });
         assert_eq!(context("s = \"ab::", 9), Context::Nothing);
         assert_eq!(context("// p::", 6), Context::Nothing);
+    }
+
+    #[test]
+    fn import_lines() {
+        assert_eq!(context("in ", 3), Context::Module);
+        assert_eq!(context("in gam", 6), Context::Module);
+        assert_eq!(context("in x from ", 10), Context::Module);
+        assert_eq!(context("in gr", 5), Context::Module);
+        assert_eq!(context("in gr from util;", 5), Context::Item { module: "util".into() });
+        assert_eq!(context("in A as B, gr from util;", 13), Context::Item { module: "util".into() });
+        assert_eq!(context("in io as ", 9), Context::Nothing);
+        assert_eq!(context("in * from ", 10), Context::Nothing);
     }
 }
