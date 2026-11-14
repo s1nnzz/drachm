@@ -718,6 +718,10 @@ pub enum ExprKind {
     /// A `math` function (WP6) on numbers of one type, which is also the result's. The
     /// mode is the function's `overflow` setting, used by whole-number `abs`.
     Math(MathFn, Vec<Expr>, crate::config::Overflow),
+    /// `convert::toJson` (`write`): `[value place, shape text]` gives a string.
+    /// `convert::fromJson`: `[text, kind, path, detail places, shape text]` gives the
+    /// value (the three strings are `mut` and written to).
+    Json { write: bool, args: Vec<Expr> },
     /// `&place` / `&mut place` (the place may also be a temporary value).
     Borrow { mutable: bool, place: Box<Expr> },
     /// Reads through a borrow or pointer; also a place.
@@ -836,7 +840,7 @@ impl Expr {
             K::Map(pairs) => pairs.iter().flat_map(|(k, v)| [k, v]).collect(),
             K::MapCall { args, .. } => args.iter().collect(),
             K::ListCall { args, .. } => args.iter().collect(),
-            K::System(_, args, _) | K::Math(_, args, _) => args.iter().collect(),
+            K::System(_, args, _) | K::Math(_, args, _) | K::Json { args, .. } => args.iter().collect(),
             K::List(items) | K::Array(items) => items.iter().collect(),
             K::Radix { value, .. } => vec![&**value],
             K::Out { arg, .. } => vec![&**arg],
@@ -970,6 +974,8 @@ pub enum StrFn {
     Lines,
     /// The characters of a text, one owned string each: a `string[?]`.
     Chars,
+    /// The bytes of a text as UTF-8: a `uint8[?]` (`convert::utf8`).
+    Utf8,
     /// The address of the bytes of a text that ends in a NUL (`&s as c string`
     /// builds the text); a NUL inside is a runtime error.
     CPtr,
@@ -1016,6 +1022,7 @@ impl StrFn {
             Split => "drachm_str_split",
             Lines => "drachm_str_lines",
             Chars => "drachm_str_chars",
+            Utf8 => "drachm_str_utf8",
             CPtr => "drachm_str_c_ptr",
         }
     }
@@ -1025,7 +1032,7 @@ impl StrFn {
         match self {
             Len | IsEmpty | Reverse | Upper | Lower | Trim => &[S],
             Concat | Append | Eq | Cmp | Find | Contains | StartsWith | EndsWith | Count | Glob | Split => &[S, S],
-            Lines | Chars | CPtr => &[S],
+            Lines | Chars | Utf8 | CPtr => &[S],
             Sub | Remove => &[S, S64, S64],
             Insert => &[S, S64, S],
             Replace => &[S, S, S],
@@ -1047,6 +1054,7 @@ impl StrFn {
             Len | Count | ByteLen => U64,
             Find => S64,
             Split | Lines | Chars => Type::list(S),
+            Utf8 => Type::list(Type::U8),
             CPtr => Type::Foreign { to: &Type::U8 },
             _ => S,
         }

@@ -1462,6 +1462,16 @@ impl Cg<'_, '_> {
                     }
                 }
             }
+            Callee::Json { write, .. } => {
+                let mut params = vec![ptr];
+                let mut vals = vec![self.dest_addr(dest)];
+                for a in args {
+                    params.push(ptr);
+                    vals.push(self.operand(&a.op));
+                }
+                let name = if write { "drachm_json_write" } else { "drachm_json_read" };
+                self.rt(name, &params, &[], &vals);
+            }
             Callee::Math(f, ty) if ty.is_int() => {
                 let v = self.operand(&args[0].op);
                 let [lo, hi] = self.halves(v, ty);

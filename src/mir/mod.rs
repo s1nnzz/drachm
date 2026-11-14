@@ -239,6 +239,8 @@ pub enum Callee {
     /// A `math` function on floats, by the C library: float arguments of the result's type.
     Math(hir::MathFn, Type),
     System(hir::SystemOp),
+    /// `drachm_json_write` / `drachm_json_read`: every argument is a pointer.
+    Json { write: bool, ret: Type },
     /// A `&string` read as a number of this type (the text is known to be fine).
     Parse(Type),
     /// How a `&string` reads as a number of this type: `uint8` 0 for fine,

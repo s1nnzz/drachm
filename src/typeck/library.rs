@@ -18,6 +18,7 @@ impl Checker<'_> {
             "fs" | "os" => self.system_call(module, name, targs, args, span),
             "time" => self.time_call(name, targs, args, span),
             "string" => self.string_module_call(name, targs, args, span),
+            "convert" => self.convert_call(name, targs, args, span),
             "math" => self.math_call(name, targs, args, span, None),
             _ => {
                 self.diags.push(Diagnostic::at(&codes::E0901, span, format!("`{global}` is not implemented yet")));

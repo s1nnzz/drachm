@@ -1369,6 +1369,12 @@ impl<'a> Builder<'a> {
             ExprKind::InLine => self.call(Callee::InLine, Vec::new(), Type::Str),
             ExprKind::System(op, args, fails) => self.system_call(e.ty, *op, args, fails),
             ExprKind::Math(f, args, mode) => self.math(e, *f, args, *mode),
+            ExprKind::Json { write, args } => {
+                let es: Vec<&Expr> = args.iter().collect();
+                // The value or text is read in place; the three strings of a read are written.
+                let ops = self.operands(&es, &|i| Some((!*write && (1..=3).contains(&i), false)));
+                self.call(Callee::Json { write: *write, ret: e.ty }, ops, e.ty)
+            }
             ExprKind::Sleep(duration) => {
                 let args = self.operands(&[&**duration], &|_| None);
                 self.call(Callee::Sleep, args, Type::None)
@@ -2249,6 +2255,7 @@ fn kind_name(k: &ExprKind) -> &'static str {
         ExprKind::System(..) => "System",
         ExprKind::Sleep(_) => "Sleep",
         ExprKind::Math(..) => "Math",
+        ExprKind::Json { .. } => "Json",
         ExprKind::InEnded => "InEnded",
         ExprKind::TryParse { .. } => "TryParse",
         ExprKind::FailMaybe { .. } => "FailMaybe",

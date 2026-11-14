@@ -91,6 +91,15 @@ void drachm_list_join(drachm_str *out, const drachm_list *l, const drachm_str *s
 void drachm_str_split(drachm_list *out, const drachm_str *s, const drachm_str *sep); // empty sep gives characters
 void drachm_str_lines(drachm_list *out, const drachm_str *s);
 void drachm_str_chars(drachm_list *out, const drachm_str *s);
+void drachm_str_utf8(drachm_list *out, const drachm_str *s); // the bytes, a list of uint8
+
+// ---- JSON (convert::toJson, convert::fromJson) ----
+// `shape` is the compiler's description of the type (see runtime/strings/src/json.rs).
+// toJson: `out` gets the JSON text of the value at `value`.
+void drachm_json_write(drachm_str *out, const void *value, const drachm_str *shape);
+// fromJson: `out` (the size of the shape, any contents) gets the value; on a problem it is
+// zeroed and kind/path/detail (initialised strings) describe it.
+void drachm_json_read(void *out, const drachm_str *text, drachm_str *kind, drachm_str *path, drachm_str *detail, const drachm_str *shape);
 
 // ---- maps: insertion-ordered table, type-erased ----
 // `entries` holds one slot per insertion (dead slots included until a rebuild),

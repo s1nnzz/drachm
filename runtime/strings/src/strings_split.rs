@@ -75,3 +75,16 @@ pub unsafe extern "C-unwind" fn drachm_str_chars(out: *mut DrachmList, s: *const
         unsafe { push_copy(out, g.as_bytes()) };
     }
 }
+
+/// The bytes of `s`, as a list of `uint8` (`convert::utf8`).
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn drachm_str_utf8(out: *mut DrachmList, s: *const DrachmStr) {
+    let data = unsafe { bytes(s) };
+    unsafe { crate::lists::drachm_list_with_cap(out, data.len() as u64, 1, 1) };
+    if !data.is_empty() {
+        unsafe {
+            std::ptr::copy_nonoverlapping(data.as_ptr(), (*out).ptr, data.len());
+            (*out).len = data.len() as u64;
+        }
+    }
+}

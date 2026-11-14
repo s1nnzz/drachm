@@ -1,0 +1,7 @@
+in io;
+in convert;
+
+none main() {
+    uint32 n = convert::fromJson<uint32>("5") maybe 0;
+    io::outln(n::text());
+}

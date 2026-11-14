@@ -21,6 +21,7 @@ use unicode_segmentation::UnicodeSegmentation;
 
 mod fs;
 mod hash;
+mod json;
 mod lists;
 mod maps;
 mod os;

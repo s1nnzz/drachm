@@ -1,0 +1,55 @@
+// convert: whole numbers as text in a base, text back to a number, and the bytes of a text.
+in io;
+in convert;
+
+uint64 read(string text, uint64 base) {
+    if (base == 16) {
+        return convert::fromHex(text) fails with (ConvertError e) => {
+            io::outln(f"hex ${text}: ${e}");
+            maybe 0;
+        };
+    }
+    if (base == 2) {
+        return convert::fromBinary(text) fails with (ConvertError e) => {
+            io::outln(f"binary ${text}: ${e}");
+            maybe 0;
+        };
+    }
+    return convert::fromOctal(text) fails with (ConvertError e) => {
+        io::outln(f"octal ${text}: ${e}");
+        maybe 0;
+    };
+}
+
+none main() {
+    io::outln(f"${convert::hex(255)} ${convert::binary(5)} ${convert::octal(64)} ${convert::hex(0)}");
+    io::outln(f"${convert::hex(-255)} ${convert::binary(-1)}");
+    uint8 b = 200;
+    sint16 s = -300;
+    uint128 big = 340282366920938463463374607431768211455;
+    io::outln(f"${convert::hex(b)} ${convert::hex(s)} ${convert::hex(big)}");
+    io::outln(f"${convert::binary(big)::len()}");
+
+    io::outln(f"${read("ff", 16)} ${read("FF", 16)} ${read("DeadBeef", 16)} ${read("101", 2)} ${read("777", 8)}");
+    io::outln(f"${read("ffffffffffffffff", 16)}");
+    // Each cause is its own failure.
+    read("", 16);
+    read("xyz", 16);
+    read("102", 2);
+    read("9", 8);
+    read("-1", 16);
+    read("0xff", 16);
+    read("10000000000000000", 16);
+
+    // A round trip.
+    uint64 n = 123456789;
+    uint64 back = convert::fromHex(convert::hex(n)) maybe 0;
+    io::outln(f"${back == n}");
+
+    // The bytes of a text, as UTF-8.
+    uint8[?] bytes = convert::utf8("hi");
+    io::outln(f"${bytes::len()} ${bytes[0]} ${bytes[1]}");
+    uint8[?] accent = convert::utf8("é€");
+    io::outln(f"${accent::len()} ${convert::hex(accent[0])} ${convert::hex(accent[1])}");
+    io::outln(f"${convert::utf8("")::len()}");
+}

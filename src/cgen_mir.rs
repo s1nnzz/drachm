@@ -939,6 +939,12 @@ impl Gen<'_> {
                     self.line(format!("{dest} = {}({params});", op.symbol()));
                 }
             }
+            Callee::Json { write, .. } => {
+                let dest = dest_lv.expect("a JSON call has a destination");
+                let params = args.iter().map(|arg| self.operand(&arg.op)).collect::<Vec<_>>().join(", ");
+                let name = if write { "drachm_json_write" } else { "drachm_json_read" };
+                self.line(format!("{name}((void *)&{dest}, {params});"));
+            }
             Callee::Math(f, ty) if ty.is_int() => {
                 let dest = dest_lv.expect("a math call has a destination");
                 let v = self.operand(&args[0].op);
