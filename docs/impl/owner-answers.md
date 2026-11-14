@@ -306,3 +306,8 @@ Q5 interfaces as types: any interface can be used as `&I` (its `static` methods 
 - Shared dependencies with different versions: several versions side by side; each package gets the version it asked for (`deps/json-drh@1.4.0/`, `deps/json-drh@2.1.0/`).
 - `deps/` is ignored by git: `drachm new` adds it to `.gitignore`, and the lock file rebuilds it (`drachm install`).
 - A package that wraps a C library declares it in its `drachm.toml` `[native]` table (`sources`, `include`, `link`); drachm compiles the sources with the system C compiler. No build scripts run.
+
+# Package manager and LSP follow-ups, 2026-11-14
+- `drachm add URL` without a version pins the newest tag exactly (`tag = "vX.Y.Z"`), as built (owner: "newest").
+- A locked-only install mode for CI: yes (my spelling: `drachm install --locked`, fails instead of resolving anything missing from `drachm.lock`).
+- Renaming a name that comes from a dependency package: owner let me decide. Refused, since `deps/` is fetched code that `drachm install` replaces.
