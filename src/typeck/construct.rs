@@ -221,6 +221,7 @@ impl Checker<'_> {
             }
             return None;
         }
+        self.g.note_type_use(name, name_span);
         let Some(&s) = self.g.structs_by_name.get(name) else {
             let mut d = Diagnostic::at(&codes::E0101, name_span, format!("`new` builds a struct, and `{name}` is not one"));
             let structs: Vec<&str> = self.g.structs.iter().map(|s| s.name.as_str()).collect();

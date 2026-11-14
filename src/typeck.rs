@@ -109,6 +109,8 @@ struct SelfUse {
 #[derive(Default)]
 struct Globals {
     settings: Vec<(usize, crate::config::Behaviour)>,
+    /// The program's text, kept only while the language server collects (see `note_type_use`).
+    src_text: String,
     /// Every `assert` checked so far; `StopKind::Assert` indexes it.
     asserts: Vec<hir::Assertion>,
     sigs: Vec<Sig>,
@@ -274,7 +276,28 @@ impl Globals {
         }))
     }
 
+    /// Tell the language server that `at`, written `name`, names a struct or
+    /// enum of the program: a type, the owner of `Name::member`, or the struct
+    /// a `new` builds. A span that does not read as the declared name is from
+    /// another text (the prelude) and is left out.
+    pub(super) fn note_type_use(&self, name: &str, at: Span) {
+        if !index::collecting() || self.tenv.contains_key(name) {
+            return;
+        }
+        let found = self.structs_by_name.get(name).map(|&s| self.structs[s].name_span).or_else(|| self.enums_by_name.get(name).map(|&e| self.enums[e].name_span));
+        let Some(def) = found else { return };
+        let bare = name.rsplit("::").next().unwrap_or(name);
+        if short(&self.src_text, def) != bare || !short(&self.src_text, at).ends_with(bare) {
+            return;
+        }
+        // No code of its own: the hover shows the declaration (`struct Point { ... }`).
+        index::with(|ix| ix.refs.push(index::Ref { at, def: Some(def), code: String::new(), note: String::new() }));
+    }
+
     fn resolve(&self, t: &ast::TypeName, diags: &mut Vec<Diagnostic>) -> Option<Type> {
+        if t.args.is_empty() && t.unit.is_none() && !t.self_ty && t.dims.is_empty() && t.func.is_none() {
+            self.note_type_use(&t.name, t.span);
+        }
         if let Some(spec) = &t.unit_arg {
             return self.resolve_unit_arg(spec, t.span, diags);
         }
@@ -527,7 +550,8 @@ pub(crate) fn check_with_settings(
     settings: Vec<(usize, crate::config::Behaviour)>,
     requires_main: bool,
 ) -> hir::Program {
-    let mut g = Globals { settings, unsafe_files: prog.unsafe_files.clone(), ..Globals::default() };
+    let src_text = if index::collecting() { src.to_string() } else { String::new() };
+    let mut g = Globals { settings, unsafe_files: prog.unsafe_files.clone(), src_text, ..Globals::default() };
     let mut si = false;
     for import in &prog.imports {
         match import.plain_name() {
@@ -1786,7 +1810,10 @@ impl<'a> Checker<'a> {
             let ty = l.ty.map_or("?".to_string(), |t| index::demangle(&t.to_string()));
             let rec = index::LocalRec { name: l.name.clone(), ty: ty.clone(), decl: l.span, mutable: l.mutable, is_param: l.is_param, end: 0 };
             ix.types.push((at, ty));
-            ix.refs.push(index::Ref { at, def: Some(l.span), code: local_code(&rec), note: String::new() });
+            // `self` has no declaration of its own: its span is the method's name, so it is no use of that.
+            if l.name != "self" {
+                ix.refs.push(index::Ref { at, def: Some(l.span), code: local_code(&rec), note: String::new() });
+            }
         });
     }
 
@@ -3208,6 +3235,7 @@ impl<'a> Checker<'a> {
                         return self.static_on_type(ty, n, name, *name_span, targs, args, e.span);
                     }
                     if let Some(&s) = self.g.structs_by_name.get(n) {
+                        self.g.note_type_use(n, recv.span);
                         return self.static_call(s, name, *name_span, targs, args, e.span);
                     }
                     if let Ok(ty) = Type::from_name(n) {

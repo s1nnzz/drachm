@@ -12,6 +12,7 @@ mod analysis;
 mod complete;
 mod pos;
 mod query;
+mod refs;
 
 pub use analysis::Analysis;
 
@@ -51,6 +52,8 @@ fn capabilities() -> ServerCapabilities {
         })),
         hover_provider: Some(lsp_types::HoverProviderCapability::Simple(true)),
         definition_provider: Some(lsp_types::OneOf::Left(true)),
+        references_provider: Some(lsp_types::OneOf::Left(true)),
+        rename_provider: Some(lsp_types::OneOf::Left(true)),
         completion_provider: Some(lsp_types::CompletionOptions { trigger_characters: Some(vec![":".into(), ">".into(), ".".into()]), ..Default::default() }),
         ..Default::default()
     }
@@ -158,6 +161,16 @@ impl<'a> Server<'a> {
         let answer = match req.method.as_str() {
             "textDocument/hover" => self.hover(req.params),
             "textDocument/definition" => self.definition(req.params),
+            "textDocument/references" => self.references(req.params),
+            "textDocument/rename" => match self.rename(req.params) {
+                Ok(edit) => edit,
+                // The reason is shown to the user as it is.
+                Err(why) => {
+                    let err = Response::new_err(id, lsp_server::ErrorCode::RequestFailed as i32, why);
+                    let _ = self.conn.sender.send(Message::Response(err));
+                    return;
+                }
+            },
             "textDocument/completion" => self.completion(req.params),
             m => {
                 let err = Response::new_err(id, lsp_server::ErrorCode::MethodNotFound as i32, format!("unsupported request {m}"));
@@ -208,6 +221,21 @@ impl<'a> Server<'a> {
             })
             .collect();
         serde_json::to_value(items).unwrap_or_default()
+    }
+
+    fn references(&self, params: serde_json::Value) -> serde_json::Value {
+        let Ok(p) = serde_json::from_value::<lsp_types::ReferenceParams>(params) else { return serde_json::Value::Null };
+        let Some((a, path, offset)) = self.locate(&p.text_document_position) else { return serde_json::Value::Null };
+        serde_json::to_value(a.references(&path, offset, p.context.include_declaration)).unwrap_or_default()
+    }
+
+    /// The workspace edit for a rename, or why it cannot be done.
+    fn rename(&self, params: serde_json::Value) -> Result<serde_json::Value, String> {
+        let p = serde_json::from_value::<lsp_types::RenameParams>(params).map_err(|e| format!("bad rename request: {e}"))?;
+        let (a, path, offset) = self.locate(&p.text_document_position).ok_or("this file is not part of an analysed program")?;
+        let changes = a.rename(&path, offset, &p.new_name)?;
+        let edit = lsp_types::WorkspaceEdit { changes: Some(changes), ..Default::default() };
+        Ok(serde_json::to_value(edit).unwrap_or_default())
     }
 
     fn definition(&self, params: serde_json::Value) -> serde_json::Value {

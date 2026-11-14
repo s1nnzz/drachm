@@ -199,6 +199,7 @@ impl Checker<'_> {
         if self.lookup(owner).is_none()
             && let Some(&en) = self.g.enums_by_name.get(owner)
         {
+            self.g.note_type_use(owner, owner_span);
             let vi = self.find_variant(en, name, name_span)?;
             return self.variant_expr(en, vi, &[], false, span, name_span).map(Val::Expr);
         }

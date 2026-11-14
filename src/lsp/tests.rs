@@ -299,3 +299,78 @@ fn completion_in_half_typed_code() {
 fn nothing_inside_a_string_or_comment() {
     assert!(completions("none main() {\n    string s = \"p::$\";\n}\n").is_empty());
 }
+
+#[test]
+fn references_of_locals_functions_methods_and_structs() {
+    let (a, p, off) = marked(&SHAPES.replace("io::outln(total", "io::outln($total"));
+    assert_eq!(a.references(&p, off, true).len(), 2);
+    assert_eq!(a.references(&p, off, false).len(), 1);
+    let (a, p, off) = marked(&SHAPES.replace("= add(", "= $add("));
+    assert_eq!(a.references(&p, off, true).len(), 2);
+    let (a, p, off) = marked(&SHAPES.replace("p::sum", "p::$sum"));
+    assert_eq!(a.references(&p, off, true).len(), 2);
+    // The struct's name: its declaration, the return type, `new Point`, and `Point p`.
+    let (a, p, off) = marked(&SHAPES.replace("    Point p =", "    $Point p ="));
+    let refs = a.references(&p, off, true);
+    assert_eq!(refs.len(), 4, "{refs:?}");
+}
+
+#[test]
+fn references_across_files_of_a_project() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/projects/several_files");
+    let main = dir.join("src/main.drh");
+    let text = std::fs::read_to_string(&main).unwrap();
+    let a = Analysis::run(&main, &HashMap::new());
+    let off = text.find("greeting").unwrap() + 2;
+    let refs = a.references(&main, off, true);
+    assert_eq!(refs.len(), 2, "{refs:?}");
+    let uris: Vec<String> = refs.iter().map(|r| r.uri.as_str().to_string()).collect();
+    assert!(uris.iter().any(|f| f.ends_with("util.drh")) && uris.iter().any(|f| f.ends_with("main.drh")), "{uris:?}");
+}
+
+#[test]
+fn rename_changes_the_declaration_and_every_use() {
+    let (a, p, off) = marked(&SHAPES.replace("sint32 total", "sint32 tot$al"));
+    let edits = a.rename(&p, off, "sum_all").expect("a local renames");
+    let all: Vec<&lsp_types::TextEdit> = edits.values().flatten().collect();
+    assert_eq!(all.len(), 2, "{all:?}");
+    assert!(all.iter().all(|e| e.new_text == "sum_all"));
+}
+
+#[test]
+fn rename_a_struct_renames_its_type_uses() {
+    let (a, p, off) = marked(&SHAPES.replace("    Point p =", "    Poi$nt p ="));
+    let edits = a.rename(&p, off, "Vec2").expect("a struct renames");
+    let n: usize = edits.values().map(Vec::len).sum();
+    assert_eq!(n, 4, "{edits:?}");
+}
+
+#[test]
+fn rename_changes_every_file_of_the_project() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/projects/several_files");
+    let main = dir.join("src/main.drh");
+    let text = std::fs::read_to_string(&main).unwrap();
+    let a = Analysis::run(&main, &HashMap::new());
+    let off = text.find("greeting").unwrap() + 2;
+    let edits = a.rename(&main, off, "hello").expect("a function of the project renames");
+    assert_eq!(edits.len(), 2, "{edits:?}");
+    // The qualified use `util::greeting` changes its last word only.
+    let (uri, main_edits) = edits.iter().find(|(u, _)| u.as_str().ends_with("main.drh")).unwrap();
+    assert!(uri.as_str().ends_with("main.drh"));
+    let line = text.lines().position(|l| l.contains("util::greeting")).unwrap();
+    let col = text.lines().nth(line).unwrap().find("greeting").unwrap();
+    assert_eq!(main_edits[0].range.start, lsp_types::Position { line: line as u32, character: col as u32 });
+}
+
+#[test]
+fn rename_refuses_what_it_cannot_do() {
+    let (a, p, off) = marked(&SHAPES.replace("sint32 total", "sint32 tot$al"));
+    assert!(a.rename(&p, off, "while").unwrap_err().contains("keyword"));
+    assert!(a.rename(&p, off, "2fast").unwrap_err().contains("not a name"));
+    assert!(a.rename(&p, off, "uint32").unwrap_err().contains("type"));
+    let (a, p, off) = marked(&SHAPES.replace("return self.x", "return $self.x"));
+    assert!(a.rename(&p, off, "me").unwrap_err().contains("`self`"));
+    // A name the program does not declare (a built-in) has nothing to rename.
+    let (a, p, off) = marked(&SHAPES.replace("io::outln", "io::$outln"));
+    assert!(a.rename(&p, off, "say").is_err());
+}

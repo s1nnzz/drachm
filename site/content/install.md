@@ -78,6 +78,13 @@ file on disk), and it understands a whole project folder, not only one file.
   function's or method's signature.
 - **Go to definition** works for locals, functions, structs, fields, methods and
   enum variants, also across the files of a project.
+- **Find references** lists every use of a local, function, method, field,
+  struct, enum or variant, across the files of a project (the declaration too,
+  if the editor asks).
+- **Rename** changes a name and all its uses in one go, across the project's
+  files. It refuses, with the reason shown: a keyword, a type name, `self`, a name
+  from the standard library, a name from a C import, and a name from another
+  package the project uses.
 - **Completion** offers methods after `::` and `->` on a value of known type,
   fields after `.`, static methods after a struct name, variants after an enum
   name, bare enum variants where the enum is known from the context (a

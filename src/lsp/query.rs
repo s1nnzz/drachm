@@ -56,19 +56,19 @@ impl EnumRec {
 
 impl Analysis {
     /// The global offset of `offset` in `file`, and the file's text.
-    fn locate_in(&self, file: &Path, offset: usize) -> Option<(usize, usize)> {
+    pub(super) fn locate_in(&self, file: &Path, offset: usize) -> Option<(usize, usize)> {
         let id = self.file_id(file)?;
         let map = self.source_map();
         Some((id, map.base(id) + offset.min(map.source(id).text.len())))
     }
 
     /// The reference at `g` that is the smallest span around it.
-    fn ref_at(&self, g: usize) -> Option<&Ref> {
+    pub(super) fn ref_at(&self, g: usize) -> Option<&Ref> {
         self.index.refs.iter().filter(|r| r.at.start <= g && g <= r.at.end && r.at.end > r.at.start).min_by_key(|r| r.at.end - r.at.start)
     }
 
     /// A declaration named by the word at `g`, when the checker has no reference there.
-    fn decl_at(&self, id: usize, g: usize) -> Option<(Span, String, Span)> {
+    pub(super) fn decl_at(&self, id: usize, g: usize) -> Option<(Span, String, Span)> {
         let map = self.source_map();
         let text = &map.source(id).text;
         let base = map.base(id);
@@ -91,7 +91,8 @@ impl Analysis {
     pub fn hover(&self, file: &Path, offset: usize) -> Option<Hover> {
         let (id, g) = self.locate_in(file, offset)?;
         let local = |s: Span| self.source_map().locate(s).1;
-        if let Some(r) = self.ref_at(g) {
+        // A use with no code of its own (a type name) shows the declaration below.
+        if let Some(r) = self.ref_at(g).filter(|r| !r.code.is_empty()) {
             let mut markdown = code_block(&r.code);
             if !r.note.is_empty() {
                 markdown += &format!("\n\n{}", r.note);
