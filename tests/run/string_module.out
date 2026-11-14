@@ -1,0 +1,24 @@
+join: red, green, blue
+join method: red, green, blue
+join text: abcd
+repeat: ------------
+repeat method: ababab
+upper: QUIET loud
+trim: padded|
+reverse: desserts
+len: 5 true false
+find: 2 -1 2
+sub: hello
+predicates: true true true
+replace: a/b/c
+replaceLimit: a/b.c
+insert: helld
+remove: hlo
+pad: 007ab  |
+split: a b c
+lines: one+two
+chars: a.b.c
+text: copy
+zero: []
+to: 42
+chain: MIXED_CASE

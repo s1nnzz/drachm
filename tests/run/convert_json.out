@@ -1,0 +1,24 @@
+player: {"name":"Ada \"the\" first\n","level":7,"health":99.5,"alive":true,"nick":null,"tags":["a","b"],"home":{"x":1,"y":-2},"trail":[{"x":3,"y":4},{"x":5,"y":6}]}
+16
+again: {"name":"Ada \"the\" first\n","level":7,"health":99.5,"alive":true,"nick":null,"tags":["a","b"],"home":{"x":1,"y":-2},"trail":[{"x":3,"y":4},{"x":5,"y":6}]}
+7 99.5 true 2 6
+settings: {"big":18446744073709551615,"small":-128,"ratio":0.25,"limit":40,"numbers":[1,-2,3],"pin":{"x":7,"y":8}}
+settings again: {"big":18446744073709551615,"small":-128,"ratio":0.25,"limit":40,"numbers":[1,-2,3],"pin":{"x":7,"y":8}}
+sparse: {"big":1,"small":-5,"ratio":2.0,"limit":null,"numbers":[],"pin":null}
+loose: {"name":"café 😀 / \t raw é","level":255,"health":100.0,"alive":false,"nick":"A","tags":[],"home":{"x":0,"y":0},"trail":[]}
+points: [{"x":1,"y":2},{"x":3,"y":4}]
+not json: invalid JSON: expected a field name in quotes at line 1, column 2
+trailing: invalid JSON: unexpected text after the value at line 1, column 4
+empty: invalid JSON: the text ends before a value at line 1, column 1
+not an object: $ should be an object
+wrong type: $.name should be text
+wrong level: $.level should be a whole number
+fraction: $.level should be a whole number
+too big: $.level does not fit its type
+negative: $.level does not fit its type
+missing: $.home is missing
+unknown: $.extra is not a field of the type
+nested: $.tags[1] should be text
+deep: $.trail[0].y should be a whole number
+twice: invalid JSON: the field `name` is given twice at line 1, column 23
+bad escape: invalid JSON: unknown escape at line 1, column 11

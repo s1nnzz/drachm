@@ -181,6 +181,12 @@ codes! {
          `false`, an inclusive range of numbers whose start is not above its\n\
          end (`case 13..19`), or `_` on its own (`case _`), which matches\n\
          anything.";
+    W0117: "whole number given to a float function",
+        "`math::sqrt`, `math::log`, `math::log2`, `math::log10` and `math::pow`\n\
+         have a whole-number version: given a whole number they give a whole\n\
+         number, the true result rounded down (`math::sqrt(10u32)` is 3).\n\
+         This warning is there in case a fractional result was wanted. Convert\n\
+         the number first for that: `value::to<float64>()`.";
     W0110: "missing case",
         "A `match` has values that no `case` handles, so for those nothing\n\
          runs. Add the missing cases, or `case _ { }` for everything else.\n\n\

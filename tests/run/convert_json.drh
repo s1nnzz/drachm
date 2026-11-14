@@ -1,0 +1,98 @@
+// convert::toJson and convert::fromJson: built from the field names.
+in io;
+in convert;
+
+struct Point {
+public:
+    sint32 x;
+    sint32 y;
+}
+
+struct Player {
+public:
+    string name;
+    uint8 level;
+    float64 health;
+    bool alive;
+    string? nick;
+    string[?] tags;
+    Point home;
+    Point[?] trail;
+}
+
+struct Settings {
+public:
+    uint64 big;
+    sint8 small;
+    float32 ratio;
+    uint32? limit;
+    sint16[?] numbers;
+    Point? pin;
+}
+
+Player sample() {
+    return new Player of ("Ada \"the\" first\n", 7, 99.5, true, none, ["a", "b"], new Point of (1, -2), [new Point of (3, 4), new Point of (5, 6)]);
+}
+
+Settings settings() {
+    return new Settings of (18446744073709551615, -128, 0.25, 40, [1, -2, 3], new Point of (7, 8));
+}
+
+none show(string label, string text) {
+    io::outln(f"${label}: ${text}");
+}
+
+none attempt(string label, string text) {
+    Player p = convert::fromJson<Player>(text) fails with (convert::JsonError e) => {
+        io::outln(f"${label}: ${e}");
+        maybe sample();
+    };
+}
+
+none main() {
+    Player p = sample();
+    string text = convert::toJson(p);
+    show("player", copy text);
+    // The value is only read.
+    io::outln(p.name::len()->text());
+
+    // A round trip gives the same text.
+    Player back = convert::fromJson<Player>(text) maybe sample();
+    show("again", convert::toJson(back));
+    io::outln(f"${back.level} ${back.health} ${back.alive} ${back.tags::len()} ${back.trail[1].y}");
+
+    // Optionals, a list of whole numbers, and the ends of the number types.
+    Settings s = settings();
+    show("settings", convert::toJson(s));
+    Settings loaded = convert::fromJson<Settings>(convert::toJson(s)) maybe settings();
+    show("settings again", convert::toJson(loaded));
+    Settings sparse = convert::fromJson<Settings>("""{"big": 1, "small": -5, "ratio": 2, "numbers": []}""") maybe settings();
+    show("sparse", convert::toJson(sparse));
+
+    // Whitespace, escapes and numbers written other ways.
+    string loose = """  { "name" : "caf\\u00e9 \\ud83d\\ude00 \\/ \\t raw é", "level": 255, "health": 1e2,
+        "alive": false, "nick": "A", "tags": [ ], "home": {"x": 0, "y": 0}, "trail": [] }  """;
+    Player l = convert::fromJson<Player>(loose) maybe sample();
+    show("loose", convert::toJson(l));
+
+    // A list at the top.
+    Point[?] points = convert::fromJson<Point[?]>("[{\"x\":1,\"y\":2},{\"x\":3,\"y\":4}]") maybe [];
+    show("points", convert::toJson(points));
+
+    // Every cause has its own failure.
+    attempt("not json", "{");
+    attempt("trailing", "{} {}");
+    attempt("empty", "");
+    attempt("not an object", "[1, 2]");
+    attempt("wrong type", """{"name": 5}""");
+    attempt("wrong level", """{"name":"x","level":"high"}""");
+    attempt("fraction", """{"name":"x","level":1.5}""");
+    attempt("too big", """{"name":"x","level":256,"health":1,"alive":true,"tags":[],"home":{"x":0,"y":0},"trail":[]}""");
+    attempt("negative", """{"name":"x","level":-1,"health":1,"alive":true,"tags":[],"home":{"x":0,"y":0},"trail":[]}""");
+    attempt("missing", """{"name":"x","level":1,"health":1,"alive":true,"tags":[],"trail":[]}""");
+    attempt("unknown", """{"name":"x","level":1,"health":1,"alive":true,"tags":[],"home":{"x":0,"y":0},"trail":[],"extra":1}""");
+    attempt("nested", """{"name":"x","level":1,"health":1,"alive":true,"tags":["a",2],"home":{"x":0,"y":0},"trail":[]}""");
+    attempt("deep", """{"name":"x","level":1,"health":1,"alive":true,"tags":[],"home":{"x":0,"y":0},"trail":[{"x":1,"y":true}]}""");
+    attempt("twice", """{"name":"x","name":"y"}""");
+    attempt("bad escape", """{"name":"\\q"}""");
+}

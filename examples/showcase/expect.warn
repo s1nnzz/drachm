@@ -1,1 +1,2 @@
 warning[W0102]: a negative step counts down over `uint32`
+warning[W0117]: `math::sqrt` of a whole number gives a whole number

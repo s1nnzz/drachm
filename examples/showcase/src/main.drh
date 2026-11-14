@@ -30,6 +30,7 @@ in * from rules as rules also bare;
 in voyage.mission;
 in voyage.cargo as cargo;
 in voyage.ports as ports;
+in voyage.logbook as logbook;
 
 none main() {
     io::outln(f"the survey ship Drachma: ${BAYS} cargo bays, ${rules::RACK_SLOTS} rack slots");
@@ -42,6 +43,7 @@ none main() {
     mission::run();
     cargo::run();
     ports::run();
+    logbook::run();
     string platform = os::platform();
     if (platform != "") { io::outln("voyage platform available"); }
     string manifest = fs::read("examples/showcase/drachm.toml") maybe "";

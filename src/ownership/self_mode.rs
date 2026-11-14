@@ -295,7 +295,7 @@ impl Cx<'_> {
                     self.expr(i, out);
                 }
             }
-            ExprKind::System(_, args, _) | ExprKind::Math(_, args, _) => {
+            ExprKind::System(_, args, _) | ExprKind::Math(_, args, _) | ExprKind::Json { args, .. } => {
                 for arg in args {
                     self.expr(arg, out);
                 }

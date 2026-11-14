@@ -1001,8 +1001,8 @@ phys::Vector3 v = 1, 2, 3;
 Owner decisions, 2026-11-13 and 2026-11-14 (`docs/impl/owner-answers.md`
 "Standard library"). First cut in this order: `io` (files too), `string`,
 `convert`, `math`, `os` (environment), `fs`, `time`, `process`. Built today:
-`io` (special in the checker), `math` (complete, see below), and the embedded modules
-`fs::read`/`fs::write`, `os::platform`/`os::getEnv`, `time::sleep`. A standard module
+`io` (special in the checker), `math` (complete, see below), `string`, `convert`, and the
+embedded modules `fs::read`/`fs::write`, `os::platform`/`os::getEnv`, `time::sleep`. A standard module
 other than `io` and `si` is Drachm source embedded in the compiler (`src/stdlib/NAME.drh`)
 whose functions the checker types itself (`intrinsic`, compiler-only; `docs/PLAN.md`
 step 7 WP6).
@@ -1017,13 +1017,24 @@ step 7 WP6).
   take a plain number or an angle unit. Built (2026-11-14): `sqrt pow exp log log2
   log10 hypot floor ceil round sin cos tan atan2 abs min max clamp`, the constants
   `float64::pi`, `float32::pi`, `e` and `tau`, and `deg` (`0.017453292519943295 rad`) in
-  `si`. The method spelling `x::sqrt()` needs `in math;` in the file (interim). `abs min max
-  clamp` also take whole numbers; the others need a float (interim).
-- `string`: functions that do not start from one string (`string::repeat`),
-  plus every text method under the module name.
-- `convert`: text formats built from field names (`convert::toJson(v)`,
-  `convert::fromJson<T>(text) fails`) and bases and bytes (`convert::hex`,
-  `convert::fromHex`, `convert::binary`, `convert::utf8`).
+  `si`. The method spelling `x::sqrt()` needs no import; only `math::sqrt(x)` needs `in math;`.
+  `abs min max clamp` take whole numbers; `sqrt log log2 log10 pow` have a whole-number
+  version (the true result rounded down, `pow` exact and following `overflow`) with warning
+  W0117 suggesting `::to<float64>()`; `floor ceil round` of a whole number are the number.
+  `exp hypot sin cos tan atan2` keep the E0101 for a whole number (interim, open question).
+  `atan2` gives `float64<rad>` in a file with `in si;`, a plain float64 otherwise.
+  `min`/`max`: a NaN spreads. `clamp(x, a, b)` takes the bounds in either order.
+- `string` (built 2026-11-14): functions that do not start from one string
+  (`string::repeat`), plus every text method under the module name:
+  `string::name(s, ...)` is `s::name(...)`, `string::join(words, ", ")` is
+  `words::join(", ")`. The module spelling needs `in string;`.
+- `convert` (built 2026-11-14): bases and bytes (`convert::hex(255)` is "ff",
+  `binary`, `octal`, `fromHex("ff") fails` gives a `uint64`, failing with `ConvertError`;
+  `utf8("hi")` gives a `uint8[?]`) and JSON built from the field names
+  (`convert::toJson(v)`, `convert::fromJson<T>(text) fails` with `convert::JsonError`:
+  `Syntax`, `WrongType`, `MissingField`, `UnknownField`, `OutOfRange`). JSON covers structs
+  and lists of whole numbers, floats, `bool`, `string`, optionals, lists and structs; maps and
+  enums are E0901 for now.
 - `os`: `platform()`, `getEnv(name)` gives `string?`, `cwd()`, `args()` gives
   `string[?]` without the program name, `programName()`.
 - `fs`: `read`, `write` (replaces), `create(path, text?)` (fails if the file

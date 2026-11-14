@@ -1,0 +1,5 @@
+in io;
+
+none main() {
+    io::outln(string::repeat("-", 20));
+}

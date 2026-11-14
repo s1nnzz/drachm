@@ -62,6 +62,7 @@
         "reference-units",
         "reference-io",
         "reference-math",
+        "reference-convert",
         "reference-strings",
         "reference-structs",
         "reference-enums",

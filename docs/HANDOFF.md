@@ -72,6 +72,12 @@ For a new session with no memory of earlier conversations. Read this, then
   `expect failure`: a handler's `return` no longer drops an unassigned call
   value. Open: a NAME that matches nothing exits 0; lambdas inside a test are
   still built. See `docs/PLAN.md` step 7 WP9.
+- **Step 7 WP6, second package built (2026-11-14)**: math follow-ups (whole-number
+  `sqrt log pow`, W0117, no import for the method spelling, `atan2` angle with `in si;`,
+  `clamp` bounds either way), the `string` module and the `convert` module (bases, bytes,
+  JSON from field names; `runtime/strings/src/json.rs`). Interims and owner questions:
+  PLAN step 7, "Step 7 WP6, second package". The `site/node_modules` folder is not in a fresh
+  worktree: copy it (`cp -a`) to run `npm run build` there.
 - **Step 7.6 built (2026-11-14)**: the package manager (`drachm add/remove/update/install`,
   `src/pkg.rs`, `src/deps.rs`, `src/version.rs`, `src/sha256.rs`; tests
   `tests/packages.rs` and `tests/deps.rs` with local `file://` git repos; guide

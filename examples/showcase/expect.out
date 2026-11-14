@@ -139,6 +139,27 @@ inside: Brief, open 3
 after the stop: harbours open 2
   [harbour closed]
   [harbour closed]
+== Part 7: the logbook ==
+==================================
+DRACHMA registry 0xbeef
+  1  Vega   120  Okonkwo & Ilse
+  9  Sol     85  Okonkwo & Ilse & Pim
+ 23  Wren     0  nobody aboard
+----------------------------------
+{"ship":"Drachma","registry":48879,"entries":[{"day":1,"port":"Vega","tons":120,"distance":0.0,"note":null,"crew":["Okonkwo","Ilse"]},{"day":9,"port":"Sol","tons":85,"distance":4.5,"note":"customs asked about the \"seed vault\"","crew":["Okonkwo","Ilse","Pim"]},{"day":23,"port":"Wren","tons":0,"distance":11.25,"note":null,"crew":[]}]}
+read back 3 entries, the same text: true
+edited logbooks:
+  cut short: invalid JSON: the text ends before a value at line 1, column 52
+  a day too far: $.entries[0].day does not fit its type
+  no port: $.entries[0].port is missing
+  not a crew: $.entries[0].crew should be a list
+  a stowaway field: $.stowaway is not a field of the type
+registry 48879: beef, 1011111011101111, 137357
+  "BEEG" is not hex: the text is not a number
+BEEF is 48879, the registry again: true
+señor is 5 characters in 6 bytes: 73 65 c3 b1 6f 72
+a square deck of 125 m2 has a side of 11 m, or 11.180339887498949 exactly
+
 voyage platform available
 read voyage manifest
 -- end of voyage --

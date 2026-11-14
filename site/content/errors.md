@@ -223,6 +223,14 @@ constant expression (`case 3`, `case -1`, `case 2 ** 8`), `true` or
 end (`case 13..19`), or `_` on its own (`case _`), which matches
 anything.
 
+## W0117: whole number given to a float function
+
+`math::sqrt`, `math::log`, `math::log2`, `math::log10` and `math::pow`
+have a whole-number version: given a whole number they give a whole
+number, the true result rounded down (`math::sqrt(10u32)` is 3).
+This warning is there in case a fractional result was wanted. Convert
+the number first for that: `value::to<float64>()`.
+
 ## W0110: missing case
 
 A `match` has values that no `case` handles, so for those nothing

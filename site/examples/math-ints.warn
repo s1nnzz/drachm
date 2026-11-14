@@ -1,0 +1,2 @@
+warning[W0117]: `math::sqrt` of a whole number gives a whole number
+warning[W0117]: `math::log10` of a whole number gives a whole number

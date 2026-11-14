@@ -1,0 +1,19 @@
+in io;
+in convert;
+
+none main() {
+    // Whole numbers as text in a base.
+    io::outln(f"${convert::hex(255)} ${convert::binary(5)} ${convert::octal(64)}");
+    io::outln(f"${convert::hex(-255)}");
+    // And back. The text is digits only, in capitals or not.
+    uint64 mask = convert::fromHex("FF00") maybe 0;
+    io::outln(f"${mask}");
+    // Each cause is a ConvertError.
+    uint64 bad = convert::fromBinary("102") fails with (ConvertError e) => {
+        io::outln(f"binary: ${e}");
+        maybe 0;
+    };
+    // The bytes of a text, as UTF-8.
+    uint8[?] bytes = convert::utf8("é€");
+    io::outln(f"${bytes::len()} bytes, first ${convert::hex(bytes[0])}");
+}

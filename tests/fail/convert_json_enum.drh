@@ -1,0 +1,18 @@
+in io;
+in convert;
+
+enum Mood {
+    Happy,
+    Sad,
+}
+
+struct Cat {
+public:
+    string name;
+    Mood mood;
+}
+
+none main() {
+    Cat c = new Cat of ("Tom", Mood::Happy);
+    io::outln(convert::toJson(c));
+}

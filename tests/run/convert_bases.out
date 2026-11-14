@@ -1,0 +1,17 @@
+ff 101 100 0
+-ff -1
+c8 -12c ffffffffffffffffffffffffffffffff
+128
+255 255 3735928559 5 511
+18446744073709551615
+hex : there is no number in the text
+hex xyz: the text is not a number
+binary 102: the text is not a number
+octal 9: the text is not a number
+hex -1: the text is not a number
+hex 0xff: the text is not a number
+hex 10000000000000000: the number does not fit the type
+true
+2 104 105
+5 c3 a9
+0

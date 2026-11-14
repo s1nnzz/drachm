@@ -430,10 +430,15 @@ pub(super) fn drain(g: &mut Globals, src: &str, prog: &ast::Program, diags: &mut
     }
 }
 
+/// A name from an embedded standard module (`convert::jsonRead`): not the user's to warn about.
+fn is_std_name(name: &str) -> bool {
+    name.split_once("::").is_some_and(|(module, _)| crate::stdlib::source(module).is_some())
+}
+
 /// W0618 for each usable template nothing instantiated.
 pub(super) fn warn_unused(g: &Globals, diags: &mut Vec<Diagnostic>) {
     let bounded = |tps: &[ast::TypeParam]| tps.iter().any(|p| !p.bounds.is_empty());
-    let mut unused: Vec<&Template> = g.mono.templates.values().filter(|t| t.usable && t.instances == 0 && !bounded(&t.head.tparams)).collect();
+    let mut unused: Vec<&Template> = g.mono.templates.values().filter(|t| t.usable && t.instances == 0 && !bounded(&t.head.tparams) && !is_std_name(&t.head.name)).collect();
     unused.sort_by_key(|t| t.index);
     for t in unused {
         diags.push(

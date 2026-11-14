@@ -363,6 +363,7 @@ impl Validator<'_> {
             Callee::Report => (Some(vec![shared(Type::Str), Want::Exact(Type::borrow(true, Type::U64))]), Type::None),
             Callee::ReportExit => (Some(vec![shared(Type::Str), Want::Exact(Type::borrow(true, Type::U64)), Want::Exact(Type::U8)]), Type::None),
             Callee::Text | Callee::Radix { .. } => (None, Type::Str),
+            Callee::Json { ret, .. } => (None, ret),
             Callee::Join => (Some(Vec::new()), Type::Str),
             Callee::ListPush(elem) => (Some(vec![Want::Exact(Type::borrow(true, Type::list(elem))), Want::Exact(elem)]), Type::None),
             Callee::ListHas(elem) => (Some(vec![Want::Exact(Type::borrow(false, Type::list(elem))), Want::Any]), Type::Bool),

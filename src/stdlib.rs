@@ -22,6 +22,8 @@ pub const LIBS: &[(&str, &str)] = &[
     ("os", include_str!("stdlib/os.drh")),
     ("fs", include_str!("stdlib/fs.drh")),
     ("time", include_str!("stdlib/time.drh")),
+    ("string", include_str!("stdlib/string.drh")),
+    ("convert", include_str!("stdlib/convert.drh")),
 ];
 
 /// The modules built into the compiler that are not embedded source.

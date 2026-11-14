@@ -1,0 +1,38 @@
+// `string` is a module too: every text method is also `string::name(s, ...)`, the same
+// function in its other spelling.
+in io;
+in string;
+
+none show(string label, string value) {
+    io::outln(f"${label}: ${value}");
+}
+
+none main() {
+    string[?] words = ["red", "green", "blue"];
+    show("join", string::join(words, ", "));
+    show("join method", words::join(", "));
+    show("join text", string::join("ab", "cd"));
+    show("repeat", string::repeat("-", 12));
+    show("repeat method", "ab"::repeat(3));
+    show("upper", f"${string::upper("quiet")} ${string::lower("LOUD")}");
+    show("trim", string::trim("  padded  ") + "|");
+    show("reverse", string::reverse("stressed"));
+    show("len", f"${string::len("héllo")} ${string::isEmpty("")} ${string::isEmpty("x")}");
+    show("find", f"${string::find("hello", "l")} ${string::find("hello", "z")} ${string::count("banana", "an")}");
+    show("sub", string::sub("hello world", 0, 4));
+    show("predicates", f"${string::contains("hello", "ell")} ${string::startsWith("hello", "he")} ${string::endsWith("hello", "lo")}");
+    show("replace", string::replace("a.b.c", ".", "/"));
+    show("replaceLimit", string::replaceLimit("a.b.c", ".", "/", 1));
+    show("insert", string::insert("held", 3, "l"));
+    show("remove", string::remove("hello", 1, 2));
+    show("pad", string::padLeft("7", 3, "0") + string::padRight("ab", 4) + "|");
+    show("split", string::split("a,b,c", ",")::join(" "));
+    show("lines", string::join(string::lines("one\ntwo"), "+"));
+    show("chars", string::join(string::chars("abc"), "."));
+    show("text", string::text("copy"));
+    show("zero", "[" + string::zero() + "]");
+    uint32 n = string::to<uint32>("42") maybe 0;
+    show("to", f"${n}");
+    // Chains read left to right.
+    show("chain", "  Mixed Case  "::trim()->upper()->replace(" ", "_"));
+}

@@ -1,0 +1,10 @@
+in io;
+in math;
+
+none main() {
+    sint32 fine = 81;
+    io::outln(f"${math::sqrt(fine)}");
+    sint32 negative = -4;
+    io::outln(f"${math::sqrt(negative)}");
+    io::outln("not reached");
+}

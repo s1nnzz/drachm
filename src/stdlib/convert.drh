@@ -1,0 +1,91 @@
+// The `convert` module: bases and bytes. The functions marked intrinsic are typed by the
+// compiler (they take any whole number); the rest are written here in Drachm.
+
+// A whole number as text in base 16, 2 or 8, lower case, with a minus sign for a
+// negative number: `convert::hex(255)` is "ff", `convert::binary(5)` is "101".
+out string hex(sint64 n) intrinsic;
+out string binary(sint64 n) intrinsic;
+out string octal(sint64 n) intrinsic;
+
+// The bytes of the text, as UTF-8.
+out uint8[?] utf8(string s) intrinsic;
+
+// The value of the digits in `text` in base `base` (2 to 16), upper or lower case, no
+// prefix and no sign. Fails with ConvertError: Empty for no digits, NotANumber for any
+// other character, OutOfRange for a value above the largest `uint64`.
+uint64 digitsValue(&string text, uint64 base) fails ConvertError {
+    if (text::isEmpty()) {
+        fail Empty;
+    }
+    mut uint64 value = 0;
+    for (string c of text) {
+        sint64 at = "0123456789abcdef"::find(c::lower());
+        if (at < 0) {
+            fail NotANumber;
+        }
+        uint64 digit = at::to<uint64>();
+        if (digit >= base) {
+            fail NotANumber;
+        }
+        if (value > (18446744073709551615 - digit) / base) {
+            fail OutOfRange;
+        }
+        value = value * base + digit;
+    }
+    return value;
+}
+
+// Text back to a number: `convert::fromHex("ff")` is 255. Digits only, upper or lower
+// case, no prefix and no sign, so these are the inverse of `hex`, `binary` and `octal`
+// for a number that is not negative. They fail with ConvertError (the compiler calls
+// `digitsValue` with the text borrowed, so a variable is not moved).
+out uint64 fromHex(string text) intrinsic;
+out uint64 fromBinary(string text) intrinsic;
+out uint64 fromOctal(string text) intrinsic;
+
+// JSON, built from the field names of a struct (or a list of them): whole numbers, floats,
+// `bool`, `string`, optionals, lists and nested structs. The compiler describes the type to
+// the runtime, so one pair of functions serves every type.
+
+// Why `fromJson` failed. The path names the place in the text, from `$`: `$.items[2].name`.
+out failure JsonError {
+    Syntax(string detail)                   f"invalid JSON: ${detail}",
+    WrongType(string path, string expected) f"${path} should be ${expected}",
+    MissingField(string path)               f"${path} is missing",
+    UnknownField(string path)               f"${path} is not a field of the type",
+    OutOfRange(string path)                 f"${path} does not fit its type",
+}
+
+// The compact JSON text of a value; the value is only read.
+out string toJson(string value) intrinsic;
+
+// A value of the type read from JSON text.
+out T fromJson<T>(string text) intrinsic;
+
+// Fills a `T` from the text; when `kind` comes back non-empty the text did not fit and
+// the `T` is empty. Typed by the compiler.
+T jsonBuild<T>(string text, string kind, string path, string detail) intrinsic;
+
+// What the compiler's `fromJson<T>` calls, with the text borrowed.
+T jsonRead<T>(&string text) fails JsonError {
+    mut string kind = "";
+    mut string path = "";
+    mut string detail = "";
+    T value = jsonBuild<T>(text, kind, path, detail);
+    if (kind == "S") {
+        fail Syntax(detail);
+    }
+    if (kind == "T") {
+        fail WrongType(path, detail);
+    }
+    if (kind == "M") {
+        fail MissingField(path);
+    }
+    if (kind == "U") {
+        fail UnknownField(path);
+    }
+    if (kind == "R") {
+        fail OutOfRange(path);
+    }
+    return value;
+}

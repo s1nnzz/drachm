@@ -1,0 +1,12 @@
+// A file without `in math;` or `in si;`: the method spelling works, and `atan2` is a plain
+// number of radians.
+in io;
+
+none main() {
+    float64 x = 2.25;
+    io::outln(f"${x::sqrt()} ${x::floor()} ${x::max(3.0)} ${(0.0 - 4.5)::abs()}");
+    float64 angle = 1.0::atan2(1.0);
+    io::outln(f"${angle * 4.0}");
+    sint32 n = 17;
+    io::outln(f"${n::sqrt()} ${n::clamp(20, 0)}");
+}

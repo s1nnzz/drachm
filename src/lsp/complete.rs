@@ -121,6 +121,40 @@ const ARRAY_METHODS: &[&str] = &["len", "each", "get", "first", "last", "contain
 const MAP_METHODS: &[&str] = &["len", "get", "set", "remove", "each"];
 const NUMBER_METHODS: &[&str] = &["text", "to"];
 const IO_FUNCTIONS: &[&str] = &["out", "outln", "outf", "inln", "ended"];
+/// The functions of the standard modules that are written `module::name(...)`, with signatures.
+const MATH_FUNCTIONS: &[(&str, &str)] = &[
+    ("sqrt", "float64 sqrt(float64 x)"),
+    ("pow", "float64 pow(float64 base, float64 exponent)"),
+    ("exp", "float64 exp(float64 x)"),
+    ("log", "float64 log(float64 x)"),
+    ("log2", "float64 log2(float64 x)"),
+    ("log10", "float64 log10(float64 x)"),
+    ("hypot", "float64 hypot(float64 x, float64 y)"),
+    ("floor", "float64 floor(float64 x)"),
+    ("ceil", "float64 ceil(float64 x)"),
+    ("round", "float64 round(float64 x)"),
+    ("sin", "float64 sin(float64 angle)"),
+    ("cos", "float64 cos(float64 angle)"),
+    ("tan", "float64 tan(float64 angle)"),
+    ("atan2", "float64 atan2(float64 y, float64 x)"),
+    ("abs", "T abs(T x)"),
+    ("min", "T min(T a, T b)"),
+    ("max", "T max(T a, T b)"),
+    ("clamp", "T clamp(T x, T low, T high)"),
+];
+const CONVERT_FUNCTIONS: &[(&str, &str)] = &[
+    ("hex", "string hex(sint64 n)"),
+    ("binary", "string binary(sint64 n)"),
+    ("octal", "string octal(sint64 n)"),
+    ("fromHex", "uint64 fromHex(string text) fails ConvertError"),
+    ("fromBinary", "uint64 fromBinary(string text) fails ConvertError"),
+    ("fromOctal", "uint64 fromOctal(string text) fails ConvertError"),
+    ("utf8", "uint8[?] utf8(string text)"),
+    ("toJson", "string toJson(T value)"),
+    ("fromJson", "T fromJson<T>(string text) fails JsonError"),
+];
+const OS_FUNCTIONS: &[(&str, &str)] = &[("platform", "string platform()"), ("getEnv", "string? getEnv(string name)")];
+const FS_FUNCTIONS: &[(&str, &str)] = &[("read", "string read(string path) fails FileMissing, AccessDenied, InvalidPath, InvalidFileText, FileIoError"), ("write", "none write(string path, string text)")];
 const TYPES: &[&str] = &[
     "none", "bool", "string", "uint8", "uint16", "uint32", "uint64", "sint8", "sint16", "sint32", "sint64", "float32", "float64", "Map", "OrderedMap",
 ];
@@ -299,6 +333,28 @@ impl Analysis {
             if r == "time" && !dot {
                 return vec![item("sleep", Kind::FUNCTION, "none sleep(float64<s> duration)", 0)];
             }
+            if !dot {
+                let table = match r {
+                    "math" => Some(MATH_FUNCTIONS),
+                    "convert" => Some(CONVERT_FUNCTIONS),
+                    "os" => Some(OS_FUNCTIONS),
+                    "fs" => Some(FS_FUNCTIONS),
+                    _ => None,
+                };
+                if let Some(table) = table {
+                    return table.iter().map(|(n, sig)| item(*n, Kind::FUNCTION, *sig, 0)).collect();
+                }
+                // `string::name(text, ...)` is every text method with the text first, and `repeat`.
+                if r == "string" && self.expr_type_ending_at(file, op).is_none() {
+                    let mut items: Vec<Item> = STRING_METHODS
+                        .iter()
+                        .filter(|n| **n != "to")
+                        .map(|n| item(*n, Kind::FUNCTION, format!("string::{n}(text, ...)"), 0))
+                        .collect();
+                    items.push(item("zero", Kind::FUNCTION, "string zero()", 0));
+                    return items;
+                }
+            }
             if r == "io" && !dot {
                 return IO_FUNCTIONS.iter().map(|n| item(*n, Kind::FUNCTION, "io", 0)).collect();
             }
@@ -339,7 +395,12 @@ impl Analysis {
             return builtin(MAP_METHODS, |n| map_sig(n, &k, &v), 0);
         }
         if ty == "bool" || ty.starts_with("uint") || ty.starts_with("sint") || ty.starts_with("float") {
-            return builtin(NUMBER_METHODS, |n| from_table(&[("text", "string text()"), ("to", "T to<T>()")], n), 0);
+            let mut items = builtin(NUMBER_METHODS, |n| from_table(&[("text", "string text()"), ("to", "T to<T>()")], n), 0);
+            // The `math` functions are also methods of a number, with no import.
+            if ty != "bool" {
+                items.extend(MATH_FUNCTIONS.iter().map(|(n, sig)| item(*n, Kind::METHOD, *sig, 1)));
+            }
+            return items;
         }
         Vec::new()
     }

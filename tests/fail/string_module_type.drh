@@ -1,0 +1,7 @@
+in io;
+in string;
+
+none main() {
+    uint32 n = 7;
+    io::outln(string::upper(n));
+}

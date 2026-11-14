@@ -1369,6 +1369,12 @@ impl<'a> Builder<'a> {
             ExprKind::InLine => self.call(Callee::InLine, Vec::new(), Type::Str),
             ExprKind::System(op, args, fails) => self.system_call(e.ty, *op, args, fails),
             ExprKind::Math(f, args, mode) => self.math(e, *f, args, *mode),
+            ExprKind::Json { write, args } => {
+                let es: Vec<&Expr> = args.iter().collect();
+                // The value or text is read in place; the three strings of a read are written.
+                let ops = self.operands(&es, &|i| Some((!*write && (1..=3).contains(&i), false)));
+                self.call(Callee::Json { write: *write, ret: e.ty }, ops, e.ty)
+            }
             ExprKind::Sleep(duration) => {
                 let args = self.operands(&[&**duration], &|_| None);
                 self.call(Callee::Sleep, args, Type::None)
@@ -2097,7 +2103,7 @@ impl<'a> Builder<'a> {
     fn math(&mut self, e: &Expr, f: hir::MathFn, args: &[Expr], mode: crate::config::Overflow) -> Operand {
         use hir::MathFn::*;
         let ty = e.ty;
-        if f.is_libm() && ty.is_float() {
+        if f.is_libm() && (ty.is_float() || ty.is_int() && f.is_int_runtime()) {
             let refs: Vec<&Expr> = args.iter().collect();
             let ops = self.operands(&refs, &|_| None);
             return self.call(Callee::Math(f, ty), ops, ty);
@@ -2125,8 +2131,14 @@ impl<'a> Builder<'a> {
                 }
             }
             Clamp => {
-                self.set_if(Rvalue::Binary(hir::BinOp::Lt, copy(vals[0]), copy(vals[1])), result, Rvalue::Use(copy(vals[1])));
-                self.set_if(Rvalue::Binary(hir::BinOp::Gt, copy(vals[0]), copy(vals[2])), result, Rvalue::Use(copy(vals[2])));
+                // The bounds are a range in either order (owner, 2026-11-14).
+                let (low, high) = (self.new_temp(ty), self.new_temp(ty));
+                self.assign_stmt(Place::local(low), Rvalue::Use(copy(vals[1])));
+                self.assign_stmt(Place::local(high), Rvalue::Use(copy(vals[2])));
+                self.set_if(Rvalue::Binary(hir::BinOp::Lt, copy(vals[2]), copy(vals[1])), low, Rvalue::Use(copy(vals[2])));
+                self.set_if(Rvalue::Binary(hir::BinOp::Lt, copy(vals[2]), copy(vals[1])), high, Rvalue::Use(copy(vals[1])));
+                self.set_if(Rvalue::Binary(hir::BinOp::Lt, copy(vals[0]), copy(low)), result, Rvalue::Use(copy(low)));
+                self.set_if(Rvalue::Binary(hir::BinOp::Gt, copy(vals[0]), copy(high)), result, Rvalue::Use(copy(high)));
             }
             Abs => {
                 let zero = Operand::Const(Constant::Int(0, ty));
@@ -2243,6 +2255,7 @@ fn kind_name(k: &ExprKind) -> &'static str {
         ExprKind::System(..) => "System",
         ExprKind::Sleep(_) => "Sleep",
         ExprKind::Math(..) => "Math",
+        ExprKind::Json { .. } => "Json",
         ExprKind::InEnded => "InEnded",
         ExprKind::TryParse { .. } => "TryParse",
         ExprKind::FailMaybe { .. } => "FailMaybe",

@@ -87,11 +87,11 @@ out none run() {
     io::outln(f"boost: ${boost::text()} ${boost::unitText()}");
 
     // The navigator's maths. `math` carries units through every function: the second
-    // argument of `hypot` is brought to the unit of the first, `atan2` gives radians.
+    // argument of `hypot` is brought to the unit of the first, `atan2` gives an angle (with `in si;`).
     float64<m> east = 3000.0<m>;
     float64<km> north = 4.0<km>;
     float64<m> legLength = math::hypot(east, north);
-    float64<rad> bearing = math::atan2(north, east) * 1.0<rad>;
+    float64<rad> bearing = math::atan2(north, east);
     io::outln(f"leg: ${legLength::text()} m, bearing ${bearing::in<deg>()->text()} deg");
     // Constants belong to the number type; `pow` with a unit multiplies the powers and
     // `sqrt` halves them again, so the radius comes back as metres.

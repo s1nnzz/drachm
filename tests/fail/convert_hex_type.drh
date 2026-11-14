@@ -1,0 +1,6 @@
+in io;
+in convert;
+
+none main() {
+    io::outln(convert::hex("ff"));
+}

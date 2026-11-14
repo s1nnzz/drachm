@@ -151,7 +151,12 @@ pub fn resolve(graph: &mut ModuleGraph, diags: &mut Vec<Diagnostic>, clash: &[cr
         // Only a whole-module import counts (`in math;`, `in math as m;`), not `in sqrt from math;`.
         let libs: Vec<String> = prog.imports.iter().zip(&graph.modules[i].targets)
             .filter(|(imp, _)| imp.items.is_empty() && !imp.glob)
-            .filter_map(|(_, t)| if let Some(Target::File(j)) = t && graph.modules[*j].embedded { Some(graph.modules[*j].name.clone()) } else { None })
+            .filter_map(|(_, t)| match t {
+                Some(Target::File(j)) if graph.modules[*j].embedded => Some(graph.modules[*j].name.clone()),
+                // `atan2` gives an angle in a file that has `in si;`.
+                Some(Target::Std(s)) if *s == "si" => Some("si".to_string()),
+                _ => None,
+            })
             .collect();
         if !libs.is_empty() {
             merged.lib_imports.push((graph.map.base(graph.modules[i].file), libs));
@@ -1093,6 +1098,8 @@ impl Walker<'_> {
             ExprKind::Method { recv, targs, args, unit, name, .. } => {
                 if let ExprKind::Var(module) = &recv.kind
                     && module.as_str() != "si"
+                    // `string::zero()` is the type's own `Zero`, no import needed.
+                    && !(module.as_str() == "string" && name == "zero")
                     && crate::stdlib::is_module(module)
                     && !self.locals.contains(module)
                 {

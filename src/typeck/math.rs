@@ -136,13 +136,24 @@ impl Checker<'_> {
     fn math_float(&mut self, f: MathFn, vals: Vec<(Val, Origin)>, span: Span, mode: crate::config::Overflow) -> Option<Val> {
         let name = f.name();
         // The float type: that of the first typed argument; constants alone are `float64`.
-        let float = match vals.iter().find_map(|(v, _)| typed(v)) {
+        // A whole number gives the whole-number version where there is one (owner,
+        // 2026-11-14): `sqrt`, `log`, `log2`, `log10`, `pow` (the base leads) and the
+        // roundings, which leave a whole number alone.
+        let lead_ty = if f == MathFn::Pow { typed(&vals[0].0) } else { vals.iter().find_map(|(v, _)| typed(v)) };
+        let whole_ok = matches!(f, MathFn::Sqrt | MathFn::Log | MathFn::Log2 | MathFn::Log10 | MathFn::Pow | MathFn::Floor | MathFn::Ceil | MathFn::Round);
+        let mut whole = false;
+        let float = match lead_ty.or_else(|| vals.iter().find_map(|(v, _)| typed(v))) {
             Some(t) if t.bare().is_float() => t.bare(),
+            Some(t) if t.bare().is_int() && whole_ok && lead_ty.is_some() => {
+                whole = true;
+                t.bare()
+            }
             Some(t) => {
                 let o = vals.iter().find(|(v, _)| typed(v) == Some(t)).map(|(_, o)| *o)?;
                 self.diags.push(
                     Diagnostic::at(&codes::E0101, o.span, format!("`math::{name}` needs a `float64` or `float32`, found `{t}`"))
                         .note(format!("this is `{t}`, a whole number type"))
+                        .note_line(format!("`math::{name}` has no whole-number version"))
                         .help(if o.compound {
                             "convert it first: `(value)::to<float64>()`".to_string()
                         } else {
@@ -154,6 +165,9 @@ impl Checker<'_> {
             None => Type::F64,
         };
         let mut vals = vals;
+        if whole {
+            return self.math_whole(f, vals, float, span, mode);
+        }
         let result: (Vec<hir::Expr>, Type) = match f {
             MathFn::Sqrt => {
                 let (v, o) = vals.remove(0);
@@ -188,7 +202,14 @@ impl Checker<'_> {
                 };
                 self.agree(lead, &v1, o1)?;
                 let y = self.into(v1, lead, o1)?;
-                let ty = if f == MathFn::Hypot { lead } else { float };
+                let ty = if f == MathFn::Hypot {
+                    lead
+                } else if self.g.imports_lib(span, "si") && let Some(rad) = self.table(|t| t.lookup("rad")) {
+                    // The angle, in a file that has `in si;`.
+                    self.g.unit_type(float, rad)
+                } else {
+                    float
+                };
                 (vec![x, y], ty)
             }
             MathFn::Pow => {
@@ -227,6 +248,57 @@ impl Checker<'_> {
         };
         let (es, ty) = result;
         Some(Val::Expr(hir::Expr::new(hir::ExprKind::Math(f, es, mode), ty).at(span)))
+    }
+
+    /// The whole-number versions (`float` is the whole number type of the leading
+    /// argument): `sqrt`, `log`, `log2` and `log10` round the true result down, `pow`
+    /// is the exact integer power (it follows `overflow`, a negative exponent as
+    /// `**` does), and `floor`, `ceil` and `round` give the number back. Every one
+    /// but the roundings warns (W0117).
+    fn math_whole(&mut self, f: MathFn, mut vals: Vec<(Val, Origin)>, int: Type, span: Span, mode: crate::config::Overflow) -> Option<Val> {
+        let name = f.name();
+        let mut warn = true;
+        let result: (Vec<hir::Expr>, Type) = match f {
+            MathFn::Sqrt => {
+                let (v, o) = vals.remove(0);
+                let (x, u) = self.measure_arg(v, o, int)?;
+                self.math_sqrt(x, u, o, span)?
+            }
+            MathFn::Floor | MathFn::Ceil | MathFn::Round => {
+                let (v, o) = vals.remove(0);
+                let (x, _) = self.measure_arg(v, o, int)?;
+                return Some(Val::Expr(x));
+            }
+            MathFn::Log | MathFn::Log2 | MathFn::Log10 => {
+                let (v, o) = vals.remove(0);
+                (vec![self.plain_arg(name, v, o, int)?], int)
+            }
+            MathFn::Pow => {
+                let (base, bo) = vals.remove(0);
+                let (exp, eo) = vals.remove(0);
+                // A non-negative constant exponent cannot give a fraction.
+                warn = !matches!(&exp, Val::Const(c) if !c.is_negative());
+                let r = self.binary_vals(crate::ast::BinOp::Pow, base, bo, exp, eo, span)?;
+                if warn {
+                    self.whole_warning(name, span);
+                }
+                return Some(r);
+            }
+            _ => unreachable!("only the functions with a whole-number version come here"),
+        };
+        if warn {
+            self.whole_warning(name, span);
+        }
+        let (es, ty) = result;
+        Some(Val::Expr(hir::Expr::new(hir::ExprKind::Math(f, es, mode), ty).at(span)))
+    }
+
+    fn whole_warning(&mut self, name: &str, span: Span) {
+        self.diags.push(
+            Diagnostic::at(&codes::W0117, span, format!("`math::{name}` of a whole number gives a whole number"))
+                .note("the result is rounded down")
+                .help("for a fractional result convert first: `value::to<float64>()`"),
+        );
     }
 
     /// An argument that may carry a unit: the value as a bare `float` expression, and its unit.
@@ -354,6 +426,10 @@ impl Checker<'_> {
         if let Some(root) = self.table(|t| t.root(u, 2)) {
             return Some((vec![x], self.g.unit_type(float, root)));
         }
+        if !float.is_float() {
+            self.diags.push(Diagnostic::at(&codes::E0901, o.span, "the whole-number square root of a unit with a scale is not supported yet"));
+            return None;
+        }
         // The scale has no exact square root (`2 m^2`): take the root of the amount in the
         // unit with scale one, which does.
         let one = self.table(|t| {
@@ -391,7 +467,8 @@ impl Checker<'_> {
     }
 
     /// Is `name` a `math` function the file may call as a method on a number?
-    pub(super) fn math_method_applies(&self, name: &str, span: Span) -> bool {
-        MathFn::from_name(name).is_some() && self.g.imports_lib(span, "math")
+    /// The method spelling needs no import (owner, 2026-11-14).
+    pub(super) fn math_method_applies(&self, name: &str) -> bool {
+        MathFn::from_name(name).is_some()
     }
 }
