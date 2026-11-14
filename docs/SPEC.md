@@ -1029,9 +1029,9 @@ phys::Vector3 v = 1, 2, 3;
 - CLI: `new build run check test add fmt explain`, `-O` for optimised builds.
 - Built (step 7 WP3): `drachm.toml` `[project]` (name, kind `program`|`library`,
   entry), `[dependencies]` by `path` or `git` with an exact `tag` (fetched into
-  `deps/NAME/` of the project, pinned by `drachm.lock`; owner, 2026-11-13), the
+  `deps/NAME@VERSION/` of the project, pinned by `drachm.lock`; owner, 2026-11-13), the
   `[build]`, `[warnings]` and `[behaviour]` keys are read and checked (`bounds`, `unsigned_negate` and `missing_key` are applied by WP4), `drachm new NAME`. Registry versions are E0901. Errors
-  E0800-E0814.
+  E0800-E0817.
 - A dependency lists the modules it publishes in `[project] public_modules`,
   an array of dotted paths relative to its source root. Consumers use the
   alias in their own `[dependencies]`. Published modules still export items
