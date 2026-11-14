@@ -9,7 +9,7 @@ use lsp_types::{DiagnosticRelatedInformation, DiagnosticSeverity, Location, Numb
 
 use super::pos::{path_to_uri, to_range};
 use crate::config;
-use crate::diag::{Diagnostic, Severity, SourceMap};
+use crate::diag::{Diagnostic, Severity, SourceMap, Span};
 use crate::modules::{self, ModuleGraph};
 use crate::typeck::index::{self, Index};
 
@@ -23,6 +23,21 @@ pub struct Analysis {
     pub diags: Vec<Diagnostic>,
     /// What the checker found out about names and types.
     pub index: Index,
+    /// Each method with a `self` of the checked program: its signature's span
+    /// and whether its inferred mode is `&mut self` (`ownership::infer`).
+    pub self_modes: Vec<(Span, bool)>,
+}
+
+/// The inferred `self` mode of every method of a checked program.
+fn self_modes_of(checked: Option<&crate::hir::Program>) -> Vec<(Span, bool)> {
+    let Some(h) = checked else { return Vec::new() };
+    let modes = crate::ownership::infer(h);
+    h.funcs
+        .iter()
+        .zip(modes)
+        .filter(|(f, _)| f.has_self && f.span.end > f.span.start)
+        .map(|(f, m)| (f.span, matches!(m, Some(crate::ownership::SelfMode::Mut(_)))))
+        .collect()
 }
 
 /// The nearest folder above `file` with a `drachm.toml`.
@@ -67,7 +82,7 @@ impl Analysis {
     }
 
     fn empty(file: &Path) -> Analysis {
-        Analysis { entry: file.to_path_buf(), files: Vec::new(), map: SourceMap::new(), graph: None, diags: Vec::new(), index: Index::default() }
+        Analysis { entry: file.to_path_buf(), files: Vec::new(), map: SourceMap::new(), graph: None, diags: Vec::new(), index: Index::default(), self_modes: Vec::new() }
     }
 
     /// `None` when `member` is given and the program does not contain it.
@@ -78,10 +93,11 @@ impl Analysis {
                 // The config could not be read: its problems belong to the config files.
                 let base = if at.is_dir() { at.to_path_buf() } else { at.parent().unwrap_or(Path::new(".")).to_path_buf() };
                 let files = (0..f.map.len()).map(|i| base.join(&f.map.source(i).name)).collect();
-                return Some(Analysis { entry: at.to_path_buf(), files, map: f.map, graph: None, diags: f.diags, index: Index::default() });
+                return Some(Analysis { entry: at.to_path_buf(), files, map: f.map, graph: None, diags: f.diags, index: Index::default(), self_modes: Vec::new() });
             }
         };
-        let ((_, mut graph, diags), mut index) = index::collect(|| crate::front_opened(&opened, true));
+        let ((checked, mut graph, diags), mut index) = index::collect(|| crate::front_opened(&opened, true));
+        let self_modes = self_modes_of(checked.as_ref());
         if !index.ran {
             // Syntax errors stopped the checker. Check what the parser could
             // keep, for the names and types only: its errors would be noise.
@@ -97,7 +113,7 @@ impl Analysis {
                 return None;
             }
         }
-        Some(Analysis { entry: opened.entry, files, map: SourceMap::new(), graph: Some(graph), diags, index })
+        Some(Analysis { entry: opened.entry, files, map: SourceMap::new(), graph: Some(graph), diags, index, self_modes })
     }
 
     /// The file id of `path` in this program.

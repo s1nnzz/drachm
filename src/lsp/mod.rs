@@ -10,6 +10,7 @@
 
 mod analysis;
 mod complete;
+mod hints;
 mod pos;
 mod query;
 mod refs;
@@ -54,6 +55,7 @@ fn capabilities() -> ServerCapabilities {
         definition_provider: Some(lsp_types::OneOf::Left(true)),
         references_provider: Some(lsp_types::OneOf::Left(true)),
         rename_provider: Some(lsp_types::OneOf::Left(true)),
+        inlay_hint_provider: Some(lsp_types::OneOf::Left(true)),
         completion_provider: Some(lsp_types::CompletionOptions { trigger_characters: Some(vec![":".into(), ">".into(), ".".into()]), ..Default::default() }),
         ..Default::default()
     }
@@ -162,6 +164,7 @@ impl<'a> Server<'a> {
             "textDocument/hover" => self.hover(req.params),
             "textDocument/definition" => self.definition(req.params),
             "textDocument/references" => self.references(req.params),
+            "textDocument/inlayHint" => self.inlay_hints(req.params),
             "textDocument/rename" => match self.rename(req.params) {
                 Ok(edit) => edit,
                 // The reason is shown to the user as it is.
@@ -236,6 +239,13 @@ impl<'a> Server<'a> {
         let changes = a.rename(&path, offset, &p.new_name)?;
         let edit = lsp_types::WorkspaceEdit { changes: Some(changes), ..Default::default() };
         Ok(serde_json::to_value(edit).unwrap_or_default())
+    }
+
+    fn inlay_hints(&self, params: serde_json::Value) -> serde_json::Value {
+        let Ok(p) = serde_json::from_value::<lsp_types::InlayHintParams>(params) else { return serde_json::Value::Null };
+        let Some(path) = pos::uri_to_path(&p.text_document.uri) else { return serde_json::Value::Null };
+        let Some(a) = self.root_of.get(&path).and_then(|r| self.analyses.get(r)) else { return serde_json::Value::Null };
+        serde_json::to_value(a.self_hints(&path, p.range)).unwrap_or_default()
     }
 
     fn definition(&self, params: serde_json::Value) -> serde_json::Value {

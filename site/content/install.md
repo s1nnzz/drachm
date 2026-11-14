@@ -90,6 +90,9 @@ file on disk), and it understands a whole project folder, not only one file.
   name, bare enum variants where the enum is known from the context (a
   declaration, an assignment, a comparison, an argument, a `case`), the names in
   scope, and keywords.
+- **Inlay hints** show the `self` mode the checker worked out for each method,
+  after its signature: `&self` when the method only reads `self`, `&mut self`
+  when it changes it. You do not write it; the hint shows what was inferred.
 - **Imports:** after `in` the standard library's modules and the project's
   modules; after `from` the modules. For `in gravity from physics;` the names
   come from the module written after `from` on the same line, so type `gravity`

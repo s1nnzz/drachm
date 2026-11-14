@@ -384,6 +384,25 @@ fn project_completions(buffer: String, at: usize) -> Vec<String> {
 }
 
 #[test]
+fn inlay_hints_show_the_inferred_self_mode() {
+    let text = "struct Counter {\n    public:\n    sint32 n;\n    none bump() { self.n = self.n + 1; }\n    sint32 get() { return self.n; }\n}\nnone main() { }\n";
+    let (a, p) = of_source(text);
+    let whole = lsp_types::Range { start: lsp_types::Position { line: 0, character: 0 }, end: lsp_types::Position { line: 100, character: 0 } };
+    let hints = a.self_hints(&p, whole);
+    let label = |h: &lsp_types::InlayHint| match &h.label {
+        lsp_types::InlayHintLabel::String(s) => s.clone(),
+        _ => String::new(),
+    };
+    // `bump` writes a field, so it takes `&mut self`; `get` only reads it.
+    let bump = hints.iter().find(|h| h.position.line == 3).expect("a hint after bump's signature");
+    assert_eq!(label(bump), "&mut self");
+    assert_eq!(bump.position.character, "    none bump()".len() as u32);
+    let get = hints.iter().find(|h| h.position.line == 4).expect("a hint after get's signature");
+    assert_eq!(label(get), "&self");
+    assert_eq!(hints.len(), 2, "{hints:?}");
+}
+
+#[test]
 fn imports_offer_modules_after_in_and_from() {
     let text = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/projects/several_files/src/main.drh")).unwrap();
     // `in ` on a line of its own: the standard library's modules and the project's.

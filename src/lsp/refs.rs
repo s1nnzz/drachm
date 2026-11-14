@@ -32,7 +32,7 @@ impl Analysis {
 
     /// The file of the program that holds the global span `s`, and the span
     /// in that file. `None` for text outside the program's files.
-    fn in_program(&self, s: Span) -> Option<(usize, Span)> {
+    pub(super) fn in_program(&self, s: Span) -> Option<(usize, Span)> {
         let map = self.source_map();
         if map.is_empty() || s.end < s.start {
             return None;
