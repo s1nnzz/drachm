@@ -94,6 +94,9 @@ pub enum Refresh {
 #[derive(Debug, Clone, Default)]
 pub struct Options {
     pub refresh: Refresh,
+    /// `--locked`: install exactly what the lock file lists, resolve nothing
+    /// new and write nothing (see `resolve_with`). `refresh` is not used then.
+    pub locked: bool,
 }
 
 /// What a resolution found.
@@ -129,24 +132,61 @@ pub fn resolve(dir: &Path, config: &Config, map: &mut SourceMap) -> Result<Vec<R
 }
 
 /// `resolve` with a say in what the lock file may decide.
+///
+/// With `options.locked` nothing is resolved anew: every git dependency must
+/// have an entry in the lock file (E0818 otherwise), every locked package must
+/// be needed by the manifests (E0818 otherwise), and the lock file is not
+/// written. Locked packages are fetched as usual, so a hash that differs is
+/// still E0816.
 pub fn resolve_with(dir: &Path, config: &Config, map: &mut SourceMap, options: &Options) -> Result<Resolved, Vec<Diagnostic>> {
     let mut diags = Vec::new();
     let mut locked = read_lock(dir, map, &mut diags);
     if !diags.is_empty() {
         return Err(diags);
     }
-    match &options.refresh {
-        Refresh::Nothing => {}
-        Refresh::Everything => locked.clear(),
-        Refresh::Sources(urls) => locked.retain(|l| !urls.contains(&l.url)),
+    if options.locked {
+        if !dir.join(LOCK_FILE).is_file() {
+            if config.dependencies.is_empty() {
+                return Ok(Resolved { roots: Vec::new(), locks: Vec::new() });
+            }
+            return Err(vec![Diagnostic::new(&codes::E0818, format!("{LOCK_FILE} is missing, but {PROJECT_FILE} has dependencies"))
+                .note_line(format!("`--locked` builds exactly what {LOCK_FILE} lists, and this folder has none"))
+                .help("run `drachm install` without `--locked` to resolve the dependencies and write the lock file, then commit it")]);
+        }
+    } else {
+        match &options.refresh {
+            Refresh::Nothing => {}
+            Refresh::Everything => locked.clear(),
+            Refresh::Sources(urls) => locked.retain(|l| !urls.contains(&l.url)),
+        }
     }
     let canon = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
-    let mut r = Resolver { map, diags, deps_dir: dir.join(DEPS_DIR), locked, fetched: Vec::new(), stack: vec![canon], roots: Vec::new(), remote: Vec::new() };
+    let mut r = Resolver {
+        map,
+        diags,
+        deps_dir: dir.join(DEPS_DIR),
+        locked,
+        fetched: Vec::new(),
+        stack: vec![canon],
+        roots: Vec::new(),
+        remote: Vec::new(),
+        locked_only: options.locked,
+        wanted: Vec::new(),
+    };
     r.dependencies(dir, config);
-    let Resolver { diags, fetched, roots, .. } = r;
+    let Resolver { diags, fetched, roots, locked, wanted, .. } = r;
     let mut diags = diags;
+    if options.locked {
+        for l in locked.iter().filter(|l| !wanted.iter().any(|(u, t)| *u == l.url && *t == l.tag)) {
+            diags.push(
+                Diagnostic::new(&codes::E0818, format!("{LOCK_FILE} lists `{}` at `{}`, which {PROJECT_FILE} does not need", l.name, l.tag))
+                    .note_line(format!("the source is `{}`", l.url))
+                    .help("run `drachm install` without `--locked` to drop it from the lock file"),
+            );
+        }
+    }
     let locks: Vec<Locked> = fetched.into_iter().map(|(l, _)| l).collect();
-    if diags.is_empty() {
+    if diags.is_empty() && !options.locked {
         if let Err(d) = write_lock(dir, &locks) {
             diags.push(d);
         }
@@ -168,6 +208,10 @@ struct Resolver<'a> {
     roots: Vec<Root>,
     /// Tags asked of repositories during this resolution, by address.
     remote: Vec<(String, Vec<String>)>,
+    /// `--locked`: only the lock file may name a tag; nothing is asked of a repository.
+    locked_only: bool,
+    /// The (address, tag) pairs the manifests reach, to find lock entries they do not need.
+    wanted: Vec<(String, String)>,
 }
 
 impl Resolver<'_> {
@@ -198,6 +242,13 @@ impl Resolver<'_> {
         if let Some(t) = known(self.locked.iter().filter(|l| l.url == url).map(|l| l.tag.as_str()).collect()) {
             return Ok(t);
         }
+        if self.locked_only {
+            let locked: Vec<&str> = self.locked.iter().filter(|l| l.url == url).map(|l| l.tag.as_str()).collect();
+            let listed = if locked.is_empty() { format!("the lock file has no entry for `{url}`") } else { format!("the lock file has `{url}` at {}", locked.join(", ")) };
+            return Err(Diagnostic::new(&codes::E0818, format!("no entry of drachm.lock fits `{range_text}` (the dependency `{alias}`)"))
+                .note_line(listed)
+                .help("run `drachm install` without `--locked` to resolve the range and write the lock file"));
+        }
         let tags = self.remote_tags(url)?;
         known(tags.iter().map(String::as_str).collect()).ok_or_else(|| {
             let versions: Vec<&str> = tags.iter().map(String::as_str).filter(|t| Version::from_tag(t).is_some()).collect();
@@ -218,6 +269,7 @@ impl Resolver<'_> {
 
     /// One git dependency at an exact tag.
     fn git(&mut self, base: &Path, alias: &str, url: &str, tag: &str) {
+        self.wanted.push((url.to_string(), tag.to_string()));
         // Already fetched for another dependency of this build?
         if let Some((l, folder)) = self.fetched.iter().find(|(l, _)| l.url == url && l.tag == tag) {
             let (commit, folder) = (l.commit.clone(), folder.clone());
@@ -235,6 +287,14 @@ impl Resolver<'_> {
             return;
         }
         let locked = self.locked.iter().find(|l| l.url == url && l.tag == tag).cloned();
+        if self.locked_only && locked.is_none() {
+            self.diags.push(
+                Diagnostic::new(&codes::E0818, format!("{LOCK_FILE} has no entry for `{url}` at `{tag}` (the dependency `{alias}`)"))
+                    .note_line(format!("{PROJECT_FILE} asks for it, and `--locked` does not resolve anything new"))
+                    .help("run `drachm install` without `--locked` to resolve it and write the lock file, or `drachm update` for newer tags in a range"),
+            );
+            return;
+        }
         match fetch(&self.deps_dir, alias, &name, url, tag, locked.as_ref()) {
             Ok((l, folder)) => {
                 let commit = l.commit.clone();

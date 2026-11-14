@@ -7,23 +7,25 @@ description: build, run, check and explain, the -O flag, and exit codes.
 
 The compiler has these commands: `new` makes a project, `add`, `remove`, `update`
 and `install` manage its packages, `lsp` starts the language
-server for editors, and the others work on a file or project folder. `-O` works with `build`, `run` and `test`, and nothing
+server for editors, and the others work on a file or project folder. `-O` works with `build`, `run` and `test`;
+`--locked` works with `build`, `run`, `check`, `test` and `install`; nothing
 else takes a flag.
 
 ```text
-drachm build [file.drh | folder] [-o <output>] [-O]   compile to a native executable
-drachm run   [file.drh | folder] [-O]                 compile and run
-drachm test  [file.drh | folder] [NAME] [-O]          run the test blocks, each on its own (NAME: only those whose name contains it)
-drachm check [file.drh | folder]                      check for errors only
+drachm build [file.drh | folder] [-o <output>] [-O] [--locked]   compile to a native executable
+drachm run   [file.drh | folder] [-O] [--locked]                 compile and run
+drachm test  [file.drh | folder] [NAME] [-O] [--locked]          run the test blocks, each on its own (NAME: only those whose name contains it)
+drachm check [file.drh | folder] [--locked]                      check for errors only
 drachm new <name>                            make a project folder
 drachm add ADDRESS[@TAG | @^RANGE] [--name NAME]   add a git package to drachm.toml and drachm.lock
 drachm remove NAME                           remove a dependency
 drachm update [NAME]                         take newer tags (inside the ranges) for one or all dependencies
-drachm install                               fetch deps/ again from drachm.lock
+drachm install [--locked]                    fetch deps/ again from drachm.lock
 drachm lsp                                   run the language server on stdin and stdout
 drachm explain <code>                        describe an error code, e.g. E0101
 
-  -O   optimised build: slower to compile, much faster to run
+  -O         optimised build: slower to compile, much faster to run
+  --locked   use exactly what drachm.lock lists (see below)
 ```
 
 ## build and run
@@ -124,6 +126,21 @@ drachm remove sdl
 Each prints what it did, one line per change. A command that fails changes
 nothing in `drachm.toml`. `NAME` may be written with `-` or `_`
 (`sdl-drh` finds `sdl_drh`).
+
+## --locked
+
+`--locked` makes the dependencies come from `drachm.lock` alone. Nothing is
+resolved anew, nothing new is fetched and the lock file is not written. If the
+lock is missing or does not cover `drachm.toml` (a dependency was added,
+removed or its tag changed), the command fails with E0818, and `drachm install`
+(without `--locked`) or `drachm update` brings the lock up to date. A fetched
+package whose files do not match the lock fails with E0816. See
+[Packages](guide-packages.md#locked-installs).
+
+```sh
+drachm install --locked      # in CI: fetch exactly the lock, or fail
+drachm check --locked        # the same check for the program
+```
 
 ## explain
 

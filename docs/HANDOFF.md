@@ -81,7 +81,9 @@ For a new session with no memory of earlier conversations. Read this, then
 - **Step 7.6 built (2026-11-14)**: the package manager (`drachm add/remove/update/install`,
   `src/pkg.rs`, `src/deps.rs`, `src/version.rs`, `src/sha256.rs`; tests
   `tests/packages.rs` and `tests/deps.rs` with local `file://` git repos; guide
-  `site/content/guide-packages.md`). Interims and open items: PLAN step 7.6.
+  `site/content/guide-packages.md`). `drachm install --locked` and `--locked`
+  on build, run, check and test are built (E0818; guide "Locked installs").
+  Interims and open items: PLAN step 7.6.
 - **Step 7**: modules, config and public dependency imports are built.
   Libraries check without `main()`. The showcase uses source tabs.
   All six `[behaviour]` settings work (`overflow` per function, with

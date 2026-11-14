@@ -812,6 +812,12 @@ enum Home {
 /// compiled as given, and its config is the nearest `drachm.toml` or
 /// `srachm.toml` above it.
 pub fn open(path: &Path) -> Result<Opened, Failure> {
+    open_with(path, &deps::Options::default())
+}
+
+/// `open` with the dependency options of the command (`--locked` is
+/// `Options::locked`: the lock file must cover the manifests exactly).
+pub fn open_with(path: &Path, options: &deps::Options) -> Result<Opened, Failure> {
     let home = locate(path).map_err(Failure::plain)?;
     let mut map = SourceMap::new();
     match home {
@@ -833,7 +839,7 @@ pub fn open(path: &Path) -> Result<Opened, Failure> {
                 path.to_path_buf()
             };
             let root = dir.join(entry_rel.parent().unwrap_or(Path::new("")));
-            let deps = dependencies_of(&dir, &config, &mut map)?;
+            let deps = dependencies_of(&dir, &config, &mut map, options)?;
             let info = ProjectInfo {
                 name: config.project.name.clone(),
                 root,
@@ -851,7 +857,7 @@ pub fn open(path: &Path) -> Result<Opened, Failure> {
                 Ok(c) => c,
                 Err(diags) => return Err(Failure { map, diags }),
             };
-            let deps = dependencies_of(&dir, &config, &mut map)?;
+            let deps = dependencies_of(&dir, &config, &mut map, options)?;
             let info = ProjectInfo {
                 name: config.project.name.clone(),
                 root: dir.clone(),
@@ -889,8 +895,8 @@ fn with_package_headers(mut settings: crate::cimport::Settings, config: &Config,
 }
 
 /// The folders of the dependencies of the project in `dir` (see `deps.rs`).
-fn dependencies_of(dir: &Path, config: &Config, map: &mut SourceMap) -> Result<Vec<deps::Root>, Failure> {
-    deps::resolve(dir, config, map).map_err(|diags| Failure { map: std::mem::take(map), diags })
+fn dependencies_of(dir: &Path, config: &Config, map: &mut SourceMap, options: &deps::Options) -> Result<Vec<deps::Root>, Failure> {
+    deps::resolve_with(dir, config, map, options).map(|r| r.roots).map_err(|diags| Failure { map: std::mem::take(map), diags })
 }
 
 fn locate(path: &Path) -> Result<Home, Diagnostic> {

@@ -397,3 +397,154 @@ fn the_commands_work_from_the_command_line() {
     let outside = drachm(&s.path("repo"), &["install"]);
     assert!(text(&outside.stderr).contains("E0817"), "{}", text(&outside.stderr));
 }
+
+fn err_messages(r: Result<Vec<String>, drachm::config::Failure>) -> Vec<String> {
+    r.expect_err("should fail").diags.iter().map(|d| d.message.clone()).collect()
+}
+
+#[test]
+fn install_locked_fetches_exactly_the_lock() {
+    let s = Scratch::new("locked-ok");
+    value_library(&s, "repo/value", "v1.0.0", 1);
+    value_library(&s, "repo/value", "v2.0.0", 2);
+    let dir = app(&s);
+    let url = s.url("repo/value");
+    ok(pkg::add(&dir, &format!("{url}@v1.0.0"), None));
+    let lock = s.read("app/drachm.lock");
+    fs::remove_dir_all(dir.join("deps")).unwrap();
+    assert_eq!(ok(pkg::install_with(&dir, true)), ["installed 1 package"]);
+    assert!(dir.join("deps/value@1.0.0/src/value.drh").is_file());
+    assert_eq!(s.read("app/drachm.lock"), lock, "--locked does not write the lock");
+    // A range that the locked tag fits is satisfied by the lock, though a newer tag exists.
+    s.put("app/drachm.toml", &format!("[project]\nname = \"app\"\n\n[dependencies]\nvalue_drh = {{ git = \"{url}\", version = \"^1\" }}\n"));
+    assert_eq!(ok(pkg::install_with(&dir, true)), ["installed 1 package"]);
+    assert_eq!(s.read("app/drachm.lock"), lock);
+    // A project with no dependencies has nothing to install, with or without a lock.
+    let plain = Scratch::new("locked-none");
+    let plain_dir = app(&plain);
+    assert_eq!(ok(pkg::install_with(&plain_dir, true)), ["installed 0 packages"]);
+}
+
+#[test]
+fn install_locked_refuses_a_missing_lock() {
+    let s = Scratch::new("locked-nolock");
+    value_library(&s, "repo/value", "v1.0.0", 1);
+    let dir = app(&s);
+    let url = s.url("repo/value");
+    ok(pkg::add(&dir, &format!("{url}@v1.0.0"), None));
+    fs::remove_file(dir.join("drachm.lock")).unwrap();
+    let messages = err_messages(pkg::install_with(&dir, true));
+    assert_eq!(messages.len(), 1, "{messages:?}");
+    assert!(messages[0].contains("drachm.lock is missing"), "{messages:?}");
+    assert!(!dir.join("drachm.lock").exists(), "--locked never writes the lock");
+    let install = drachm(&dir, &["install", "--locked"]);
+    assert!(!install.status.success());
+    assert!(text(&install.stderr).contains("error[E0818]: drachm.lock is missing"), "{}", text(&install.stderr));
+    assert!(text(&install.stderr).contains("drachm install"), "{}", text(&install.stderr));
+}
+
+#[test]
+fn install_locked_refuses_a_manifest_that_changed() {
+    let s = Scratch::new("locked-changed");
+    value_library(&s, "repo/value", "v1.0.0", 1);
+    value_library(&s, "repo/value", "v2.0.0", 2);
+    value_library(&s, "repo/other", "v1.0.0", 3);
+    let dir = app(&s);
+    let url = s.url("repo/value");
+    let other = s.url("repo/other");
+    ok(pkg::add(&dir, &format!("{url}@v1.0.0"), None));
+    let lock = s.read("app/drachm.lock");
+    let manifest = s.read("app/drachm.toml");
+
+    // A tag changed: the new one is not locked, and the old one is no longer needed.
+    s.put("app/drachm.toml", &manifest.replace("tag = \"v1.0.0\"", "tag = \"v2.0.0\""));
+    let messages = err_messages(pkg::install_with(&dir, true));
+    assert_eq!(messages.len(), 2, "{messages:?}");
+    assert!(messages[0].contains("`value`") && messages[0].contains("`v2.0.0`"), "{messages:?}");
+    assert!(messages[1].contains("`value` at `v1.0.0`") && messages[1].contains("does not need"), "{messages:?}");
+    assert!(dir.join("deps/value@1.0.0").is_dir(), "a refused install leaves deps/ alone");
+    assert_eq!(s.read("app/drachm.lock"), lock);
+
+    // A dependency added by hand: the lock has no entry for it.
+    s.put("app/drachm.toml", &format!("{manifest}other = {{ git = \"{other}\", tag = \"v1.0.0\" }}\n"));
+    let messages = err_messages(pkg::install_with(&dir, true));
+    assert_eq!(messages.len(), 1, "{messages:?}");
+    assert!(messages[0].contains("`other`") && messages[0].contains(&other), "{messages:?}");
+
+    // A dependency removed by hand: the lock still lists it.
+    s.put("app/drachm.toml", "[project]\nname = \"app\"\n\n[dependencies]\n");
+    let messages = err_messages(pkg::install_with(&dir, true));
+    assert_eq!(messages.len(), 1, "{messages:?}");
+    assert!(messages[0].contains("`value` at `v1.0.0`") && messages[0].contains("does not need"), "{messages:?}");
+
+    // The manifest as it was: the lock covers it again.
+    s.put("app/drachm.toml", &manifest);
+    assert_eq!(ok(pkg::install_with(&dir, true)), ["installed 1 package"]);
+    assert_eq!(s.read("app/drachm.lock"), lock);
+}
+
+#[test]
+fn install_locked_refuses_a_range_the_lock_does_not_fit() {
+    let s = Scratch::new("locked-range");
+    value_library(&s, "repo/value", "v1.0.0", 1);
+    value_library(&s, "repo/value", "v2.0.0", 2);
+    let dir = app(&s);
+    let url = s.url("repo/value");
+    ok(pkg::add(&dir, &format!("{url}@^1"), Some("value")));
+    let lock = s.read("app/drachm.lock");
+    s.put("app/drachm.toml", &format!("[project]\nname = \"app\"\n\n[dependencies]\nvalue = {{ git = \"{url}\", version = \"^2\" }}\n"));
+    let messages = err_messages(pkg::install_with(&dir, true));
+    assert!(messages[0].contains("no entry of drachm.lock fits `^2`"), "{messages:?}");
+    assert_eq!(messages.len(), 2, "the locked 1.0.0 is no longer needed too: {messages:?}");
+    assert_eq!(s.read("app/drachm.lock"), lock);
+    // Without --locked the range is resolved and the lock is written.
+    assert_eq!(ok(pkg::install(&dir)), ["installed 1 package"]);
+    assert!(s.read("app/drachm.lock").contains("tag = \"v2.0.0\""));
+}
+
+#[test]
+fn install_locked_refuses_a_package_that_differs_from_the_lock() {
+    let s = Scratch::new("locked-hash");
+    value_library(&s, "repo/value", "v1.0.0", 1);
+    let dir = app(&s);
+    let url = s.url("repo/value");
+    ok(pkg::add(&dir, &format!("{url}@v1.0.0"), None));
+    // An edited file in deps/ at the locked commit: its files are hashed.
+    fs::write(dir.join("deps/value@1.0.0/src/value.drh"), "out sint32 get() { return 99; }\n").unwrap();
+    assert_eq!(err_codes(pkg::install_with(&dir, true)), ["E0816"]);
+    assert!(text(&drachm(&dir, &["check", "--locked"]).stderr).contains("E0816"));
+    // A hash in the lock that a fresh fetch does not give.
+    let lock = s.read("app/drachm.lock");
+    let hash = lock.lines().find_map(|l| l.strip_prefix("hash = \"")).unwrap().trim_end_matches('"').to_string();
+    fs::write(dir.join("drachm.lock"), lock.replace(&hash, &format!("sha256:{}", "0".repeat(64)))).unwrap();
+    fs::remove_dir_all(dir.join("deps")).unwrap();
+    let install = drachm(&dir, &["install", "--locked"]);
+    assert!(!install.status.success());
+    assert!(text(&install.stderr).contains("error[E0816]"), "{}", text(&install.stderr));
+}
+
+#[test]
+fn locked_commands_work_from_the_command_line() {
+    let s = Scratch::new("locked-cli");
+    value_library(&s, "repo/value", "v0.2.0", 1);
+    value_library(&s, "repo/value", "v0.2.5", 2);
+    let url = s.url("repo/value");
+    let dir = app(&s);
+    ok(pkg::add(&dir, &format!("{url}@^0.2"), Some("val")));
+    let lock = s.read("app/drachm.lock");
+    let install = drachm(&dir, &["install", "--locked"]);
+    assert_eq!(text(&install.stdout), "installed 1 package\n", "{}", text(&install.stderr));
+    for cmd in ["check", "run", "test"] {
+        let out = drachm(&dir, &[cmd, "--locked"]);
+        assert!(out.status.success(), "{cmd}: {}", text(&out.stderr));
+    }
+    assert_eq!(s.read("app/drachm.lock"), lock);
+    // Without a lock the program does not build, and the message says so.
+    fs::remove_file(dir.join("drachm.lock")).unwrap();
+    let check = drachm(&dir, &["check", "--locked"]);
+    assert!(!check.status.success());
+    assert!(text(&check.stderr).contains("error[E0818]: drachm.lock is missing"), "{}", text(&check.stderr));
+    // Without --locked the same check makes the lock again.
+    assert!(drachm(&dir, &["check"]).status.success());
+    assert_eq!(s.read("app/drachm.lock"), lock);
+}
