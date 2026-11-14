@@ -1017,8 +1017,13 @@ step 7 WP6).
   take a plain number or an angle unit. Built (2026-11-14): `sqrt pow exp log log2
   log10 hypot floor ceil round sin cos tan atan2 abs min max clamp`, the constants
   `float64::pi`, `float32::pi`, `e` and `tau`, and `deg` (`0.017453292519943295 rad`) in
-  `si`. The method spelling `x::sqrt()` needs `in math;` in the file (interim). `abs min max
-  clamp` also take whole numbers; the others need a float (interim).
+  `si`. The method spelling `x::sqrt()` needs no import; only `math::sqrt(x)` needs `in math;`.
+  `abs min max clamp` take whole numbers; `sqrt log log2 log10 pow` have a whole-number
+  version (the true result rounded down, `pow` exact and following `overflow`) with warning
+  W0112 suggesting `::to<float64>()`; `floor ceil round` of a whole number are the number.
+  `exp hypot sin cos tan atan2` keep the E0101 for a whole number (interim, open question).
+  `atan2` gives `float64<rad>` in a file with `in si;`, a plain float64 otherwise.
+  `min`/`max`: a NaN spreads. `clamp(x, a, b)` takes the bounds in either order.
 - `string`: functions that do not start from one string (`string::repeat`),
   plus every text method under the module name.
 - `convert`: text formats built from field names (`convert::toJson(v)`,

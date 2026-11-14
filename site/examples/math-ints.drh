@@ -9,7 +9,14 @@ none main() {
     io::outln(f"clamp ${math::clamp(temperature, -10, 10)}");
     uint8 level = 200;
     io::outln(f"capped ${math::min(level, 100)}");
-    // The others need a float: convert a whole number first.
-    uint32 area = 49;
-    io::outln(f"root ${math::sqrt(area::to<float64>())}");
+    // The bounds can come in either order.
+    io::outln(f"either order ${math::clamp(temperature, 10, -10)}");
+    // sqrt, log and pow of a whole number give a whole number, rounded down.
+    uint32 area = 50;
+    io::outln(f"root ${math::sqrt(area)}");
+    io::outln(f"digits ${math::log10(area * 1000) + 1}");
+    io::outln(f"bits ${area::log2() + 1}");
+    io::outln(f"cube ${math::pow(area, 3)}");
+    // For a fractional result, convert first.
+    io::outln(f"exact root ${math::sqrt(area::to<float64>())}");
 }

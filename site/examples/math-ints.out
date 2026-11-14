@@ -2,4 +2,9 @@ abs 12
 min -12 max 5
 clamp -10
 capped 100
-root 7.0
+either order -10
+root 7
+digits 5
+bits 6
+cube 125000
+exact root 7.0710678118654755
