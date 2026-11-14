@@ -1098,6 +1098,8 @@ impl Walker<'_> {
             ExprKind::Method { recv, targs, args, unit, name, .. } => {
                 if let ExprKind::Var(module) = &recv.kind
                     && module.as_str() != "si"
+                    // `string::zero()` is the type's own `Zero`, no import needed.
+                    && !(module.as_str() == "string" && name == "zero")
                     && crate::stdlib::is_module(module)
                     && !self.locals.contains(module)
                 {

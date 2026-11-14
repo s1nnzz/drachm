@@ -1,0 +1,35 @@
+// The `string` module. Every function is an intrinsic: `string::upper(s)` is the method
+// `s::upper()`, the same function in its module spelling (the method needs no import,
+// the module spelling needs `in string;`). A call is checked as the method call it stands
+// for, so the types written here only show the plain case. `join` also takes a list of
+// strings: `string::join(words, ", ")` is `words::join(", ")`.
+
+// Functions that do not start from one string.
+out string repeat(string s, uint64 times) intrinsic;
+out string zero() intrinsic;
+out string join(string[?] words, string separator) intrinsic;
+
+// The rest are the string methods.
+out uint64 len(string s) intrinsic;
+out bool isEmpty(string s) intrinsic;
+out string reverse(string s) intrinsic;
+out string sub(string s, sint64 start, sint64 end) intrinsic;
+out string upper(string s) intrinsic;
+out string lower(string s) intrinsic;
+out string trim(string s) intrinsic;
+out sint64 find(string s, string part) intrinsic;
+out bool contains(string s, string part) intrinsic;
+out bool startsWith(string s, string part) intrinsic;
+out bool endsWith(string s, string part) intrinsic;
+out uint64 count(string s, string part) intrinsic;
+out string replace(string s, string part, string replacement) intrinsic;
+out string replaceLimit(string s, string part, string replacement, uint64 limit) intrinsic;
+out string insert(string s, sint64 index, string part) intrinsic;
+out string remove(string s, sint64 start, sint64 end) intrinsic;
+out string padLeft(string s, uint64 width, string fill) intrinsic;
+out string padRight(string s, uint64 width, string fill) intrinsic;
+out string[?] split(string s, string separator) intrinsic;
+out string[?] lines(string s) intrinsic;
+out string[?] chars(string s) intrinsic;
+out string text(string s) intrinsic;
+out T to<T>(string s) intrinsic;

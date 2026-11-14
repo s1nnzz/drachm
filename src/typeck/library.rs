@@ -17,6 +17,7 @@ impl Checker<'_> {
         match module {
             "fs" | "os" => self.system_call(module, name, targs, args, span),
             "time" => self.time_call(name, targs, args, span),
+            "string" => self.string_module_call(name, targs, args, span),
             "math" => self.math_call(name, targs, args, span, None),
             _ => {
                 self.diags.push(Diagnostic::at(&codes::E0901, span, format!("`{global}` is not implemented yet")));
@@ -39,6 +40,44 @@ impl Checker<'_> {
         for a in args {
             self.expr(a);
         }
+    }
+
+    /// `string::name(s, ...)`: the method call `s::name(...)` (one implementation).
+    /// `join` also takes a list of strings.
+    fn string_module_call(&mut self, name: &str, targs: &[ast::TypeName], args: &[ast::Expr], span: Span) -> Option<Val> {
+        if name == "zero" {
+            // The built-in `Zero` of `string`, which needs no import in its type spelling.
+            return self.static_on_type(Type::Str, "string", name, span, targs, args, span);
+        }
+        let Some((first, rest)) = args.split_first() else {
+            self.diags.push(
+                Diagnostic::at(&codes::E0103, span, format!("`string::{name}` needs the text to work on as its first argument"))
+                    .help(format!("for example `string::{name}(text)`, the same as `text::{name}()`")),
+            );
+            return None;
+        };
+        let value = self.expr(first)?;
+        let ok = match &value {
+            Val::Expr(e) => e.ty == Type::Str || name == "join" && e.ty.is_list() && e.ty.elem() == Some(Type::Str),
+            _ => false,
+        };
+        if !ok {
+            let found = match &value {
+                Val::Expr(e) => format!("`{}`", e.ty),
+                _ => "a number".to_string(),
+            };
+            let wants = if name == "join" { "a `string` or a list of strings" } else { "a `string`" };
+            self.diags.push(
+                Diagnostic::at(&codes::E0101, first.span, format!("`string::{name}` needs {wants}, found {found}"))
+                    .note(format!("this is {found}")),
+            );
+            for a in rest {
+                self.expr(a);
+            }
+            return None;
+        }
+        let name_span = Span::new(span.start, span.start + 1);
+        self.method_on(Some(value), first, name, name_span, targs, rest, span)
     }
 
     fn system_call(&mut self, module: &str, name: &str, targs: &[ast::TypeName], args: &[ast::Expr], span: Span) -> Option<Val> {

@@ -1,0 +1,14 @@
+in io;
+in string;
+
+none main() {
+    string[?] words = ["red", "green", "blue"];
+    // The module spelling and the method spelling are one function.
+    io::outln(string::join(words, ", "));
+    io::outln(words::join(", "));
+    // Functions that do not start from a string live in the module too.
+    io::outln(string::repeat("-", 20));
+    io::outln(string::upper("quiet") + " " + "LOUD"::lower());
+    io::outln(string::replace("2026-11-14", "-", "/"));
+    io::outln(string::padLeft("7", 3, "0"));
+}

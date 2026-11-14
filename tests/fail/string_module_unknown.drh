@@ -1,0 +1,6 @@
+in io;
+in string;
+
+none main() {
+    io::outln(string::shout("hi"));
+}

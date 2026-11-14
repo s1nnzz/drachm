@@ -51,6 +51,22 @@ and to match a string against cases, see [matching text](reference-control-flow.
 
 <!-- example: string-methods -->
 
+## The string module
+
+`string` is a module as well as a type. Every method above is also a function of
+the module, called as `string::name(text, ...)` after `in string;`. The method
+and the function are one function: `string::upper(s)` is `s::upper()`, and
+`string::join(words, ", ")` is `words::join(", ")`. The method spelling needs no
+import.
+
+<!-- example: string-module -->
+
+The module also holds the functions that do not start from one string:
+`string::repeat("-", 20)` and `string::join(words, ", ")` over a list of strings.
+`string::zero()` is the empty string and needs no import. A first argument that is
+not a string is [E0101](errors.md), and a name the module does not have is
+[E0237](errors.md).
+
 ## Formatting with io::outf
 
 `io::outf` takes a format string and values, and each `%` takes the next value.

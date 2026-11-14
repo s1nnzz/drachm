@@ -575,7 +575,7 @@ pub(crate) fn check_with_settings(
             Some("fs") => g.fs_imported = true,
             Some("os") => g.os_imported = true,
             Some("time") => g.time_imported = true,
-            Some("math") => {}
+            Some(n) if crate::stdlib::source(n).is_some() => {}
             Some("si") => si = true,
             // Project files are loaded by `modules`; checking names across
             // files is step 7's WP2.
@@ -3829,6 +3829,11 @@ impl<'a> Checker<'a> {
             let o = origin(recv);
             return self.math_call(name, targs, args, span, Some((value?, o)));
         }
+        self.method_on(value, recv, name, name_span, targs, args, span)
+    }
+
+    /// A method call on `value`, the checked `recv`.
+    pub(super) fn method_on(&mut self, value: Option<Val>, recv: &ast::Expr, name: &str, name_span: Span, targs: &[ast::TypeName], args: &[ast::Expr], span: Span) -> Option<Val> {
         match value {
             Some(Val::Expr(v)) if self.g.ifaces.ext.get(&v.ty).is_some_and(|ms| ms.iter().any(|m| m.name == name)) => {
                 self.ext_method(v, recv.span, name, name_span, targs, args, span)
