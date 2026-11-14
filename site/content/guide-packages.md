@@ -85,6 +85,7 @@ refused (E0816), so an edited or tampered package never builds silently.
 drachm update            # newer tags inside every range
 drachm update sdl_drh    # one dependency
 drachm install           # throw deps/ away, fetch it again from the lock
+drachm install --locked  # CI: exactly the lock, or fail (see below)
 drachm remove sdl_drh    # drop it from drachm.toml, the lock and deps/
 ```
 
@@ -93,6 +94,30 @@ that fits and takes the current commit of an exact tag that was moved, then
 rewrites the lock and prints what changed. `install` is for a fresh checkout
 and for repairing `deps/`: it fetches the commits the lock names and checks
 their hashes.
+
+## Locked installs
+
+`drachm install --locked` is for CI and for checking a commit. It installs
+exactly what `drachm.lock` lists and resolves nothing: it never looks for a
+tag the lock does not name, and never writes the lock file. It fails when:
+
+- the lock file is missing and `drachm.toml` has dependencies (E0818);
+- `drachm.toml` needs a git dependency the lock has no entry for, because one
+  was added, its tag was changed, or no locked tag fits its range (E0818);
+- the lock lists a package the manifests no longer need, because one was
+  removed or its tag changed (E0818);
+- a fetched package does not hash as the lock records (E0816).
+
+A range is checked only as far as the lock goes: the locked tag must fit it.
+The lock does not record the range itself, so a range edited to a new one that
+still contains the locked tag is not noticed.
+
+The same flag works on `build`, `run`, `check` and `test`, with the same
+meaning: the program is built from the lock as it is, and a mismatch is E0818.
+
+To fix E0818, run `drachm install` without `--locked` on your machine, look at
+the new `drachm.lock` and commit it. `drachm update` takes newer tags inside
+the ranges.
 
 ## deps/
 

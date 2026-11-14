@@ -18,21 +18,23 @@ usage:
   drachm add ADDRESS[@TAG | @^RANGE] [--name NAME]   add a git dependency to drachm.toml and drachm.lock
   drachm remove NAME                           remove a dependency
   drachm update [NAME]                         take newer tags (inside the ranges) for one or all dependencies
-  drachm install                               fetch deps/ again from drachm.lock
+  drachm install [--locked]                     fetch deps/ again from drachm.lock
   drachm lsp                                   run the language server on stdin and stdout (for editors)
   drachm explain <code>                        describe an error code, e.g. E0101
 
 A file or a project folder (one with drachm.toml) is given; the default is the
 current folder.
 
-  -O   optimised build: slower to compile, much faster to run";
+  -O        optimised build: slower to compile, much faster to run
+  --locked  (build, run, check, test, install) use exactly what drachm.lock
+            lists: nothing is resolved or written, and a mismatch is E0818";
 
 /// The package manager commands, run in the current folder.
 enum Package {
     Add { spec: String, name: Option<String> },
     Remove(String),
     Update(Option<String>),
-    Install,
+    Install { locked: bool },
 }
 
 /// One parsed command line.
@@ -40,10 +42,10 @@ enum Command {
     Explain(String),
     New(String),
     Package(Package),
-    Check { input: PathBuf, dump_mir: bool, dump_borrowck: bool },
-    Build { input: PathBuf, out: Option<PathBuf>, opt: bool },
-    Run { input: PathBuf, opt: bool },
-    Test { input: PathBuf, opt: bool, filter: Option<String> },
+    Check { input: PathBuf, dump_mir: bool, dump_borrowck: bool, locked: bool },
+    Build { input: PathBuf, out: Option<PathBuf>, opt: bool, locked: bool },
+    Run { input: PathBuf, opt: bool, locked: bool },
+    Test { input: PathBuf, opt: bool, filter: Option<String>, locked: bool },
 }
 
 fn main() {
@@ -62,7 +64,7 @@ fn main() {
                 Package::Add { spec, name } => drachm::pkg::add(dir, &spec, name.as_deref()),
                 Package::Remove(name) => drachm::pkg::remove(dir, &name),
                 Package::Update(name) => drachm::pkg::update(dir, name.as_deref()),
-                Package::Install => drachm::pkg::install(dir),
+                Package::Install { locked } => drachm::pkg::install_with(dir, locked),
             };
             match done {
                 Ok(lines) => lines.iter().for_each(|l| println!("{l}")),
@@ -73,8 +75,8 @@ fn main() {
             Some(c) => println!("{}: {}\n\n{}", c.id, c.title, c.explain),
             None => die(&format!("there is no code `{id}`")),
         },
-        Command::Check { input, dump_mir, dump_borrowck } => {
-            let opened = open(&input);
+        Command::Check { input, dump_mir, dump_borrowck, locked } => {
+            let opened = open(&input, locked);
             // The MIR dump is for looking at programs the ownership checks
             // reject too, so it stops after type checking.
             let (entry, hir) = front_end(&opened, !dump_mir && !dump_borrowck);
@@ -101,14 +103,14 @@ fn main() {
                 print!("{}", drachm::mir::print_program(&mir, &hir));
             }
         }
-        Command::Build { input, out, opt } => {
-            let opened = program(&input, "build");
+        Command::Build { input, out, opt, locked } => {
+            let opened = program(&input, "build", locked);
             let out = out.unwrap_or_else(|| default_output(&input));
             build(&opened, &out, opt || opened.config.build.opt);
         }
-        Command::Test { input, opt, filter } => {
+        Command::Test { input, opt, filter, locked } => {
             // A library has tests too, so this is `open`, not `program`.
-            let opened = open(&input);
+            let opened = open(&input, locked);
             let (_, mut program) = front_end(&opened, true);
             let all: Vec<(usize, String)> = program.tests.iter().map(|t| (t.func, t.name.clone())).collect();
             // A NAME keeps the tests whose name contains it; the others are not built.
@@ -116,8 +118,8 @@ fn main() {
             let filtered_out = filter.is_some().then(|| all.len() - tests.len());
             run_tests(&mut program, &tests, opt || opened.config.build.opt, filtered_out);
         }
-        Command::Run { input, opt } => {
-            let opened = program(&input, "run");
+        Command::Run { input, opt, locked } => {
+            let opened = program(&input, "run", locked);
             let dir = std::env::temp_dir().join(format!("drachm-run-{}", std::process::id()));
             std::fs::create_dir_all(&dir).unwrap_or_else(|e| die(&e.to_string()));
             let exe = dir.join("prog").with_extension(EXE_EXTENSION);
@@ -150,8 +152,9 @@ fn parse(args: &[String]) -> Command {
         ("update", []) => return Command::Package(Package::Update(None)),
         ("update", [name]) => return Command::Package(Package::Update(Some(name.clone()))),
         ("update", _) => die("update takes at most one dependency name"),
-        ("install", []) => return Command::Package(Package::Install),
-        ("install", _) => die("install takes no arguments"),
+        ("install", []) => return Command::Package(Package::Install { locked: false }),
+        ("install", [flag]) if flag == "--locked" => return Command::Package(Package::Install { locked: true }),
+        ("install", _) => die("install takes at most `--locked`"),
         _ => {}
     }
     if cmd == "lsp" {
@@ -167,6 +170,7 @@ fn parse(args: &[String]) -> Command {
     let mut dump_mir = false;
     let mut dump_borrowck = false;
     let mut filter = None;
+    let mut locked = false;
     let mut rest = args[1..].iter();
     while let Some(a) = rest.next() {
         match (a.as_str(), cmd.as_str()) {
@@ -174,6 +178,7 @@ fn parse(args: &[String]) -> Command {
             ("-O", "build" | "run" | "test") => opt = true,
             ("--dump-mir", "check") => dump_mir = true,
             ("--dump-borrowck", "check") => dump_borrowck = true,
+            ("--locked", "check" | "build" | "run" | "test") => locked = true,
             _ if input.is_none() && !a.starts_with('-') => input = Some(PathBuf::from(a)),
             // `drachm test PATH NAME`: the second name is a filter on the test names.
             _ if cmd == "test" && input.is_some() && filter.is_none() && !a.starts_with('-') => filter = Some(a.clone()),
@@ -182,10 +187,10 @@ fn parse(args: &[String]) -> Command {
     }
     let input = input.unwrap_or_else(|| PathBuf::from("."));
     match cmd.as_str() {
-        "check" => Command::Check { input, dump_mir, dump_borrowck },
-        "build" => Command::Build { input, out: output, opt },
-        "run" => Command::Run { input, opt },
-        "test" => Command::Test { input, opt, filter },
+        "check" => Command::Check { input, dump_mir, dump_borrowck, locked },
+        "build" => Command::Build { input, out: output, opt, locked },
+        "run" => Command::Run { input, opt, locked },
+        "test" => Command::Test { input, opt, filter, locked },
         _ => die(USAGE),
     }
 }
@@ -200,13 +205,15 @@ fn color() -> bool {
 }
 
 /// Reads the config of `input` (a file or a project folder), or exits with its errors.
-fn open(input: &Path) -> Opened {
-    drachm::config::open(input).unwrap_or_else(|f| die(f.render(color()).trim_end()))
+/// With `locked`, the dependencies are those the lock file lists, exactly.
+fn open(input: &Path, locked: bool) -> Opened {
+    let options = drachm::deps::Options { locked, ..Default::default() };
+    drachm::config::open_with(input, &options).unwrap_or_else(|f| die(f.render(color()).trim_end()))
 }
 
 /// `open` for `build` and `run`, which need a program: a library is an error.
-fn program(input: &Path, verb: &str) -> Opened {
-    let opened = open(input);
+fn program(input: &Path, verb: &str, locked: bool) -> Opened {
+    let opened = open(input, locked);
     if let Err(f) = opened.program(verb) {
         die(f.render(color()).trim_end());
     }

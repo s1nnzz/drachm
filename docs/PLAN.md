@@ -27,7 +27,7 @@ answers into `docs/SPEC.md` and the design doc, and note leftovers under that st
 | 6 | Generics, interfaces, collections | done (S6Z sweep, 2026-11-13): generic functions, structs and enums (inferred and written type arguments, borrows as type arguments, units); interfaces (`with`, `and`, `extends`, `Self`, `changes self`, built-in `Zero`/`Equal`/`Ordered`/`Text`, `with trusted`, generic interfaces, `&Shape` with vtables, `Iterable<T>` with `at(i)`); arrays, lists and maps (indexing, the methods, `take xs[i] reorders`, views of owning items, scalar and composite keys with `key()`, two-variable walks, `each`); function types, lambdas with inferred captures. The interims still open are listed in the step 6 section, each with its question number |
 | 7 | Modules, config, scripts, stdlib | in progress: WP1 done (source map with global offsets, import/export grammar, `src/modules.rs` graph loader, project folders, E0230-E0235); WP2 done (names across files, `src/resolve.rs`); WP3 done (`drachm.toml`, `src/config.rs`, dependencies); WP4 done (the six `[behaviour]` settings, per-file flags); WP5 first slice done (scripts; the JIT, WP5b, is pending); WP6 started (2026-11-14: the stdlib mechanism and `math`; `os`, `fs`, `time` moved onto it; `io`, `si` stay special; `string`, `convert`, `process` next); WP9 done (`test` blocks, `assert`, `drachm test`; see the WP9 paragraph); follow-ups 2026-11-13: a call through a module chains with `::` or `->` (done); W0240's help asks whether the module's name was meant (done); `in si;` is per file (done, E0402 in a file without it); spec `docs/impl/step7-modules.md` |
 | 7.1 | C header import (`in * from c."SDL2/SDL.h" as sdl;`), right after step 7 | built (2026-11-13): discovery (`src/cimport.rs`, libclang through `clang-sys`), `[native]` table, scalars, `foreign *T`, text both ways, structs, enums, macros, callbacks, linking, docs and showcase; interims and open questions in the step 7.1 section below |
-| 7.6 | Package manager (`drachm add/remove/update/install`, git tags as versions, per-project `deps/`, later the Agora; ties into C header packages) | built (git packages, `^` ranges, lock with hashes, side-by-side versions, C packages); the Agora is later; owner answers "Package manager" |
+| 7.6 | Package manager (`drachm add/remove/update/install`, git tags as versions, per-project `deps/`, later the Agora; ties into C header packages) | built (git packages, `^` ranges, lock with hashes, side-by-side versions, C packages, `--locked` mode 2026-11-14); the Agora is later; owner answers "Package manager" |
 | 7.5 | MIR optimiser: SSA, inlining, scalar replacement, constant folding, loop opts, check elimination, alias info from borrows | not started |
 | 8 | Language server | partly done (pulled forward): `drachm lsp` (`src/lsp/`, `lsp-server`), diagnostics on change/save for files and projects, parser recovery for unclosed blocks, hover, go to definition and completion from a typeck side table (`src/typeck/index.rs`), VS Code client; left: inlay hint for the inferred `self` mode, imports completion, rename, references, formatting |
 | D | Documentation site (cross-cutting) | live locally: lessons 1-9, reference, design pages with status badges |
@@ -1078,13 +1078,28 @@ rebuilt from the lock by `drachm install`; C packages declare `[native]`
   as `_` (`--name` overrides; `remove`/`update` accept `-` or `_`); `update`
   with no name re-asks everything, `update NAME` re-asks every locked version
   of that repository; `install` deletes `deps/` and fetches from the lock but
-  fills in missing lock entries like a build does (no `--locked` mode); a bare
+  fills in missing lock entries like a build does; a bare
   name such as `drachm add json` is E0901 until the Agora; command output is
   one plain line per change; `drachm new` writes a `.gitignore` containing
   `deps/`; the showcase does not use a git package (the test needs a network or
   a repository; it keeps its path dependency).
+- `--locked` (owner, 2026-11-14: "`drachm install --locked`, fails instead of
+  resolving anything missing from `drachm.lock`"; spelling as the owner wrote
+  it): `drachm install --locked`, and `--locked` on `build`, `run`, `check` and
+  `test`. Nothing is resolved anew and nothing is looked up at a repository
+  for a tag the lock does not name. The lock must list every git dependency
+  the manifests reach (E0818 otherwise, also when the lock file is missing or
+  lists a package nothing needs any more), locked packages are fetched and
+  hashed as usual (E0816), the lock is not written, and `deps/` is pruned only
+  after success. Built as `deps::Options::locked` (`resolve_with`),
+  `pkg::install_with`, `config::open_with`; E0818 is new. Tests:
+  `tests/packages.rs`, the `install_locked_*` and `locked_commands_*` cases.
+- **Open (2026-11-14, found while building `--locked`):** a range edited to
+  another range that still contains the locked tag is not noticed, because the
+  lock does not record the requested range. Recording it in `drachm.lock` would
+  close that gap but changes the lock format: the owner decides.
 - Not done: Agora, tag signatures or checksums beyond the lock hash, `~`/`>=`
-  ranges, prerelease tags in ranges, a mode that refuses to touch the network.
+  ranges, prerelease tags in ranges.
 
 ---
 

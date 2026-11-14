@@ -1567,6 +1567,18 @@ the folder has no `drachm.toml`, the dependency named is not in
 `[dependencies]`, the address is not one `git` can use, or the file could
 not be written. Nothing is changed when this happens.
 
+## E0818: drachm.lock is out of date
+
+`--locked` (on `drachm install`, `build`, `run`, `check` or `test`) builds
+exactly what `drachm.lock` lists and resolves nothing new, so this is
+refused when the lock file is missing, when `drachm.toml` needs a git
+dependency (an address and tag, or a range) that the lock has no entry
+for, or when the lock lists a package the manifests no longer need (a
+dependency was removed or its tag changed). The message names the entry.
+A range is checked as far as the lock goes: its locked tag must fit it.
+Run `drachm install` without `--locked` to resolve the change and write
+`drachm.lock`; `drachm update` takes newer tags inside the ranges.
+
 ## E0700: libclang cannot be loaded
 
 `in * from c."header.h" as name;` reads the header with libclang, the C
