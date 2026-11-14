@@ -936,7 +936,7 @@ one; one with an exact root keeps the scale (`4.0<km^2>` is `2.0<km>`, `ha` is `
 import (`math_method_applies` no longer asks for `in math;`; an extension method of the same
 name on that number type still wins). A whole number given to `sqrt`, `log`, `log2`, `log10`,
 `pow`, `floor`, `ceil`, `round` uses a whole-number version (`typeck/math.rs` `math_whole`),
-with the new warning **W0112** (suggests `::to<float64>()`):
+with the new warning **W0117** (suggests `::to<float64>()`):
 - `sqrt`: the largest `r` with `r*r <= x`, same type; units still halve (a unit whose scale has
   no exact root is E0901 for whole numbers); `log` (natural), `log2`, `log10`: rounded down,
   exact for all widths up to `uint128` (`drachm_imath` in `runtime/runtime.c`: digit-by-digit
@@ -944,7 +944,7 @@ with the new warning **W0112** (suggests `::to<float64>()`):
   logarithm argument below one stops the program (`math::sqrt of a negative number`, exit 101),
   like `x / 0`. They lower to `Callee::Math(f, ty)` with an integer `ty` on both backends.
 - `pow(x, n)`: the same expression as `x ** n` (`binary_vals`), exact and following `overflow`;
-  W0112 only when the exponent is not a constant of zero or more. `floor/ceil/round` of a whole
+  W0117 only when the exponent is not a constant of zero or more. `floor/ceil/round` of a whole
   number are the number (no warning).
 - `exp`, `hypot`, `sin`, `cos`, `tan`, `atan2` keep E0101 for a whole number, now with the note
   "has no whole-number version" (conservative interim, open question below).

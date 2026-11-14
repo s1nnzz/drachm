@@ -181,7 +181,7 @@ codes! {
          `false`, an inclusive range of numbers whose start is not above its\n\
          end (`case 13..19`), or `_` on its own (`case _`), which matches\n\
          anything.";
-    W0112: "whole number given to a float function",
+    W0117: "whole number given to a float function",
         "`math::sqrt`, `math::log`, `math::log2`, `math::log10` and `math::pow`\n\
          have a whole-number version: given a whole number they give a whole\n\
          number, the true result rounded down (`math::sqrt(10u32)` is 3).\n\

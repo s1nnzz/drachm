@@ -1020,7 +1020,7 @@ step 7 WP6).
   `si`. The method spelling `x::sqrt()` needs no import; only `math::sqrt(x)` needs `in math;`.
   `abs min max clamp` take whole numbers; `sqrt log log2 log10 pow` have a whole-number
   version (the true result rounded down, `pow` exact and following `overflow`) with warning
-  W0112 suggesting `::to<float64>()`; `floor ceil round` of a whole number are the number.
+  W0117 suggesting `::to<float64>()`; `floor ceil round` of a whole number are the number.
   `exp hypot sin cos tan atan2` keep the E0101 for a whole number (interim, open question).
   `atan2` gives `float64<rad>` in a file with `in si;`, a plain float64 otherwise.
   `min`/`max`: a NaN spreads. `clamp(x, a, b)` takes the bounds in either order.

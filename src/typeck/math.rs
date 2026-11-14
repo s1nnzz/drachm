@@ -254,7 +254,7 @@ impl Checker<'_> {
     /// argument): `sqrt`, `log`, `log2` and `log10` round the true result down, `pow`
     /// is the exact integer power (it follows `overflow`, a negative exponent as
     /// `**` does), and `floor`, `ceil` and `round` give the number back. Every one
-    /// but the roundings warns (W0112).
+    /// but the roundings warns (W0117).
     fn math_whole(&mut self, f: MathFn, mut vals: Vec<(Val, Origin)>, int: Type, span: Span, mode: crate::config::Overflow) -> Option<Val> {
         let name = f.name();
         let mut warn = true;
@@ -295,7 +295,7 @@ impl Checker<'_> {
 
     fn whole_warning(&mut self, name: &str, span: Span) {
         self.diags.push(
-            Diagnostic::at(&codes::W0112, span, format!("`math::{name}` of a whole number gives a whole number"))
+            Diagnostic::at(&codes::W0117, span, format!("`math::{name}` of a whole number gives a whole number"))
                 .note("the result is rounded down")
                 .help("for a fractional result convert first: `value::to<float64>()`"),
         );

@@ -223,7 +223,7 @@ constant expression (`case 3`, `case -1`, `case 2 ** 8`), `true` or
 end (`case 13..19`), or `_` on its own (`case _`), which matches
 anything.
 
-## W0112: whole number given to a float function
+## W0117: whole number given to a float function
 
 `math::sqrt`, `math::log`, `math::log2`, `math::log10` and `math::pow`
 have a whole-number version: given a whole number they give a whole

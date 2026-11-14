@@ -127,7 +127,7 @@ result, so the program stops with `math::sqrt of a negative number` (exit code 1
 as `x / 0` stops.
 
 Because the rounding may not be what was meant, each of these calls gives the
-warning W0112, with the fix for a fractional result: convert first with
+warning W0117, with the fix for a fractional result: convert first with
 `value::to<float64>()`. A `pow` with a constant exponent of zero or more has no
 fraction and gives no warning.
 
