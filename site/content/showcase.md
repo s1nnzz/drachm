@@ -6,7 +6,7 @@ description: One program that uses everything the compiler accepts today, beside
 # The showcase
 
 This is the voyage of the survey ship Drachma: one program that uses everything
-the compiler accepts today. Numbers of every width, units of measure, structs
+the compiler accepts today. Numbers of every width, units of measure carried through `math`, structs
 and constructors, enums and `match`, optionals, failures with handlers and
 causes, interfaces and generics, borrows and `lives`, lists, maps, lambdas, and a
 C library (the harbours of part 6, `examples/showcase/c/`) called through a

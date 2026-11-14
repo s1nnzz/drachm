@@ -108,17 +108,17 @@ impl Checker<'_> {
 
     /// `abs min max clamp`: any number type, the unit stays, the arguments agree.
     fn math_same(&mut self, f: MathFn, vals: Vec<(Val, Origin)>, span: Span, mode: crate::config::Overflow) -> Option<Val> {
-        // The type of the first argument that has one leads; with none, the first constant's.
-        let lead = match vals.iter().find_map(|(v, _)| typed(v)) {
-            Some(t) => t,
-            None => match &vals[0].0 {
-                Val::UConst(c, u) => {
-                    let ty = c.default_type().unwrap_or(Type::F64);
-                    self.g.unit_type(ty, u)
-                }
-                Val::Const(c) => c.default_type().unwrap_or(Type::F64),
-                _ => unreachable!("a value is typed or a constant"),
-            },
+        // The first argument leads, as the left side of `+` does: its unit is the result's.
+        // A constant takes the number type of the first typed argument, or its own default.
+        let typed_ty = vals.iter().find_map(|(v, _)| typed(v));
+        let lead = match &vals[0].0 {
+            Val::Expr(e) => e.ty,
+            Val::UConst(c, u) => {
+                let ty = typed_ty.map(Type::bare).or_else(|| c.default_type()).unwrap_or(Type::F64);
+                self.g.unit_type(ty, u)
+            }
+            Val::Const(c) => typed_ty.or_else(|| c.default_type()).unwrap_or(Type::F64),
+            Val::NoneLit(_) => unreachable!("checked before"),
         };
         let mut es = Vec::new();
         for (v, o) in vals {
