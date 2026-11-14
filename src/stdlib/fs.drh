@@ -1,0 +1,9 @@
+// The `fs` module. Intrinsic functions: the compiler types and lowers a call.
+// A call can fail with FileMissing, AccessDenied, InvalidPath, InvalidFileText or
+// FileIoError (the compiler declares these failures while `fs` is imported).
+
+// The whole text of the file at `path`.
+out string read(string path) intrinsic;
+
+// Replaces the file at `path` with `text`.
+out none write(string path, string text) intrinsic;

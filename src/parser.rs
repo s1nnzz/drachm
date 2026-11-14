@@ -33,6 +33,8 @@ pub(crate) fn parse_file(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>, script
         c_enums: Vec::new(),
         c_macros: Vec::new(),
         c_shim: String::new(),
+        intrinsics: Vec::new(),
+        lib_imports: Vec::new(),
     };
     let mut script_stmts = Vec::new();
     let mut first_script_stmt = None;
@@ -163,6 +165,7 @@ pub(crate) fn parse_file(tokens: Vec<Token>, diags: &mut Vec<Diagnostic>, script
                 fails_span: None,
                 span: first,
                 foreign: None,
+                intrinsic: false,
                 test: None,
             });
         }
@@ -1369,6 +1372,7 @@ impl Parser<'_> {
             span: start.to(self.prev_span()),
             test: Some((name, name_span)),
             foreign: None,
+            intrinsic: false,
         })
     }
 
@@ -1424,8 +1428,17 @@ impl Parser<'_> {
                 _ => break,
             }
         }
-        let body = self.block()?;
-        Ok(Func { ret, name, name_span, tparams, params, body, is_unsafe, lives, lives_span, lives_from, fails, fails_span, span, test: None, foreign: None })
+        // `intrinsic;` instead of a body: a function of the standard library that the
+        // compiler types and lowers itself. Anywhere else the loader rejects it (E0243).
+        let intrinsic = matches!(self.peek(), Tok::Ident(w) if w == "intrinsic") && self.peek_at(1) == &Tok::Sym(";");
+        let body = if intrinsic {
+            let at = self.bump().span;
+            self.bump();
+            Block { stmts: Vec::new(), end: at }
+        } else {
+            self.block()?
+        };
+        Ok(Func { ret, name, name_span, tparams, params, body, is_unsafe, lives, lives_span, lives_from, fails, fails_span, span, test: None, foreign: None, intrinsic })
     }
 
     /// `self or key or other`, after `lives from`.

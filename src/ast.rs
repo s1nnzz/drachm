@@ -52,6 +52,13 @@ pub struct Program {
     pub c_macros: Vec<CMacroDecl>,
     /// The C source of the shims that call macros; filled by the resolver.
     pub c_shim: String,
+    /// The intrinsic functions of the standard modules the files import (their
+    /// program-wide names, `math.sqrt`); filled by the resolver. They have no body:
+    /// the checker types a call of one by its own rule.
+    pub intrinsics: Vec<String>,
+    /// Which embedded standard modules each file imports: the file's start offset and
+    /// the module names; filled by the resolver (for `x::sqrt()` on a number).
+    pub lib_imports: Vec<(usize, Vec<String>)>,
 }
 
 /// `from c macro SDL_MUSTLOCK(foreign *sdl::SDL_Surface s) gives bool;`
@@ -507,6 +514,9 @@ pub struct Func {
     pub span: Span,
     /// A C function from a header import: the symbol to call. It has no body.
     pub foreign: Option<String>,
+    /// `... f(params) intrinsic;`: a function of the standard library whose body is
+    /// the compiler's own (E3). Only the embedded standard modules may write one.
+    pub intrinsic: bool,
     /// `test "name" { }`: the name and where it is written. A test takes
     /// nothing, returns nothing, and is run by `drachm test`.
     pub test: Option<(String, Span)>,

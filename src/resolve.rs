@@ -137,14 +137,31 @@ pub fn resolve(graph: &mut ModuleGraph, diags: &mut Vec<Diagnostic>, clash: &[cr
                 w.diags.push(slip.diag);
             }
         }
+        // The intrinsic functions of an embedded standard module have no body: the checker
+        // types a call of one by its own rule, so they do not go into the program.
+        for f in prog.funcs.iter().filter(|f| f.intrinsic) {
+            merged.intrinsics.push(f.name.clone());
+        }
+        prog.funcs.retain(|f| !f.intrinsic);
         for f in &prog.funcs {
             func_module.insert(f.name.clone(), i);
         }
         edges.extend(std::mem::take(&mut w.edges));
+        // The embedded standard modules this file imports (for `x::sqrt()` on a number).
+        let libs: Vec<String> = graph.modules[i].targets.iter().flatten()
+            .filter_map(|t| if let Target::File(j) = t && graph.modules[*j].embedded { Some(graph.modules[*j].name.clone()) } else { None })
+            .collect();
+        if !libs.is_empty() {
+            merged.lib_imports.push((graph.map.base(graph.modules[i].file), libs));
+        }
         let extra = std::mem::take(&mut w.extra_generics);
         // Standard module imports stay, once each.
         for (k, imp) in prog.imports.iter().enumerate() {
-            let std = matches!(graph.modules[i].targets.get(k), Some(Some(Target::Std(_))));
+            let std = match graph.modules[i].targets.get(k) {
+                Some(Some(Target::Std(_))) => true,
+                Some(Some(Target::File(j))) => graph.modules[*j].embedded,
+                _ => false,
+            };
             if std && imp.plain_name().is_some() && !merged.imports.iter().any(|x| x.path == imp.path) {
                 merged.imports.push(Import { path: imp.path.clone(), path_span: imp.path_span, word_form: false, items: Vec::new(), glob: false, alias: None, also_bare: false, file: None, c_header: None, span: imp.span });
             }
@@ -1073,7 +1090,8 @@ impl Walker<'_> {
             }
             ExprKind::Method { recv, targs, args, unit, name, .. } => {
                 if let ExprKind::Var(module) = &recv.kind
-                    && matches!(module.as_str(), "io" | "time" | "fs" | "os")
+                    && module.as_str() != "si"
+                    && crate::stdlib::is_module(module)
                     && !self.locals.contains(module)
                 {
                     if self.cx.std_imports[self.m].contains(module.as_str()) {

@@ -1,0 +1,7 @@
+// The `os` module. Intrinsic functions: the compiler types and lowers a call.
+
+// The operating system's name (`linux`, `macos`, `windows`).
+out string platform() intrinsic;
+
+// The value of environment variable `name`, or `none` when it is not set.
+out string? getEnv(string name) intrinsic;

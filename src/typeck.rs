@@ -15,8 +15,10 @@ mod generics;
 mod interfaces;
 mod iterable;
 mod layout;
+mod library;
 mod lambdas;
 mod lists;
+mod math;
 mod maps;
 mod optionals;
 mod overload;
@@ -144,6 +146,12 @@ struct Globals {
     time_imported: bool,
     fs_imported: bool,
     os_imported: bool,
+    /// The intrinsic functions of the embedded standard modules (`math::sqrt`), by their
+    /// program-wide names (`ast::Program::intrinsics`).
+    intrinsics: std::collections::HashSet<String>,
+    /// The embedded standard modules each file imports, by file start offset
+    /// (`ast::Program::lib_imports`).
+    lib_imports: Vec<(usize, Vec<String>)>,
     /// Where `unsafe` is allowed, by file (`ast::Program::unsafe_files`).
     unsafe_files: Vec<(usize, bool)>,
     /// Memoised layout, ownership and copy answers (`layout`).
@@ -182,6 +190,12 @@ impl Globals {
     fn unsafe_at(&self, span: Span) -> bool {
         let end = self.unsafe_files.partition_point(|(base, _)| *base <= span.start);
         self.unsafe_files[..end].last().is_some_and(|(_, allowed)| *allowed)
+    }
+
+    /// Does the file of `span` import the standard module `name`?
+    fn imports_lib(&self, span: Span, name: &str) -> bool {
+        let end = self.lib_imports.partition_point(|(base, _)| *base <= span.start);
+        self.lib_imports[..end].last().is_some_and(|(_, libs)| libs.iter().any(|l| l == name))
     }
 
     fn add_sig(&mut self, sig: Sig) -> FuncId {
@@ -527,7 +541,9 @@ pub(crate) fn check_with_settings(
     settings: Vec<(usize, crate::config::Behaviour)>,
     requires_main: bool,
 ) -> hir::Program {
-    let mut g = Globals { settings, unsafe_files: prog.unsafe_files.clone(), ..Globals::default() };
+    let mut lib_imports = prog.lib_imports.clone();
+    lib_imports.sort_by_key(|(base, _)| *base);
+    let mut g = Globals { settings, unsafe_files: prog.unsafe_files.clone(), intrinsics: prog.intrinsics.iter().cloned().collect(), lib_imports, ..Globals::default() };
     let mut si = false;
     for import in &prog.imports {
         match import.plain_name() {
@@ -535,6 +551,7 @@ pub(crate) fn check_with_settings(
             Some("fs") => g.fs_imported = true,
             Some("os") => g.os_imported = true,
             Some("time") => g.time_imported = true,
+            Some("math") => {}
             Some("si") => si = true,
             // Project files are loaded by `modules`; checking names across
             // files is step 7's WP2.
@@ -547,7 +564,7 @@ pub(crate) fn check_with_settings(
             _ => {
                 diags.push(
                     Diagnostic::at(&codes::E0201, import.span, format!("unknown module `{}`", import.path.join(".")))
-                        .help("standard modules include `io`, `si` and `time`"),
+                        .help(format!("the standard modules are {}", crate::stdlib::names().map(|n| format!("`{n}`")).collect::<Vec<_>>().join(", "))),
                 );
             }
         }
@@ -3159,6 +3176,9 @@ impl<'a> Checker<'a> {
                     return self.call_value(id, name, targs, args, e.span);
                 }
                 self.note_func(name, e.span);
+                if self.g.intrinsics.contains(name) {
+                    return self.intrinsic_call(name, targs, args, e.span);
+                }
                 if !self.g.funcs_by_name.contains_key(name) && self.g.mono.templates.contains_key(name) {
                     return self.generic_call(name, targs, args, e.span);
                 }
@@ -3188,11 +3208,11 @@ impl<'a> Checker<'a> {
                 if let ExprKind::Var(n) = &recv.kind
                     && self.lookup(n).is_none()
                 {
-                    if matches!(n.as_str(), "fs" | "os") {
-                        return self.system_call(n, name, *name_span, recv.span, targs, args, e.span);
-                    }
-                    if n == "time" {
-                        return self.time_call(name, *name_span, recv.span, targs, args, e.span);
+                    // An embedded standard module is rewritten to a call by the resolver
+                    // when imported; reaching here means it was not.
+                    if n != "io" && n != "si" && crate::stdlib::is_module(n) && !self.g.structs_by_name.contains_key(n) && !self.g.tenv.contains_key(n) {
+                        self.module_not_imported(n, recv.span, args);
+                        return None;
                     }
                     if n == "io" {
                         return self.io_call(name, *name_span, recv.span, targs, args, e.span);
@@ -3665,72 +3685,6 @@ impl<'a> Checker<'a> {
             d.help(format!("its methods are {}", list(&methods)))
         };
         self.diags.push(d);
-    }
-
-    fn system_call(&mut self, module: &str, name: &str, name_span: Span, module_span: Span, targs: &[ast::TypeName], args: &[ast::Expr], span: Span) -> Option<Val> {
-        use hir::SystemOp::*;
-        let imported = if module == "fs" { self.g.fs_imported } else { self.g.os_imported };
-        if !imported {
-            self.diags.push(Diagnostic::at(&codes::E0206, module_span, format!("module `{module}` is used but not imported")));
-            return None;
-        }
-        let op = match (module, name) {
-            ("fs", "read") => Read,
-            ("fs", "write") => Write,
-            ("os", "platform") => Platform,
-            ("os", "getEnv") => GetEnv,
-            ("fs", "create" | "open" | "readLine" | "writeLine") | ("os", "cwd") => {
-                self.diags.push(Diagnostic::at(&codes::E0901, name_span, format!("`{module}::{name}` is not implemented yet")));
-                return None;
-            }
-            _ => {
-                self.diags.push(Diagnostic::at(&codes::E0201, name_span, format!("module `{module}` has no function `{name}`")));
-                return None;
-            }
-        };
-        if args.len() != op.inputs() || !targs.is_empty() {
-            self.diags.push(Diagnostic::at(&codes::E0103, span, format!("`{}` takes {} string arguments and no type arguments", op.name(), op.inputs())));
-            return None;
-        }
-        let args = args.iter().map(|arg| self.coerce(arg, Type::Str)).collect::<Option<Vec<_>>>()?;
-        let mut fails = Vec::new();
-        let ty = match op {
-            Read | Write => {
-                let names = if op == Read { &["FileMissing", "AccessDenied", "InvalidPath", "InvalidFileText", "FileIoError"][..] }
-                    else { &["FileMissing", "AccessDenied", "InvalidPath", "FileIoError"][..] };
-                fails.extend(names.iter().map(|name| self.g.enums_by_name[*name]));
-                failures::outcome_type(self.g, op.fs_result(), &fails);
-                op.fs_result()
-            }
-            Platform => Type::Str,
-            CText => optionals::optional_of(self.g, Type::Str)?,
-            GetEnv => optionals::optional_of(self.g, Type::Str)?,
-        };
-        Some(Val::Expr(hir::Expr::new(hir::ExprKind::System(op, args, fails), ty).at(span)))
-    }
-
-    fn time_call(&mut self, name: &str, name_span: Span, module_span: Span, targs: &[ast::TypeName], args: &[ast::Expr], span: Span) -> Option<Val> {
-        if !self.g.time_imported {
-            self.diags.push(
-                Diagnostic::at(&codes::E0206, module_span, "module `time` is used but not imported")
-                    .help("add `in time;` at the top of this file"),
-            );
-            self.g.time_imported = true;
-        }
-        if name != "sleep" {
-            self.diags.push(Diagnostic::at(&codes::E0201, name_span, format!("module `time` has no function `{name}`"))
-                .help("use `time::sleep(duration)` to pause"));
-            return None;
-        }
-        if let Some(arg) = targs.first() {
-            self.diags.push(Diagnostic::at(&codes::E0103, arg.span, "`time::sleep` takes no type arguments"));
-        }
-        let [duration] = args else {
-            self.diags.push(Diagnostic::at(&codes::E0103, span, "`time::sleep` takes one duration"));
-            return None;
-        };
-        let duration = self.coerce(duration, units::seconds_type())?;
-        Some(Val::Expr(hir::Expr::new(hir::ExprKind::Sleep(Box::new(duration)), Type::None).at(span)))
     }
 
     fn io_call(&mut self, name: &str, name_span: Span, module_span: Span, targs: &[ast::TypeName], args: &[ast::Expr], span: Span) -> Option<Val> {

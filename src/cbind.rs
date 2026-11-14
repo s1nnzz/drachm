@@ -427,6 +427,7 @@ impl CCtx {
                         fails_span: None,
                         span: synthetic,
                         foreign: Some(name.clone()),
+                        intrinsic: false,
                         test: None,
                     });
                 }
@@ -494,6 +495,7 @@ impl CCtx {
                 fails_span: None,
                 span: synthetic,
                 foreign: Some(symbol),
+                intrinsic: false,
                 test: None,
             });
         }

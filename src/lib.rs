@@ -22,6 +22,7 @@ pub mod modules;
 pub mod ownership;
 pub mod parser;
 pub mod resolve;
+pub mod stdlib;
 pub mod typeck;
 pub mod types;
 pub mod units;
