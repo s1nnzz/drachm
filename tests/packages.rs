@@ -257,6 +257,7 @@ fn a_missing_tag_or_range_is_reported_and_the_manifest_is_unchanged() {
     assert_eq!(err_codes(pkg::add(&dir, &format!("{url}@v9.9"), None)), ["E0815"]);
     assert_eq!(err_codes(pkg::add(&dir, &format!("{url}@^7"), None)), ["E0815"]);
     assert_eq!(err_codes(pkg::add(&dir, &format!("{url}@^x"), None)), ["E0817"]);
+    assert_eq!(err_codes(pkg::add(&dir, "json", None)), ["E0901"]);
     assert_eq!(s.read("app/drachm.toml"), before);
     assert!(!dir.join("drachm.lock").exists());
     // A repository with no version tags: a bare address has nothing to take.

@@ -5,7 +5,8 @@ description: build, run, check and explain, the -O flag, and exit codes.
 
 # Command line
 
-The compiler has seven commands: `new` makes a project, `lsp` starts the language
+The compiler has these commands: `new` makes a project, `add`, `remove`, `update`
+and `install` manage its packages, `lsp` starts the language
 server for editors, and the others work on a file or project folder. `-O` works with `build`, `run` and `test`, and nothing
 else takes a flag.
 
@@ -15,6 +16,10 @@ drachm run   [file.drh | folder] [-O]                 compile and run
 drachm test  [file.drh | folder] [NAME] [-O]          run the test blocks, each on its own (NAME: only those whose name contains it)
 drachm check [file.drh | folder]                      check for errors only
 drachm new <name>                            make a project folder
+drachm add ADDRESS[@TAG | @^RANGE] [--name NAME]   add a git package to drachm.toml and drachm.lock
+drachm remove NAME                           remove a dependency
+drachm update [NAME]                         take newer tags (inside the ranges) for one or all dependencies
+drachm install                               fetch deps/ again from drachm.lock
 drachm lsp                                   run the language server on stdin and stdout
 drachm explain <code>                        describe an error code, e.g. E0101
 
@@ -96,6 +101,29 @@ exist yet. Then `drachm run NAME` runs it.
 drachm new mygame
 drachm run mygame
 ```
+
+The folder also gets a `.gitignore` with `deps/` in it (fetched packages are not
+committed).
+
+## add, remove, update, install
+
+These four work on the project in the current folder (the one with the
+`drachm.toml`) and are described in [Packages](guide-packages.md).
+
+```sh
+drachm add github.com/someone/sdl-drh@^0.4   # added sdl_drh: https://github.com/someone/sdl-drh at v0.4.2
+drachm add github.com/someone/sdl-drh@v0.4   # one exact tag
+drachm add github.com/someone/sdl-drh        # the newest version tag, pinned as `tag`
+drachm add ADDRESS --name sdl                # choose the dependency name
+drachm update                                # every range and moved tag
+drachm update sdl                            # one dependency
+drachm install                               # deps/ again, from drachm.lock
+drachm remove sdl
+```
+
+Each prints what it did, one line per change. A command that fails changes
+nothing in `drachm.toml`. `NAME` may be written with `-` or `_`
+(`sdl-drh` finds `sdl_drh`).
 
 ## explain
 

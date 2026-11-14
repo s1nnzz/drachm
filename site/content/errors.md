@@ -1059,8 +1059,7 @@ does. Fall back to a value with `maybe`, or pass the failure up with
 
 With `unhandled_fail = "crash"` in `drachm.toml` the call is allowed:
 if it fails, the program prints the failure's message and ends with
-the failure's exit code. A lone `.drh` file (no `drachm.toml`) and a script
-use `crash` already.
+the failure's exit code.
 
 ## E0545: handler for a failure the call cannot raise
 
@@ -1454,8 +1453,9 @@ git dependency's `tag`, or the `path` or `git` of a dependency.
 ## E0804: bad dependency
 
 A `[dependencies]` entry is not usable: its name is not a plain name,
-it is not a table, it mixes `path` and `git`, or it has a key that is
-not `path`, `git` or `tag`.
+it is not a table, it mixes `path` and `git`, it has a key that is
+not `path`, `git`, `tag` or `version`, or two different packages of the
+build would share one folder in `deps/`.
 
     sdl = { git = "https://example.org/sdl.git", tag = "v0.4" }
     utils = { path = "../utils" }
@@ -1482,7 +1482,7 @@ script). A folder is one or the other. Keep the one that fits.
 
 A `git` dependency could not be fetched: `git` is not installed, the
 address is wrong, or the tag does not exist. Dependencies are cloned
-into `deps/NAME` in the project folder. The message shows what git said.
+into `deps/NAME@VERSION` in the project folder. The message shows what git said.
 
 ## E0809: git tag moved
 
@@ -1490,7 +1490,7 @@ A git dependency is built from the commit `drachm.lock` records, even when
 its tag moves later. When that commit is not in `deps/`, it has to be
 fetched from the tag, and the tag now names another commit: the compiler
 refuses rather than build something the lock file did not record. To take
-the new commit, delete `drachm.lock` and build again.
+the new commit, run `drachm update NAME`.
 
 ## E0810: dependency cycle
 
@@ -1521,6 +1521,30 @@ A project folder is given to `build`, `run` or `check`, or the current
 folder is used by default, and it has no `drachm.toml`. A project is a
 folder with a `drachm.toml` and the program in `src/main.drh`; `drachm new`
 makes one.
+
+## E0815: no such version
+
+The tag or range of a git dependency matches nothing in the repository:
+the tag does not exist, a `^` range matches no tag that reads as a
+version (`v1.2.3`, `1.2`), or the repository has no version tags at all.
+`git ls-remote --tags URL` lists the tags. `drachm add URL` with no
+version takes the newest version tag.
+
+## E0816: package differs from drachm.lock
+
+A package in `deps/` does not hold what `drachm.lock` recorded: the sha256
+hash over its files differs (a file was edited, added or deleted), or a
+fresh fetch of the locked commit gave other contents. The hash covers every
+file except `.git`: each file's path, size and bytes, in path order.
+`drachm install` throws `deps/` away and fetches it again from the lock.
+If you edited the lock file by hand, restore it: it is written by drachm.
+
+## E0817: cannot change the dependencies
+
+`drachm add`, `remove`, `update` or `install` could not do what was asked:
+the folder has no `drachm.toml`, the dependency named is not in
+`[dependencies]`, the address is not one `git` can use, or the file could
+not be written. Nothing is changed when this happens.
 
 ## E0700: libclang cannot be loaded
 

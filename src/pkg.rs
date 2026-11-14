@@ -42,6 +42,12 @@ impl Spec {
         if raw.is_empty() || version.as_deref() == Some("") {
             return Err(cannot(format!("`{text}` is not an address with an optional `@version`")).into_failure_help("write `github.com/someone/package@v1.2` or `...@^1.2`"));
         }
+        if !raw.contains(['/', ':', '.']) {
+            return Err(failure(
+                Diagnostic::new(&codes::E0901, format!("`{raw}` looks like the name of a package in the Agora, which does not exist yet"))
+                    .help("give a git address: `drachm add github.com/someone/package@^1.0`"),
+            ));
+        }
         Ok(Spec { url: normalise_url(raw), version })
     }
 }

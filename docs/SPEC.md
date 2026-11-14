@@ -1016,8 +1016,16 @@ phys::Vector3 v = 1, 2, 3;
   each one. See `docs/PLAN.md` step 7 WP9.
 - `drachm fmt`: one official style with few knobs (indent width, line length,
   brace placement). It never aligns `=` or comments across lines.
-- Registry: **the Agora** (agora.drachm.dev); `drachm add json`. Deps may also be
-  git URLs or local paths.
+- Registry: **the Agora** (agora.drachm.dev); `drachm add json` (not built).
+  Deps may also be git URLs or local paths.
+- Packages (built, step 7.6): `drachm add ADDRESS[@TAG|@^RANGE]`, `remove`,
+  `update [NAME]`, `install`. Versions are git tags (`v1.2.3`, `^` ranges pick
+  the newest fit). Dependencies: `{ git = URL, tag = "v0.4" }` or
+  `{ git = URL, version = "^0.4" }`. Packages live per project in `deps/`
+  (git-ignored) as `deps/NAME@VERSION/`; versions of one package sit side by
+  side and each package resolves to the version it asked for. `drachm.lock`
+  (`[[package]]`: name, source, tag, commit, sha256 hash) is committed. A
+  package's `[native]` (`sources`, `include`, `link`) wraps C; no build scripts.
 - CLI: `new build run check test add fmt explain`, `-O` for optimised builds.
 - Built (step 7 WP3): `drachm.toml` `[project]` (name, kind `program`|`library`,
   entry), `[dependencies]` by `path` or `git` with an exact `tag` (fetched into

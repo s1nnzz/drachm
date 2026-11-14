@@ -25,7 +25,9 @@ drachm fmt
 
 The package registry is the Agora, at agora.drachm.dev. `drachm add json`
 adds a package to `drachm.toml`. Official optional packages include `json`,
-`random`, `regex` and `crypto`.
+`random`, `regex` and `crypto`. Not built: today `drachm add` takes a git
+address (`drachm add github.com/someone/sdl-drh@^0.4`); see
+[Packages](guide-packages.md).
 
 ```sh
 drachm add json
