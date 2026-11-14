@@ -1059,7 +1059,8 @@ does. Fall back to a value with `maybe`, or pass the failure up with
 
 With `unhandled_fail = "crash"` in `drachm.toml` the call is allowed:
 if it fails, the program prints the failure's message and ends with
-the failure's exit code.
+the failure's exit code. A lone `.drh` file (no `drachm.toml`) and a script
+use `crash` already.
 
 ## E0545: handler for a failure the call cannot raise
 

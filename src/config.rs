@@ -820,10 +820,8 @@ pub fn open(path: &Path) -> Result<Opened, Failure> {
             Ok(Opened { entry: path.to_path_buf(), info, config, deps })
         }
         Home::Bare => {
-            // A lone file keeps reporting an unhandled failure (E0544) until scripts
-            // decide it (WP5): the crash default is for a configured script.
-            let mut config = Config::script();
-            config.behaviour.unhandled_fail = UnhandledFail::Error;
+            // A lone file follows the script default: `unhandled_fail = crash`.
+            let config = Config::script();
             Ok(Opened { entry: path.to_path_buf(), info: ProjectInfo::script(path), config, deps: Vec::new() })
         }
     }

@@ -7,8 +7,7 @@ description: failure types, fail, maybe, fails with, catch-alls and chained caus
 
 Drachm has no `Result` type and no `?` operator. A function that can go wrong
 says so with `fails`, and the caller must say what happens on failure. The
-rules, with examples that run, are on [Failures](reference-errors.md). Only the
-`crash` setting at the end is not built yet.
+rules, with examples that run, are on [Failures](reference-errors.md).
 
 ## A function that can fail
 
@@ -93,9 +92,8 @@ error: couldn't load save
 ```
 
 ## When nothing is said
-<!-- status: not-implemented -->
 
 A call to a failing function with none of `maybe`, `fails` or `fails with` is a
-compile error by default (that part is built: E0544). The `unhandled_fail` setting in
+compile error in a project (E0544). The `unhandled_fail` setting in
 [Config](design-config.md) can change that to `crash`, which stops the program
-with a message when the call fails. Scripts use `crash` by default.
+with a message when the call fails. Scripts and lone files use `crash` by default.

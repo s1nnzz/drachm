@@ -41,6 +41,10 @@ out none run() {
     io::outln(f"overflow wraps: 250 + 10 = ${hearts}");
     // gauges.drh asks for `overflow = saturate`: the same sum sticks at the end of the scale.
     io::outln(f"gauges saturate: 250 + 10 = ${gauges::brighten(250, 10)}, -100 - 100 = ${gauges::trim(-100, 100)}, 700 narrows to ${gauges::narrow(700)}, 1 << 40 = ${gauges::lamp(1, 40)}");
+    sint8 back = -1;
+    float64 huge = 1e300;
+    float64 nothing = 0.0;
+    io::outln(f"gauges backwards: 200 >> -1 = ${gauges::surge(200, back)}, 8 >> -1 = ${gauges::surge(8, back)}, dial reads ${gauges::dial(huge * huge)} and ${gauges::dial(nothing / nothing)}");
     // `by` steps a range: the counter lands on 0, 5, 10, 15 and 20, and stops there.
     mut uint32 pulses = 0;
     for (uint32 beat of 0..20 by 5) { pulses = pulses + beat; }

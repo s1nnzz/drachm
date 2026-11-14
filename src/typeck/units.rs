@@ -584,11 +584,16 @@ impl Checker<'_> {
         }
         let (fu, tu) = (self.unit_name_of(from.unit()), self.unit_name_of(to.unit()));
         let strip = to.unit().is_none();
+        let past = match self.g.settings_at(at.span).overflow {
+            crate::config::Overflow::Wrap => "wrap around",
+            crate::config::Overflow::Saturate => "stop at the end of the range",
+            crate::config::Overflow::Panic => "stop the program",
+        };
         let what = match (info.lossy, strip) {
             (true, true) => format!("a whole number of {fu} loses its remainder in the base unit"),
             (true, false) => format!("a whole number of {fu} is divided into {tu}, and the remainder is dropped"),
-            (false, true) => format!("the amount in the base unit of {fu} can be larger than `{to}` holds ({}); larger values wrap around", to.describe_range()),
-            (false, false) => format!("{fu} is scaled up into {tu}, and `{to}` holds {}; larger values wrap around", to.describe_range()),
+            (false, true) => format!("the amount in the base unit of {fu} can be larger than `{to}` holds ({}); larger values {past}", to.describe_range()),
+            (false, false) => format!("{fu} is scaled up into {tu}, and `{to}` holds {}; larger values {past}", to.describe_range()),
         };
         let text = self.text(at.span).to_string();
         let help = if sum {
@@ -619,11 +624,11 @@ impl Checker<'_> {
     /// `e * r + c` in the number type `out` (`e` is a bare number). Floats
     /// scale in a float type; whole numbers in a wide integer type with the
     /// multiplications first and one truncating division at the end (Q5).
-    fn scale_expr(&mut self, e: hir::Expr, out: Type, r: &BigRational, c: &BigRational) -> (hir::Expr, ScaleInfo) {
+    fn scale_expr(&mut self, e: hir::Expr, out: Type, r: &BigRational, c: &BigRational, span: Span) -> (hir::Expr, ScaleInfo) {
         let inn = e.ty;
         let mut info = ScaleInfo::default();
         if r.is_one() && c.is_zero() {
-            return (conv(e, out), info);
+            return (self.ovf(conv(e, out), span), info);
         }
         if inn.is_float() || out.is_float() {
             let ft = if inn.is_float() { inn } else { out };
@@ -644,7 +649,7 @@ impl Checker<'_> {
                 let op = if c.is_negative() { hir::BinOp::Sub } else { hir::BinOp::Add };
                 x = bin(op, x, lit_rat(&c.abs(), ft), ft);
             }
-            return (conv(x, out), info);
+            return (self.ovf(conv(x, out), span), info);
         }
         // Whole numbers: x * p / q + a / b = (x * (p * b) + a * q) / (q * b).
         let (p, q, a, b) = (r.numer(), r.denom(), c.numer(), c.denom());
@@ -653,11 +658,11 @@ impl Checker<'_> {
         let w = Type::Int { bits: ib.max(ob).max(64), signed: is || os || add.is_negative() };
         let mut x = conv(e, w);
         if !m.is_one() {
-            x = bin(hir::BinOp::Mul, x, lit_int(&m, w), w);
+            x = self.ovf(bin(hir::BinOp::Mul, x, lit_int(&m, w), w), span);
         }
         if !add.is_zero() {
             let op = if add.is_negative() { hir::BinOp::Sub } else { hir::BinOp::Add };
-            x = bin(op, x, lit_int(&add.abs(), w), w);
+            x = self.ovf(bin(op, x, lit_int(&add.abs(), w), w), span);
         }
         if !d.is_one() {
             x = bin(hir::BinOp::Div, x, lit_int(&d, w), w);
@@ -668,7 +673,7 @@ impl Checker<'_> {
             let bottom = (&ilo * &m + &add).div_floor(&d);
             info.overflow = top > hi || bottom < lo;
         }
-        (conv(x, out), info)
+        (self.ovf(conv(x, out), span), info)
     }
 
     /// The number `e` (with or without a unit) as a value of type `to`
@@ -682,13 +687,13 @@ impl Checker<'_> {
             if ft != tt && !silent && !ft.converts_losslessly_to(tt) {
                 self.warn_lossy(ft, tt, at);
             }
-            conv(e, tt)
+            self.ovf(conv(e, tt), at.span)
         } else {
             let (r, c) = ratio_of(fu, tu);
             if ft != tt && !silent && !ft.converts_losslessly_to(tt) {
                 self.warn_lossy(ft, tt, at);
             }
-            let (x, info) = self.scale_expr(e, tt, &r, &c);
+            let (x, info) = self.scale_expr(e, tt, &r, &c, at.span);
             if !silent && ft.is_int() && tt.is_int() {
                 self.warn_scale(from_ty, to, &info, at, false);
             }
@@ -950,15 +955,15 @@ impl Checker<'_> {
             let w = work_type(t, false);
             let (mut aw, mut bw) = (conv(a.e, w), conv(b.e, w));
             if !ka.is_one() {
-                aw = bin(hir::BinOp::Mul, aw, lit_int(&ka, w), w);
+                aw = self.ovf(bin(hir::BinOp::Mul, aw, lit_int(&ka, w), w), span);
             }
             if !kb.is_one() {
-                bw = bin(hir::BinOp::Mul, bw, lit_int(&kb, w), w);
+                bw = self.ovf(bin(hir::BinOp::Mul, bw, lit_int(&kb, w), w), span);
             }
             if cmp {
                 bin(hop, aw, bw, Type::Bool)
             } else {
-                let mut x = bin(hop, aw, bw, w);
+                let mut x = self.ovf(bin(hop, aw, bw, w), span);
                 if !ka.is_one() {
                     x = bin(hir::BinOp::Div, x, lit_int(&ka, w), w);
                     if t.is_int() {
@@ -966,7 +971,7 @@ impl Checker<'_> {
                         self.warn_scale(self.g.unit_type(t, ru), self.g.unit_type(t, lu), &info, at, true);
                     }
                 }
-                retag(conv(x, t), self.g.unit_type(t, res))
+                retag(self.ovf(conv(x, t), span), self.g.unit_type(t, res))
             }
         } else {
             let (ra, mut ca) = ratio_of(Some(lu), Some(work));
@@ -976,8 +981,8 @@ impl Checker<'_> {
                 ca = BigRational::zero();
                 cb = BigRational::zero();
             }
-            let (ae, ia) = self.scale_expr(a.e, t, &ra, &ca);
-            let (be, ib) = self.scale_expr(b.e, t, &rb, &cb);
+            let (ae, ia) = self.scale_expr(a.e, t, &ra, &ca, span);
+            let (be, ib) = self.scale_expr(b.e, t, &rb, &cb, span);
             if t.is_int() {
                 let (wt, rt) = (self.g.unit_type(t, work), self.g.unit_type(t, ru));
                 self.warn_scale(rt, wt, &ia, ro, true);
@@ -986,7 +991,7 @@ impl Checker<'_> {
             if cmp {
                 bin(hop, ae, be, Type::Bool)
             } else {
-                bin(hop, ae, be, self.g.unit_type(t, res))
+                self.ovf(bin(hop, ae, be, self.g.unit_type(t, res)), span)
             }
         };
         Some(Val::Expr(result))
@@ -1046,9 +1051,9 @@ impl Checker<'_> {
         let (a, b, t) = self.unit_pair(lv, lo, rv, ro)?;
         let hop = hir_op(op);
         let e = if collapse {
-            self.collapse(op, a.e, b.e, &res.scale, t)
+            self.collapse(op, a.e, b.e, &res.scale, t, span)
         } else {
-            bin(hop, a.e, b.e, self.g.unit_type(t, res))
+            self.ovf(bin(hop, a.e, b.e, self.g.unit_type(t, res)), span)
         };
         Some(Val::Expr(e))
     }
@@ -1067,21 +1072,22 @@ impl Checker<'_> {
     /// scale folded in. For whole numbers the numerator scale multiplies
     /// first and the denominator scale goes into the divisor, so `4<km> /
     /// 3<m>` is `(4 * 1000) / 3`, not `(4 / 3) * 1000`.
-    fn collapse(&mut self, op: BinOp, a: hir::Expr, b: hir::Expr, scale: &BigRational, t: Type) -> hir::Expr {
+    fn collapse(&mut self, op: BinOp, a: hir::Expr, b: hir::Expr, scale: &BigRational, t: Type, span: Span) -> hir::Expr {
         if op == BinOp::Mul || t.is_float() {
-            let x = bin(hir_op(op), a, b, t);
-            return self.scale_expr(x, t, scale, &BigRational::zero()).0;
+            let x = self.ovf(bin(hir_op(op), a, b, t), span);
+            return self.scale_expr(x, t, scale, &BigRational::zero(), span).0;
         }
         let (p, q) = (scale.numer(), scale.denom());
         let w = work_type(t, false);
         let (mut aw, mut bw) = (conv(a, w), conv(b, w));
         if !p.is_one() {
-            aw = bin(hir::BinOp::Mul, aw, lit_int(p, w), w);
+            aw = self.ovf(bin(hir::BinOp::Mul, aw, lit_int(p, w), w), span);
         }
         if !q.is_one() {
-            bw = bin(hir::BinOp::Mul, bw, lit_int(q, w), w);
+            bw = self.ovf(bin(hir::BinOp::Mul, bw, lit_int(q, w), w), span);
         }
-        conv(bin(hir::BinOp::Div, aw, bw, w), t)
+        let q = self.ovf(bin(hir::BinOp::Div, aw, bw, w), span);
+        self.ovf(conv(q, t), span)
     }
 
     /// `a ** n` with a constant whole exponent.
@@ -1129,7 +1135,7 @@ impl Checker<'_> {
                 let lead = e.ty.bare();
                 let Val::Expr(x) = self.binary_vals(BinOp::Pow, Val::Expr(strip(e)), lo, rv, ro, span)? else { return None };
                 if collapse {
-                    Some(Val::Expr(self.scale_expr(x, lead, &res.scale, &BigRational::zero()).0))
+                    Some(Val::Expr(self.scale_expr(x, lead, &res.scale, &BigRational::zero(), span).0))
                 } else {
                     let ty = self.g.unit_type(lead, res);
                     Some(Val::Expr(retag(x, ty)))

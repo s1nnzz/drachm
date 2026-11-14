@@ -23,7 +23,7 @@ answers into `docs/SPEC.md` and the design doc, and note leftovers under that st
 | 4 | `for`, `skip`, `match` | done: `match` on text (exact patterns, `globbed` globs), `for` over characters (`string` copies, `&string` views), lists in step 6 |
 | 4.5 | Units of measure | done (`in si;`, points and deltas, scaled integers wrap; decisions in `docs/impl/step4.5-units.md`) |
 | 4.6 | Input: `io::inln()`, `io::ended()`, text `::to<T>()` | done (interim: bad text stops the program with exit 101; forgiving number text (spaces, `+`, `.5`); `\r\n` lines; invalid UTF-8 becomes U+FFFD) |
-| 5 | Constructors, enums, `fails` / `maybe` | done (the `crash` setting of `unhandled_fail` waits for step 7): S5A.1 done (enums with data, `match` with bindings/`take`/`copy`/guards/nesting/alternatives/values, exhaustiveness, `Switch`; `==` for payload-free enums) and S5B done (constructors, overloads, `new ... of`, named values, `Person(auto);`, `fill`, `fill partial`, `def`, `defaults`, `now`); optionals done (S5A.2, below); failures done (S5C and S5D, below: `failure`, `fails`, `fail`, `maybe`/`fails` on calls, handlers, `because`, `ConvertError`, exit codes, failing constructors and `drop()`) |
+| 5 | Constructors, enums, `fails` / `maybe` | done: S5A.1 done (enums with data, `match` with bindings/`take`/`copy`/guards/nesting/alternatives/values, exhaustiveness, `Switch`; `==` for payload-free enums) and S5B done (constructors, overloads, `new ... of`, named values, `Person(auto);`, `fill`, `fill partial`, `def`, `defaults`, `now`); optionals done (S5A.2, below); failures done (S5C and S5D, below: `failure`, `fails`, `fail`, `maybe`/`fails` on calls, handlers, `because`, `ConvertError`, exit codes, failing constructors and `drop()`) |
 | 6 | Generics, interfaces, collections | done (S6Z sweep, 2026-11-13): generic functions, structs and enums (inferred and written type arguments, borrows as type arguments, units); interfaces (`with`, `and`, `extends`, `Self`, `changes self`, built-in `Zero`/`Equal`/`Ordered`/`Text`, `with trusted`, generic interfaces, `&Shape` with vtables, `Iterable<T>` with `at(i)`); arrays, lists and maps (indexing, the methods, `take xs[i] reorders`, views of owning items, scalar and composite keys with `key()`, two-variable walks, `each`); function types, lambdas with inferred captures. The interims still open are listed in the step 6 section, each with its question number |
 | 7 | Modules, config, scripts, stdlib | in progress: WP1 done (source map with global offsets, import/export grammar, `src/modules.rs` graph loader, project folders, E0230-E0235); WP2 done (names across files, `src/resolve.rs`); WP9 done (`test` blocks, `assert`, `drachm test`; see the WP9 paragraph); follow-ups 2026-11-13: a call through a module chains with `::` or `->` (done); W0240's help asks whether the module's name was meant (done); `in si;` is per file (done, E0402 in a file without it); spec `docs/impl/step7-modules.md` |
 | 7.1 | C header import (`in * from c."SDL2/SDL.h" as sdl;`), right after step 7 | built (2026-11-13): discovery (`src/cimport.rs`, libclang through `clang-sys`), `[native]` table, scalars, `foreign *T`, text both ways, structs, enums, macros, callbacks, linking, docs and showcase; interims and open questions in the step 7.1 section below |
@@ -803,11 +803,11 @@ synthetic catch-all arm (`crash_arm`: message, exit code, `Report` with an
 exit); `Report` with an exit now ends its MIR block as unreachable. `import_clash`:
 `resolve::resolve` takes each module's setting (from the project or its
 dependency); E0242 replaces W0240. Interims (narrowest readings, owner to
-decide): the unit scaling inside `::in<U>()` and mixed-unit arithmetic still
-wraps; `unsigned_negate = wrap` on an unsigned value follows `overflow` (0 under
-saturate, panic for a non-zero value); a negative shift amount counts as
-outside the width; infinities become 0 under saturate (as SPEC says) instead of
-clamping; saturate silences W0106 and panic makes a constant out-of-range shift
+decide; the first three are settled by the follow-ups below): unit scaling
+(resolved); `unsigned_negate = wrap` on an unsigned value follows `overflow` (0
+under saturate, panic for a non-zero value); a negative shift amount counted as
+outside the width (resolved); infinities became 0 under saturate (resolved);
+saturate silences W0106 and panic makes a constant out-of-range shift
 E0116; the lossy-conversion warning W0102 stays in every mode (the wording
 changes); `unhandled_fail = crash` applies in scripts too where the script's
 default config says crash (script statements still say E0901 elsewhere).
@@ -817,6 +817,28 @@ end, and constant array indexes are checked by the type checker.
 `unsigned_negate` is applied during type checking. Signed negation of
 `uint128` is E0901 until `sint256` is supported. `missing_key = "panic"`
 uses the same checked map lookup as a compound assignment.
+
+**Step 7 progress (WP4 follow-ups, 2026-11-13, owner answers "WP4 settings follow-ups"):**
+a lone `.drh` file with no `drachm.toml` now takes the script default
+`unhandled_fail = crash` (`config::open`, `Home::Bare`; the E0544 interim is
+gone). The golden cases that need E0544 are projects with `unhandled_fail =
+"error"`: `tests/projects/fail_unhandled_*`. `tests/fail/script_unhandled` moved
+to `tests/scripts/unhandled_crash` (it compiles and stops now; `NAME.err` lists
+the stderr lines a script must print). `drachm::front` (a source string) takes
+the lone-file settings too.
+Under `overflow = saturate` a negative shift amount shifts the other way
+(`runtime/runtime.c` `drachm_ovf_shift`: the exact result clamps; a constant
+`8 << -1` folds in `typeck.rs` `binary_vals`, where an untyped constant
+negative amount was E0101 before, under wrap still is); float to integer:
++inf clamps to the max, -inf to the min, NaN is 0 (`drachm_ovf_f2i`). Tests:
+`tests/run/settings_saturate_negative_shift`, `settings_overflow_saturate`,
+`site/examples/settings-overflow`, showcase `voyage/gauges.drh`.
+Unit scaling follows `overflow` (step 4.5 scaling in `typeck/units.rs`: every
+scaled `*`, `+`, `-`, `/` and the final conversion go through `Checker::ovf`),
+so `x::in<U>()` and mixed-unit arithmetic saturate or panic; the intermediate of a
+scale is the 64-bit working type and clamps there. W0102 says "stop at the end
+of the range" or "stop the program" under those settings. Tests:
+`tests/run/settings_saturate_units`, `settings_panic_units`.
 
 **Step 7 progress (WP9, built):** `assert(cond);` is a statement (`Stmt::Assert`,
 lowered to an `if` that stops with `StopKind::Assert`). It runs in every build,

@@ -11,7 +11,7 @@ function returns its failure as an ordinary value, and every value alive in it i
 dropped on the way out, exactly as for a `return`. The
 [errors lesson](lesson-14-errors.md) introduces this with exercises, and
 [Error handling without exceptions](guide-errors-handling.md) is about designing
-with it. Only the `crash` setting for `unhandled_fail` is not built yet.
+with it.
 
 ## Failure types
 
@@ -45,9 +45,12 @@ is reaching the end of a failing `none` function.
 
 ## Saying what happens at the call
 
-A call of a function that can fail, with nothing after it, is an error (E0544):
-the message shows the ways out: a fallback with `maybe`, passing the failure up
-with `fails`, or a handler with `fails with`.
+A call of a function that can fail, with nothing after it, is an error in a
+project (E0544): the message shows the ways out: a fallback with `maybe`, passing
+the failure up with `fails`, or a handler with `fails with`. A lone `.drh` file
+and a script use the `crash` setting by default instead: the call stands, and if
+it fails the program prints the failure's message and stops with its exit code
+(see [Unhandled failures](design-config.md#unhandled-failures)).
 
 `call maybe value` is the call's result, or the value when it failed. The value
 is converted to the result type, and it is evaluated only on failure. It is a
@@ -169,4 +172,3 @@ yourself or the `e` of a handler.
 ## What is not built yet
 
 - `e::cause()`, `copy` of a failure, and a handler after a `!=` whose `==` fails.
-- The `crash` setting for `unhandled_fail` (step 7).

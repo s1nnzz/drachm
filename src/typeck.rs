@@ -3815,7 +3815,13 @@ impl<'a> Checker<'a> {
                         None => a.ty != Type::None,
                     },
                 };
-                if has_text && !text.contains('\n') {
+                let optional = match &other {
+                    Val::Expr(a) => optionals::print_help(self.g, a.ty, &text),
+                    _ => None,
+                };
+                if let Some(help) = optional.filter(|_| !text.contains('\n')) {
+                    d = d.help(help);
+                } else if has_text && !text.contains('\n') {
                     d = d.help(format!("turn it into text: `io::{name}({fix})`"));
                 }
                 self.diags.push(d);
@@ -4264,7 +4270,14 @@ impl<'a> Checker<'a> {
         let class = op.class();
 
         if let (Val::Const(a), Val::Const(b)) = (&lv, &rv) {
-            return match Const::binary(op, a, b) {
+            // Under `saturate` a negative amount shifts the other way (`8 << -1` is 4).
+            let flip = class == OpClass::Shift && b.is_negative() && self.g.settings_at(span).overflow == crate::config::Overflow::Saturate;
+            let (fop, fb) = match op {
+                BinOp::Shl if flip => (BinOp::Shr, b.neg()),
+                BinOp::Shr if flip => (BinOp::Shl, b.neg()),
+                _ => (op, b.clone()),
+            };
+            return match Const::binary(fop, a, &fb) {
                 Ok(Folded::Value(c)) => Some(Val::Const(c)),
                 Ok(Folded::Bool(b)) => Some(Val::Expr(hir::Expr::new(hir::ExprKind::Bool(b), Type::Bool))),
                 Err(err) => {

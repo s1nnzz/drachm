@@ -580,12 +580,33 @@ DRACHM_FN drachm_pair drachm_ovf_pow(int mode, uint32_t bits, int sgn, uint64_t 
     return drachm_ovf_done(mode, bits, sgn, drachm_ovf_range(bits, sgn, result), result, msg);
 }
 
-// A shift whose amount may be outside 0..bits (or negative). Saturate: the
-// bits all fall off, leaving 0 (or -1 for a negative value shifted right).
+// A shift whose amount may be outside 0..bits (or negative). Saturate: a
+// negative amount shifts the other way by its size, and the exact result is
+// clamped to the type (`8 >> -1` is 16, `200 >> -1` in uint8 is 255). An
+// amount of the width or more makes the bits all fall off, leaving 0 (or -1
+// for a negative value shifted right). Panic stops on a negative amount.
 DRACHM_FN drachm_pair drachm_ovf_shift(int left, int mode, uint32_t bits, int sgn, uint64_t vlo, uint64_t vhi,
                                        uint64_t nlo, uint64_t nhi, int amount_signed) {
     drachm_u128 v = drachm_join(vlo, vhi), n = drachm_join(nlo, nhi);
-    int outside = (amount_signed && (drachm_s128)n < 0) || n >= bits;
+    int negative = amount_signed && (drachm_s128)n < 0;
+    if (negative && mode == DRACHM_OVF_SATURATE) {
+        drachm_u128 m = -n;
+        int below = sgn && (drachm_s128)v < 0;
+        if (left) {
+            // `x << -m` is `x >> m`, which rounds toward negative infinity.
+            if (m >= bits) return drachm_split(below ? ~(drachm_u128)0 : 0);
+            return drachm_split(sgn ? (drachm_u128)((drachm_s128)v >> m) : v >> m);
+        }
+        // `x >> -m` is `x << m`: exact when it fits in 128 bits, and clamped
+        // to the type when it does not fit.
+        if (v == 0) return drachm_split(0);
+        if (m >= bits) return drachm_ovf_done(mode, bits, sgn, below ? -1 : 1, 0, "shift amount out of range");
+        drachm_u128 r = v << m;
+        int back = sgn ? (drachm_u128)((drachm_s128)r >> m) == v : (r >> m) == v;
+        int verdict = back ? drachm_ovf_range(bits, sgn, r) : below ? -1 : 1;
+        return drachm_ovf_done(mode, bits, sgn, verdict, r, "shift amount out of range");
+    }
+    int outside = negative || n >= bits;
     if (outside) {
         if (mode != DRACHM_OVF_SATURATE) drachm_panic("shift amount out of range");
         return drachm_split(!left && sgn && (drachm_s128)v < 0 ? ~(drachm_u128)0 : 0);
@@ -608,12 +629,17 @@ DRACHM_FN drachm_pair drachm_ovf_conv(int mode, uint32_t to_bits, int to_sgn, in
 }
 
 // A float to an integer: the fraction is dropped and an out of range value
-// clamps. NaN and the infinities become 0 (a panic in panic mode).
+// clamps; +inf and -inf clamp to the ends too, and NaN gives 0. Panic mode
+// stops on NaN and the infinities.
 DRACHM_FN drachm_pair drachm_ovf_f2i(int mode, uint32_t to_bits, int to_sgn, double x) {
     const char *msg = "conversion overflow";
-    if (x != x || x - x != 0) {
+    if (x != x) {
         if (mode != DRACHM_OVF_SATURATE) drachm_panic(msg);
         return drachm_split(0);
+    }
+    if (x - x != 0) {
+        if (mode != DRACHM_OVF_SATURATE) drachm_panic(msg);
+        return drachm_ovf_done(mode, to_bits, to_sgn, x > 0 ? 1 : -1, 0, msg);
     }
     double t = trunc(x);
     double hi = ldexp(1.0, to_sgn ? (int)to_bits - 1 : (int)to_bits);

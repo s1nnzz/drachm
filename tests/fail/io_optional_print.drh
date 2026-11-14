@@ -1,0 +1,7 @@
+in io;
+
+// An optional is not text: the help offers `maybe` (or `has value`), not `::text()`.
+none main() {
+    string? name = "bob";
+    io::outln(name);
+}
