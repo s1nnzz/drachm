@@ -296,6 +296,14 @@ fn completion_in_half_typed_code() {
 }
 
 #[test]
+fn standard_module_functions() {
+    for (module, want) in [("math", "sqrt"), ("string", "repeat"), ("string", "join"), ("convert", "toJson"), ("convert", "hex")] {
+        let got = completions(&format!("none main() {{\n    {module}::$\n}}\n"));
+        assert!(got.contains(&want.to_string()), "{module}::{want} missing in {got:?}");
+    }
+}
+
+#[test]
 fn nothing_inside_a_string_or_comment() {
     assert!(completions("none main() {\n    string s = \"p::$\";\n}\n").is_empty());
 }
