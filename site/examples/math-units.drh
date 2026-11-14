@@ -1,0 +1,26 @@
+in io;
+in math;
+in si;
+
+none main() {
+    // A square root halves the powers of the unit.
+    float64<m^2> floor = 25.0<m^2>;
+    float64<m> side = math::sqrt(floor);
+    io::outln(f"side ${side::text()} ${side::unitText()}");
+
+    // abs, min, max, clamp, floor, ceil and round keep the unit.
+    float64<m> a = 2.0<m>;
+    float64<cm> b = 150.0<cm>;
+    float64<m> shorter = math::min(a, b);
+    io::outln(f"shorter ${shorter::text()} ${shorter::unitText()}");
+    float64<km> far = 2.6<km>;
+    io::outln(f"rounded ${math::round(far)::text()} ${math::round(far)::unitText()}");
+
+    // Angles: a plain number is radians, `deg` and `rad` are units.
+    io::outln(f"sin 90 deg ${math::sin(90.0<deg>)}");
+    io::outln(f"cos pi ${math::cos(float64::pi)}");
+
+    // pow with a unit takes a constant whole exponent and multiplies the powers.
+    float64<m^3> volume = math::pow(side, 3);
+    io::outln(f"volume ${volume::text()} ${volume::unitText()}");
+}

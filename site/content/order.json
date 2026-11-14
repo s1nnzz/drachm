@@ -60,6 +60,7 @@
         "reference-types",
         "reference-units",
         "reference-io",
+        "reference-math",
         "reference-strings",
         "reference-structs",
         "reference-enums",

@@ -1,0 +1,5 @@
+abs 12
+min -12 max 5
+clamp -10
+capped 100
+root 7.0
