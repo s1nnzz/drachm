@@ -311,3 +311,9 @@ Q5 interfaces as types: any interface can be used as `&I` (its `static` methods 
 - `drachm add URL` without a version pins the newest tag exactly (`tag = "vX.Y.Z"`), as built (owner: "newest").
 - A locked-only install mode for CI: yes (my spelling: `drachm install --locked`, fails instead of resolving anything missing from `drachm.lock`).
 - Renaming a name that comes from a dependency package: owner let me decide. Refused, since `deps/` is fetched code that `drachm install` replaces.
+
+# math follow-ups, 2026-11-14
+- The method spelling needs no import: `2.0::sqrt()` always works; only the module spelling `math::sqrt(x)` needs `in math;`.
+- A whole number given to `sqrt`/`pow`/`log` (and the other float functions) uses a whole-number version (`math::sqrt(10u32)` is 3, the floor), with a warning suggesting `::to<float64>()` for a fractional result (owner: "warns to use to but otherwise whole number versions").
+- `math::atan2(y, x)` gives `float64<rad>` in a file that has `in si;`, and a plain `float64` (radians) in a file without it.
+- `min`/`max`: a NaN argument gives NaN (never hidden). `clamp(x, a, b)` treats the bounds as a range in either order: `clamp(5.0, 10.0, 0.0)` is 5.0.
