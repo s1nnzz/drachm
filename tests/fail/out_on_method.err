@@ -1,0 +1,2 @@
+error[E0003]
+`out` cannot go before a field or method

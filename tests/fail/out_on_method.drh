@@ -1,0 +1,9 @@
+struct Counter {
+    public:
+    uint32 n;
+    out uint32 get() { return self.n; }
+}
+
+fn main() {
+    Counter c = 1;
+}

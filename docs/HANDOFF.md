@@ -48,8 +48,9 @@ For a new session with no memory of earlier conversations. Read this, then
   SDL3 program (safe `screen.drh` wrapper, `main.drh` without unsafe), guide
   `site/content/guide-sdl3-window.md`. `cargo test` checks it and runs it a few
   frames with `SDL_VIDEO_DRIVER=dummy WINDOW_FRAMES=10` when SDL3 is installed
-  (`tests/c_imports.rs`). Known parser bug found and not fixed: `out` before a
-  method inside a struct body makes `drachm check` loop forever (memory grows).
+  (`tests/c_imports.rs`). The `out`-before-a-method parser hang is fixed: body
+  loops (struct, impl, interface, block, match) always move past a token after
+  an error, and `out` before a member is E0003 (`tests/fail/out_on_method.drh`).
 - **Step 7 WP9 built** (2026-11-13): `assert(cond);` in every build, `test "name" { }`
   blocks in project files (E0239 for a repeated name; E0901 in a script with
   top-level statements), `drachm test FILE|FOLDER [NAME] [-O]` (one program per
