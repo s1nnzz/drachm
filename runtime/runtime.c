@@ -468,6 +468,143 @@ DRACHM_FN double drachm_s128_to_f64(uint64_t lo, uint64_t hi) { return (double)(
 DRACHM_FN float drachm_u128_to_f32(uint64_t lo, uint64_t hi) { return (float)drachm_join(lo, hi); }
 DRACHM_FN float drachm_s128_to_f32(uint64_t lo, uint64_t hi) { return (float)(drachm_s128)drachm_join(lo, hi); }
 
+// ---- whole-number maths ----------------------------------------------------
+
+// `math::sqrt`, `math::log`, `math::log2`, `math::log10` of a whole number: the
+// true result rounded down. `fn`: 0 sqrt, 1 log (natural), 2 log2, 3 log10.
+// The value arrives extended to 128 bits by its own signedness. A negative
+// value (sqrt) or a value below one (the logarithms) stops the program.
+
+// floor(e^k) for k = 1..88; e^k is never a whole number, so floor(ln x) is the
+// number of entries below x.
+static const uint64_t drachm_exp_floor[88][2] = {
+    {0x2ULL, 0x0ULL},
+    {0x7ULL, 0x0ULL},
+    {0x14ULL, 0x0ULL},
+    {0x36ULL, 0x0ULL},
+    {0x94ULL, 0x0ULL},
+    {0x193ULL, 0x0ULL},
+    {0x448ULL, 0x0ULL},
+    {0xba4ULL, 0x0ULL},
+    {0x1fa7ULL, 0x0ULL},
+    {0x560aULL, 0x0ULL},
+    {0xe9e2ULL, 0x0ULL},
+    {0x27bc2ULL, 0x0ULL},
+    {0x6c02dULL, 0x0ULL},
+    {0x1259acULL, 0x0ULL},
+    {0x31e199ULL, 0x0ULL},
+    {0x87975eULL, 0x0ULL},
+    {0x1709348ULL, 0x0ULL},
+    {0x3e9e441ULL, 0x0ULL},
+    {0xaa36c7cULL, 0x0ULL},
+    {0x1ceb088bULL, 0x0ULL},
+    {0x4e9b87f6ULL, 0x0ULL},
+    {0xd5ad6dceULL, 0x0ULL},
+    {0x244d5e676ULL, 0x0ULL},
+    {0x62adfed51ULL, 0x0ULL},
+    {0x10c3d39209ULL, 0x0ULL},
+    {0x2d9264d2d4ULL, 0x0ULL},
+    {0x7be08bdfd9ULL, 0x0ULL},
+    {0x150bba37963ULL, 0x0ULL},
+    {0x39355c8c638ULL, 0x0ULL},
+    {0x9b823857614ULL, 0x0ULL},
+    {0x1a6b765d8cdfULL, 0x0ULL},
+    {0x47d0ff312d98ULL, 0x0ULL},
+    {0xc3379a5392bcULL, 0x0ULL},
+    {0x212a7c5e743deULL, 0x0ULL},
+    {0x5a278886f2356ULL, 0x0ULL},
+    {0xf510ad0e906bbULL, 0x0ULL},
+    {0x29a27f76340033ULL, 0x0ULL},
+    {0x712ccd185f319cULL, 0x0ULL},
+    {0x133a43d282a5192ULL, 0x0ULL},
+    {0x34441a72f2e5d51ULL, 0x0ULL},
+    {0x8e12e446fb43125ULL, 0x0ULL},
+    {0x1823255820115937ULL, 0x0ULL},
+    {0x419ca8f27ae1c501ULL, 0x0ULL},
+    {0xb25a0e369bc18ff3ULL, 0x0ULL},
+    {0xe4cf766fe49be1b4ULL, 0x1ULL},
+    {0x25d9ef0120f8d729ULL, 0x5ULL},
+    {0xfe4a8f5c5dbac4a7ULL, 0xdULL},
+    {0x9ad5d944a9675e9ULL, 0x26ULL},
+    {0x65c0422109427e1dULL, 0x67ULL},
+    {0x103e4080b45664d7ULL, 0x119ULL},
+    {0x279a2288c16a04cULL, 0x2fcULL},
+    {0xcb294703a5f5e7ebULL, 0x81cULL},
+    {0x4f6fdac7308d3d7aULL, 0x160dULL},
+    {0x8b5e2f7475b81c2eULL, 0x3bf1ULL},
+    {0x83b6b0b4c5b1baa2ULL, 0xa2f1ULL},
+    {0x16a6e0da7307177fULL, 0x1baedULL},
+    {0x7faf78684c6610dcULL, 0x4b3ffULL},
+    {0x55f7e5b48735190eULL, 0xcc8ceULL},
+    {0xb932a7c596f3d1eeULL, 0x22c068ULL},
+    {0x7714f19924caf2a6ULL, 0x5e76f2ULL},
+    {0xd4640970ca837586ULL, 0x100c810ULL},
+    {0x298b84ef4d2d5d54ULL, 0x2ba0127ULL},
+    {0x3c41e9ee62372708ULL, 0x7695f7aULL},
+    {0xf597cd205ce3d5b4ULL, 0x1425982cULL},
+    {0x74bc6165e1407e52ULL, 0x36c3cb94ULL},
+    {0xfe7c35d5f0ca2facULL, 0x94ddc12eULL},
+    {0xd6fe27ef7cda73eaULL, 0x194a90db0ULL},
+    {0x61bf2a7476d7e1ecULL, 0x44bfb1d65ULL},
+    {0xf1d7a598238e5e34ULL, 0xbae0ee234ULL},
+    {0x3b04730797e2bfecULL, 0x1fbfd219c4ULL},
+    {0x85170118fcfed235ULL, 0x564db51386ULL},
+    {0x3ce350b40b9b7d41ULL, 0xea98ec53f7ULL},
+    {0xa368d9c27f9d5b01ULL, 0x27db3a4945aULL},
+    {0x5edc6f75a14ce875ULL, 0x6c573f96db8ULL},
+    {0x3733d798125786ULL, 0x1268038c2c0eULL},
+    {0x8fbeef9ef8242884ULL, 0x320894e6a8baULL},
+    {0xbe67c82472ddaac5ULL, 0x880155b10c59ULL},
+    {0x971ed0e2388a8fcULL, 0x171b3540cbf92ULL},
+    {0x3812662cd92fe498ULL, 0x3ecf33d538829ULL},
+    {0x9e45281da5471244ULL, 0xaabbcdcc279f5ULL},
+    {0x9e108adb3da26c0aULL, 0x1d01a210c44aa3ULL},
+    {0x11f780919abcf38ULL, 0x4ed8f6a3a44841ULL},
+    {0x7bf3f7924788d2c5ULL, 0xd6546b5808b5beULL},
+    {0xdbd3297ca0d90786ULL, 0x2469bd3c18e9d13ULL},
+    {0x226be9bba10745e7ULL, 0x62fb1d40f291dd6ULL},
+    {0xb9e057916cbdcd86ULL, 0x10d0eda9796b9027ULL},
+    {0xbbc11aaa51a6f530ULL, 0x2db602308ee48a83ULL},
+    {0x83b55d856f1407e2ULL, 0x7c415b71efc8b4f7ULL}
+};
+
+DRACHM_FN drachm_pair drachm_imath(int fn, int sgn, uint64_t lo, uint64_t hi) {
+    drachm_u128 x = drachm_join(lo, hi);
+    if (sgn && (drachm_s128)x < 0) {
+        drachm_panic(fn == 0 ? "math::sqrt of a negative number" : "math::log of a number below one");
+    }
+    if (fn != 0 && x == 0) drachm_panic("math::log of a number below one");
+    drachm_u128 r = 0;
+    if (fn == 0) {
+        drachm_u128 bit = (drachm_u128)1 << 126;
+        while (bit > x) bit >>= 2;
+        while (bit != 0) {
+            if (x >= r + bit) {
+                x -= r + bit;
+                r = (r >> 1) + bit;
+            } else {
+                r >>= 1;
+            }
+            bit >>= 2;
+        }
+    } else if (fn == 1) {
+        for (int k = 0; k < 88; k++) {
+            if (x > drachm_join(drachm_exp_floor[k][0], drachm_exp_floor[k][1])) r++;
+        }
+    } else if (fn == 2) {
+        while (x > 1) {
+            x >>= 1;
+            r++;
+        }
+    } else {
+        while (x >= 10) {
+            x /= 10;
+            r++;
+        }
+    }
+    return drachm_split(r);
+}
+
 // ---- overflow = saturate | panic -------------------------------------------
 
 // Arithmetic, shifts, powers and conversions of a function whose overflow

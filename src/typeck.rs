@@ -3818,7 +3818,8 @@ impl<'a> Checker<'a> {
         let value = self.expr(recv);
         // `x::sqrt()` on a number is `math::sqrt(x)` when the file imports `math`.
         if let Some(v) = &value
-            && self.math_method_applies(name, span)
+            && self.math_method_applies(name)
+            && !matches!(&value, Some(Val::Expr(e)) if self.g.ifaces.ext.get(&e.ty).is_some_and(|ms| ms.iter().any(|m| m.name == name)))
             && match v {
                 Val::Const(_) | Val::UConst(..) => true,
                 Val::Expr(e) => e.ty.is_numeric() || e.ty.is_borrow() && e.ty.target().is_some_and(|t| t.is_numeric()),

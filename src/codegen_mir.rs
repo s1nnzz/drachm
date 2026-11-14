@@ -1462,6 +1462,18 @@ impl Cg<'_, '_> {
                     }
                 }
             }
+            Callee::Math(f, ty) if ty.is_int() => {
+                let v = self.operand(&args[0].op);
+                let [lo, hi] = self.halves(v, ty);
+                let code = self.b.ins().iconst(i32t, f.int_code());
+                let signed = self.b.ins().iconst(i32t, is_signed(ty) as i64);
+                let r = self.rt("drachm_imath", &[i32t, i32t, i64t, i64t], &[i64t, i64t], &[code, signed, lo, hi]);
+                let r = self.join_halves(&r, cl_type(ty).expect("an integer has a machine type"));
+                if let Some(dest) = dest {
+                    let (loc, _) = self.locate(dest);
+                    self.store(loc, r);
+                }
+            }
             Callee::Math(f, ty) => {
                 let params: Vec<_> = args.iter().map(|arg| self.operand(&arg.op)).collect();
                 let cl = if ty == Type::Float(32) { types::F32 } else { types::F64 };

@@ -1120,6 +1120,22 @@ impl MathFn {
         !matches!(self, Self::Min | Self::Max | Self::Clamp)
     }
 
+    /// Does the function have a whole-number version done by the runtime
+    /// (`drachm_imath`)? Integer `floor`, `ceil` and `round` are the value itself.
+    pub fn is_int_runtime(self) -> bool {
+        matches!(self, Self::Sqrt | Self::Log | Self::Log2 | Self::Log10)
+    }
+
+    /// The `fn` argument of `drachm_imath`.
+    pub fn int_code(self) -> i64 {
+        match self {
+            Self::Sqrt => 0,
+            Self::Log => 1,
+            Self::Log2 => 2,
+            _ => 3,
+        }
+    }
+
     /// The C library function for `float32` (`f32`) or `float64`; also the symbol the
     /// Cranelift backend calls.
     pub fn symbol(self, f32: bool) -> &'static str {

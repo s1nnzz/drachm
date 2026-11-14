@@ -939,6 +939,17 @@ impl Gen<'_> {
                     self.line(format!("{dest} = {}({params});", op.symbol()));
                 }
             }
+            Callee::Math(f, ty) if ty.is_int() => {
+                let dest = dest_lv.expect("a math call has a destination");
+                let v = self.operand(&args[0].op);
+                self.line(format!(
+                    "{{ const drachm_pair p = drachm_imath({}, {}, {}); {dest} = ({})drachm_join(p.lo, p.hi); }}",
+                    f.int_code(),
+                    signed(ty) as u8,
+                    halves(&v, ty),
+                    c_type(ty)
+                ));
+            }
             Callee::Math(f, ty) => {
                 let dest = dest_lv.expect("a math call has a destination");
                 let params = args.iter().map(|arg| self.operand(&arg.op)).collect::<Vec<_>>().join(", ");

@@ -1,0 +1,37 @@
+// The method spelling needs no import, a whole number gets the whole-number versions
+// (rounded down), `clamp` takes its bounds in either order, and `atan2` is an angle
+// in a file that has `in si;`.
+in io;
+in si;
+in math;
+
+none main() {
+    // Methods work without `in math;` in other files; here both spellings.
+    float64 x = 16.0;
+    io::outln(f"${x::sqrt()} ${math::sqrt(x)}");
+
+    uint32 a = 10;
+    sint64 b = 1000000;
+    uint128 big = 340282366920938463463374607431768211455;
+    sint32 n = 7;
+    io::outln(f"sqrt ${math::sqrt(a)} ${math::sqrt(b)} ${math::sqrt(big)} ${a::sqrt()} ${(99u8)::sqrt()} ${math::sqrt(0u8)}");
+    io::outln(f"log ${math::log(a)} ${math::log2(a)} ${math::log10(b)} ${math::log(big)} ${math::log2(big)} ${math::log10(big)}");
+    io::outln(f"log edges ${math::log(3u8)} ${math::log(2u8)} ${math::log(1u8)} ${math::log10(999u32)} ${math::log10(1000u32)}");
+    io::outln(f"pow ${math::pow(a, 3u32)} ${math::pow(n, 2)} ${math::pow(n, 0u8)} ${math::pow(2u8, 7u8)}");
+    io::outln(f"rounding ${math::floor(n)} ${math::ceil(a)} ${math::round(b)}");
+    io::outln(f"fractional ${math::sqrt(a::to<float64>())}");
+
+    // Units survive the whole-number square root.
+    sint32<m^2> area = 49<m^2>;
+    io::outln(f"unit ${math::sqrt(area)}");
+
+    // The bounds of clamp are a range in either order.
+    io::outln(f"clamp ${math::clamp(5.0, 10.0, 0.0)} ${math::clamp(5.0, 0.0, 10.0)} ${math::clamp(-3, 4, -1)} ${n::clamp(10, 0)}");
+    float64 zero = 0.0;
+    float64 nan = zero / zero;
+    io::outln(f"nan ${math::min(nan, 1.0)} ${math::max(1.0, nan)} ${math::clamp(nan, 4.0, 2.0)}");
+
+    // atan2 gives an angle with `in si;`.
+    float64<rad> turn = math::atan2(1.0, 1.0);
+    io::outln(f"atan2 ${turn::in<deg>()}");
+}

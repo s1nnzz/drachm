@@ -3,5 +3,5 @@ in math;
 
 none main() {
     uint32 n = 16;
-    io::outln(math::sqrt(n)::text());
+    io::outln(math::sin(n)::text());
 }

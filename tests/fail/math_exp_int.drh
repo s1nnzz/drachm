@@ -1,0 +1,7 @@
+in io;
+in math;
+
+none main() {
+    uint32 n = 3;
+    io::outln(n::exp()->text());
+}

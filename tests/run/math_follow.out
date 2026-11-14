@@ -1,0 +1,11 @@
+4.0 4.0
+sqrt 3 1000 18446744073709551615 3 9 0
+log 2 3 6 88 127 38
+log edges 1 0 0 2 3
+pow 1000 49 1 128
+rounding 7 10 1000000
+fractional 3.1622776601683795
+unit 7
+clamp 5.0 5.0 -1 7
+nan nan nan nan
+atan2 45.0

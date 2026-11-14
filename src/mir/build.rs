@@ -2097,7 +2097,7 @@ impl<'a> Builder<'a> {
     fn math(&mut self, e: &Expr, f: hir::MathFn, args: &[Expr], mode: crate::config::Overflow) -> Operand {
         use hir::MathFn::*;
         let ty = e.ty;
-        if f.is_libm() && ty.is_float() {
+        if f.is_libm() && (ty.is_float() || ty.is_int() && f.is_int_runtime()) {
             let refs: Vec<&Expr> = args.iter().collect();
             let ops = self.operands(&refs, &|_| None);
             return self.call(Callee::Math(f, ty), ops, ty);
@@ -2125,8 +2125,14 @@ impl<'a> Builder<'a> {
                 }
             }
             Clamp => {
-                self.set_if(Rvalue::Binary(hir::BinOp::Lt, copy(vals[0]), copy(vals[1])), result, Rvalue::Use(copy(vals[1])));
-                self.set_if(Rvalue::Binary(hir::BinOp::Gt, copy(vals[0]), copy(vals[2])), result, Rvalue::Use(copy(vals[2])));
+                // The bounds are a range in either order (owner, 2026-11-14).
+                let (low, high) = (self.new_temp(ty), self.new_temp(ty));
+                self.assign_stmt(Place::local(low), Rvalue::Use(copy(vals[1])));
+                self.assign_stmt(Place::local(high), Rvalue::Use(copy(vals[2])));
+                self.set_if(Rvalue::Binary(hir::BinOp::Lt, copy(vals[2]), copy(vals[1])), low, Rvalue::Use(copy(vals[2])));
+                self.set_if(Rvalue::Binary(hir::BinOp::Lt, copy(vals[2]), copy(vals[1])), high, Rvalue::Use(copy(vals[1])));
+                self.set_if(Rvalue::Binary(hir::BinOp::Lt, copy(vals[0]), copy(low)), result, Rvalue::Use(copy(low)));
+                self.set_if(Rvalue::Binary(hir::BinOp::Gt, copy(vals[0]), copy(high)), result, Rvalue::Use(copy(high)));
             }
             Abs => {
                 let zero = Operand::Const(Constant::Int(0, ty));
