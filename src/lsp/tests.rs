@@ -421,3 +421,32 @@ fn imports_offer_the_items_of_the_module_named_after_from() {
     assert!(got.iter().any(|l| l == "greeting"), "{got:?}");
     assert!(!got.iter().any(|l| l == "io"), "{got:?}");
 }
+
+/// The labels and details offered where `$` stands in `text`.
+fn completion_details(text: &str) -> Vec<(String, String)> {
+    let off = text.find('$').expect("a $ marks the cursor");
+    let clean = text.replacen('$', "", 1);
+    let path = PathBuf::from("/nonexistent-drachm-test/main.drh");
+    let docs = HashMap::from([(path.clone(), clean)]);
+    Analysis::complete_at(&path, &docs, off).into_iter().map(|i| (i.label, i.detail)).collect()
+}
+
+fn detail_of(got: &[(String, String)], name: &str) -> String {
+    got.iter().find(|(l, _)| l == name).map(|(_, d)| d.clone()).unwrap_or_else(|| panic!("no {name} in {got:?}"))
+}
+
+#[test]
+fn builtin_methods_show_their_signatures() {
+    let got = completion_details("none main() {\n    string s = \"ab\";\n    s::$\n}\n");
+    assert_eq!(detail_of(&got, "find"), "sint64 find(string text)");
+    assert_eq!(detail_of(&got, "len"), "uint64 len()");
+    assert_eq!(detail_of(&got, "padLeft"), "string padLeft(uint64 width[, string fill])");
+    // A list's signatures use its item type.
+    let got = completion_details("none f(uint32[?] xs) {\n    xs::$\n}\nnone main() { }\n");
+    assert_eq!(detail_of(&got, "push"), "none push(uint32 item)");
+    assert_eq!(detail_of(&got, "pop"), "uint32? pop()");
+    // A map's signatures use its key and value types.
+    let got = completion_details("none f(Map<string, uint32> m) {\n    m::$\n}\nnone main() { }\n");
+    assert_eq!(detail_of(&got, "get"), "uint32? get(string key)");
+    assert_eq!(detail_of(&got, "set"), "none set(string key, uint32 value)");
+}

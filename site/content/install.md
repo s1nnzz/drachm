@@ -90,6 +90,8 @@ file on disk), and it understands a whole project folder, not only one file.
   name, bare enum variants where the enum is known from the context (a
   declaration, an assignment, a comparison, an argument, a `case`), the names in
   scope, and keywords.
+  The built-in methods of strings, lists, arrays, maps and numbers come with
+  their signatures, with the item or key and value types filled in.
 - **Inlay hints** show the `self` mode the checker worked out for each method,
   after its signature: `&self` when the method only reads `self`, `&mut self`
   when it changes it. You do not write it; the hint shows what was inferred.

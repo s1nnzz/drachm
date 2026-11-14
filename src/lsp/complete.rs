@@ -125,8 +125,97 @@ const TYPES: &[&str] = &[
     "none", "bool", "string", "uint8", "uint16", "uint32", "uint64", "sint8", "sint16", "sint32", "sint64", "float32", "float64", "Map", "OrderedMap",
 ];
 
-fn builtin(names: &[&str], sort: u8) -> Vec<Item> {
-    names.iter().map(|n| item(*n, Kind::METHOD, "built in", sort)).collect()
+/// The built-in methods named in `names`, each with the signature `sig` gives.
+fn builtin(names: &[&str], sig: impl Fn(&str) -> String, sort: u8) -> Vec<Item> {
+    names.iter().map(|n| item(*n, Kind::METHOD, sig(n), sort)).collect()
+}
+
+/// The signature of `name` in a table of `(name, signature)`.
+fn from_table(table: &[(&str, &str)], name: &str) -> String {
+    table.iter().find(|(n, _)| *n == name).map_or_else(String::new, |(_, s)| s.to_string())
+}
+
+/// Methods of a string, as they are written (`T` is the number type of `to<T>()`).
+const STRING_SIGS: &[(&str, &str)] = &[
+    ("len", "uint64 len()"),
+    ("isEmpty", "bool isEmpty()"),
+    ("reverse", "string reverse()"),
+    ("sub", "string sub(sint64 from, sint64 to)"),
+    ("upper", "string upper()"),
+    ("lower", "string lower()"),
+    ("trim", "string trim()"),
+    ("find", "sint64 find(string text)"),
+    ("contains", "bool contains(string text)"),
+    ("startsWith", "bool startsWith(string text)"),
+    ("endsWith", "bool endsWith(string text)"),
+    ("count", "uint64 count(string text)"),
+    ("join", "string join(string text)"),
+    ("replace", "string replace(string from, string to)"),
+    ("replaceLimit", "string replaceLimit(string from, string to, uint64 limit)"),
+    ("insert", "string insert(sint64 index, string text)"),
+    ("remove", "string remove(sint64 from, sint64 to)"),
+    ("repeat", "string repeat(uint64 count)"),
+    ("padLeft", "string padLeft(uint64 width[, string fill])"),
+    ("padRight", "string padRight(uint64 width[, string fill])"),
+    ("split", "string[?] split(string sep)"),
+    ("lines", "string[?] lines()"),
+    ("chars", "string[?] chars()"),
+    ("text", "string text()"),
+    ("to", "T to<T>()"),
+];
+
+/// The item type of a list (`T[?]`, `List<T>`) or an array (`T[N]`).
+fn item_type(ty: &str) -> String {
+    if let Some(t) = ty.strip_suffix("[?]") {
+        return t.to_string();
+    }
+    if let Some(t) = ty.strip_prefix("List<").and_then(|t| t.strip_suffix('>')) {
+        return t.to_string();
+    }
+    match ty.rfind('[') {
+        Some(i) if ty.ends_with(']') => ty[..i].to_string(),
+        _ => "T".to_string(),
+    }
+}
+
+/// The signature of a method of a list (`t` the item type) or an array.
+fn list_sig(name: &str, t: &str) -> String {
+    match name {
+        "len" => "uint64 len()".into(),
+        "each" => "none each(callback)".into(),
+        "push" => format!("none push({t} item)"),
+        "pop" => format!("{t}? pop()"),
+        "get" => format!("{t}? get(sint64 index)"),
+        "first" => format!("{t}? first()"),
+        "last" => format!("{t}? last()"),
+        "insert" => format!("none insert(sint64 index, {t} item)"),
+        "remove" => format!("{t} remove(sint64 index)"),
+        "clear" => "none clear()".into(),
+        "join" => "string join(string sep)".into(),
+        "contains" => format!("bool contains({t} item)"),
+        _ => String::new(),
+    }
+}
+
+/// The key and value types of a map (`Map<K, V>`).
+fn key_value(ty: &str) -> (String, String) {
+    let inner = ty.split_once('<').map_or("", |(_, r)| r.trim_end_matches('>'));
+    match inner.split_once(", ") {
+        Some((k, v)) => (k.to_string(), v.to_string()),
+        None => ("K".to_string(), "V".to_string()),
+    }
+}
+
+/// The signature of a method of a map.
+fn map_sig(name: &str, k: &str, v: &str) -> String {
+    match name {
+        "len" => "uint64 len()".into(),
+        "get" => format!("{v}? get({k} key)"),
+        "set" => format!("none set({k} key, {v} value)"),
+        "remove" => format!("none remove({k} key)"),
+        "each" => "none each(callback)".into(),
+        _ => String::new(),
+    }
 }
 
 impl Analysis {
@@ -235,19 +324,22 @@ impl Analysis {
             return Vec::new();
         }
         if ty == "string" {
-            return builtin(STRING_METHODS, 0);
+            return builtin(STRING_METHODS, |n| from_table(STRING_SIGS, n), 0);
         }
         if ty.ends_with("[?]") || ty.starts_with("List<") {
-            return builtin(LIST_METHODS, 0);
+            let t = item_type(&ty);
+            return builtin(LIST_METHODS, |n| list_sig(n, &t), 0);
         }
         if ty.ends_with(']') {
-            return builtin(ARRAY_METHODS, 0);
+            let t = item_type(&ty);
+            return builtin(ARRAY_METHODS, |n| list_sig(n, &t), 0);
         }
         if ty.starts_with("Map<") || ty.starts_with("OrderedMap<") {
-            return builtin(MAP_METHODS, 0);
+            let (k, v) = key_value(&ty);
+            return builtin(MAP_METHODS, |n| map_sig(n, &k, &v), 0);
         }
         if ty == "bool" || ty.starts_with("uint") || ty.starts_with("sint") || ty.starts_with("float") {
-            return builtin(NUMBER_METHODS, 0);
+            return builtin(NUMBER_METHODS, |n| from_table(&[("text", "string text()"), ("to", "T to<T>()")], n), 0);
         }
         Vec::new()
     }
