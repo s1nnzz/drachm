@@ -25,7 +25,7 @@ answers into `docs/SPEC.md` and the design doc, and note leftovers under that st
 | 4.6 | Input: `io::inln()`, `io::ended()`, text `::to<T>()` | done (interim: bad text stops the program with exit 101; forgiving number text (spaces, `+`, `.5`); `\r\n` lines; invalid UTF-8 becomes U+FFFD) |
 | 5 | Constructors, enums, `fails` / `maybe` | done: S5A.1 done (enums with data, `match` with bindings/`take`/`copy`/guards/nesting/alternatives/values, exhaustiveness, `Switch`; `==` for payload-free enums) and S5B done (constructors, overloads, `new ... of`, named values, `Person(auto);`, `fill`, `fill partial`, `def`, `defaults`, `now`); optionals done (S5A.2, below); failures done (S5C and S5D, below: `failure`, `fails`, `fail`, `maybe`/`fails` on calls, handlers, `because`, `ConvertError`, exit codes, failing constructors and `drop()`) |
 | 6 | Generics, interfaces, collections | done (S6Z sweep, 2026-11-13): generic functions, structs and enums (inferred and written type arguments, borrows as type arguments, units); interfaces (`with`, `and`, `extends`, `Self`, `changes self`, built-in `Zero`/`Equal`/`Ordered`/`Text`, `with trusted`, generic interfaces, `&Shape` with vtables, `Iterable<T>` with `at(i)`); arrays, lists and maps (indexing, the methods, `take xs[i] reorders`, views of owning items, scalar and composite keys with `key()`, two-variable walks, `each`); function types, lambdas with inferred captures. The interims still open are listed in the step 6 section, each with its question number |
-| 7 | Modules, config, scripts, stdlib | in progress: WP1 done (source map with global offsets, import/export grammar, `src/modules.rs` graph loader, project folders, E0230-E0235); WP2 done (names across files, `src/resolve.rs`); WP9 done (`test` blocks, `assert`, `drachm test`; see the WP9 paragraph); follow-ups 2026-11-13: a call through a module chains with `::` or `->` (done); W0240's help asks whether the module's name was meant (done); `in si;` is per file (done, E0402 in a file without it); spec `docs/impl/step7-modules.md` |
+| 7 | Modules, config, scripts, stdlib | in progress: WP1 done (source map with global offsets, import/export grammar, `src/modules.rs` graph loader, project folders, E0230-E0235); WP2 done (names across files, `src/resolve.rs`); WP3 done (`drachm.toml`, `src/config.rs`, dependencies); WP4 done (the six `[behaviour]` settings, per-file flags); WP5 first slice done (scripts; the JIT, WP5b, is pending); WP6 started (2026-11-14: the stdlib mechanism and `math`; `os`, `fs`, `time` moved onto it; `io`, `si` stay special; `string`, `convert`, `process` next); WP9 done (`test` blocks, `assert`, `drachm test`; see the WP9 paragraph); follow-ups 2026-11-13: a call through a module chains with `::` or `->` (done); W0240's help asks whether the module's name was meant (done); `in si;` is per file (done, E0402 in a file without it); spec `docs/impl/step7-modules.md` |
 | 7.1 | C header import (`in * from c."SDL2/SDL.h" as sdl;`), right after step 7 | built (2026-11-13): discovery (`src/cimport.rs`, libclang through `clang-sys`), `[native]` table, scalars, `foreign *T`, text both ways, structs, enums, macros, callbacks, linking, docs and showcase; interims and open questions in the step 7.1 section below |
 | 7.6 | Package manager (`drachm add/remove/update`, git tags as versions, per-project `deps/`, later the Agora; ties into C header packages) | not started; owner answers "Package manager, 2026-11-13" |
 | 7.5 | MIR optimiser: SSA, inlining, scalar replacement, constant folding, loop opts, check elimination, alias info from borrows | not started |
@@ -885,6 +885,54 @@ Tests: `tests/fail/expect_*.drh`, `tests/run/handler_early_leave.drh`,
 `tests/run/expect_failure_build.drh`, `tests/cli.rs`
 (`test_expect_failure_passes_or_stops_the_test_with_a_message`), the showcase's
 `rules` tests, `site/examples/test-blocks.drh`.
+
+**Step 7 progress (WP6, first package, built 2026-11-14): the stdlib mechanism and `math`.**
+Mechanism (engineering choice E3): a standard module is Drachm source embedded in the
+compiler, `src/stdlib/NAME.drh` through `include_str!` (registry in `src/stdlib.rs`).
+`in NAME;` loads it into the module graph like a file (`Module::embedded`, shown in
+diagnostics as `std/NAME.drh`), so names resolve, export and mangle (`math::sqrt`) like any
+module's, and an item import (`in sqrt from math;`) or an alias works. Search order is E10
+(project, dependencies, standard; two matches is E0231; unchanged). The compiler-only
+**intrinsic form** is a function written `out float64 sqrt(float64 x) intrinsic;` (no body).
+The parser takes it everywhere (`ast::Func::intrinsic`), the loader rejects it outside the
+embedded modules (E0243), and the resolver keeps intrinsics out of the program and records
+their global names (`ast::Program::intrinsics`). `typeck` types a call of one by its own
+rule: `typeck/library.rs` (`fs`, `os`, `time`: the old hard-wired code, moved) and
+`typeck/math.rs`. This is what lets one declaration serve every number type and units, which
+Drachm's own generics cannot express (a unit's powers halving, a unit in or out). The declared
+types are documentation and the arity. A function with a body would work in a stdlib file
+like any generic function; `math` has none because min/max/clamp/abs must be one rule for
+every unit and width. **`io` stays special** (its formatting reads the format string at
+compile time, `io::outf`) and so does `si` (a unit prelude). E0206 for a missing import
+stays (resolver for projects and one-file programs through the module list; typeck for a
+module used without any import). Unknown functions are now E0237 ("the module `fs` has no
+`create`", with the export list) instead of the old E0901/E0201 text.
+`ast::Program::lib_imports` records which embedded modules each file imports whole, for the
+method spelling.
+`math`: `sqrt pow exp log log2 log10 hypot floor ceil round sin cos tan atan2 abs min max
+clamp` (owner-decided set plus the cheap ones). `hir::ExprKind::Math(MathFn, args, overflow)`;
+the MIR lowers libm functions to `Callee::Math(f, ty)` (the C library by symbol, `sqrt`/`sqrtf`,
+on both backends; the `-O` build adds `-fno-builtin-sin` and friends so the compiler never folds
+a constant call differently) and builds `min`, `max`, `clamp` and whole-number `abs` from
+comparisons and branches in `mir/build.rs` `math` (so 128-bit works and `abs` follows the
+`overflow` setting). Constants: `float64::pi`, `float32::pi`, `e`, `tau` in
+`typeck/math.rs` `float_constant`, from `path_expr`. `deg` (`0.017453292519943295 rad`) was
+added to `src/prelude/si.drh`. Units: `typeck/math.rs` header comment has the rules (sqrt
+halves via `UnitTable::root`, E0410 for an odd power or a point; E0411 for a unit where a
+plain number or angle is needed). Tests: `tests/run/math_*.drh` (edge cases NaN, -0.0, inf,
+ordinary arguments, units, widths, `overflow` settings, import forms), `tests/fail/math_*.drh`,
+`site/examples/math-*.drh`, showcase part 1. Site: `reference-math.md`, `design-maths.md`.
+
+*Interims chosen (owner to confirm):* the method spelling `x::sqrt()` needs `in math;` (or
+`in math as m;`) in the file, same as the function spelling; an item import (`in sqrt from
+math;`) does not enable it. Whole-number values given to float functions are E0101 with
+`::to<float64>()` suggested, constants (`math::sqrt(2)`) are taken as floats. `floor`, `ceil`
+and `round` on whole numbers are the same error. `min`/`max` are NaN-propagating, `clamp` with
+`low > high` gives `high`, `round` is half away from zero. `pow` with a unit needs a constant whole
+exponent (E0404 otherwise). `atan2` gives a plain number of radians. `hypot` and `atan2` bring
+the second argument to the first one's unit; the first argument leads in `min max clamp` too.
+A sqrt of a unit with a scale that has no exact root (`2 m^2`) is taken in the unit with scale
+one; one with an exact root keeps the scale (`4.0<km^2>` is `2.0<km>`, `ha` is `100*m`).
 
 **Open (ask owner):** the full `[warnings]` name list (grows as warnings are added).
 Also: a `deps/`

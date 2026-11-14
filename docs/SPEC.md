@@ -1000,9 +1000,12 @@ phys::Vector3 v = 1, 2, 3;
 
 Owner decisions, 2026-11-13 and 2026-11-14 (`docs/impl/owner-answers.md`
 "Standard library"). First cut in this order: `io` (files too), `string`,
-`convert`, `math`, `os` (environment), `fs`, `time`, `process`. Built today
-(hard-wired in the checker until WP6 moves them into embedded `.drh` modules):
-`io`, `fs::read`/`fs::write`, `os::platform`/`os::getEnv`, `time::sleep`.
+`convert`, `math`, `os` (environment), `fs`, `time`, `process`. Built today:
+`io` (special in the checker), `math` (complete, see below), and the embedded modules
+`fs::read`/`fs::write`, `os::platform`/`os::getEnv`, `time::sleep`. A standard module
+other than `io` and `si` is Drachm source embedded in the compiler (`src/stdlib/NAME.drh`)
+whose functions the checker types itself (`intrinsic`, compiler-only; `docs/PLAN.md`
+step 7 WP6).
 
 - A module function and a method are the same function, two spellings:
   `math::sqrt(2.0)` is `2.0::sqrt()`; `string::join(words, ", ")` is
@@ -1011,7 +1014,11 @@ Owner decisions, 2026-11-13 and 2026-11-14 (`docs/impl/owner-answers.md`
   `float64::e`, at that type's precision, with no import.
 - `math` carries units: `math::sqrt(9.0<m^2>)` is `3.0<m>`; `abs`, `min`,
   `max`, `floor`, `ceil`, `round`, `clamp` keep the unit; `sin`, `cos`, `tan`
-  take a plain number or an angle unit.
+  take a plain number or an angle unit. Built (2026-11-14): `sqrt pow exp log log2
+  log10 hypot floor ceil round sin cos tan atan2 abs min max clamp`, the constants
+  `float64::pi`, `float32::pi`, `e` and `tau`, and `deg` (`0.017453292519943295 rad`) in
+  `si`. The method spelling `x::sqrt()` needs `in math;` in the file (interim). `abs min max
+  clamp` also take whole numbers; the others need a float (interim).
 - `string`: functions that do not start from one string (`string::repeat`),
   plus every text method under the module name.
 - `convert`: text formats built from field names (`convert::toJson(v)`,

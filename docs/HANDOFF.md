@@ -4,7 +4,7 @@ For a new session with no memory of earlier conversations. Read this, then
 `CLAUDE.md`, `docs/PLAN.md` (Progress table) and the newest sections of
 `docs/impl/owner-answers.md`.
 
-## State (2026-11-13)
+## State (2026-11-14)
 
 - Steps 0-6 are done, plus 4.5 (units) and 4.6 (input). See the Progress
   table in `docs/PLAN.md`. Every step 6 decision is in
@@ -50,6 +50,16 @@ For a new session with no memory of earlier conversations. Read this, then
   frames with `SDL_VIDEO_DRIVER=dummy WINDOW_FRAMES=10` when SDL3 is installed
   (`tests/c_imports.rs`). Known parser bug found and not fixed: `out` before a
   method inside a struct body makes `drachm check` loop forever (memory grows).
+- **Step 7 WP6, first package built (2026-11-14): the stdlib mechanism and `math`.**
+  Standard modules are Drachm source embedded in the compiler (`src/stdlib/NAME.drh`,
+  registry `src/stdlib.rs`) with a compiler-only `intrinsic` function form that the
+  checker types itself (`src/typeck/library.rs` for `os`, `fs`, `time`;
+  `src/typeck/math.rs` for `math`); `io` and `si` stay special. `math` has sqrt pow exp
+  log log2 log10 hypot floor ceil round sin cos tan atan2 abs min max clamp, both spellings
+  (`math::sqrt(x)` and `x::sqrt()`), units carried through, and the constants
+  `float64::pi` / `float32::pi` / `e` / `tau`. `deg` joined `si`. Interims and open
+  questions are listed in PLAN step 7 "WP6, first package". Next in WP6: `string`, `convert`
+  (then `process`, file handles in `fs`).
 - **Step 7 WP9 built** (2026-11-13): `assert(cond);` in every build, `test "name" { }`
   blocks in project files (E0239 for a repeated name; E0901 in a script with
   top-level statements), `drachm test FILE|FOLDER [NAME] [-O]` (one program per
