@@ -317,9 +317,6 @@ none main() fails screen::ScreenError {
                 case MouseMoved(float32 mx, float32 my) {
                     mouseX = mx;
                     mouseY = my;
-                    trailX[slot] = mx;
-                    trailY[slot] = my;
-                    slot = (slot + 1) % TRAIL;
                 }
                 case MouseDown(float32 mx, float32 my) {
                     pinned = true;
@@ -330,6 +327,11 @@ none main() fails screen::ScreenError {
                 case Idle { pending = false; }
             }
         }
+
+        // One trail point every frame, so the trail catches up with a still mouse.
+        trailX[slot] = mouseX;
+        trailY[slot] = mouseY;
+        slot = (slot + 1) % TRAIL;
 
         // Move the square and keep it inside the window.
         if (held.left) { x -= 5.0; }

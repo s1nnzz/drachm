@@ -1,3 +1,5 @@
 /target
 /runtime/strings/target
 /.claude/
+/examples/sdl3-window/sdl3-window
+/examples/sdl3-smoke/sdl3-smoke
