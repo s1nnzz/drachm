@@ -391,6 +391,7 @@ impl Globals {
             has_drop: None,
             ctors: Vec::new(),
             auto_ctor: false,
+            union_layout: None,
             default_def: None,
             declared_lives: false,
             placeholder: None,

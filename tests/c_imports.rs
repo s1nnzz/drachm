@@ -288,3 +288,41 @@ fn foreign_pointers_copy_and_a_handover_takes_as() {
     let err = text(&check.stderr);
     assert!(err.contains("E0335") && err.contains("`as` turns a pointer into a C pointer"), "{err}");
 }
+
+/// Are the SDL3 headers and library installed (the window example needs both)?
+fn sdl3_installed() -> bool {
+    let header = ["/usr/include", "/usr/local/include"].iter().any(|d| Path::new(d).join("SDL3/SDL.h").exists());
+    let lib = ["/usr/lib", "/usr/lib64", "/usr/lib/x86_64-linux-gnu", "/usr/local/lib"].iter().any(|d| Path::new(d).join("libSDL3.so").exists());
+    header && lib
+}
+
+#[test]
+fn the_sdl3_window_example_checks_and_runs_without_a_display() {
+    if !sdl3_installed() {
+        eprintln!("skipped: SDL3 is not installed");
+        return;
+    }
+    let dir = root().join("examples/sdl3-window");
+    let check = drachm(&root(), &["check", dir.to_str().unwrap()]);
+    let err = text(&check.stderr);
+    if err.contains("libclang") {
+        eprintln!("skipped: libclang is not installed");
+        return;
+    }
+    assert!(check.status.success(), "{err}");
+    // SDL's dummy video driver has no display: a few frames, on both backends.
+    for flags in [&["run"][..], &["run", "-O"][..]] {
+        let mut args: Vec<&str> = flags.to_vec();
+        args.push(dir.to_str().unwrap());
+        let out = Command::new(env!("CARGO_BIN_EXE_drachm"))
+            .current_dir(root())
+            .env("NO_COLOR", "1")
+            .env("SDL_VIDEO_DRIVER", "dummy")
+            .env("WINDOW_FRAMES", "10")
+            .args(&args)
+            .output()
+            .expect("could not start drachm");
+        assert!(out.status.success(), "{:?}: {}", flags, text(&out.stderr));
+        assert_eq!(text(&out.stdout), "closed after 10 frames, 0 clicks\n", "{flags:?}");
+    }
+}

@@ -935,6 +935,22 @@ imports batch A-D"); the implementation spec is `docs/impl/step7.1-c-imports.md`
 - `x as T` for C numbers only (desugars to `::to<T>()`), and `p as foreign *T` /
   `p as foreign *none` for pointers (`PtrConv`, E0335 otherwise).
 
+**Unions (built 2026-11-13, owner: readable only in `unsafe`).** A union is a
+struct with `is_union` (`hir::StructDef`, `ast::Struct::union_layout`): every
+field at offset 0, the C size and alignment (the C backend emits a real `union`
+with a padding member). Interims, my readings, for the owner to rule on:
+(a) members written are `unsafe` too (E0336 covers read and write, `ev.key.down`
+counts as a member of the union); (b) a union value is made only as
+`new U of ()` (all zero bytes), values are E0114; (c) members that cannot be
+mapped (bit-fields, anonymous struct or union members, flexible arrays) are
+left out of the union, which keeps its size; (d) a union is not passed or
+returned by value (E0901 with the reason; pass a pointer); (e) a member named
+like a Drachm keyword (`move`) cannot be written; (f) libclang spells an
+anonymous enum `enum (unnamed at ...)`: that is now no name, so its enumerators
+are plain numbers as decided. Example: `examples/sdl3-window/` (SDL3), tests
+`tests/projects/c_unions`, `c_err_union_*`, `site/examples/c-events`, showcase
+`signals()`.
+
 **Interims (E0901 or the narrowest reading), for the owner to rule on:**
 1. Resolved (owner, 2026-11-13, "C imports follow-ups"): no pointer goes to C
    implicitly. The hand-over is `buf as foreign *none` or `p as foreign *T`;
@@ -963,8 +979,8 @@ imports batch A-D"); the implementation spec is `docs/impl/step7.1-c-imports.md`
    `//--!$unsafe: true`, which is now read for each file (`ast::Program::unsafe_files`,
    looked up by span in `typeck::Globals::unsafe_at`). Calling C still needs an
    `unsafe` block.
-10. Not built: variadics (after 7.1, as decided), unions, bit-fields, flexible
-    array members, global variables, `long double`, 128-bit C integers, structs
+10. Not built: variadics (after 7.1, as decided), bit-fields, flexible
+    array members, unions by value, global variables, `long double`, 128-bit C integers, structs
     over 16 bytes by value, struct passing off System V x86-64, callbacks with
     struct parameters, import forms other than `in * from c."h" as alias;`,
     hover on C names in the language server.

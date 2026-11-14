@@ -981,6 +981,7 @@ pub(super) fn placeholder(g: &mut Globals, tp: &ast::TypeParam) -> Type {
         has_drop: None,
         ctors: Vec::new(),
         auto_ctor: false,
+        union_layout: None,
         default_def: None,
         declared_lives: false,
         placeholder: Some(Placeholder { constrained: !tp.bounds.is_empty(), bounds: Vec::new() }),

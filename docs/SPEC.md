@@ -983,8 +983,10 @@ phys::Vector3 v = 1, 2, 3;
     bad UTF-8. `&s as c string` passes a Drachm string to C for that one call.
   - C structs are value structs with the exact C layout (field access, by-value
     passing); unions are readable only in `unsafe`, bit-fields go through
-    generated code, flexible array members are foreign pointers (the last three
-    are not built yet).
+    generated code, flexible array members are foreign pointers (unions are
+    built, 2026-11-13: exact C size and alignment, made with
+    `new U of ()` as zero bytes, members read and written only in `unsafe`,
+    E0336; bit-fields and flexible arrays are not built yet).
   - A C enum is a foreign enum type that admits unknown values: a `match` on it
     needs `case _`.
   - Object-like macros that evaluate to a number or string are constants; a

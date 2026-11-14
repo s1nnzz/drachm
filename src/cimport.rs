@@ -80,6 +80,11 @@ pub struct CRecord {
     pub opaque: bool,
     pub fields: Vec<CField>,
     pub size: u64,
+    /// The alignment of the whole record (the layout of a union is its size and this).
+    pub align: u64,
+    /// Union members the compiler cannot map (bit-fields, anonymous or
+    /// unsupported types): left out, the union keeps its C size.
+    pub skipped: Vec<String>,
     /// Why the fields cannot be mapped (bit-fields, a flexible array, a
     /// layout that is not the natural one).
     pub unsupported: Option<String>,
@@ -334,10 +339,19 @@ unsafe fn in_synthetic(cursor: CXCursor) -> bool {
     }
 }
 
+/// The name of a declaration; newer libclang spells an anonymous struct, union
+/// or enum `enum (unnamed at file:line)`, which is no name.
+unsafe fn declared_name(cursor: CXCursor) -> String {
+    unsafe {
+        let name = text(clang_getCursorSpelling(cursor));
+        if name.contains("(unnamed") || name.contains("(anonymous") { String::new() } else { name }
+    }
+}
+
 unsafe fn declare(cursor: CXCursor, decls: &mut BTreeMap<String, Decl>) {
     unsafe {
         let kind = clang_getCursorKind(cursor);
-        let name = text(clang_getCursorSpelling(cursor));
+        let name = declared_name(cursor);
         match kind {
             CXCursor_FunctionDecl => {
                 if name.is_empty() {
@@ -500,13 +514,15 @@ unsafe fn record(cursor: CXCursor, name: &str, is_union: bool, tagged: bool) -> 
         let ty = clang_getCursorType(cursor);
         let size = clang_Type_getSizeOf(ty);
         if size == CXTypeLayoutError_Incomplete as i64 || clang_isCursorDefinition(cursor) == 0 {
-            return CRecord { name: name.to_string(), is_union, tagged, opaque: true, fields: Vec::new(), size: 0, unsupported: None };
+            return CRecord { name: name.to_string(), is_union, tagged, opaque: true, fields: Vec::new(), size: 0, align: 1, skipped: Vec::new(), unsupported: None };
         }
         struct Collect {
             fields: Vec<CField>,
             problem: Option<String>,
             /// `(offset in bits, size, alignment)` of each field.
             layout: Vec<(i64, i64, i64)>,
+            /// Per field: it cannot be mapped.
+            bad: Vec<bool>,
         }
         extern "C" fn each(c: CXCursor, _: CXCursor, data: CXClientData) -> CXChildVisitResult {
             unsafe {
@@ -515,18 +531,22 @@ unsafe fn record(cursor: CXCursor, name: &str, is_union: bool, tagged: bool) -> 
                     CXCursor_FieldDecl => {
                         let fname = text(clang_getCursorSpelling(c));
                         let fty = clang_getCursorType(c);
+                        let mut bad = clang_Cursor_isBitField(c) != 0;
                         if clang_Cursor_isBitField(c) != 0 {
                             ctx.problem.get_or_insert_with(|| format!("field `{fname}` is a bit-field"));
                         }
                         let conv = convert(fty);
                         if let CType::Unsupported(why) = &conv {
+                            bad = true;
                             ctx.problem.get_or_insert_with(|| format!("field `{fname}`: {why}"));
                         }
                         let canon = clang_getCanonicalType(fty);
                         if canon.kind == CXType_IncompleteArray {
+                            bad = true;
                             ctx.problem.get_or_insert_with(|| format!("field `{fname}` is a flexible array member"));
                         }
                         ctx.layout.push((clang_Cursor_getOffsetOfField(c), clang_Type_getSizeOf(fty), clang_Type_getAlignOf(fty)));
+                        ctx.bad.push(bad);
                         ctx.fields.push(CField { name: fname, ty: conv });
                     }
                     CXCursor_StructDecl | CXCursor_UnionDecl => {
@@ -537,16 +557,29 @@ unsafe fn record(cursor: CXCursor, name: &str, is_union: bool, tagged: bool) -> 
             }
             CXChildVisit_Continue
         }
-        let mut ctx = Collect { fields: Vec::new(), problem: None, layout: Vec::new() };
+        let mut ctx = Collect { fields: Vec::new(), problem: None, layout: Vec::new(), bad: Vec::new() };
         clang_visitChildren(cursor, each, &mut ctx as *mut Collect as *mut c_void);
         let mut problem = ctx.problem;
-        if is_union && problem.is_none() {
-            problem = Some("unions are not supported yet".into());
+        let mut skipped = Vec::new();
+        let mut fields = ctx.fields;
+        if is_union {
+            // Every member starts at offset 0, so a member that cannot be mapped
+            // is simply not reachable; the union keeps its C size and alignment.
+            let mut kept = Vec::new();
+            for (f, bad) in fields.into_iter().zip(ctx.bad) {
+                if bad || f.name.is_empty() {
+                    skipped.push(f.name);
+                } else {
+                    kept.push(f);
+                }
+            }
+            fields = kept;
+            problem = None;
         }
-        if problem.is_none() && ctx.fields.iter().any(|f| f.name.is_empty()) {
+        if problem.is_none() && !is_union && fields.iter().any(|f| f.name.is_empty()) {
             problem = Some("it has an anonymous member".into());
         }
-        if problem.is_none() {
+        if problem.is_none() && !is_union {
             // The layout must be the natural one, which is the one Drachm
             // gives a struct with the same fields.
             let mut end = 0i64;
@@ -564,7 +597,7 @@ unsafe fn record(cursor: CXCursor, name: &str, is_union: bool, tagged: bool) -> 
                 problem = Some("its size is not the natural one".into());
             }
         }
-        CRecord { name: name.to_string(), is_union, tagged, opaque: false, fields: ctx.fields, size: size.max(0) as u64, unsupported: problem }
+        CRecord { name: name.to_string(), is_union, tagged, opaque: false, fields, size: size.max(0) as u64, align: clang_Type_getAlignOf(ty).max(1) as u64, skipped, unsupported: problem }
     }
 }
 
@@ -590,7 +623,7 @@ unsafe fn convert(ty: CXType) -> CType {
                 // A typedef of an anonymous struct or enum is named by the typedef.
                 let target = clang_getTypeDeclaration(clang_getCanonicalType(under));
                 let tk = clang_getCursorKind(target);
-                let anon = text(clang_getCursorSpelling(target)).is_empty() || clang_Cursor_isAnonymous(target) != 0;
+                let anon = declared_name(target).is_empty() || clang_Cursor_isAnonymous(target) != 0;
                 if anon && (tk == CXCursor_StructDecl || tk == CXCursor_UnionDecl) {
                     return CType::Record(name);
                 }
@@ -633,7 +666,7 @@ unsafe fn convert(ty: CXType) -> CType {
             }
             CXType_Record => {
                 let decl = clang_getTypeDeclaration(ty);
-                let name = text(clang_getCursorSpelling(decl));
+                let name = declared_name(decl);
                 if name.is_empty() || clang_Cursor_isAnonymous(decl) != 0 {
                     CType::Unsupported("an anonymous struct or union without a typedef name".into())
                 } else {
@@ -642,7 +675,7 @@ unsafe fn convert(ty: CXType) -> CType {
             }
             CXType_Enum => {
                 let decl = clang_getTypeDeclaration(ty);
-                let name = text(clang_getCursorSpelling(decl));
+                let name = declared_name(decl);
                 if name.is_empty() {
                     convert(clang_getEnumDeclIntegerType(decl))
                 } else {
@@ -773,7 +806,7 @@ mod tests {
         }
         assert!(matches!(unit.decls.get("fx_counter"), Some(Decl::Record(r)) if r.opaque));
         assert!(matches!(unit.decls.get("fx_flags"), Some(Decl::Record(r)) if r.unsupported.as_deref().is_some_and(|w| w.contains("bit-field"))));
-        assert!(matches!(unit.decls.get("fx_number"), Some(Decl::Record(r)) if r.unsupported.is_some()));
+        assert!(matches!(unit.decls.get("fx_number"), Some(Decl::Record(r)) if r.is_union && r.unsupported.is_none() && r.size == 4));
         assert!(matches!(unit.decls.get("FX_GREEN"), Some(Decl::Enumerator { value: 5, .. })));
         assert!(matches!(unit.decls.get("fx_printf"), Some(Decl::Func { sig, .. }) if sig.variadic));
         assert!(matches!(unit.decls.get("fx_twice"), Some(Decl::Func { inline: true, .. })));

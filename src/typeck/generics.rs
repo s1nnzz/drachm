@@ -1327,6 +1327,7 @@ pub(super) fn declare_struct_template(g: &mut Globals, index: usize, s: &ast::St
         stays: s.stays,
         defaults: s.defaults.clone(),
         auto_ctor: s.auto_ctor,
+        union_layout: s.union_layout,
         fields: s.fields.clone(),
         methods: s
             .methods

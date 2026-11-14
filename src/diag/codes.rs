@@ -593,6 +593,17 @@ codes! {
          \x20   unsafe { sdl::SDL_free(buf as foreign *none); }    // any pointer to `void *`\n\
          \x20   unsafe { foreign *uint8 p = text as foreign *uint8; }   // `*uint8` to `foreign *uint8`";
 
+    E0336: "a union member needs `unsafe`",
+        "A C union holds the bytes of one member at a time, and nothing in the\n\
+         program says which one. Reading or writing a member of a union, or of\n\
+         a struct inside it (`ev.key.down`), must be inside an `unsafe { }`\n\
+         block. Check the tag the library gives you (SDL's `ev.type`) first:\n\n\
+         \x20   unsafe {\n\
+         \x20       if (ev.type == sdl::SDL_EVENT_KEY_DOWN) { uint32 key = ev.key.key; }\n\
+         \x20   }\n\n\
+         A union value starts as zero bytes (`new sdl::SDL_Event of ()`), and C fills\n\
+         it through its address (`(address of ev) as foreign *sdl::SDL_Event`).";
+
     E0316: "an operation on a raw pointer needs `unsafe`",
         "Making, reading, writing, copying, comparing, converting, moving, passing\n\
          or returning a raw pointer, and calling an `unsafe` function, must be\n\

@@ -48,6 +48,7 @@
         "guide-generics",
         "guide-projects",
         "guide-c-imports",
+        "guide-sdl3-window",
         "guide-performance",
         "guide-testing",
         "guide-concurrency"

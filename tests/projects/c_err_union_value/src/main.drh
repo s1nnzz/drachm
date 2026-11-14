@@ -1,0 +1,8 @@
+//--!$unsafe: true
+in io;
+in * from c."drachm_fixture.h" as fx;
+
+none main() {
+    fx::fx_number n = 5;
+    io::outln("unreachable");
+}

@@ -1635,6 +1635,7 @@ impl Parser<'_> {
             stays: None,
             defaults: None,
             auto_ctor: None,
+            union_layout: None,
             fields: Vec::new(),
             methods: Vec::new(),
         };
@@ -1829,7 +1830,7 @@ impl Parser<'_> {
             }
         }
         let open = self.expect("{")?;
-        let mut s = Struct { name, name_span, tparams, span: start, with, lives, stays, defaults, auto_ctor: None, fields: Vec::new(), methods: Vec::new() };
+        let mut s = Struct { name, name_span, tparams, span: start, with, lives, stays, defaults, auto_ctor: None, union_layout: None, fields: Vec::new(), methods: Vec::new() };
         // `Some(true)` after `public:`, `Some(false)` after `private:`. Before
         // any label, fields are private and methods public.
         let mut section: Option<bool> = None;

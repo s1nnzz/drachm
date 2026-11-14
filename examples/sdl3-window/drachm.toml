@@ -1,0 +1,8 @@
+# An SDL3 window: a safe `Window` over the C library, used from a program with
+# no unsafe in it. `drachm run examples/sdl3-window` needs SDL3 installed.
+[project]
+name = "sdl3window"
+
+[native]
+libraries = ["SDL3"]
+unsafe = true   # screen.drh calls C and reads the SDL_Event union

@@ -88,6 +88,7 @@ a C declaration proves none of it.
 | `char *`, `unsigned char *` | `foreign *uint8` |
 | `signed char *` | `foreign *sint8` |
 | `struct S`, `typedef struct { } S` | a struct `alias::S` with the C layout |
+| `union U`, `typedef union { } U` | a union `alias::U` with the C size and alignment |
 | `struct S *` where `S` is incomplete | `foreign *alias::S`, an opaque handle |
 | `enum E` | an enum type `alias::E` that also holds unknown values |
 | `int (*f)(int)` | `foreign *(c::int) => c::int` |
@@ -106,6 +107,23 @@ and writable, and `fx::fx_point p = 3, 4;` builds one. A struct whose layout is
 not the natural one (packed or aligned fields), that has bit-fields, an
 anonymous member or a flexible array member cannot be used by value (E0901);
 pointers to it still work, as opaque handles.
+
+## Unions
+
+A C union is a type of its own with the exact C size and alignment, and every
+member starts at offset 0. A union value is made with no values,
+`new ev::event of ()`, and starts as all zero bytes; giving values is E0114. C
+fills it through its address (`(address of e) as foreign *ev::event`).
+Reading or writing a member, or a member of a struct inside it
+(`e.key.code`), needs `unsafe` (E0336): the program says which member is valid,
+usually by a tag the library puts in the union (SDL's `e.type`). Members that
+cannot be mapped (bit-fields, an anonymous struct or union without a name, a
+flexible array) are left out and the union keeps its size. A member named like
+a Drachm keyword (`move`) cannot be written. A union is not passed to or
+returned from C by value (E0901): pass a pointer. A union larger than 32 bytes
+moves like any large struct; a smaller one copies.
+
+<!-- example: c-events -->
 
 A `foreign` pointer copies freely, since C owns what it points at. No pointer
 converts to a C pointer by itself (E0335). The hand-over is written with `as`,
@@ -157,7 +175,7 @@ shape::shape_kind`. A `match` on one needs `case _` (E0705).
 These are named in the headers but report E0901 with the reason when used:
 
 - variadic functions (`printf`)
-- unions, and structs with bit-fields or flexible array members
+- structs with bit-fields or flexible array members, unions passed or returned by value
 - global C variables
 - structs larger than 16 bytes passed or returned by value, and passing structs
   by value on targets other than System V x86-64

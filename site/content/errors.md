@@ -824,6 +824,20 @@ hand-over to C is written out with `as`, inside `unsafe { }`:
     unsafe { sdl::SDL_free(buf as foreign *none); }    // any pointer to `void *`
     unsafe { foreign *uint8 p = text as foreign *uint8; }   // `*uint8` to `foreign *uint8`
 
+## E0336: a union member needs `unsafe`
+
+A C union holds the bytes of one member at a time, and nothing in the
+program says which one. Reading or writing a member of a union, or of
+a struct inside it (`ev.key.down`), must be inside an `unsafe { }`
+block. Check the tag the library gives you (SDL's `ev.type`) first:
+
+    unsafe {
+        if (ev.type == sdl::SDL_EVENT_KEY_DOWN) { uint32 key = ev.key.key; }
+    }
+
+A union value starts as zero bytes (`new sdl::SDL_Event of ()`), and C fills
+it through its address (`(address of ev) as foreign *sdl::SDL_Event`).
+
 ## E0316: an operation on a raw pointer needs `unsafe`
 
 Making, reading, writing, copying, comparing, converting, moving, passing

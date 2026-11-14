@@ -74,4 +74,17 @@ const char *fx_color_name(fx_color c) { return c == FX_RED ? "red" : c == FX_GRE
 int fx_apply(fx_int_fn f, int v) { return f(v); }
 int fx_apply_n(int (*f)(int), int v, int times) { for (int i = 0; i < times; i++) v = f(v); return v; }
 
+float fx_number_float(fx_number *n) { return n->f; }
+void fx_event_key(fx_event *e, unsigned code, int down) { memset(e, 0, sizeof *e); e->key.type = 1; e->key.code = code; e->key.down = down; }
+void fx_event_motion(fx_event *e, double x, double y) { memset(e, 0, sizeof *e); e->motion.type = 2; e->motion.x = x; e->motion.y = y; }
+static int queued = 3;
+int fx_event_poll(fx_event *e) {
+    if (queued == 0) { queued = 3; return 0; }
+    queued--;
+    if (queued == 2) fx_event_key(e, 65, 1);
+    else if (queued == 1) fx_event_motion(e, 1.5, 2.5);
+    else fx_event_key(e, 65, 0);
+    return 1;
+}
+
 int fx_printf(const char *fmt, ...) { va_list a; va_start(a, fmt); int r = vprintf(fmt, a); va_end(a); return r; }

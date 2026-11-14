@@ -197,7 +197,13 @@ pub(super) fn lay_out(g: &Globals) -> (Vec<hir::StructDef>, Vec<hir::EnumDef>) {
         .iter()
         .map(|s| {
             let sizes: Vec<(u32, u32)> = if g.is_cyclic(s.ty) { Vec::new() } else { s.fields.iter().map(|f| g.size_align(f.ty)).collect() };
-            let (offsets, size, align) = hir::layout(&sizes);
+            let (mut offsets, mut size, mut align) = hir::layout(&sizes);
+            if let Some((usize_, ualign)) = s.union_layout {
+                offsets = vec![0; sizes.len()];
+                size = usize_.max(sizes.iter().map(|s| s.0).max().unwrap_or(0));
+                align = ualign.max(1);
+                size = size.next_multiple_of(align);
+            }
             let fields = s
                 .fields
                 .iter()
@@ -209,6 +215,7 @@ pub(super) fn lay_out(g: &Globals) -> (Vec<hir::StructDef>, Vec<hir::EnumDef>) {
                 fields,
                 size,
                 align,
+                is_union: s.union_layout.is_some(),
                 owns: g.owns_of(s.ty),
                 copy: g.copy_of(s.ty),
                 stays: s.stays,

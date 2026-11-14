@@ -95,6 +95,8 @@ pub struct Struct {
     /// `Person(auto);`: keeps the automatic field-order constructor next to
     /// the written ones.
     pub auto_ctor: Option<Span>,
+    /// A C union: `(size, alignment)` in bytes; every field is at offset 0.
+    pub union_layout: Option<(u32, u32)>,
     pub fields: Vec<Field>,
     pub methods: Vec<Method>,
 }

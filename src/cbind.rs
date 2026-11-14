@@ -359,6 +359,9 @@ impl CCtx {
         }
         match self.units[k].decls.get(name) {
             Some(Decl::Record(r)) if r.unsupported.is_none() && !r.opaque => {
+                if r.is_union {
+                    return Err(format!("passing the union `{name}` by value is not supported yet: pass a pointer to it"));
+                }
                 if r.size == 0 || r.size > 16 || !matches!(r.size % 8, 0 | 1 | 2 | 4) {
                     return Err(format!("passing `{name}` ({} bytes) by value is not supported yet: only structs of up to 16 bytes", r.size));
                 }
@@ -503,7 +506,7 @@ impl CCtx {
     }
 }
 
-fn record_struct(_r: &CRecord, name: String, fields: Vec<ast::Field>, span: Span) -> ast::Struct {
+fn record_struct(r: &CRecord, name: String, fields: Vec<ast::Field>, span: Span) -> ast::Struct {
     ast::Struct {
         name,
         name_span: span,
@@ -514,6 +517,7 @@ fn record_struct(_r: &CRecord, name: String, fields: Vec<ast::Field>, span: Span
         stays: None,
         defaults: None,
         auto_ctor: None,
+        union_layout: if r.is_union { Some((r.size as u32, r.align as u32)) } else { None },
         fields,
         methods: Vec::new(),
     }

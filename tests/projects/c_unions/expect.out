@@ -1,0 +1,6 @@
+bits 1078530011
+as float 3.1415927
+key 65 down true
+motion 1.5 2.5
+key 65 down false
+events: 3
