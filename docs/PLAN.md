@@ -25,7 +25,7 @@ answers into `docs/SPEC.md` and the design doc, and note leftovers under that st
 | 4.6 | Input: `io::inln()`, `io::ended()`, text `::to<T>()` | done (interim: bad text stops the program with exit 101; forgiving number text (spaces, `+`, `.5`); `\r\n` lines; invalid UTF-8 becomes U+FFFD) |
 | 5 | Constructors, enums, `fails` / `maybe` | done: S5A.1 done (enums with data, `match` with bindings/`take`/`copy`/guards/nesting/alternatives/values, exhaustiveness, `Switch`; `==` for payload-free enums) and S5B done (constructors, overloads, `new ... of`, named values, `Person(auto);`, `fill`, `fill partial`, `def`, `defaults`, `now`); optionals done (S5A.2, below); failures done (S5C and S5D, below: `failure`, `fails`, `fail`, `maybe`/`fails` on calls, handlers, `because`, `ConvertError`, exit codes, failing constructors and `drop()`) |
 | 6 | Generics, interfaces, collections | done (S6Z sweep, 2026-11-13): generic functions, structs and enums (inferred and written type arguments, borrows as type arguments, units); interfaces (`with`, `and`, `extends`, `Self`, `changes self`, built-in `Zero`/`Equal`/`Ordered`/`Text`, `with trusted`, generic interfaces, `&Shape` with vtables, `Iterable<T>` with `at(i)`); arrays, lists and maps (indexing, the methods, `take xs[i] reorders`, views of owning items, scalar and composite keys with `key()`, two-variable walks, `each`); function types, lambdas with inferred captures. The interims still open are listed in the step 6 section, each with its question number |
-| 7 | Modules, config, scripts, stdlib | in progress: WP1 done (source map with global offsets, import/export grammar, `src/modules.rs` graph loader, project folders, E0230-E0235); WP2 done (names across files, `src/resolve.rs`); WP3 done (`drachm.toml`, `src/config.rs`, dependencies); WP4 done (the six `[behaviour]` settings, per-file flags); WP5 first slice done (scripts; the JIT, WP5b, is pending); WP6 started (2026-11-14: the stdlib mechanism and `math`; `os`, `fs`, `time` moved onto it; `io`, `si` stay special; `string`, `convert`, `process` next); WP9 done (`test` blocks, `assert`, `drachm test`; see the WP9 paragraph); follow-ups 2026-11-13: a call through a module chains with `::` or `->` (done); W0240's help asks whether the module's name was meant (done); `in si;` is per file (done, E0402 in a file without it); spec `docs/impl/step7-modules.md` |
+| 7 | Modules, config, scripts, stdlib | in progress: WP1 done (source map with global offsets, import/export grammar, `src/modules.rs` graph loader, project folders, E0230-E0235); WP2 done (names across files, `src/resolve.rs`); WP3 done (`drachm.toml`, `src/config.rs`, dependencies); WP4 done (the six `[behaviour]` settings, per-file flags); WP5 first slice done (scripts; the JIT, WP5b, is pending); WP6 started (2026-11-14: the stdlib mechanism and `math`; `os`, `fs`, `time` moved onto it; `io`, `si` stay special; second package 2026-11-14: math follow-ups, `string`, `convert`; `process` next); WP9 done (`test` blocks, `assert`, `drachm test`; see the WP9 paragraph); follow-ups 2026-11-13: a call through a module chains with `::` or `->` (done); W0240's help asks whether the module's name was meant (done); `in si;` is per file (done, E0402 in a file without it); spec `docs/impl/step7-modules.md` |
 | 7.1 | C header import (`in * from c."SDL2/SDL.h" as sdl;`), right after step 7 | built (2026-11-13): discovery (`src/cimport.rs`, libclang through `clang-sys`), `[native]` table, scalars, `foreign *T`, text both ways, structs, enums, macros, callbacks, linking, docs and showcase; interims and open questions in the step 7.1 section below |
 | 7.6 | Package manager (`drachm add/remove/update/install`, git tags as versions, per-project `deps/`, later the Agora; ties into C header packages) | built (git packages, `^` ranges, lock with hashes, side-by-side versions, C packages); the Agora is later; owner answers "Package manager" |
 | 7.5 | MIR optimiser: SSA, inlining, scalar replacement, constant folding, loop opts, check elimination, alias info from borrows | not started |
@@ -923,16 +923,85 @@ plain number or angle is needed). Tests: `tests/run/math_*.drh` (edge cases NaN,
 ordinary arguments, units, widths, `overflow` settings, import forms), `tests/fail/math_*.drh`,
 `site/examples/math-*.drh`, showcase part 1. Site: `reference-math.md`, `design-maths.md`.
 
-*Interims chosen (owner to confirm):* the method spelling `x::sqrt()` needs `in math;` (or
-`in math as m;`) in the file, same as the function spelling; an item import (`in sqrt from
-math;`) does not enable it. Whole-number values given to float functions are E0101 with
-`::to<float64>()` suggested, constants (`math::sqrt(2)`) are taken as floats. `floor`, `ceil`
-and `round` on whole numbers are the same error. `min`/`max` are NaN-propagating, `clamp` with
-`low > high` gives `high`, `round` is half away from zero. `pow` with a unit needs a constant whole
-exponent (E0404 otherwise). `atan2` gives a plain number of radians. `hypot` and `atan2` bring
+*Interims chosen (owner to confirm):* constants (`math::sqrt(2)`) are taken as floats.
+`min`/`max` are NaN-propagating, `round` is half away from zero. `pow` with a unit needs a constant whole
+exponent (E0404 otherwise). `hypot` and `atan2` bring
 the second argument to the first one's unit; the first argument leads in `min max clamp` too.
 A sqrt of a unit with a scale that has no exact root (`2 m^2`) is taken in the unit with scale
 one; one with an exact root keeps the scale (`4.0<km^2>` is `2.0<km>`, `ha` is `100*m`).
+
+**Step 7 WP6, second package (built 2026-11-14): math follow-ups, `string`, `convert`.**
+
+*Math follow-ups (owner decisions of the same day, built).* The method spelling needs no
+import (`math_method_applies` no longer asks for `in math;`; an extension method of the same
+name on that number type still wins). A whole number given to `sqrt`, `log`, `log2`, `log10`,
+`pow`, `floor`, `ceil`, `round` uses a whole-number version (`typeck/math.rs` `math_whole`),
+with the new warning **W0112** (suggests `::to<float64>()`):
+- `sqrt`: the largest `r` with `r*r <= x`, same type; units still halve (a unit whose scale has
+  no exact root is E0901 for whole numbers); `log` (natural), `log2`, `log10`: rounded down,
+  exact for all widths up to `uint128` (`drachm_imath` in `runtime/runtime.c`: digit-by-digit
+  square root, a table of `floor(e^k)` for the natural log). A negative `sqrt` argument or a
+  logarithm argument below one stops the program (`math::sqrt of a negative number`, exit 101),
+  like `x / 0`. They lower to `Callee::Math(f, ty)` with an integer `ty` on both backends.
+- `pow(x, n)`: the same expression as `x ** n` (`binary_vals`), exact and following `overflow`;
+  W0112 only when the exponent is not a constant of zero or more. `floor/ceil/round` of a whole
+  number are the number (no warning).
+- `exp`, `hypot`, `sin`, `cos`, `tan`, `atan2` keep E0101 for a whole number, now with the note
+  "has no whole-number version" (conservative interim, open question below).
+- `atan2` gives `float64<rad>` in a file with `in si;` and a plain float64 otherwise
+  (`ast::Program::lib_imports` also records `si`).
+- `clamp(x, a, b)` orders the bounds first (`mir/build.rs` `math`). NaN spreads in `min`/`max`/`clamp`.
+
+*`string` module* (`src/stdlib/string.drh`, `typeck/library.rs` `string_module_call`): every text
+method is also `string::name(s, ...)`, checked as the method call `s::name(...)` (`method_on`),
+one implementation; `string::join(words, sep)` is the list `join` (a string first argument is the
+text `join`), `string::repeat(s, n)`, `string::zero()` (no import needed for `zero`), `string::to<T>(s)`.
+The module spelling needs `in string;` (E0206 otherwise), the method spelling never does. A first
+argument that is not a string is E0101. No new text functions were added beyond the existing
+methods (nothing in the runtime was clearly missing): see the open questions.
+
+*`convert` module* (`src/stdlib/convert.drh`, `typeck/convert.rs`, `runtime/strings/src/json.rs`):
+- Bases: `hex`, `binary`, `octal` (any whole number, lower case, minus sign for a negative
+  number, via `ExprKind::Radix`); `fromHex`, `fromBinary`, `fromOctal` give a `uint64` and fail
+  with the existing `ConvertError` (`Empty`, `NotANumber`, `OutOfRange`); they are written in
+  Drachm (`digitsValue`) and the checker calls it with the text borrowed. `utf8(text)` gives a
+  `uint8[?]` (`StrFn::Utf8`, `drachm_str_utf8`).
+- JSON: `toJson(value)` and `fromJson<T>(text)` for structs and lists of whole numbers, floats,
+  `bool`, `string`, optionals, lists and structs. The checker builds a *shape* text from the field
+  names and the layout (`json_shape`), and the runtime reads or writes the value in memory by it
+  (`ExprKind::Json`, `Callee::Json`, `drachm_json_write`, `drachm_json_read`). `fromJson<T>`
+  instantiates the generic `jsonRead<T>` of `convert.drh`, which calls the typed `jsonBuild<T>`
+  and turns the runtime's problem into a `JsonError` failure. Reading checks the whole text
+  before building anything, so a failure leaves nothing to free. The failure is one `JsonError`
+  with a variant per cause: `Syntax(detail)`, `WrongType(path, expected)`, `MissingField(path)`,
+  `UnknownField(path)`, `OutOfRange(path)`; paths start at `$` (`$.items[2].name`).
+- Files: tests `tests/run/convert_bases.drh`, `convert_json.drh`, `math_follow.drh`,
+  `math_plain.drh`, `math_whole_panic.drh`, `string_module.drh`, `tests/fail/convert_*`,
+  `string_module_*`, `math_exp_int`; site `reference-convert.md`, the string module section of
+  `reference-strings.md`, `site/examples/convert-*`, `string-module`, `math-ints`; showcase part 7
+  (`examples/showcase/src/voyage/logbook.drh`). The old test `tests/run/convert.drh` is now
+  `number_convert.drh` (a project file named like a standard module is E0231).
+
+*Interims chosen (owner to confirm):*
+- Whole-number versions: `exp`, `hypot`, `sin`, `cos`, `tan`, `atan2` stay E0101 for whole numbers
+  (is `hypot` of two whole numbers a floor of the true value? is `exp` of a whole number?).
+  A negative `sqrt` / non-positive logarithm argument stops the program (exit 101); should it be a
+  failure instead? `pow` warns only for a possibly negative exponent.
+- `string` module: the module spelling needs `in string;` like `math` (the owner said "like
+  math"); `string::zero()` stays import-free. No new functions besides the methods and `repeat`/
+  `join`; candidates: `trimLeft`, `trimRight`, `capitalize`, `lines` joined back, `string::from`.
+- `convert`: `fromHex` and friends return `uint64` (no type argument: `fromHex<uint8>(text)`?),
+  digits only (no `0x`, no sign, no `_`), so negative numbers do not round-trip through `hex`.
+  Octal was added beside hex and binary. `utf8` has no inverse yet (`fromUtf8(bytes) fails`).
+- JSON: output is compact (no spaces; no pretty form yet); every field is written, `public` or
+  not; NaN and infinity are written as `null`; the text read must be exactly the struct's fields
+  (unknown and missing fields are failures, an optional may be missing or `null`; the earlier
+  of an unknown field and a field error is reported, unknown fields first); whole numbers must be
+  written without a fraction or exponent (`1.0` for a `uint8` is `WrongType`); duplicate keys
+  are `Syntax`. Maps, enums, fixed-size arrays, C unions, recursive structs, and a non-struct,
+  non-list top level are E0901. One `JsonError` with variants, rather than a failure type per
+  cause. The three out-of-band `mut string` locals of `jsonRead` are an implementation detail.
+- A nested recursion depth of 256 in the JSON reader reports `Syntax("nested too deeply ...")`.
 
 **Open (ask owner):** the full `[warnings]` name list (grows as warnings are added).
 Also: a `deps/`
