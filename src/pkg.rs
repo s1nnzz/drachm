@@ -240,7 +240,7 @@ pub fn update(dir: &Path, name: Option<&str>) -> Result<Vec<String>, Failure> {
             }
         }
     };
-    let resolved = resolve(dir, &Options { refresh })?;
+    let resolved = resolve(dir, &Options { refresh, ..Options::default() })?;
     prune(dir, &resolved.locks);
     let mut lines = Vec::new();
     for new in &resolved.locks {
@@ -273,12 +273,24 @@ pub fn update(dir: &Path, name: Option<&str>) -> Result<Vec<String>, Failure> {
 /// `drachm install`: throws `deps/` away and fetches every package again, at
 /// the commit `drachm.lock` records.
 pub fn install(dir: &Path) -> Result<Vec<String>, Failure> {
+    install_with(dir, false)
+}
+
+/// `drachm install --locked` when `locked` is true. Then nothing is resolved
+/// anew and `drachm.lock` is not written: the lock must list exactly what the
+/// manifests need (E0818), and every package is checked against its hash
+/// (E0816). `deps/` is only pruned once that holds, so a refused install
+/// leaves it as it was.
+pub fn install_with(dir: &Path, locked: bool) -> Result<Vec<String>, Failure> {
     manifest(dir)?;
     let deps_dir = dir.join(DEPS_DIR);
-    if deps_dir.exists() {
+    if !locked && deps_dir.exists() {
         std::fs::remove_dir_all(&deps_dir).map_err(|e| cannot(format!("cannot remove `{}`: {e}", deps_dir.display())))?;
     }
-    let resolved = resolve(dir, &Options::default())?;
+    let resolved = resolve(dir, &Options { locked, ..Options::default() })?;
+    if locked {
+        prune(dir, &resolved.locks);
+    }
     let n = resolved.locks.len();
     Ok(vec![format!("installed {n} package{}", if n == 1 { "" } else { "s" })])
 }
