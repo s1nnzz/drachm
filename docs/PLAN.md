@@ -995,9 +995,12 @@ manager in the spirit of pnpm/bun, built after step 7. `drachm add URL@^0.4`,
 live per project in `deps/`; versions are git tags (`^` ranges pick the newest
 matching tag); git repos until the Agora registry exists. Packages may wrap C
 libraries (headers, sources, link flags) for `in * from c."..." as x;`.
-**Open:** lock file format, resolution of shared transitive deps (one version
-or several), `deps/` in git or ignored, build scripts for C packages, Agora
-protocol.
+Owner, 2026-11-14 (owner-answers "Package manager details"): `drachm.lock`
+(TOML: name, source, tag, commit, hash); several versions of a shared
+dependency side by side (`deps/NAME@VERSION/`); `deps/` is git-ignored and
+rebuilt from the lock by `drachm install`; C packages declare `[native]`
+`sources`/`include`/`link`, compiled by drachm, no build scripts.
+**Open:** Agora protocol.
 
 ---
 

@@ -300,3 +300,9 @@ Q5 interfaces as types: any interface can be used as `&I` (its `static` methods 
 - `process::run("git", ["status"])` returns a `process::Ran` struct (`code`, `out`, `errText`) and does not fail for a non-zero exit; it fails only when the program cannot be started.
 - `convert` holds text formats (`convert::toJson(player)`, `convert::fromJson<Player>(text) fails`, built from the field names) and bases and bytes (owner's note: "and bases and bytes": `convert::hex(255)`, `convert::fromHex("ff") fails`, `convert::binary(5)`, `convert::utf8("hi")`).
 - `string` is a module too, and like `math` both spellings call the same function: `string::join(words, ", ")` and `words::join(", ")`; `string::repeat("-", 20)`.
+
+# Package manager details, 2026-11-14
+- Lock file: `drachm.lock`, TOML, written by drachm ("do not edit"); one `[[package]]` per package with `name`, `source`, `tag`, `commit`, `hash` (sha256 of the contents).
+- Shared dependencies with different versions: several versions side by side; each package gets the version it asked for (`deps/json-drh@1.4.0/`, `deps/json-drh@2.1.0/`).
+- `deps/` is ignored by git: `drachm new` adds it to `.gitignore`, and the lock file rebuilds it (`drachm install`).
+- A package that wraps a C library declares it in its `drachm.toml` `[native]` table (`sources`, `include`, `link`); drachm compiles the sources with the system C compiler. No build scripts run.
