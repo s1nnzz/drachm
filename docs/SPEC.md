@@ -1051,14 +1051,22 @@ Owner decisions, 2026-11-13 and 2026-11-14 (`docs/impl/owner-answers.md`
   each one. See `docs/PLAN.md` step 7 WP9.
 - `drachm fmt`: one official style with few knobs (indent width, line length,
   brace placement). It never aligns `=` or comments across lines.
-- Registry: **the Agora** (agora.drachm.dev); `drachm add json`. Deps may also be
-  git URLs or local paths.
+- Registry: **the Agora** (agora.drachm.dev); `drachm add json` (not built).
+  Deps may also be git URLs or local paths.
+- Packages (built, step 7.6): `drachm add ADDRESS[@TAG|@^RANGE]`, `remove`,
+  `update [NAME]`, `install`. Versions are git tags (`v1.2.3`, `^` ranges pick
+  the newest fit). Dependencies: `{ git = URL, tag = "v0.4" }` or
+  `{ git = URL, version = "^0.4" }`. Packages live per project in `deps/`
+  (git-ignored) as `deps/NAME@VERSION/`; versions of one package sit side by
+  side and each package resolves to the version it asked for. `drachm.lock`
+  (`[[package]]`: name, source, tag, commit, sha256 hash) is committed. A
+  package's `[native]` (`sources`, `include`, `link`) wraps C; no build scripts.
 - CLI: `new build run check test add fmt explain`, `-O` for optimised builds.
 - Built (step 7 WP3): `drachm.toml` `[project]` (name, kind `program`|`library`,
   entry), `[dependencies]` by `path` or `git` with an exact `tag` (fetched into
-  `deps/NAME/` of the project, pinned by `drachm.lock`; owner, 2026-11-13), the
+  `deps/NAME@VERSION/` of the project, pinned by `drachm.lock`; owner, 2026-11-13), the
   `[build]`, `[warnings]` and `[behaviour]` keys are read and checked (`bounds`, `unsigned_negate` and `missing_key` are applied by WP4), `drachm new NAME`. Registry versions are E0901. Errors
-  E0800-E0814.
+  E0800-E0817.
 - A dependency lists the modules it publishes in `[project] public_modules`,
   an array of dotted paths relative to its source root. Consumers use the
   alias in their own `[dependencies]`. Published modules still export items

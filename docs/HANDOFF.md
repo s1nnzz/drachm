@@ -59,6 +59,10 @@ For a new session with no memory of earlier conversations. Read this, then
   `expect failure`: a handler's `return` no longer drops an unassigned call
   value. Open: a NAME that matches nothing exits 0; lambdas inside a test are
   still built. See `docs/PLAN.md` step 7 WP9.
+- **Step 7.6 built (2026-11-14)**: the package manager (`drachm add/remove/update/install`,
+  `src/pkg.rs`, `src/deps.rs`, `src/version.rs`, `src/sha256.rs`; tests
+  `tests/packages.rs` and `tests/deps.rs` with local `file://` git repos; guide
+  `site/content/guide-packages.md`). Interims and open items: PLAN step 7.6.
 - **Step 7**: modules, config and public dependency imports are built.
   Libraries check without `main()`. The showcase uses source tabs.
   All six `[behaviour]` settings work (`overflow` per function, with

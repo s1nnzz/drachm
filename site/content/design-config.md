@@ -44,13 +44,15 @@ sdl = { git = "https://github.com/someone/sdl-drh", tag = "v0.4" }
 utils = { path = "../utils" }
 ```
 
-A git dependency is cloned at its exact tag with `git`, which must be on the
-`PATH`, into `deps/NAME` in the project's folder. Versions are tags, pinned
-exactly: there are no ranges yet. The commit it came from is written to
-`drachm.lock` beside `drachm.toml`, and the next build uses that commit even if
-the tag moves later. If the tag moved and the commit is not in `deps/`, the
-build stops (E0809); delete `drachm.lock` to take the new commit. Commit the
-lock file; whether `deps/` is committed is up to you.
+A git dependency is cloned with `git`, which must be on the `PATH`, into
+`deps/NAME@VERSION` in the project's folder. Versions are tags: `tag = "v0.4"`
+names one, `version = "^0.4"` takes the newest tag inside a range. The tag, the
+commit and a SHA-256 hash of the files are written to `drachm.lock` beside
+`drachm.toml`, and the next build uses that commit even if the tag moves later.
+If the tag moved and the commit is not in `deps/`, the build stops (E0809); a
+package whose files differ from the hash is refused (E0816). Commit the lock
+file; `deps/` is git-ignored. `drachm add`, `remove`, `update` and `install`
+manage all this: see [Packages](guide-packages.md).
 
 ### Dependency imports
 
@@ -65,7 +67,7 @@ items with `out`. The dependency can import its private modules internally.
 ## Native libraries
 
 The `[native]` table names what C imports need: `include` (header folders),
-`defines`, `libraries`, `library_dirs` and `sources` (C files compiled with the
+`defines`, `libraries` (or `link`), `library_dirs` and `sources` (C files compiled with the
 project). A project that imports a dependency links what the dependency's table
 asks for. `unsafe = true` in the same table lets every file of the project use
 `unsafe` (C calls and raw pointers) without the file flag; a dependency's own

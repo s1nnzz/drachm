@@ -47,6 +47,7 @@
         "guide-errors-handling",
         "guide-generics",
         "guide-projects",
+        "guide-packages",
         "guide-c-imports",
         "guide-sdl3-window",
         "guide-performance",

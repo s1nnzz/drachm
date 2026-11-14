@@ -27,7 +27,7 @@ answers into `docs/SPEC.md` and the design doc, and note leftovers under that st
 | 6 | Generics, interfaces, collections | done (S6Z sweep, 2026-11-13): generic functions, structs and enums (inferred and written type arguments, borrows as type arguments, units); interfaces (`with`, `and`, `extends`, `Self`, `changes self`, built-in `Zero`/`Equal`/`Ordered`/`Text`, `with trusted`, generic interfaces, `&Shape` with vtables, `Iterable<T>` with `at(i)`); arrays, lists and maps (indexing, the methods, `take xs[i] reorders`, views of owning items, scalar and composite keys with `key()`, two-variable walks, `each`); function types, lambdas with inferred captures. The interims still open are listed in the step 6 section, each with its question number |
 | 7 | Modules, config, scripts, stdlib | in progress: WP1 done (source map with global offsets, import/export grammar, `src/modules.rs` graph loader, project folders, E0230-E0235); WP2 done (names across files, `src/resolve.rs`); WP9 done (`test` blocks, `assert`, `drachm test`; see the WP9 paragraph); follow-ups 2026-11-13: a call through a module chains with `::` or `->` (done); W0240's help asks whether the module's name was meant (done); `in si;` is per file (done, E0402 in a file without it); spec `docs/impl/step7-modules.md` |
 | 7.1 | C header import (`in * from c."SDL2/SDL.h" as sdl;`), right after step 7 | built (2026-11-13): discovery (`src/cimport.rs`, libclang through `clang-sys`), `[native]` table, scalars, `foreign *T`, text both ways, structs, enums, macros, callbacks, linking, docs and showcase; interims and open questions in the step 7.1 section below |
-| 7.6 | Package manager (`drachm add/remove/update`, git tags as versions, per-project `deps/`, later the Agora; ties into C header packages) | not started; owner answers "Package manager, 2026-11-13" |
+| 7.6 | Package manager (`drachm add/remove/update/install`, git tags as versions, per-project `deps/`, later the Agora; ties into C header packages) | built (git packages, `^` ranges, lock with hashes, side-by-side versions, C packages); the Agora is later; owner answers "Package manager" |
 | 7.5 | MIR optimiser: SSA, inlining, scalar replacement, constant folding, loop opts, check elimination, alias info from borrows | not started |
 | 8 | Language server | partly done (pulled forward): `drachm lsp` (`src/lsp/`, `lsp-server`), diagnostics on change/save for files and projects, parser recovery for unclosed blocks, hover, go to definition and completion from a typeck side table (`src/typeck/index.rs`), VS Code client; left: inlay hint for the inferred `self` mode, imports completion, rename, references, formatting |
 | D | Documentation site (cross-cutting) | live locally: lessons 1-9, reference, design pages with status badges |
@@ -1000,7 +1000,43 @@ Owner, 2026-11-14 (owner-answers "Package manager details"): `drachm.lock`
 dependency side by side (`deps/NAME@VERSION/`); `deps/` is git-ignored and
 rebuilt from the lock by `drachm install`; C packages declare `[native]`
 `sources`/`include`/`link`, compiled by drachm, no build scripts.
-**Open:** Agora protocol.
+**Open:** Agora protocol (the only part of the original list still open).
+
+**Progress (built, 2026-11-14).** Owner decisions of "Package manager details,
+2026-11-14" are implemented as written; engineering notes:
+- `src/pkg.rs` (the four commands, `toml_edit` keeps the owner's formatting and
+  comments), `src/deps.rs` (resolution, `deps/NAME@VERSION`, lock v2, hashing),
+  `src/version.rs` (tags as versions, `^` ranges), `src/sha256.rs` (no crate).
+  Git is the `git` program (no libgit2: no C library to build, the user's git
+  config and credentials apply).
+- Manifest: `{ git = URL, tag = "v0.4" }` or `{ git = URL, version = "^0.4" }`.
+  `drachm.lock`: `# written by drachm, do not edit`, one `[[package]]` per
+  package of the build (transitive) with `name`, `source`, `tag`, `commit`,
+  `hash`. The hash is SHA-256 over the files (except `.git`): relative path,
+  NUL, `f`/`l`, decimal length, NUL, bytes, sorted by path; documented in the
+  packages guide and in `deps::hash_dir`.
+- A range keeps the locked tag until `drachm update`; a range reuses a version
+  of the same repository already in the build when it fits (so two copies only
+  appear when ranges cannot agree). Imports of a package resolve to the version
+  that package asked for (the `declared_in` roots of WP2 did this already).
+- `[native]` of a package: `sources`, `include`, `link` (a spelling of
+  `libraries`); a project's own `in * from c."..."` imports also search the
+  `include` folders of its direct dependencies.
+- E0815 (no such tag or range match), E0816 (differs from lock), E0817 (command
+  could not do it).
+- Interims for the owner (not decided): bare `drachm add URL` pins the newest
+  version tag as `tag = "vX.Y.Z"` (not a `^` range); `@0.4` without `^` is the
+  exact tag `0.4`; the dependency name is the repository name with `-` and `.`
+  as `_` (`--name` overrides; `remove`/`update` accept `-` or `_`); `update`
+  with no name re-asks everything, `update NAME` re-asks every locked version
+  of that repository; `install` deletes `deps/` and fetches from the lock but
+  fills in missing lock entries like a build does (no `--locked` mode); a bare
+  name such as `drachm add json` is E0901 until the Agora; command output is
+  one plain line per change; `drachm new` writes a `.gitignore` containing
+  `deps/`; the showcase does not use a git package (the test needs a network or
+  a repository; it keeps its path dependency).
+- Not done: Agora, tag signatures or checksums beyond the lock hash, `~`/`>=`
+  ranges, prerelease tags in ranges, a mode that refuses to touch the network.
 
 ---
 

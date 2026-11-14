@@ -7,7 +7,7 @@ description: Splitting code into modules with in and out, describing the project
 
 The compiler builds a single file or a project folder with a `drachm.toml`:
 modules between your own files work, the `[project]` name, kind and entry are
-read, path and git dependencies are fetched, and `build`, `run` and `check` take
+read, path and git dependencies are fetched (see [Packages](guide-packages.md)), and `build`, `run` and `check` take
 the folder. The `[behaviour]` settings and the other flags are designed,
 and their sections are marked. The code blocks there show the intended shape,
 not something you can run.

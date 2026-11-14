@@ -1014,8 +1014,9 @@ codes! {
          \x20   name = \"mygame\"";
     E0804: "bad dependency",
         "A `[dependencies]` entry is not usable: its name is not a plain name,\n\
-         it is not a table, it mixes `path` and `git`, or it has a key that is\n\
-         not `path`, `git` or `tag`.\n\n\
+         it is not a table, it mixes `path` and `git`, it has a key that is\n\
+         not `path`, `git`, `tag` or `version`, or two different packages of the\n\
+         build would share one folder in `deps/`.\n\n\
          \x20   sdl = { git = \"https://example.org/sdl.git\", tag = \"v0.4\" }\n\
          \x20   utils = { path = \"../utils\" }";
     E0805: "invalid project name",
@@ -1033,13 +1034,13 @@ codes! {
     E0808: "cannot fetch a git dependency",
         "A `git` dependency could not be fetched: `git` is not installed, the\n\
          address is wrong, or the tag does not exist. Dependencies are cloned\n\
-         into `deps/NAME` in the project folder. The message shows what git said.";
+         into `deps/NAME@VERSION` in the project folder. The message shows what git said.";
     E0809: "git tag moved",
         "A git dependency is built from the commit `drachm.lock` records, even when\n\
          its tag moves later. When that commit is not in `deps/`, it has to be\n\
          fetched from the tag, and the tag now names another commit: the compiler\n\
          refuses rather than build something the lock file did not record. To take\n\
-         the new commit, delete `drachm.lock` and build again.";
+         the new commit, run `drachm update NAME`.";
     E0810: "dependency cycle",
         "A dependency is part of a cycle: it depends on a project that depends on\n\
          it, directly or through other\n\
@@ -1060,6 +1061,24 @@ codes! {
          folder is used by default, and it has no `drachm.toml`. A project is a\n\
          folder with a `drachm.toml` and the program in `src/main.drh`; `drachm new`\n\
          makes one.";
+    E0815: "no such version",
+        "The tag or range of a git dependency matches nothing in the repository:\n\
+         the tag does not exist, a `^` range matches no tag that reads as a\n\
+         version (`v1.2.3`, `1.2`), or the repository has no version tags at all.\n\
+         `git ls-remote --tags URL` lists the tags. `drachm add URL` with no\n\
+         version takes the newest version tag.";
+    E0816: "package differs from drachm.lock",
+        "A package in `deps/` does not hold what `drachm.lock` recorded: the sha256\n\
+         hash over its files differs (a file was edited, added or deleted), or a\n\
+         fresh fetch of the locked commit gave other contents. The hash covers every\n\
+         file except `.git`: each file's path, size and bytes, in path order.\n\
+         `drachm install` throws `deps/` away and fetches it again from the lock.\n\
+         If you edited the lock file by hand, restore it: it is written by drachm.";
+    E0817: "cannot change the dependencies",
+        "`drachm add`, `remove`, `update` or `install` could not do what was asked:\n\
+         the folder has no `drachm.toml`, the dependency named is not in\n\
+         `[dependencies]`, the address is not one `git` can use, or the file could\n\
+         not be written. Nothing is changed when this happens.";
     E0700: "libclang cannot be loaded",
         "`in * from c.\"header.h\" as name;` reads the header with libclang, the C\n\
          parser of the LLVM project, which is loaded when a C import is checked.\n\

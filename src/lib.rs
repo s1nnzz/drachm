@@ -21,10 +21,13 @@ pub mod mir;
 pub mod modules;
 pub mod ownership;
 pub mod parser;
+pub mod pkg;
 pub mod resolve;
+pub mod sha256;
 pub mod typeck;
 pub mod types;
 pub mod units;
+pub mod version;
 
 use diag::Diagnostic;
 

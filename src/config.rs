@@ -126,6 +126,18 @@ pub enum Source {
     Path(String),
     /// A git repository, cloned at `tag`.
     Git { url: String, tag: String },
+    /// A git repository at the newest tag inside a `^` range (`version`).
+    GitRange { url: String, range: String },
+}
+
+impl Source {
+    /// The git address, for either git form.
+    pub fn url(&self) -> Option<&str> {
+        match self {
+            Source::Git { url, .. } | Source::GitRange { url, .. } => Some(url),
+            Source::Path(_) => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -401,7 +413,7 @@ impl Reader {
     }
 
     fn native(&mut self, t: &Table) -> Native {
-        self.check_keys(t, &["include", "defines", "libraries", "library_dirs", "sources", "unsafe"], "[native]");
+        self.check_keys(t, &["include", "defines", "libraries", "library_dirs", "sources", "link", "unsafe"], "[native]");
         let mut n = Native::default();
         if let Some(item) = t.get("unsafe") {
             match item.as_bool() {
@@ -410,10 +422,13 @@ impl Reader {
                     .help("`unsafe = true` lets every file of the project use `unsafe`")),
             }
         }
+        let mut link = Vec::new();
         for (key, out) in [
             ("include", &mut n.include),
             ("defines", &mut n.defines),
             ("libraries", &mut n.libraries),
+            // `link` is the package spelling of `libraries` (step 7.6).
+            ("link", &mut link),
             ("library_dirs", &mut n.library_dirs),
             ("sources", &mut n.sources),
         ] {
@@ -433,6 +448,7 @@ impl Reader {
                 ),
             }
         }
+        n.libraries.extend(link);
         n
     }
 
@@ -561,16 +577,18 @@ impl Reader {
         let mut path = None;
         let mut git = None;
         let mut tag = None;
+        let mut version = None;
         for (k, v) in table.iter() {
             let at = self.span(table.key(k).and_then(|key| key.span()));
             let slot = match k {
                 "path" => &mut path,
                 "git" => &mut git,
                 "tag" => &mut tag,
+                "version" => &mut version,
                 _ => {
                     self.diags.push(
                         Diagnostic::at(&codes::E0804, at, format!("unknown key `{k}` in the dependency `{name}`"))
-                            .help("a dependency has `path`, or `git` with `tag`"),
+                            .help("a dependency has `path`, or `git` with `tag` or `version`"),
                     );
                     continue;
                 }
@@ -581,15 +599,42 @@ impl Reader {
             }
         }
         let whole = self.item_span(item);
+        if let (Some((_, at)), Some(_)) = (&version, &tag) {
+            self.diags.push(
+                Diagnostic::at(&codes::E0804, *at, format!("the dependency `{name}` has both `tag` and `version`"))
+                    .help("`tag` names one exact version; `version = \"^0.4\"` takes the newest tag in a range"),
+            );
+            return None;
+        }
+        if let (Some((range, at)), Some(_)) = (&version, &git) {
+            if crate::version::Range::parse(range).is_none() {
+                self.diags.push(
+                    Diagnostic::at(&codes::E0802, *at, format!("`{range}` is not a version range"))
+                        .note("a range starts with `^`: `^0.4` is 0.4.0 up to 0.5.0, `^1.2` is 1.2.0 up to 2.0.0")
+                        .help("write `version = \"^0.4\"`, or use `tag = \"v0.4\"` for one exact tag"),
+                );
+                return None;
+            }
+        }
         match (path, git, tag) {
-            (Some((p, _)), None, None) => Some(Source::Path(p)),
+            (Some((p, _)), None, None) if version.is_none() => Some(Source::Path(p)),
             (None, Some((url, _)), Some((tag, _))) => Some(Source::Git { url, tag }),
+            (None, Some((url, _)), None) if version.is_some() => Some(Source::GitRange { url, range: version.unwrap().0 }),
             (None, Some((_, at)), None) => {
                 self.diags.push(
                     Diagnostic::at(&codes::E0803, at, format!("the git dependency `{name}` needs a `tag`"))
-                        .note("a tag pins the version that is fetched")
-                        .help("add `tag = \"v0.4\"` beside the `git` address"),
+                        .note("a tag (or a `^` range as `version`) says which version is fetched")
+                        .help("add `tag = \"v0.4\"` or `version = \"^0.4\"` beside the `git` address"),
                 );
+                None
+            }
+            (None, None, None) if version.is_some() => {
+                let at = version.unwrap().1;
+                self.diags.push(Diagnostic::at(&codes::E0804, at, "`version` goes with `git`").help("a path dependency has no version"));
+                None
+            }
+            (Some((_, at)), None, None) => {
+                self.diags.push(Diagnostic::at(&codes::E0804, at, "`version` goes with `git`").help("a path dependency has no version"));
                 None
             }
             (None, None, Some((_, at))) => {
@@ -796,7 +841,7 @@ pub fn open(path: &Path) -> Result<Opened, Failure> {
                 script: false,
                 requires_main: config.project.kind != Kind::Library,
                 dependency_names: config.dependencies.iter().map(|dep| dep.name.clone()).collect(),
-                native: config.native.settings(&dir),
+                native: with_package_headers(config.native.settings(&dir), &config, &dir, &deps),
                 unsafe_allowed: config.native.unsafe_allowed,
             };
             Ok(Opened { entry, info, config, deps })
@@ -825,6 +870,22 @@ pub fn open(path: &Path) -> Result<Opened, Failure> {
             Ok(Opened { entry: path.to_path_buf(), info: ProjectInfo::script(path), config, deps: Vec::new() })
         }
     }
+}
+
+/// The header folders of the packages the project itself depends on (their
+/// `[native] include`) are searched by its own `in * from c."..."` imports too,
+/// so a package can ship the header of the library it wraps.
+fn with_package_headers(mut settings: crate::cimport::Settings, config: &Config, dir: &Path, deps: &[deps::Root]) -> crate::cimport::Settings {
+    let canon = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
+    for root in deps.iter().filter(|r| r.declared_in == canon && config.dependencies.iter().any(|d| d.name == r.name)) {
+        for inc in &root.config.native.include {
+            let path = root.dir.join(inc);
+            if !settings.include_dirs.contains(&path) {
+                settings.include_dirs.push(path);
+            }
+        }
+    }
+    settings
 }
 
 /// The folders of the dependencies of the project in `dir` (see `deps.rs`).
@@ -898,7 +959,7 @@ pub fn valid_name(s: &str) -> bool {
 
 /// The `drachm.toml` that `drachm new` writes. The commented lines show the
 /// defaults and the forms that are available.
-const NEW_PROJECT_TOML: &str = "[project]\nname = \"NAME\"\nversion = \"0.1.0\"\n# kind = \"program\"          # or \"library\": code other projects use\n# entry = \"src/main.drh\"    # where the program starts\n\n[dependencies]\n# sdl = { git = \"https://example.org/sdl.git\", tag = \"v0.4\" }\n# utils = { path = \"../utils\" }\n";
+const NEW_PROJECT_TOML: &str = "[project]\nname = \"NAME\"\nversion = \"0.1.0\"\n# kind = \"program\"          # or \"library\": code other projects use\n# entry = \"src/main.drh\"    # where the program starts\n\n[dependencies]\n# sdl = { git = \"https://example.org/sdl.git\", tag = \"v0.4\" }          # or `drachm add example.org/sdl.git@^0.4`\n# utils = { path = \"../utils\" }\n";
 
 /// The `src/main.drh` that `drachm new` writes.
 const NEW_PROJECT_MAIN: &str = "// The program starts here.\nin io;\n\nnone main() {\n    io::outln(\"Hello, world!\");\n}\n";
@@ -923,6 +984,8 @@ pub fn new_project(parent: &Path, name: &str) -> Result<PathBuf, Failure> {
     std::fs::create_dir_all(dir.join("tests")).map_err(cannot)?;
     std::fs::write(dir.join(PROJECT_FILE), NEW_PROJECT_TOML.replace("NAME", name)).map_err(cannot)?;
     std::fs::write(dir.join(DEFAULT_ENTRY), NEW_PROJECT_MAIN).map_err(cannot)?;
+    // `deps/` holds fetched packages; `drachm install` makes it again from drachm.lock.
+    std::fs::write(dir.join(".gitignore"), "deps/\n").map_err(cannot)?;
     Ok(dir)
 }
 
