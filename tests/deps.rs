@@ -65,6 +65,18 @@ fn library_repo(s: &Scratch, name: &str, tag: &str, body: &str) -> String {
     format!("file://{}", dir.display())
 }
 
+/// `library_repo` at a path below the scratch folder.
+fn repo_at(s: &Scratch, rel: &str, tag: &str, body: &str) -> String {
+    let dir = s.path(rel);
+    s.put(&format!("{rel}/drachm.toml"), "[project]\nname = \"lib\"\nkind = \"library\"\n");
+    s.put(&format!("{rel}/src/main.drh"), body);
+    git(&dir, &["init", "-q"]);
+    git(&dir, &["add", "."]);
+    git(&dir, &["commit", "-q", "-m", "first"]);
+    git(&dir, &["tag", tag]);
+    format!("file://{}", dir.display())
+}
+
 /// Commits a change to the library and moves its tag to it.
 fn move_tag(s: &Scratch, name: &str, tag: &str, body: &str) {
     let dir = s.path(name);
@@ -115,11 +127,13 @@ fn git_dependency_is_cloned_into_deps_at_its_tag_and_locked() {
     assert_eq!(root.config.project.name.as_deref(), Some("sdl"));
     let commit = head(&s, "sdl");
     assert_eq!(root.commit.as_deref(), Some(commit.as_str()));
-    assert_eq!(root.dir, app.join("deps").join("sdl"));
-    assert_eq!(root.src, app.join("deps").join("sdl").join("src"));
+    assert_eq!(root.dir, app.join("deps").join("sdl@0.4"));
+    assert_eq!(root.src, app.join("deps").join("sdl@0.4").join("src"));
     assert!(root.src.join("main.drh").is_file());
     let lock = fs::read_to_string(app.join("drachm.lock")).unwrap();
     assert!(lock.contains(&format!("commit = \"{commit}\"")), "{lock}");
+    assert!(lock.starts_with("# written by drachm, do not edit\n"), "{lock}");
+    assert!(lock.contains("name = \"sdl\"") && lock.contains("hash = \"sha256:"), "{lock}");
     assert!(lock.contains("tag = \"v0.4\""), "{lock}");
 }
 
@@ -164,13 +178,13 @@ fn a_moved_tag_keeps_the_locked_commit_and_is_refused_only_when_fetched() {
 }
 
 #[test]
-fn an_unknown_tag_is_e0808() {
+fn an_unknown_tag_is_e0815() {
     let s = Scratch::new("badtag");
     let url = library_repo(&s, "sdl", "v0.4", "none helper() { }\n");
     let app = project_with_git(&s, &url, "v9.9");
     let d = resolve(&app).unwrap_err();
-    assert_eq!(codes(&d), ["E0808"]);
-    assert_eq!(d[0].message, format!("cannot fetch the dependency `sdl` from `{url}` at tag `v9.9`"));
+    assert_eq!(codes(&d), ["E0815"]);
+    assert_eq!(d[0].message, format!("`{url}` has no tag `v9.9` (the dependency `sdl`)"));
     assert!(!app.join("drachm.lock").exists());
 }
 
@@ -191,20 +205,18 @@ fn path_and_git_dependencies_are_transitive_and_found_once() {
     assert_eq!(roots[0].dir, s.path("app/../utils"));
     // The lock file lists the git dependency once, even though two lines name it.
     let lock = fs::read_to_string(app.join("drachm.lock")).unwrap();
-    assert_eq!(lock.matches("[[git]]").count(), 1, "{lock}");
+    assert_eq!(lock.matches("[[package]]").count(), 1, "{lock}");
 }
 
 #[test]
-fn two_sources_under_one_name_are_e0804() {
+fn two_packages_for_one_folder_are_e0804() {
     let s = Scratch::new("clash");
-    let url = library_repo(&s, "sdl", "v0.4", "none helper() { }\n");
-    let other = library_repo(&s, "other", "v0.4", "none helper() { }\n");
-    s.put("utils/drachm.toml", &format!("[project]\nname = \"utils\"\nkind = \"library\"\n[dependencies]\nsdl = {{ git = \"{other}\", tag = \"v0.4\" }}\n"));
-    s.put("utils/src/main.drh", "\n");
-    s.put("app/drachm.toml", &format!("[project]\nname = \"app\"\n[dependencies]\nutils = {{ path = \"../utils\" }}\nsdl = {{ git = \"{url}\", tag = \"v0.4\" }}\n"));
+    let one = repo_at(&s, "one/lib", "v0.4", "none helper() { }\n");
+    let two = repo_at(&s, "two/lib", "v0.4", "none helper() { }\n");
+    s.put("app/drachm.toml", &format!("[project]\nname = \"app\"\n[dependencies]\na = {{ git = \"{one}\", tag = \"v0.4\" }}\nb = {{ git = \"{two}\", tag = \"v0.4\" }}\n"));
     let d = resolve(&s.path("app")).unwrap_err();
     assert_eq!(codes(&d), ["E0804"]);
-    assert_eq!(d[0].message, "two dependencies are named `sdl`");
+    assert_eq!(d[0].message, "two different packages would be stored in `deps/lib@0.4`");
 }
 
 #[test]

@@ -153,7 +153,7 @@ fn a_git_dependency_is_fetched_by_check() {
     fs::write(s.dir.join("app/drachm.toml"), toml).unwrap();
     let out = drachm(&s.dir, &["check", "app"]);
     assert!(out.status.success(), "{}", text(&out.stderr));
-    assert!(s.dir.join("app/deps/sdl/drachm.toml").is_file());
+    assert!(s.dir.join("app/deps/sdl@0.4/drachm.toml").is_file());
     assert!(s.dir.join("app/drachm.lock").is_file());
 }
 

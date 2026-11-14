@@ -15,6 +15,10 @@ usage:
   drachm test  [file.drh | folder] [NAME] [-O]          run the `test` blocks, each on its own (NAME: only those whose name contains it)
   drachm check [file.drh | folder] [--dump-mir | --dump-borrowck]  check for errors only (the dumps print the MIR or the borrow checker state)
   drachm new <name>                            make a project folder with drachm.toml and src/main.drh
+  drachm add ADDRESS[@TAG | @^RANGE] [--name NAME]   add a git dependency to drachm.toml and drachm.lock
+  drachm remove NAME                           remove a dependency
+  drachm update [NAME]                         take newer tags (inside the ranges) for one or all dependencies
+  drachm install                               fetch deps/ again from drachm.lock
   drachm lsp                                   run the language server on stdin and stdout (for editors)
   drachm explain <code>                        describe an error code, e.g. E0101
 
@@ -23,10 +27,19 @@ current folder.
 
   -O   optimised build: slower to compile, much faster to run";
 
+/// The package manager commands, run in the current folder.
+enum Package {
+    Add { spec: String, name: Option<String> },
+    Remove(String),
+    Update(Option<String>),
+    Install,
+}
+
 /// One parsed command line.
 enum Command {
     Explain(String),
     New(String),
+    Package(Package),
     Check { input: PathBuf, dump_mir: bool, dump_borrowck: bool },
     Build { input: PathBuf, out: Option<PathBuf>, opt: bool },
     Run { input: PathBuf, opt: bool },
@@ -40,6 +53,19 @@ fn main() {
             let parent = Path::new(".");
             match drachm::config::new_project(parent, &name) {
                 Ok(dir) => println!("made {} with drachm.toml, src/main.drh and tests/; run it with `drachm run {}`", dir.display(), name),
+                Err(f) => die(f.render(color()).trim_end()),
+            }
+        }
+        Command::Package(p) => {
+            let dir = Path::new(".");
+            let done = match p {
+                Package::Add { spec, name } => drachm::pkg::add(dir, &spec, name.as_deref()),
+                Package::Remove(name) => drachm::pkg::remove(dir, &name),
+                Package::Update(name) => drachm::pkg::update(dir, name.as_deref()),
+                Package::Install => drachm::pkg::install(dir),
+            };
+            match done {
+                Ok(lines) => lines.iter().for_each(|l| println!("{l}")),
                 Err(f) => die(f.render(color()).trim_end()),
             }
         }
@@ -112,6 +138,21 @@ fn parse(args: &[String]) -> Command {
     if cmd == "new" {
         let [_, name] = args else { die("new needs one name, e.g. `drachm new mygame`") };
         return Command::New(name.clone());
+    }
+    match (cmd.as_str(), &args[1..]) {
+        ("add", [spec]) => return Command::Package(Package::Add { spec: spec.clone(), name: None }),
+        ("add", [spec, flag, name]) | ("add", [flag, name, spec]) if flag == "--name" => {
+            return Command::Package(Package::Add { spec: spec.clone(), name: Some(name.clone()) })
+        }
+        ("add", _) => die("add needs an address, e.g. `drachm add github.com/someone/sdl-drh@^0.4` (and optionally `--name NAME`)"),
+        ("remove", [name]) => return Command::Package(Package::Remove(name.clone())),
+        ("remove", _) => die("remove needs the name of a dependency, e.g. `drachm remove sdl_drh`"),
+        ("update", []) => return Command::Package(Package::Update(None)),
+        ("update", [name]) => return Command::Package(Package::Update(Some(name.clone()))),
+        ("update", _) => die("update takes at most one dependency name"),
+        ("install", []) => return Command::Package(Package::Install),
+        ("install", _) => die("install takes no arguments"),
+        _ => {}
     }
     if cmd == "lsp" {
         exit(drachm::lsp::run());
