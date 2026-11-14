@@ -581,10 +581,11 @@ DRACHM_FN drachm_pair drachm_ovf_pow(int mode, uint32_t bits, int sgn, uint64_t 
 }
 
 // A shift whose amount may be outside 0..bits (or negative). Saturate: a
-// negative amount shifts the other way by its size, and the exact result is
-// clamped to the type (`8 >> -1` is 16, `200 >> -1` in uint8 is 255). An
-// amount of the width or more makes the bits all fall off, leaving 0 (or -1
-// for a negative value shifted right). Panic stops on a negative amount.
+// negative amount shifts the other way by its size (`8 >> -1` is 16), and
+// the bits pushed past the width fall off like any shift (`200 >> -1` in
+// uint8 is 144). An amount of the width or more makes the bits all fall off,
+// leaving 0 (or -1 for a negative value shifted right). Panic stops on a
+// negative amount.
 DRACHM_FN drachm_pair drachm_ovf_shift(int left, int mode, uint32_t bits, int sgn, uint64_t vlo, uint64_t vhi,
                                        uint64_t nlo, uint64_t nhi, int amount_signed) {
     drachm_u128 v = drachm_join(vlo, vhi), n = drachm_join(nlo, nhi);
@@ -597,14 +598,10 @@ DRACHM_FN drachm_pair drachm_ovf_shift(int left, int mode, uint32_t bits, int sg
             if (m >= bits) return drachm_split(below ? ~(drachm_u128)0 : 0);
             return drachm_split(sgn ? (drachm_u128)((drachm_s128)v >> m) : v >> m);
         }
-        // `x >> -m` is `x << m`: exact when it fits in 128 bits, and clamped
-        // to the type when it does not fit.
-        if (v == 0) return drachm_split(0);
-        if (m >= bits) return drachm_ovf_done(mode, bits, sgn, below ? -1 : 1, 0, "shift amount out of range");
-        drachm_u128 r = v << m;
-        int back = sgn ? (drachm_u128)((drachm_s128)r >> m) == v : (r >> m) == v;
-        int verdict = back ? drachm_ovf_range(bits, sgn, r) : below ? -1 : 1;
-        return drachm_ovf_done(mode, bits, sgn, verdict, r, "shift amount out of range");
+        // `x >> -m` is `x << m`, and like any left shift the bits pushed
+        // past the width fall off.
+        if (m >= bits) return drachm_split(0);
+        return drachm_split(v << m);
     }
     int outside = negative || n >= bits;
     if (outside) {

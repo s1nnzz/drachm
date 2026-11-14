@@ -7,7 +7,7 @@ crew 200, deck -12, stars 1000000000000, hull 2.5, mask 255
 atoms in the cargo hold: 1267650600228229401496703205376
 overflow wraps: 250 + 10 = 4
 gauges saturate: 250 + 10 = 255, -100 - 100 = -128, 700 narrows to 255, 1 << 40 = 0
-gauges backwards: 200 >> -1 = 255, 8 >> -1 = 16, dial reads 255 and 0
+gauges backwards: 200 >> -1 = 144, 8 >> -1 = 16, dial reads 255 and 0
 beats 0 to 20 by 5 sum to 50
 countdown: 10 8 6 4 2 0 
 gauge steps add up to 2.5

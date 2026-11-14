@@ -14,7 +14,7 @@ none main() {
     uint32 one = 1;
     uint32 shift = 40;
     io::outln(f"${one << shift}");
-    // A negative amount shifts the other way, and the exact result clamps.
+    // A negative amount shifts the other way; bits past the width fall off.
     uint8 level = 200;
     sint32 back = -1;
     io::outln(f"${8 >> -1} ${level >> back} ${8 << -1}");

@@ -1,7 +1,7 @@
 //--!$overflow: saturate
 in io;
 
-// A negative amount shifts the other way; the exact result clamps to the type.
+// A negative amount shifts the other way; bits past the width fall off.
 none main() {
     // Untyped constants: no width, so the exact value; a typed use clamps.
     io::outln(f"const ${8 << -1} ${8 >> -1} ${8 >> -5} ${-8 >> -1} ${-9 << -1}");

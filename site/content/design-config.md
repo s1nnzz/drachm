@@ -139,9 +139,9 @@ mixed-unit arithmetic ([Units](reference-units.md#scaled-units)).
 | `panic` | stops the program (exit 101) | stops the program | stops the program |
 
 Under `saturate`, a negative shift amount shifts the other way: `8 << -1` is 4
-and `8 >> -1` is 16. The exact result then clamps to the type like any other
-overflow, so `200 >> -1` in `uint8` is 255. Only the negative amount reverses;
-a shift by a positive amount that loses bits still lets them fall off.
+and `8 >> -1` is 16. Shifts never clamp, though: bits pushed past the width
+fall off in either direction, so `200 >> -1` and `200 << 1` in `uint8` are
+both 144.
 
 A float turned into a whole number drops its fraction first. NaN becomes 0
 under `wrap` and `saturate`, and the infinities become 0 under `wrap` but clamp

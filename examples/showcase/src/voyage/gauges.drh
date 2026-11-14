@@ -14,8 +14,8 @@ out uint8 narrow(sint32 reading) { return reading::to<uint8>(); }
 // Bits pushed past the width fall off the end instead of the amount wrapping.
 out uint32 lamp(uint32 pattern, uint8 steps) { return pattern << steps; }
 
-// A negative step runs the dial the other way: `>> -steps` is `<< steps`, and the
-// exact result stops at the end of the scale.
+// A negative step runs the dial the other way: `>> -steps` is `<< steps`, and
+// like any shift the bits pushed off the top are gone.
 out uint8 surge(uint8 level, sint8 steps) { return level >> steps; }
 
 // A sensor reading squeezed onto the dial: infinity sticks at the top, NaN reads 0.

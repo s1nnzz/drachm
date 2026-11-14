@@ -240,13 +240,14 @@ if (a) {                       // outermost
   `/` (smallest signed value by -1), `**`, `++`, `--`, `+=` and the other
   compound forms, shifts, constants and conversions (automatic and `::to<T>()`).
   Under saturate a negative shift amount shifts the other way (`8 << -1` is 4,
-  `8 >> -1` is 16), and the exact result clamps (`200 >> -1` in uint8 is 255);
-  a positive amount still lets the bits fall off.
+  `8 >> -1` is 16). Shifts never clamp: the bits pushed past the width fall
+  off either way (`200 >> -1` and `200 << 1` in uint8 are both 144; owner,
+  2026-11-14).
   **saturate** clamps to the nearest end of the type (unsigned `-x` of a
   non-zero value and `0 - 1` give 0); **panic** stops with exit 101 and the
   message `arithmetic overflow`, `shift amount out of range` or `conversion
-  overflow`. Shifts under saturate: an amount outside `0..width` (or negative)
-  makes every bit fall off: 0, or -1 for a negative value shifted right. A
+  overflow`. Shifts under saturate: an amount of the width or more
+  (either direction) makes every bit fall off: 0, or -1 for a negative value shifted right. A
   float to a whole number drops the fraction, then clamps; NaN is 0 under wrap
   and saturate, the infinities are 0 under wrap and clamp to the ends under
   saturate (`+inf` gives the maximum, `-inf` the minimum). A constant that does not fit is

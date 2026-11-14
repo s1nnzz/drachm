@@ -827,7 +827,8 @@ to `tests/scripts/unhandled_crash` (it compiles and stops now; `NAME.err` lists
 the stderr lines a script must print). `drachm::front` (a source string) takes
 the lone-file settings too.
 Under `overflow = saturate` a negative shift amount shifts the other way
-(`runtime/runtime.c` `drachm_ovf_shift`: the exact result clamps; a constant
+(`runtime/runtime.c` `drachm_ovf_shift`: the bits fall off, no clamping, owner
+2026-11-14; a constant
 `8 << -1` folds in `typeck.rs` `binary_vals`, where an untyped constant
 negative amount was E0101 before, under wrap still is); float to integer:
 +inf clamps to the max, -inf to the min, NaN is 0 (`drachm_ovf_f2i`). Tests:
